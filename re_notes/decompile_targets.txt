@@ -1,0 +1,1 @@
+0x1236CE8   # EB.Net.TcpClientFactory.Create(bool secure, bool buffered)
