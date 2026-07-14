@@ -1,0 +1,7 @@
+/Transformers *
+
+# Generated local-server artifacts; certificates and request logs can contain
+# private keys and session data and must remain local.
+/Server/__pycache__/
+/Server/certs/
+/Server/logs/
