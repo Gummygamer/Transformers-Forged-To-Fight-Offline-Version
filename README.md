@@ -91,6 +91,7 @@ is how every screen in this build was brought up.
 
 ```
 README.md                     this file
+COMPLIANCE.md                 how the reconstructed content stays copyright- and security-compliant
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
   patch_il2cpp.py             the six native patches plus the dependency re-injection
@@ -99,6 +100,7 @@ patches/
   find_str_ref.py             helper: find references to a string
 server/
   fakeserver.py               the fake Sparx server
+  gamedata.py                 authored roster + combat balance; regenerates the roster responses
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
   setup_device.sh             device side network and trust setup reference
   iterate.sh                  quick restart and capture loop
