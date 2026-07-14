@@ -8,6 +8,12 @@ real fake server.
 """
 import http.server, socketserver, ssl, os, sys, json, threading, datetime
 
+try:
+    import gamedata  # authored roster + combat curve (single source of truth)
+except Exception as _e:  # keep the server usable even if the data module is absent
+    gamedata = None
+    print(f"[!] gamedata module unavailable ({_e}); using built-in fallbacks", flush=True)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PEM = os.path.join(HERE, "certs", "server.pem")
 RESP_DIR = os.path.join(HERE, "responses")
@@ -88,23 +94,28 @@ class H(http.server.BaseHTTPRequestHandler):
             except Exception:
                 req = {}
             heroes = req.get("heroes") or []
-            out = []
-            for h in heroes:
-                rank = int(h.get("rank", 1) or 1)
-                level = int(h.get("level", 1) or 1)
-                # crude monotonic stat curve so higher rank/level => higher stats
-                hp = 3000 + rank * 4000 + level * 600
-                atk = 300 + rank * 400 + level * 60
-                out.append({
-                    "bid": h.get("bid", ""), "rank": rank, "level": level,
-                    "sig_lvl": int(h.get("sig_lvl", 0) or 0),
-                    "rating_hp": hp, "max_hp": hp,
-                    "rating_attack": atk, "attack": atk,
-                    "health": hp, "armor": 0, "crit_rate": 0, "crit_dmg": 0,
-                    "block_prof": 0, "perfect_block": 0, "sig_ability": 0,
-                    "special_attacks": 0, "user_owned": True,
-                    "synergyBonuses": [], "pvpb": {},
-                })
+            if gamedata is not None:
+                # Draw stats from the authored roster curve so hero details match the
+                # roster/getUserData numbers instead of a disconnected ad-hoc curve.
+                out = gamedata.build_base_hero_details(heroes)
+            else:
+                out = []
+                for h in heroes:
+                    rank = int(h.get("rank", 1) or 1)
+                    level = int(h.get("level", 1) or 1)
+                    # fallback crude monotonic curve (gamedata module missing)
+                    hp = 3000 + rank * 4000 + level * 600
+                    atk = 300 + rank * 400 + level * 60
+                    out.append({
+                        "bid": h.get("bid", ""), "rank": rank, "level": level,
+                        "sig_lvl": int(h.get("sig_lvl", 0) or 0),
+                        "rating_hp": hp, "max_hp": hp,
+                        "rating_attack": atk, "attack": atk,
+                        "health": hp, "armor": 0, "crit_rate": 0, "crit_dmg": 0,
+                        "block_prof": 0, "perfect_block": 0, "sig_ability": 0,
+                        "special_attacks": 0, "user_owned": True,
+                        "synergyBonuses": [], "pvpb": {},
+                    })
             return json.dumps({"error": None, "result": out}).encode()
         return None
 
