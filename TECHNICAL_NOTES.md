@@ -143,6 +143,24 @@ pattern where `if (X != 0)` guards a path and there is a throw at the end is the
 check. X being null is what throws. String keys appear as placeholder symbols whose index
 resolves in the dumper's string literal output.
 
+## Authored content data (gamedata.py)
+
+`Server/gamedata.py` is the single hand-authored source for the reconstructed content:
+the roster (every character bundle listed in `re_notes/ASSET_INVENTORY.txt`, with an
+original class/faction/star assignment and an original stat curve) and the `attackValues`
+combat balance table. All numbers are original; none are recovered Kabam data (see
+`COMPLIANCE.md`). Running `python Server/gamedata.py` regenerates
+`responses/GET__bcg_getLoginData.json` and `responses/GET__bcg_getUserData.json` from it,
+so the roster grid, hero details, and team select populate offline. The blueprint,
+character, and owned-hero JSON keys are exactly the shapes proven to parse (the same ones
+the original three-entry seed used); `entity_type`/`et` stays `bot` per the roster gotcha
+above, and the msa values of the three original seed entries are preserved so the intro
+fight is not regressed. `fakeserver.py`'s `/bcg/getBaseHeroData` handler computes stats
+from the same curve. This is groundwork for combat: the `attackValues.default` row is what
+drives damage offline, and it now carries authored constants instead of a bare stub. The
+per-bot ability definitions are still the open frontier — the balance table has numbers,
+but individual special-move effects remain to be authored.
+
 ## Known remaining frontiers
 
 1. Live 3D content rendering under an emulator. The models do render, but this area is
