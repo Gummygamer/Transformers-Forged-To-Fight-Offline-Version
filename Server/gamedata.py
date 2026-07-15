@@ -240,9 +240,57 @@ def build_attack_values():
     return table
 
 
+_CLASS_NAMES = {
+    "braw": "Brawler", "tact": "Tactician", "scou": "Scout",
+    "demo": "Demolitions", "warr": "Warrior", "tech": "Tech",
+}
+
+# Rock-paper-scissors: each class is strong against the next in this ring and weak
+# to the previous one. ORIGINAL assignment for this revival. Used to fill the
+# IdealContender ("who this class beats") list in heroClasses.
+_CLASS_RING = ("braw", "tact", "scou", "demo", "warr", "tech")
+
+
+def build_hero_classes():
+    """`heroClasses` map for getLoginData -> BCGManagerBase.HeroClassesData.
+    The roster tile reads a bot's class metadata (frame/icon + attack bonus) from
+    here; when this map is empty the class lookup yields nothing. Keyed by class id.
+    Exact server short-codes for the inner fields are unknown, so we emit several
+    aliases (the client's JSON parser ignores keys it doesn't recognise)."""
+    out = {}
+    for i, cid in enumerate(_CLASS_RING):
+        beats = _CLASS_RING[(i + 1) % len(_CLASS_RING)]
+        name = _CLASS_NAMES[cid]
+        out[cid] = {
+            "id": cid, "cid": cid, "class_id": cid,
+            "n": name, "name": name, "class_name": name,
+            "ab": 1.1, "atkb": 1.1, "attack_bonus": 1.1,
+            "atkp": 0.9, "attack_penalty": 0.9,
+            "ic": [beats], "ideal_contender": [beats],
+        }
+    return out
+
+
+def build_rarity_properties():
+    """`rarityProperties` map for getLoginData -> RarityPropertiesData. The roster
+    tile needs the rarity (star) entry for a bot to draw its star frame; an empty
+    map leaves star-N bots without a rarity definition. Keyed by star as a string."""
+    out = {}
+    for star in range(1, 6):
+        name = f"{star} Star"
+        out[str(star)] = {
+            "id": str(star), "n": name, "name": name,
+            "mv": star, "map_value": star,
+            "sp3qt": 0.5, "sp3_quicktime": 0.5,
+            "ms": 99, "max_sig": 99,
+        }
+    return out
+
+
 def build_login_data():
     """Full getLoginData result. Preserves every top-level key from the proven
-    response and only enriches blueprints / characters / attackValues."""
+    response and only enriches blueprints / characters / attackValues plus the
+    previously-empty heroClasses / rarityProperties tuning maps."""
     return {
         "cdn": CDN,
         "sigLvlMax": 99,
@@ -259,9 +307,9 @@ def build_login_data():
         "synergyBonuses": {},
         "attackValues": build_attack_values(),
         "blueprintBonuses": {},
-        "heroClasses": {},
+        "heroClasses": build_hero_classes(),
         "staminaRegen": {},
-        "rarityProperties": {},
+        "rarityProperties": build_rarity_properties(),
         "evoCosts": {},
         "curves": {},
     }
