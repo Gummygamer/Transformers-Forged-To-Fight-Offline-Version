@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
@@ -17,13 +18,27 @@
 #include <sys/mman.h>
 #include <pthread.h>
 #include <link.h>
+#include <dlfcn.h>
 
+// forward decls (used by seg_handler below, defined later)
+static void flog(const char* fmt, ...);
+static uintptr_t g_base;
 // SIGSEGV/SIGBUS guard so a bad read inside a hook can't crash the game.
 static __thread sigjmp_buf g_jb;
 static __thread volatile int g_prot;
 static struct sigaction g_oldsegv, g_oldbus;
 static void seg_handler(int sig, siginfo_t* si, void* uc){
     if (g_prot) siglongjmp(g_jb, 1);
+    // Real game fault (il2cpp null-check reads offset 0 -> SIGSEGV -> Unity converts to
+    // managed NullReferenceException). Log the faulting PC's RVA so we can pinpoint which
+    // instruction (hence which null field/callee) throws. Then chain to the game handler.
+    if (uc && g_base) {
+        ucontext_t* u = (ucontext_t*)uc;
+        uintptr_t pc = (uintptr_t)u->uc_mcontext.pc;
+        uintptr_t fa = (uintptr_t)(si ? si->si_addr : 0);
+        if (pc > g_base && pc - g_base < 0x4000000)
+            flog("FAULT sig=%d pc_rva=0x%lx faultaddr=0x%lx", sig, (long)(pc - g_base), (long)fa);
+    }
     struct sigaction* o = (sig==SIGBUS)?&g_oldbus:&g_oldsegv;     // chain to game's handler
     if (o->sa_flags & SA_SIGINFO) { if(o->sa_sigaction) o->sa_sigaction(sig,si,uc); }
     else if (o->sa_handler && o->sa_handler!=SIG_DFL && o->sa_handler!=SIG_IGN) o->sa_handler(sig);
@@ -40,6 +55,15 @@ static void flog(const char* fmt, ...){
 }
 
 typedef void* (*fn8)(void*,void*,void*,void*,void*,void*,void*,void*);
+typedef void* (*fn1)(void*);
+typedef void* (*strnew_t)(const char*);   // il2cpp_string_new
+static uintptr_t g_base;            // libil2cpp base (set in installer)
+static strnew_t g_strnew = NULL;    // il2cpp_string_new (dlsym'd in installer)
+#define RVA_GET_TEXPATH 0xC16F14    // TFBCGBlueprintBase.get_TexturePath(this)->string
+#define RVA_LOADTEX     0xE910DC    // HeroPortrait.LoadTexture(this,path)
+#define RVA_TOGGLEVIS   0xE8FF84    // HeroPortrait.ToggleTextureVisibility(this,bEnabled)
+#define RVA_SET_ALPHA   0xE85F70    // HeroPortrait.set_alpha(this, float value)  [value in s0]
+typedef void (*fnf)(void*, float);  // arm64: this->x0, float->s0
 
 // (rva, tag, jp) accessors. jp=0: key = arg0 (Il2CppString) [EB.Dot.* slow path].
 // jp=1: arg0 = JSONPath* struct, key = *(arg0+0x8) (_SinglePath) [EB.Fast.Dot.*].
@@ -78,9 +102,45 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0xC210D4,  "GETENT",    9, 0 }, // 28 BCGHelper.GetEntities(key,modes) -> log returned hero count
     { 0xC1B364,  "GETBP",     0, 0 }, // 29 BCGHelper.GetBlueprint(blueprintId=a0) -> log id
     { 0xC20C70,  "GBPC",      0, 0 }, // 30 BCGHelper.GetBlueprintForCharacter(characterId=a0,rarity) -> log id
+    // ---- roster grid diagnostics (2026-07-14 session 2) ----
+    { 0xC5ADE4,  "ASF",      23, 0 }, // 31 HeroesScreen.ApplySortingAndFilter -> _entities + IList ret count
+    { 0xC5B0E4,  "GSH",      23, 0 }, // 32 HeroesScreen.GetSortedHeroes -> _entities + List ret count
+    { 0xC5BC3C,  "OGII",      2, 0 }, // 33 HeroesScreen.OnGridItemInitialized (per-tile marker)
+    { 0xE7CDF4,  "DSREADY",   2, 0 }, // 34 Grid.onDynamicScrollReady (fires when scrollview ready)
+    { 0xE7D7A0,  "GIDA",      2, 0 }, // 35 Grid.GridItemDataAssignmentCallback (per-item data assign)
+    { 0x165AD44, "IPS",      21, 0 }, // 36 DynamicScrollView.CalculateItemsPerScreen -> int ret
+    { 0x165AF78, "CSVD",     22, 0 }, // 37 DynamicScrollView.CacheScrollViewDimensions -> Rect+bool
+    { 0x165A01C, "MPS",      21, 0 }, // 38 DynamicScrollView.GetMaxPoolSize -> int ret
+    { 0x1659CFC, "CREATEITEM",2, 0 }, // 39 DynamicScrollView.CreateItem (per-item instantiate marker)
+    { 0x165960C, "DSVINIT",   2, 0 }, // 40 DynamicScrollView.Initialize (marker)
+    { 0xE7C4C4,  "GRIDINIT",  2, 0 }, // 41 Grid.Initialize(prefab,...) (marker)
+    { 0xC57578,  "SETSCR",    2, 0 }, // 42 HeroesScreen.SetScreenType(type,force,onReady) marker
+    { 0xC584CC,  "OWNS",      8, 0 }, // 43 HeroesScreen.userOwnsBot(this,bp) -> bp + bool ret
+    // ---- texture-load diagnostics (2026-07-15 session 3): is the portrait a static
+    //      path-texture load (that fails offline) or a live camera render? ----
+    { 0xE910DC, "TEXPATH",  30, 0 }, // 44 HeroPortrait.LoadTexture(this,path) -> log path string (a1)
+    { 0xC21AC4, "==HEROBASE==",2, 0 }, // 45 BCGHeroBase..ctor(IDictionary) marker (brackets its fast-dot keys; drives the login `heroes` map). Author that map -> mHeroBase resolves -> tiles render.
+    { 0xE916B4, "TEXDONE",  31, 0 }, // 46 HeroPortrait.OnHeroTextureLoaded -> did it fire? path set? loaded flag
+    { 0xC58598, "SHOWGRID",  2, 0 }, // 47 HeroesScreen.ShowGridContainer (marker)
+    { 0xC59EE4, "ANIMNEW",   2, 0 }, // 48 HeroesScreen.AnimateNewEntities (grid reveal tween)
+    { 0xC59E90, "INTRODONE", 2, 0 }, // 49 HeroesScreen.OnIntroTransitionComplete (marker)
+    { 0x1991FD0,"SETPATH",  30, 0 }, // 50 UITextureRef.set_baseTexturePath(this,value) -> log value (a1)
+    { 0x1992610,"UITLOAD",   2, 0 }, // 51 UITextureRef.LoadTexture(paths) (marker)
+    { 0x14641FC,"FDS2",     34, 0 }, // 52 EB.Fast.Dot.String(name,altPath,data,def) -> log both JSONPath keys
+    // ---- BCGHeroBase ctor field readers (2026-07-15 session 4): the 3 fast-dot
+    //      variants the ctor uses that weren't otherwise hooked. jp=1 -> log key at
+    //      *(arg0+8). Prefixed "HB " when g_inhb (set by slot 45 bracket). Together
+    //      with slots 5/6/8 (fI/fS/fG) these cover ALL BCGHeroBase field key reads.
+    { 0x1451394,"hbF",       1, 0 }, // 53 fast-dot float w/ default (BCGHeroBase floats @0x24/0x28/0x2c/0x30/0x38)
+    { 0x1464770,"hbI",       1, 0 }, // 54 fast-dot int w/ default (BCGHeroBase ints @0x18/0x1c/0x20)
+    { 0x1464ccc,"hbL",       1, 0 }, // 55 fast-dot list reader (BCGHeroBase collections @0x58/0x68/0x78/0x80)
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
+// Set only while inside BCGHeroBase..ctor (slot 45 brackets it). When set, every
+// key read is prefixed "HB " so the ctor's exact field keys can be grepped out of
+// the flood of general parse keys. Drives authoring login `heroes` BCGHeroBase JSON.
+static volatile int g_inhb = 0;
 static void log_key(const char* tag, void* s) {
     if (!g_f) return;
     uintptr_t p = (uintptr_t)s;
@@ -92,6 +152,7 @@ static void log_key(const char* tag, void* s) {
     for (i = 0; i < len; i++) buf[i] = (ch[i] < 128) ? (char)ch[i] : '?';
     buf[len] = 0;
     // direct file write (fast path, no logcat per-key)
+    if (g_inhb) fputs("HB ", g_f);
     fputs(tag, g_f); fputc(' ', g_f); fputs(buf, g_f); fputc('\n', g_f);
     static int n = 0; if ((++n & 63) == 0) fflush(g_f);   // flush every 64 keys (survive crash)
 }
@@ -118,6 +179,113 @@ MKHOOK(0) MKHOOK(1) MKHOOK(2) MKHOOK(3) MKHOOK(4) MKHOOK(5) MKHOOK(6) MKHOOK(7) 
 MKHOOK(9) MKHOOK(10) MKHOOK(11) MKHOOK(12) MKHOOK(13) MKHOOK(14) MKHOOK(15) MKHOOK(16)
 MKHOOK(17) MKHOOK(18) MKHOOK(19) MKHOOK(20)
 MKHOOK(25) MKHOOK(26) MKHOOK(27) MKHOOK(29) MKHOOK(30)
+// marker slots (jp=2): log tag once per call
+MKHOOK(33) MKHOOK(34) MKHOOK(35) MKHOOK(39) MKHOOK(40) MKHOOK(41) MKHOOK(42)
+MKHOOK(47) MKHOOK(48) MKHOOK(49) MKHOOK(51)
+// slots 53/54/55: BCGHeroBase ctor field readers (jp=1 key logging, HB-prefixed via g_inhb)
+MKHOOK(53) MKHOOK(54) MKHOOK(55)
+// ---- texture-load diagnostics (slots 44,46,48,49,50) ----
+// helper: read an Il2CppString at ptr into buf (returns 1 if a plausible string)
+static int read_str(void* s, char* buf, int cap){
+    buf[0]=0; uintptr_t p=(uintptr_t)s; if(p<0x100000 || (p&7)) return 0;
+    int32_t len=*(int32_t*)(p+0x10); if(len<0||len>cap-1) return 0;
+    uint16_t* ch=(uint16_t*)(p+0x14); int i; for(i=0;i<len;i++) buf[i]=(ch[i]<128)?(char)ch[i]:'?'; buf[len]=0; return 1;
+}
+// slot 44 TEXPATH: HeroPortrait.LoadTexture(this=a0, path=a1) ; slot 50 SETPATH: set_baseTexturePath(this=a0,value=a1)
+// both: jp=30 -> log the a1 string.
+void* hook_44(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( char b[300]; if(read_str(a1,b,sizeof b)) flog("TEXPATH %s", b); else flog("TEXPATH <null/empty>"); );
+    return H[44].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_50(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( char b[300]; if(read_str(a1,b,sizeof b)) flog("SETPATH %s", b); else flog("SETPATH <null/empty>"); );
+    return H[50].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 46 TEXDONE: HeroPortrait.OnHeroTextureLoaded(this=a0) -> the load-complete gate.
+// _portraitTexture@0x260 -> UITextureRef._baseTexturePath@0x290 (string) ; _heroTextureLoaded@0x140.
+void* hook_46(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( uintptr_t hp=(uintptr_t)a0; int before=-1; char b[300]; b[0]=0;
+        if(hp>=0x100000 && !(hp&7)){ before=*(unsigned char*)(hp+0x140);
+            uintptr_t tex=*(uintptr_t*)(hp+0x260);
+            if(tex>=0x100000 && !(tex&7)){ void* pth=*(void**)(tex+0x290); if(!read_str(pth,b,sizeof b)) strcpy(b,"<empty>"); } }
+        flog("TEXDONE fired loadedWas=%d basePath=%s", before, b); );
+    void* r = H[46].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( uintptr_t hp=(uintptr_t)a0; int after=-1; if(hp>=0x100000 && !(hp&7)) after=*(unsigned char*)(hp+0x140);
+        flog("TEXDONE loadedNow=%d", after); );
+    return r;
+}
+// slot 52 FDS2: EB.Fast.Dot.String(name=a0, altPath=a1, data=a2, def=a3). Log both JSONPath keys
+// (_SinglePath at [jsonpath+8]). Only log when data resolves to a blueprint-ish read; log a sample.
+static int g_fds2=0;
+void* hook_52(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( if((g_fds2++ % 1)==0){ char k1[80]; char k2[80];
+        void* p1=(a0?*(void**)((char*)a0+8):0); void* p2=(a1?*(void**)((char*)a1+8):0);
+        if(!read_str(p1,k1,sizeof k1)) strcpy(k1,"?"); if(!read_str(p2,k2,sizeof k2)) strcpy(k2,"?");
+        flog("FDS2 name='%s' alt='%s'", k1, k2); } );
+    return H[52].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 45 HEROBASE: BCGHeroBase..ctor(this=a0, IDictionary=a1). Bracket the ctor with
+// g_inhb so slots 5/6/8/53/54/55 tag every field key read inside it as "HB <tag> <key>".
+// One ==HEROBASE== marker pair per parsed (blueprint,rank) BCGHeroBase entry.
+void* hook_45(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( flog("==HEROBASE== begin"); );
+    g_inhb = 1;
+    void* r = H[45].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    g_inhb = 0;
+    PROTECT( flog("==HEROBASE== end"); );
+    return r;
+}
+// jp=20 list-count return: sz = ((List)r)._size @ r+0x18
+#define MKRET_LIST(i) \
+  void* hook_##i(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    void* r = H[i].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+    PROTECT( int sz=-1; if((uintptr_t)r>=0x100000 && !((uintptr_t)r&7)) sz=*(int*)((char*)r+0x18); \
+      flog("%s count=%d", H[i].tag, sz); ); \
+    return r; }
+// jp=21 int return: value in low 32 bits of x0
+#define MKRET_INT(i) \
+  void* hook_##i(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    void* r = H[i].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+    PROTECT( flog("%s ret=%d", H[i].tag, (int)(intptr_t)r); ); \
+    return r; }
+MKRET_INT(36) MKRET_INT(38)
+// jp=23: HeroesScreen ASF/GSH -> read _entities (List @ this+0x158, count @ +0x18) + return list count
+#define MKENT(i) \
+  void* hook_##i(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    void* r = H[i].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+    PROTECT( int ent=-1; uintptr_t s=(uintptr_t)a0; \
+      if(s>=0x100000 && !(s&7)){ uintptr_t el=*(uintptr_t*)(s+0x158); if(el>=0x100000 && !(el&7)) ent=*(int*)(el+0x18); } \
+      int sz=-1; if((uintptr_t)r>=0x100000 && !((uintptr_t)r&7)) sz=*(int*)((char*)r+0x18); \
+      flog("%s _entities=%d ret=%d", H[i].tag, ent, sz); ); \
+    return r; }
+MKENT(31) MKENT(32)
+// jp=8: userOwnsBot(this=a0, bp=a1) -> log bp string + bool ret
+void* hook_43(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[43].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( char b[64]; b[0]=0; uintptr_t s=(uintptr_t)a1;
+        if(s>=0x100000 && !(s&7)){ int32_t l=*(int32_t*)(s+0x10); uint16_t*c=(uint16_t*)(s+0x14);
+            if(l>=0&&l<60){for(int i=0;i<l;i++)b[i]=(char)c[i];b[l]=0;} }
+        flog("OWNS bp=%s ret=%d", b, (int)(intptr_t)r); );
+    return r;
+}
+// jp=22 CacheScrollViewDimensions: log this->scrollViewArea (Rect @ +0x70) + bool ret + the
+// grid's UIPanel state (scrollViewPanel @ this+0x60): mAlpha@0x128, mClipping@0x12c,
+// mClipRange@0x130 (Vector4), widgets/drawCalls BetterList counts (@0xb8/@0xc0, size@+0x0c).
+void* hook_37(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[37].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( uintptr_t s=(uintptr_t)a0; float x=0; float y=0; float w=0; float h=0;
+        if(s>=0x100000 && !(s&7)){ x=*(float*)(s+0x70); y=*(float*)(s+0x74); w=*(float*)(s+0x78); h=*(float*)(s+0x7C); }
+        flog("CSVD ret=%d area x=%.1f y=%.1f w=%.1f h=%.1f", (int)(intptr_t)r, x, y, w, h);
+        uintptr_t p = (s>=0x100000 && !(s&7)) ? *(uintptr_t*)(s+0x60) : 0;
+        if(p>=0x100000 && !(p&7)){
+            float al=*(float*)(p+0x128); int clip=*(int*)(p+0x12c);
+            float cx=*(float*)(p+0x130); float cy=*(float*)(p+0x134); float cw=*(float*)(p+0x138); float ch=*(float*)(p+0x13c);
+            int nw=-1; uintptr_t wl=*(uintptr_t*)(p+0xb8); if(wl>=0x100000 && !(wl&7)) nw=*(int*)(wl+0x18);
+            int nd=-1; uintptr_t dl=*(uintptr_t*)(p+0xc0); if(dl>=0x100000 && !(dl&7)) nd=*(int*)(dl+0x18);
+            flog("  PANEL alpha=%.3f clipping=%d clipRange=(%.1f,%.1f,%.1f,%.1f) widgets=%d drawCalls=%d", al, clip, cx,cy,cw,ch, nw, nd);
+        } );
+    return r;
+}
 static void rdname(uintptr_t sub, char* nm){ nm[0]=0; if(sub<0x100000||(sub&7))return; uintptr_t cls=*(uintptr_t*)sub;
     if(cls<0x100000||(cls&7))return; char* p=*(char**)(cls+0x10); if((uintptr_t)p<0x100000)return;
     int j=0; for(;j<38;j++){char ch=p[j]; if(ch<=0||ch>=127)break; nm[j]=ch;} nm[j]=0; }
@@ -157,7 +325,10 @@ void* hook_28(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 }
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
-    hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30 };
+    hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
+    hook_31,hook_32,hook_33,hook_34,hook_35,hook_36,hook_37,hook_38,hook_39,hook_40,hook_41,hook_42,hook_43,
+    hook_44,hook_45,hook_46,hook_47,hook_48,hook_49,hook_50,hook_51,hook_52,
+    hook_53,hook_54,hook_55 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
@@ -241,7 +412,6 @@ static int inline_hook(void* target, void* handler, fn8* orig_out){
     return 0;
 }
 
-static uintptr_t g_base = 0;
 static int find_cb(struct dl_phdr_info* info, size_t sz, void* data){
     if (info->dlpi_name && strstr(info->dlpi_name, "libil2cpp.so")) { g_base = (uintptr_t)info->dlpi_addr; return 1; }
     return 0;
@@ -255,6 +425,9 @@ static void* installer(void* arg){
     }
     if (!g_base) { LOG("libil2cpp.so NOT found"); return NULL; }
     LOG("libil2cpp.so base=%p", (void*)g_base);
+    g_strnew = (strnew_t)dlsym(RTLD_DEFAULT, "il2cpp_string_new");
+    if (!g_strnew) { void* h = dlopen("libil2cpp.so", RTLD_NOLOAD); if (h) g_strnew = (strnew_t)dlsym(h, "il2cpp_string_new"); }
+    LOG("il2cpp_string_new=%p", (void*)g_strnew);
     for (int i = 0; i < NH; i++)
         inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
     LOG("install done (%d hooks)", NH);

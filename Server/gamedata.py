@@ -126,9 +126,17 @@ ROSTER = {
 }
 
 # Which bots the offline player owns at boot. For a preservation sandbox we grant the
-# full roster so every screen (roster grid, hero details, team select) has content.
-# The list is authored; trim it if you want a more faithful "fresh account" feel.
-OWNED = [bid for bid in ROSTER if not bid.startswith("sharkticon_")]
+# ENTIRE roster so every screen (roster grid, hero details, team select) has content.
+#
+# This MUST be the full roster, not a subset: HeroesScreen.SetScreenType (0xC57578)
+# iterates the blueprint list and, for every bot the player does NOT own, dereferences a
+# blueprint field that offline data leaves null -> NullReferenceException -> "unknown
+# error" dialog (verified live session 5: the crash fired exactly on the first unowned
+# blueprint, sharkticon_gs_scout, right after `OWNS ... ret=0`; owned bots skip that
+# branch). Owning the whole roster means no bot ever hits the unowned path. Trim only if
+# you also author whatever blueprint field that path reads (Tags@0xB8 was never emitted
+# by the parser, so it can't be filled from data -- ownership is the workable fix).
+OWNED = list(ROSTER)
 
 # ---------------------------------------------------------------------------
 # Authored stat curve.  All ORIGINAL, all invented for this revival.
@@ -193,11 +201,28 @@ def build_blueprints():
     """`blueprints` map for getLoginData. Same keys as the working response:
     id, et(entity type -- MUST be 'bot' for the roster to populate), s1/s2/s3
     (special-attack damage ratios), msa (max special attacks), ab (attack bonus),
-    plus the gg/mfl/nfr/fcpg/fhpag fields the client reads."""
+    plus the gg/mfl/nfr/fcpg/fhpag fields the client reads.
+
+    `c`/character (blueprint <Character>@0x28) links the blueprint to the characters
+    map. HeroData.get_Faction (0xE8D8A0) does BCGManager.characters[blueprint.Character]
+    and THROWS KeyNotFoundException if `c` is empty -> the BOTS tile's RatingWidget.SetData
+    crashes with "unknown error" (verified live session 4). The characters map is keyed
+    by bid, so c=bid. `r`/rarity (@0x64) and `a`/attribute_base_type (@0x70) feed the
+    rarity frame + faction; both are plain field assignments (no throwing lookup)."""
     out = {}
     for bid, (faction, klass, star) in ROSTER.items():
+        name = display_name(bid)
         out[bid] = {
             "id": bid, "et": "bot",
+            "c": bid, "r": star, "a": faction,
+            # cl/class (-> BCGBlueprintBase.HeroClass, CharacterMetaData.Class enum:
+            # braw=1 tact=2 scou=4 demo=8 warr=16 tech=32). SetScreenType filters the
+            # roster by a class bitmask reading this; a bot with no class defaults to
+            # none=0 and drops out of the filtered list.
+            "cl": klass,
+            # FriendlyName / FriendlyNameShort -- non-null so SetScreenType's tile setup
+            # doesn't deref a null name (see display_name).
+            "name": name, "name_s": name,
             "s1": 1.0, "s2": 1.0, "s3": 1.0,
             "msa": max_special_attacks(bid, star),
             "ab": 100.0, "gg": 1, "mfl": 0, "nfr": 0,
@@ -206,12 +231,55 @@ def build_blueprints():
     return out
 
 
+def art_base(bid):
+    """Short art base for a bot id, used for portrait/model asset names. The real art
+    is keyed by a short base (e.g. bid 'arcee_gs_deluxe2014' -> art 'arcee_gs'); we
+    approximate it by taking the first two underscore tokens (name_faction)."""
+    parts = bid.split("_")
+    return "_".join(parts[:2]) if len(parts) >= 2 else bid
+
+
+def display_name(bid):
+    """Human-readable roster name for a bot id. Both the blueprint AND character
+    parsers read a localized FriendlyName (keys n_loc/n/name_loc/name) and a short
+    FriendlyNameShort (ns_loc/ns/name_s_loc/name_s) -- captured live via the native
+    hook's ==BP==/==CHAR== field-reader log (session 5). When BOTH are absent the
+    parsed name stays null, and HeroesScreen.SetScreenType dereferences it building the
+    roster tile -> NullReferenceException -> "unknown error" dialog. We supply the
+    literal `name`/`name_s` keys (the non-_loc, non-localization-table variants) so the
+    reader returns a real string. Derived from the id's first token; original cosmetics."""
+    parts = bid.split("_")
+    tok = parts[0]
+    if tok == "fte" and len(parts) > 1:      # fte_optimus_gs_t3 -> "Optimus"
+        tok = parts[1]
+    return tok[:1].upper() + tok[1:]
+
+
 def build_characters():
-    """`characters` map for getLoginData. Keys id, sg, gen(faction), aip, sps --
-    identical to the proven response."""
+    """`characters` map for getLoginData -> BCGCharacterData. Keys id, sg, gen(faction),
+    aip, sps (as in the proven response) PLUS the art fields the client reads:
+    i/img (_imgID@0x50), m/mdl (ModelID@0x28), ma/map_asset (MapAssetID@0x30),
+    hc/hero_colour (HeroColour@0x38). These were empty, which left the roster's
+    featured/valid-hero setup in HeroesScreen.SetScreenType dereferencing empty art
+    (NullReferenceException -> "unknown error", verified live session 4). Assets are
+    ODR-delivered so most won't actually load offline, but non-empty names keep the
+    setup path from null-dereferencing."""
     out = {}
     for bid, (faction, klass, star) in ROSTER.items():
-        out[bid] = {"id": bid, "sg": "", "gen": faction, "aip": "", "sps": ""}
+        base = art_base(bid)
+        name = display_name(bid)
+        out[bid] = {
+            "id": bid,
+            # FriendlyName / FriendlyNameShort (keys n_loc/n/name_loc/name and
+            # ns_loc/ns/name_s_loc/name_s -- captured live). Non-null display name so
+            # the roster tile's name label isn't a null string (see display_name).
+            "name": name, "name_s": name,
+            "sg": "", "gen": faction, "aip": "", "sps": "",
+            "i": base, "img": base,
+            "m": base, "mdl": base,
+            "ma": base, "map_asset": base,
+            "hc": faction, "hero_colour": faction,
+        }
     return out
 
 
@@ -287,6 +355,57 @@ def build_rarity_properties():
     return out
 
 
+# BCGHeroBase field schema, captured live (session 4) from BCGHeroBase..ctor(IDictionary)
+# @ RVA 0xC21AC4 via the native hook (slot 45 ==HEROBASE== bracket -> "HB <reader> <key>"
+# lines in dotkeys.log). The ctor reads exactly these keys, in this order:
+#   string : id
+#   int    : r m s max_hp mhpb attack attb mana_start stun_time special_attacks
+#            rating rating_hp rating_attack rating_hp_base rating_attack_base ab
+#   float  : hp armor crit_chance crit_damage perfect_block_chance block_proficiency
+#            mana_gain resist_magic resist_physical stun_chance cr rcr rcd spb pjb cpw
+#            ap bp il il2 il3 is4 eg fg ar hr hm am hrhp hra
+#   list   : stat_mods sig_mods buff_mods i i2 i3 i4
+# 's' is the star/rarity (drives the tile's rarity frame); the rating_* fields drive the
+# RatingWidget; the rest are combat tuning that can default to 0/empty for the roster view.
+def build_hero_base(bid, rank=1):
+    """One BCGHeroBase record for login `heroes[bid][rank]`. Deterministic/original,
+    reusing the same authored stat curve as the owned-hero + blueprint builders."""
+    faction, klass, star = ROSTER.get(bid, ("decepticon", "tact", 1))
+    hp, atk = base_stats(bid, rank, 1)
+    rating = (hp + atk) // 20
+    return {
+        "id": bid, "r": rank, "m": star, "s": star,
+        "max_hp": hp, "mhpb": hp, "attack": atk, "attb": atk,
+        "mana_start": 0, "stun_time": 0,
+        "special_attacks": max_special_attacks(bid, star),
+        "rating": rating,
+        "rating_hp": hp // 2, "rating_attack": atk // 2,
+        "rating_hp_base": hp // 2, "rating_attack_base": atk // 2,
+        "ab": 0,
+        # combat-tuning floats: sensible neutral values (roster view doesn't need real balance)
+        "hp": float(hp), "armor": 0.0, "crit_chance": 0.05, "crit_damage": 1.5,
+        "perfect_block_chance": 0.1, "block_proficiency": 0.75, "mana_gain": 1.0,
+        "resist_magic": 0.0, "resist_physical": 0.0, "stun_chance": 0.05,
+        "cr": 0.0, "rcr": 0.0, "rcd": 0.0, "spb": 0.0, "pjb": 0.0, "cpw": 0.0,
+        "ap": 0.0, "bp": 0.0, "il": 0.0, "il2": 0.0, "il3": 0.0, "is4": 0.0,
+        "eg": 0.0, "fg": 0.0, "ar": 0.0, "hr": 0.0, "hm": 0.0, "am": 0.0,
+        "hrhp": 0.0, "hra": 0.0,
+        "stat_mods": [], "sig_mods": [], "buff_mods": [],
+        "i": [], "i2": [], "i3": [], "i4": [],
+    }
+
+
+def build_heroes():
+    """Login-data top-level `heroes` map = BCGManager._baseHeroData (BCGHeroBaseDict:
+    Dictionary<string blueprintId, Dictionary<int rank, BCGHeroBase>>). HeroData..ctor
+    resolves mHeroBase from this per (blueprint,rank); mHeroBase != null => mValid =>
+    the BOTS tile draws its rarity frame / rating / portrait. Owned heroes are served at
+    rank 1 (see build_hero_entry), so one rank-1 BCGHeroBase per owned bot is what the
+    roster looks up. Rank keys are strings in JSON; the client converts them to the int
+    keys of Dictionary<int,BCGHeroBase> (verified live: string "1" resolved fine)."""
+    return {bid: {"1": build_hero_base(bid, 1)} for bid in OWNED}
+
+
 def build_login_data():
     """Full getLoginData result. Preserves every top-level key from the proven
     response and only enriches blueprints / characters / attackValues plus the
@@ -300,7 +419,14 @@ def build_login_data():
         "attributeGrowthDefs": [],
         "statMods": {},
         "statModAppears": {},
-        "heroes": {},
+        # NOTE (session 3): this map is BCGManager._baseHeroData (BCGHeroBaseDict), the per-
+        # (blueprint,rank) BASE-ATTRIBUTE templates -> structure heroes[blueprintId][rank] =
+        # { <BCGHeroBase fields, parsed by BCGHeroBase..ctor RVA 0xC21AC4> }. It is EMPTY here,
+        # which is THE reason the BOTS roster renders no tiles: HeroData..ctor can't resolve
+        # mHeroBase -> mValid stays false -> the tile's rarity frame / rating / portrait path all
+        # fail (see tftf-offline-status memory, session 3). Authoring this (with the real key
+        # shape + per-rank stats) is the fix. Left {} until the exact BCGHeroBase JSON is captured.
+        "heroes": build_heroes(),
         "blueprints": build_blueprints(),
         "evoBlueprints": {},
         "characters": build_characters(),
