@@ -57,8 +57,20 @@ static void flog(const char* fmt, ...){
 typedef void* (*fn8)(void*,void*,void*,void*,void*,void*,void*,void*);
 typedef void* (*fn1)(void*);
 typedef void* (*strnew_t)(const char*);   // il2cpp_string_new
+typedef void* (*arraynew_t)(void*, size_t); // il2cpp_array_new(elementClass, len)
 static uintptr_t g_base;            // libil2cpp base (set in installer)
 static strnew_t g_strnew = NULL;    // il2cpp_string_new (dlsym'd in installer)
+static arraynew_t g_arraynew = NULL; // il2cpp_array_new (dlsym'd in installer)
+// A shared, empty string[] used to fill blueprint.Tags (List<string> @0xB8) when the
+// login parser leaves it null. The offline getLoginData JSON carries no `tags` key
+// (confirmed via the ==BP== field-reader log: the ctor reads a/c/cl/e/g/... but never
+// tags), so Tags is ALWAYS null. Combat's PlayerAttributes.Init does
+// `new HashSet<string>(blueprint.Tags)` and throws ArgumentNullException on the null
+// collection -> the "unknown error" dialog right as the FTE intro fight loads. An empty
+// string[] is a valid IEnumerable<string>; PlayerAttributes.Init only enumerates Tags
+// (into the BlueprintTags HashSet it then uses), so a shared empty array is safe and
+// makes the fight load. Created lazily on the il2cpp thread inside the blueprint ctor.
+static void* g_empty_tags = NULL;   // cached empty string[] (Il2CppArray*)
 #define RVA_GET_TEXPATH 0xC16F14    // TFBCGBlueprintBase.get_TexturePath(this)->string
 #define RVA_LOADTEX     0xE910DC    // HeroPortrait.LoadTexture(this,path)
 #define RVA_TOGGLEVIS   0xE8FF84    // HeroPortrait.ToggleTextureVisibility(this,bEnabled)
@@ -134,6 +146,10 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x1451394,"hbF",       1, 0 }, // 53 fast-dot float w/ default (BCGHeroBase floats @0x24/0x28/0x2c/0x30/0x38)
     { 0x1464770,"hbI",       1, 0 }, // 54 fast-dot int w/ default (BCGHeroBase ints @0x18/0x1c/0x20)
     { 0x1464ccc,"hbL",       1, 0 }, // 55 fast-dot list reader (BCGHeroBase collections @0x58/0x68/0x78/0x80)
+    { 0xDAB16C, "FIXFIGHT",  2, 0 }, // 56 PlayerAttributes.Init -> fill both fighters' blueprint.Tags (combat fix)
+    { 0x12A9D94,"FIXHS",     2, 0 }, // 57 HashSet<T>..ctor(collection=a1,comparer=a2) -> null collection => empty array
+    // ---- combat-input fix (2026-07-16 session 7): make the FTE light attack land ----
+    { 0xD35130, "SETACTFIX", 98, 0 }, // 58 PlayerInput.QueuedAction.SetAction — restore the buffered-input window
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -176,7 +192,7 @@ static void flush_keys(void){ if(g_f) fflush(g_f); }
     ); \
     return H[i].orig(a0,a1,a2,a3,a4,a5,a6,a7); }
 MKHOOK(0) MKHOOK(1) MKHOOK(2) MKHOOK(3) MKHOOK(4) MKHOOK(5) MKHOOK(6) MKHOOK(7) MKHOOK(8)
-MKHOOK(9) MKHOOK(10) MKHOOK(11) MKHOOK(12) MKHOOK(13) MKHOOK(14) MKHOOK(15) MKHOOK(16)
+MKHOOK(9) MKHOOK(10) MKHOOK(11) MKHOOK(12) MKHOOK(14) MKHOOK(15) MKHOOK(16)
 MKHOOK(17) MKHOOK(18) MKHOOK(19) MKHOOK(20)
 MKHOOK(25) MKHOOK(26) MKHOOK(27) MKHOOK(29) MKHOOK(30)
 // marker slots (jp=2): log tag once per call
@@ -184,6 +200,36 @@ MKHOOK(33) MKHOOK(34) MKHOOK(35) MKHOOK(39) MKHOOK(40) MKHOOK(41) MKHOOK(42)
 MKHOOK(47) MKHOOK(48) MKHOOK(49) MKHOOK(51)
 // slots 53/54/55: BCGHeroBase ctor field readers (jp=1 key logging, HB-prefixed via g_inhb)
 MKHOOK(53) MKHOOK(54) MKHOOK(55)
+// Read the combat game-clock singleton (same chain OnReceive/OnRelease/HasAction/SetAction use):
+//   [g_base+0x2c1a928] -> [.] -> [.+0xb8] -> [.] -> float @0x18
+static float game_clock(void){
+    if(!g_base) return -1.f;
+    uintptr_t p = g_base + 0x2c1a928;
+    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
+    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
+    p = *(uintptr_t*)(p+0xb8); if(p<0x100000||(p&7)) return -1.f;
+    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
+    return *(float*)(p+0x18);
+}
+// slot 58 FIX: PlayerInput.QueuedAction.SetAction(this=QueuedAction, action) @0xD35130.
+// A tap fully registers offline (OnReleaseAttackInput -> SetAction(Attack) runs), but SetAction
+// stores TimeStamp = now + 0: the buffered-input window it would add resolves to 0 because the
+// config it reads never loads offline. HasAction() (@0xD351F8) returns TimeStamp > now, so with
+// TimeStamp == now it is NEVER true -> PlayerInput.Simulate (@0x1180F88) never consumes the
+// queued action -> ExecuteAction never runs -> the queued light attack never lands and the FTE
+// "LIGHT ATTACK / TAP RIGHT" counter stays 0/4 (blocking the whole intro fight tutorial).
+// Restore the window: after the original SetAction, set QueuedAction.TimeStamp (this+0x14) =
+// now + 0.5s so HasAction() stays true for ~0.5s. Simulate then executes the action once and
+// ExecuteAction's ClearAction (@0xD35264) resets Action=0/TimeStamp=-1, so it can't re-trigger.
+// Applies to every queued action (attack/block/dash/special, both fighters) — that IS the
+// intended input-buffer semantics. With this the light attack lands, the counter reaches 4/4,
+// and the FTE advances to the medium-attack step.
+void* hook_58(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[58].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( uintptr_t q=(uintptr_t)a0; float clk=game_clock();
+        if(q>=0x100000 && !(q&7) && clk>=0){ *(float*)(q+0x14) = clk + 0.5f; } );
+    return r;
+}
 // ---- texture-load diagnostics (slots 44,46,48,49,50) ----
 // helper: read an Il2CppString at ptr into buf (returns 1 if a plausible string)
 static int read_str(void* s, char* buf, int cap){
@@ -234,6 +280,67 @@ void* hook_45(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     g_inhb = 0;
     PROTECT( flog("==HEROBASE== end"); );
     return r;
+}
+// Lazily build the shared empty string[] (an Il2CppArray that is a valid IEnumerable<string>).
+// Must be called on the il2cpp/managed thread (both callers below are). String class is read
+// off a freshly-made il2cpp string (its Il2CppObject.klass).
+static void ensure_empty_tags(void){
+    if (g_empty_tags || !g_arraynew || !g_strnew) return;
+    void* s = g_strnew("");
+    if (s) { void* strclass = *(void**)s; if (strclass) g_empty_tags = g_arraynew(strclass, 0); }
+}
+// Fill BCGBlueprintBase.Tags (List<string> @0xB8) with the shared empty string[] when null.
+static void fix_blueprint_tags(void* bpv){
+    uintptr_t bp = (uintptr_t)bpv;
+    if (!g_empty_tags || bp < 0x100000 || (bp & 7)) return;
+    void** tags = (void**)(bp + 0xB8);
+    if (*tags == NULL) *tags = g_empty_tags;
+}
+// slot 13 ==BP==: BCGBlueprintBase..ctor(this=a0, IDictionary=a1). Run the original ctor,
+// then fill the never-parsed Tags field so the login-parsed blueprints carry a non-null Tags
+// (helps any path that reads Tags directly). The offline JSON has no `tags` key (confirmed via
+// the ==BP== field-reader log), so Tags would otherwise stay null forever.
+void* hook_13(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[13].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( ensure_empty_tags(); fix_blueprint_tags(a0); );
+    return r;
+}
+// slot 56 FIXFIGHT: PlayerAttributes.Init(this=a0, owner=a1, manager=a2, fighterData=a3,
+// opponentFighterData=a4). At dac178 it does `new HashSet<string>(this._blueprint.Tags)` and
+// throws ArgumentNullException when Tags is null -> "unknown error" as the fight loads. The
+// combat FighterData.Blueprint is NOT always the login-parsed instance the slot-13 hook fixed,
+// so patch the ACTUAL fighters' blueprints here: fighterData.Blueprint (fd+0x40) and
+// opponentFighterData.Blueprint. This is the fix that lets the FTE intro fight start.
+void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT(
+        ensure_empty_tags();
+        uintptr_t fd = (uintptr_t)a3;
+        uintptr_t ofd = (uintptr_t)a4;
+        void* bp1 = (fd>=0x100000 && !(fd&7)) ? *(void**)(fd + 0x40) : 0;
+        void* bp2 = (ofd>=0x100000 && !(ofd&7)) ? *(void**)(ofd + 0x40) : 0;
+        void* t1a = (bp1 && ((uintptr_t)bp1>=0x100000) && !((uintptr_t)bp1&7)) ? *(void**)((uintptr_t)bp1+0xB8) : (void*)-1;
+        void* t2a = (bp2 && ((uintptr_t)bp2>=0x100000) && !((uintptr_t)bp2&7)) ? *(void**)((uintptr_t)bp2+0xB8) : (void*)-1;
+        fix_blueprint_tags(bp1);
+        fix_blueprint_tags(bp2);
+        void* t1b = (bp1 && ((uintptr_t)bp1>=0x100000) && !((uintptr_t)bp1&7)) ? *(void**)((uintptr_t)bp1+0xB8) : (void*)-1;
+        void* t2b = (bp2 && ((uintptr_t)bp2>=0x100000) && !((uintptr_t)bp2&7)) ? *(void**)((uintptr_t)bp2+0xB8) : (void*)-1;
+        flog("FIXFIGHT empty=%p bp1=%p tags:%p->%p  bp2=%p tags:%p->%p", g_empty_tags, bp1, t1a, t1b, bp2, t2a, t2b);
+    );
+    return H[56].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 57 FIXHS: HashSet<T>..ctor(this=a0, collection=a1, comparer=a2). The (IEnumerable,
+// IEqualityComparer) ctor throws ArgumentNullException when collection is null. Offline, the
+// fighters' blueprint.Tags reaches here null (the parser never authors `tags`), killing the
+// FTE intro fight. Substitute the shared empty string[] for a null collection -> the HashSet
+// is simply built empty (correct, harmless), and the fight loads. Only rewrites null; real
+// collections pass through untouched.
+static int g_fixhs_logged = 0;
+void* hook_57(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    if (a1 == NULL) {
+        PROTECT( ensure_empty_tags(); if(!g_fixhs_logged){g_fixhs_logged=1; flog("FIXHS null-collection -> empty (empty=%p)", g_empty_tags);} );
+        if (g_empty_tags) a1 = g_empty_tags;
+    }
+    return H[57].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 // jp=20 list-count return: sz = ((List)r)._size @ r+0x18
 #define MKRET_LIST(i) \
@@ -328,7 +435,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
     hook_31,hook_32,hook_33,hook_34,hook_35,hook_36,hook_37,hook_38,hook_39,hook_40,hook_41,hook_42,hook_43,
     hook_44,hook_45,hook_46,hook_47,hook_48,hook_49,hook_50,hook_51,hook_52,
-    hook_53,hook_54,hook_55 };
+    hook_53,hook_54,hook_55,hook_56,hook_57,hook_58 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
@@ -427,7 +534,9 @@ static void* installer(void* arg){
     LOG("libil2cpp.so base=%p", (void*)g_base);
     g_strnew = (strnew_t)dlsym(RTLD_DEFAULT, "il2cpp_string_new");
     if (!g_strnew) { void* h = dlopen("libil2cpp.so", RTLD_NOLOAD); if (h) g_strnew = (strnew_t)dlsym(h, "il2cpp_string_new"); }
-    LOG("il2cpp_string_new=%p", (void*)g_strnew);
+    g_arraynew = (arraynew_t)dlsym(RTLD_DEFAULT, "il2cpp_array_new");
+    if (!g_arraynew) { void* h = dlopen("libil2cpp.so", RTLD_NOLOAD); if (h) g_arraynew = (arraynew_t)dlsym(h, "il2cpp_array_new"); }
+    LOG("il2cpp_string_new=%p il2cpp_array_new=%p", (void*)g_strnew, (void*)g_arraynew);
     for (int i = 0; i < NH; i++)
         inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
     LOG("install done (%d hooks)", NH);

@@ -27,6 +27,13 @@ _lock = threading.Lock()
 # We return an error envelope for these so the flow aborts gracefully instead of freezing.
 BLOCK_TUTORIALS = {"ShieldTutorial"}
 
+# Tutorials that must actually RUN (not be auto-completed): the FTE is the scripted
+# intro fight (Optimus vs Starscream) — the client drives it locally and reports
+# progress via start-tutorial/start-branch. Answering "completed" would make the
+# client skip the fight, so for these we echo the state the client is asking for
+# ("started", with the requested branch current). complete-tutorial still completes.
+LIVE_TUTORIALS = {"FTE"}
+
 def ts():
     return datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -78,6 +85,13 @@ class H(http.server.BaseHTTPRequestHandler):
                 return json.dumps({"err": "unavailable", "error": "unavailable",
                                    "retry": False, "fatal": False, "result": {}}).encode()
             bid = req.get("bid") or req.get("branchId") or ""
+            # LIVE tutorials (the FTE intro fight): echo "started" so the client-side
+            # flow actually runs instead of being skipped as already-done. Only
+            # complete-tutorial marks them completed.
+            if tid in LIVE_TUTORIALS and not p.endswith("/tutorial/complete-tutorial"):
+                branches = {bid: {"s": "started"}} if bid else {}
+                entry = {"current_bid": bid, "s": "started", "branches": branches}
+                return json.dumps({"error": None, "result": {tid: entry}}).encode()
             # Report every tutorial step as completed so the game skips tutorial UI
             # (which needs live server-synced state) and advances to the home screen.
             branches = {bid: {"s": "completed"}} if bid else {}
