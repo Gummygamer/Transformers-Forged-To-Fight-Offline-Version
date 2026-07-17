@@ -459,14 +459,93 @@ def build_hero_entry(bid, rank=1, level=1):
     }
 
 
+# A default squad the pre-battle STORY screen loads for the "Story" category via
+# TeamSelectModel.get_Team -> GetSaveTeamIDForCategory -> BCGHelper.GetSavedTeam(teamId="0").
+# The savedTeams array is folded into a Dictionary<string, BCGUserSavedTeam> keyed by the
+# team's ID, so the ID must be present and match the id the category lookup requests ("0").
+# The wire KEY NAMES were confirmed against the running client via native string-literal
+# dump (dotkeys.log QDLIT): BCGUserSavedTeam..ctor(IDictionary) reads "sid" (-> TeamID) and
+# "heroes" (-> TeamHeroes). Each "heroes" element is a hero DICT parsed by
+# BCGHeroDetails..ctor(IDictionary) (a bare bid string throws InvalidCastException).
+DEFAULT_TEAM = ["optimusprimal_bw_mp32", "optimusprime_cin_tf", "megatron_g1_mp10"]
+
+
+def build_saved_team(team_id="0", heroes=None):
+    bids = heroes if heroes is not None else DEFAULT_TEAM
+    hero_dicts = [build_hero_entry(b) for b in bids]
+    return {
+        "sid": team_id,
+        "heroes": hero_dicts,
+    }
+
+
 def build_user_data():
     """Full getUserData result. userData maxes + owned heroes through `updates`,
     exactly as the proven response and the README/TECHNICAL_NOTES describe."""
     heroes = [build_hero_entry(bid) for bid in OWNED]
     return {
         "userData": {"blueprintsMax": 500, "teamSizeMax": 3, "teamCountMax": 5},
-        "updates": {"heroes": heroes, "savedTeams": [], "activeTeams": []},
+        "updates": {"heroes": heroes, "savedTeams": [build_saved_team()],
+                    "activeTeams": []},
         "deletes": {},
+    }
+
+
+def build_quest_summary(mission_id="1.1.1", set_id="story_act1"):
+    """The detailed mission Summary (result["data"] of quest-detail; also ActiveQuest.data
+    in quest-begin). Fields mirror the quest-list availableQuests entry plus detail-only
+    battle/map data, discovered empirically from the client's FDS2 field-name log."""
+    parts = mission_id.split(".")
+    act = int(parts[0]) if len(parts) > 0 and parts[0].isdigit() else 1
+    chapter = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
+    mission = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
+    return {
+        "id": mission_id, "setId": set_id, "hash": "h1",
+        "act": act, "chapter": chapter, "mission": mission,
+        "missionIndex": mission, "index": mission,
+        "friendlyName": "Arrival", "description": "The first battle.",
+        "category": "story", "difficulty": "normal",
+        "energyPerTile": 1, "minXpPerTile": 1, "maxXpPerTile": 2,
+        "minHealthPerTile": 100, "maxHealthPerTile": 100,
+        "image": "", "theme": "", "todIndex": 0,
+    }
+
+
+def build_quest_detail(mission_id="1.1.1", set_id="story_act1"):
+    """POST /quests/quest-detail/<mission_id> reply. QuestDB.AddQuestDetails (0x12E4110)
+    reads result["data"] as the detailed mission Summary (via Summary.Deserialize, the
+    FDS2 reader), then Legacy.QuestSet.AddQuestDetails (0x103A0E4) reads result["progression"]
+    and a second maps object (literal @0x2c2b590, key name being confirmed live). Empty
+    progression/maps for now -- the structure is being discovered empirically."""
+    return {
+        "data": build_quest_summary(mission_id, set_id),
+        "progression": {},
+    }
+
+
+def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
+    """One entry of quest-begin's result["activeQuests"]. ActiveQuest (TypeDefIndex 12572)
+    holds uniqueId/qid/category/mode + data (Summary) + map (Map) + progression. The exact
+    WIRE key names are still unknown (ActiveQuest deserialize was never reached until now,
+    so no FDS2 log existed); emitting C#-field-name guesses so the parser DESCENDS and the
+    native FDS2 hook logs the real names to author against. map is empty pending that."""
+    return {
+        "uniqueId": qid, "qid": qid, "id": qid,
+        "category": "story", "mode": "story",
+        "setId": set_id, "hash": "h1", "phase": 0,
+        "data": build_quest_summary(qid, set_id),
+        "map": {},
+        "progression": {},
+    }
+
+
+def build_quest_begin(qid="1.1.1", set_id="story_act1", team=None):
+    """POST /quests/quest-begin/<qid> reply. After START the client posts the team + setId
+    and expects result["activeQuests"] (confirmed live: the parser looks up "activeQuests"
+    and errors when absent -> "unknown error"). Returns the newly-active quest so combat can
+    load its map. Currently a probe: activeQuests carries one quest with an empty map."""
+    return {
+        "activeQuests": [build_active_quest(qid, set_id, team)],
     }
 
 
