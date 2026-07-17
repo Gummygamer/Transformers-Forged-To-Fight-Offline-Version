@@ -131,6 +131,58 @@ class H(http.server.BaseHTTPRequestHandler):
                         "synergyBonuses": [], "pvpb": {},
                     })
             return json.dumps({"error": None, "result": out}).encode()
+
+        # quests/quest-detail/<missionId>: the pre-battle TeamSelect screen posts this
+        # (body {"hash","setId"}) to fetch the detailed mission Summary + battle map. The
+        # response builds the model's _activeQuest / QuestSummary (get_QuestSummary), without
+        # which START stays disabled. QuestDB.AddQuestDetails reads result["data"] as the
+        # summary. See gamedata.build_quest_detail.
+        if "/quests/quest-detail/" in p:
+            mission_id = p.rsplit("/", 1)[-1]
+            try:
+                req = json.loads(btxt) if btxt else {}
+            except Exception:
+                req = {}
+            set_id = req.get("setId", "story_act1")
+            if gamedata is not None:
+                result = gamedata.build_quest_detail(mission_id, set_id)
+            else:
+                result = {"data": {"id": mission_id, "setId": set_id}, "progression": {}}
+            return json.dumps({"error": None, "result": result}).encode()
+
+        # quests/quest-begin/<qid>: START posts the team + setId; the client expects
+        # result["activeQuests"] (the now-active quest, with its battle map). Without it the
+        # begin flow throws "unknown error". See gamedata.build_quest_begin.
+        if "/quests/quest-begin/" in p:
+            qid = p.rsplit("/", 1)[-1]
+            try:
+                req = json.loads(btxt) if btxt else {}
+            except Exception:
+                req = {}
+            set_id = req.get("setId", "story_act1")
+            team = [req[k] for k in ("tm0", "tm1", "tm2") if req.get(k)]
+            if gamedata is not None:
+                result = gamedata.build_quest_begin(qid, set_id, team)
+            else:
+                result = {"activeQuests": []}
+            return json.dumps({"error": None, "result": result}).encode()
+
+        # bcg/setSavedTeam: echo a BCGUserData-shaped update so the saved team is reflected
+        # into BCGManager.savedTeams (the pre-battle screen reads it back via GetSavedTeam).
+        if p.endswith("/bcg/setSavedTeam"):
+            try:
+                req = json.loads(btxt) if btxt else {}
+            except Exception:
+                req = {}
+            team_id = str(req.get("teamID", "0"))
+            heroes = req.get("heroes") or []
+            if gamedata is not None:
+                team = gamedata.build_saved_team(team_id, heroes)
+            else:
+                team = {"TeamID": team_id, "teamID": team_id, "id": team_id,
+                        "TeamHeroes": list(heroes), "heroes": list(heroes)}
+            result = {"updates": {"savedTeams": [team]}, "deletes": {}}
+            return json.dumps({"error": None, "result": result}).encode()
         return None
 
     def _handle(self):
