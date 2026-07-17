@@ -150,6 +150,86 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x12A9D94,"FIXHS",     2, 0 }, // 57 HashSet<T>..ctor(collection=a1,comparer=a2) -> null collection => empty array
     // ---- combat-input fix (2026-07-16 session 7): make the FTE light attack land ----
     { 0xD35130, "SETACTFIX", 98, 0 }, // 58 PlayerInput.QueuedAction.SetAction — restore the buffered-input window
+    // ---- quest/mission parse discovery (2026-07-16 session 8): make the first story
+    //      mission playable. Bracket the quest-list/details/active parsers so every
+    //      fast-dot key read inside them is prefixed "QS " (same trick as ==HEROBASE==).
+    { 0x12E3214, "==QLIST==",  99, 0 }, // 59 QuestDB.AddQuestSummarys(ArrayList,pveProg,aveProg) — the quest-list result parser
+    { 0x10381F0, "==QSET==",   99, 0 }, // 60 Legacy.QuestSet.AddQuestSummarys(IDictionary) — per-set parser
+    { 0x12E4110, "==QDET==",   99, 0 }, // 61 QuestDB.AddQuestDetails(IDictionary) — quest-details result parser
+    { 0x12E43C0, "==QACT==",   99, 0 }, // 62 QuestDB.AddActiveQuests(IDictionary) — begin-quest/active result parser
+    { 0x12E4EC8, "==QBUILD==", 99, 0 }, // 63 QuestDB.BuildActiveQuest(qid,quest,inst,idx,bgs) — per active quest
+    { 0x103A0E4, "==QSDET==",  99, 0 }, // 64 Legacy.QuestSet.AddQuestDetails(builder,summary,data) — map/battle parse
+    { 0x122C93C, "==QSUM==",   99, 0 }, // 65 Summary.Deserialize(builder,data) — per-mission summary field keys
+    { 0x12EF810, "==QMAP==",   99, 0 }, // 66 QuestMap.Deserialize(builder,data) — map tiles/paths/battles field keys
+    // ---- story-visibility instrumentation (session 8): the mission summary parses (==QSUM==
+    //      fires) but STORY still says "no missions". These log the category the STORY landing
+    //      queries + whether my PvE set is counted/returned, to find the availability gate. ----
+    { 0x12E30E8, "QVISCNT",  97, 0 }, // 67 QuestDB.GetQuestSetVisibleCount(category) -> log cat arg + ret + AvailableSets count
+    { 0x12E3024, "QSETCNT",  97, 0 }, // 68 QuestDB.GetQuestSetCount(category) -> log cat arg + ret
+    { 0x12E2E30, "QSETFROM", 97, 0 }, // 69 QuestDB.GetQuestSetFromCategory(category,index) -> log cat + returned set's category
+    // ---- story-unlock fix (session 9): make the first story mission playable. ----
+    // The STORY set now parses & is visible (category:"Story"), but the mission tile is
+    // LOCKED ("Unlock by completing Act 0"). Chain (all disassembled): ActPanel locks when
+    // Act.unlocked==false; Act.UpdateProgression sets act.unlocked = OR(chapter.unlocked);
+    // Chapter.UpdateProgression sets chapter.unlocked = OR(quest.get_unlocked()); and
+    // QuestSummary.get_unlocked() (@0x103A46C) ultimately returns the private _unlocked@0xC0.
+    // _unlocked is NEVER set by the quest-list JSON (Summary.Deserialize reads no such key,
+    // confirmed via ==QSUM==) — it is only set from per-account quest-PROGRESSION data that a
+    // real server sends and the offline server does not. So every quest defaults locked.
+    // Rather than reverse-engineer the entire nested, category-keyed progression response and
+    // its binary string-literal keys, force the single gate: get_unlocked -> true. Only real
+    // quest summaries reach this (the phantom act[0]/chapter[0] hold zero quests), so this
+    // unlocks exactly the authored missions. Same targeted-hook approach as the combat fixes.
+    { 0x103A46C, "FORCEUNLK", 2, 0 }, // 70 QuestSummary.get_unlocked -> return true (offline unlock)
+    // The ActPanel reads Act.unlocked (byte @0x30) DIRECTLY (ActPanel.RefreshMainView @0xC2B584),
+    // so forcing QuestSummary.get_unlocked alone is not enough — Act.unlocked must be true. It is
+    // written only by Act.UpdateProgression (@0xC2ADC8, unlocked = OR(chapter.unlocked)), called
+    // from QuestSet.AddQuestSummarys at login and QuestSet.UpdateProgression. Offline it computes
+    // false (no progression data; chapters' quests aren't unlocked at build time). Force it: run
+    // the original, then set this.unlocked(@0x30)=1 so the STORY act panel is playable. completed
+    // (@0x31) is left as computed (false for the real act -> panel treats it as the "current" act).
+    { 0xC2ADC8, "FORCEACT",  2, 0 }, // 71 Act.UpdateProgression -> force this.unlocked=1
+    // Forcing Act.unlocked alone left the STORY ACT panel empty + locked (red padlock), so the
+    // panel's own lock is the residual gate. QuestSelectPanelBase.get_isLocked (@0xCB2954) =
+    // isLevelLocked@0x48 || isJoinRequirementLocked@0x49 || actData==null || act.unlocked@0x30==0
+    // || isActivationLocked@0x4a. The offline account has level/CL 0 and no activation/join data,
+    // so isLevelLocked / isActivationLocked can still be set. Override the whole gate: return false
+    // (not locked) for every QuestSelectPanel (base of both ActPanel and the mission-tile panel),
+    // so the STORY act and its mission node render unlocked/tappable. Same targeted-override pattern
+    // as FORCEUNLK — only story-select panels reach this getter.
+    { 0xCB2954, "FORCELOCK", 2, 0 }, // 72 QuestSelectPanelBase.get_isLocked -> return false
+    // DIAGNOSTIC (session 9): ActPanel.RefreshMainView (@0xC2B4E0). The panel now renders unlocked
+    // but empty (no mission node). RefreshMainView gates node rendering on: actData.Chapters[]
+    // (@0x28) length>=2 AND Chapters[1].Quests[] (Summary[] @0x28) length>=2 (phantom [0] + real).
+    // Log the real linked counts so we can see whether the authored chapters/availableQuests link a
+    // Summary into Chapters[1].Quests[1], or the data never reaches the act structure.
+    { 0xC2B4E0, "RMV",       2, 0 }, // 73 ActPanel.RefreshMainView -> log act/chapter/quest link counts
+    // With the ACT unlocked, tapping it expands to a ChapterPanel that is STILL locked ("Unlock by
+    // completing Chapter 0"). ChapterPanel is a plain MonoBehaviour (not a QuestSelectPanelBase, so
+    // FORCELOCK doesn't reach it); its OnPanelClicked (@0xD15394) reads Chapter.unlocked (byte @0x30)
+    // DIRECTLY at 0xd15470 — if 0 it shows the warning instead of entering the mission. Chapter.unlocked
+    // is written only by Chapter.UpdateProgression (@0xD13E78, unlocked = OR(quest.get_unlocked())),
+    // which — exactly like Act.UpdateProgression — runs at login BEFORE the quest summaries are linked
+    // into Chapters[].Quests[], so it computes unlocked=0 (OR of nothing) / completed=1 (AND of nothing)
+    // and nothing recomputes it at story-open. Force it, mirroring FORCEACT: run orig, then set
+    // this.unlocked(@0x30)=1 and this.completed(@0x31)=0 so the chapter renders unlocked and its tap
+    // enters the mission node instead of the "complete Chapter 0" warning.
+    { 0xD13E78, "FORCECHAP", 2, 0 }, // 74 Chapter.UpdateProgression -> force this.unlocked=1
+    // DIAGNOSTIC: ChapterPanel.OnPanelClicked (@0xD15394). After FORCECHAP the chapter is unlocked
+    // (no warning) but tapping it doesn't transition. OnPanelClicked reads _chapterData@0x88,
+    // unlocked@0x30 (skip-lock), then invokes onClick@0x78 (Action<ChapterPanel>) — if onClick is
+    // null nothing happens. Log unlocked + whether onClick is wired to see if the tap registers and
+    // where the flow stops.
+    { 0xD15394, "CHAPCLK",   2, 0 }, // 75 ChapterPanel.OnPanelClicked -> log unlocked + onClick null
+    // CHAPCLK proved the STORY ChapterPanel's _chapterData.unlocked is 0 at click time even with
+    // FORCECHAP — the panel binds a Chapter instance whose UpdateProgression was never forced (it
+    // runs only at login, and only on the login set's chapters, not the story-open panel's). The Act
+    // survives this because ActPanel is a QuestSelectPanelBase covered by FORCELOCK; ChapterPanel is
+    // a plain MonoBehaviour reading Chapter.unlocked@0x30 directly. Fix at the bind point:
+    // ChapterPanel.SetData(this, chapterIndex, chapterData) (@0xD14470) stores _chapterData@0x88 then
+    // falls into RefreshDisplay. Force the passed chapterData.unlocked(@0x30)=1 / completed(@0x31)=0
+    // BEFORE the original runs, so the panel both renders unlocked and enters the mission on tap.
+    { 0xD14470, "FORCECHAPSD", 2, 0 }, // 76 ChapterPanel.SetData -> force chapterData.unlocked=1
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -157,6 +237,9 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
 // key read is prefixed "HB " so the ctor's exact field keys can be grepped out of
 // the flood of general parse keys. Drives authoring login `heroes` BCGHeroBase JSON.
 static volatile int g_inhb = 0;
+// Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
+// are prefixed "QS " so the quest-list/details field keys can be grepped out.
+static volatile int g_inqs = 0;
 static void log_key(const char* tag, void* s) {
     if (!g_f) return;
     uintptr_t p = (uintptr_t)s;
@@ -169,6 +252,7 @@ static void log_key(const char* tag, void* s) {
     buf[len] = 0;
     // direct file write (fast path, no logcat per-key)
     if (g_inhb) fputs("HB ", g_f);
+    if (g_inqs) fputs("QS ", g_f);
     fputs(tag, g_f); fputc(' ', g_f); fputs(buf, g_f); fputc('\n', g_f);
     static int n = 0; if ((++n & 63) == 0) fflush(g_f);   // flush every 64 keys (survive crash)
 }
@@ -267,8 +351,157 @@ void* hook_52(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     PROTECT( if((g_fds2++ % 1)==0){ char k1[80]; char k2[80];
         void* p1=(a0?*(void**)((char*)a0+8):0); void* p2=(a1?*(void**)((char*)a1+8):0);
         if(!read_str(p1,k1,sizeof k1)) strcpy(k1,"?"); if(!read_str(p2,k2,sizeof k2)) strcpy(k2,"?");
-        flog("FDS2 name='%s' alt='%s'", k1, k2); } );
+        flog("%sFDS2 name='%s' alt='%s'", g_inqs?"QS ":"", k1, k2); } );
     return H[52].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slots 59-64 (jp=99): quest-parser brackets. Increment/decrement g_inqs (they nest:
+// QuestDB.AddQuestSummarys calls QuestSet.AddQuestSummarys) and emit begin/end markers so
+// the "QS <tag> <key>" reads in between reveal the exact quest JSON field keys.
+#define MKQS(i) \
+  void* hook_##i(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    PROTECT( flog("%s begin", H[i].tag); ); \
+    g_inqs++; \
+    void* r = H[i].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+    g_inqs--; \
+    PROTECT( flog("%s end", H[i].tag); ); \
+    return r; }
+MKQS(59) MKQS(60) MKQS(61) MKQS(62) MKQS(63) MKQS(64) MKQS(65) MKQS(66)
+// slots 67-69 (session 8): story-visibility instrumentation. Log the category argument and
+// results of the set-count/lookup queries the STORY landing runs, to locate the availability
+// gate that keeps the (correctly-parsed) mission from appearing. read_str/flog defined above.
+void* hook_67(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[67].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( char c[80]; if(!read_str(a1,c,sizeof c)) strcpy(c,"<null>");
+        int avail=-1; uintptr_t db=(uintptr_t)a0;
+        if(db>=0x100000 && !(db&7)){ uintptr_t lst=*(uintptr_t*)(db+0x10);
+            if(lst>=0x100000 && !(lst&7)) avail=*(int*)(lst+0x18); }
+        flog("QVISCNT cat='%s' ret=%ld availSets=%d", c, (long)r, avail); );
+    return r;
+}
+void* hook_68(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[68].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( char c[80]; if(!read_str(a1,c,sizeof c)) strcpy(c,"<null>");
+        flog("QSETCNT cat='%s' ret=%ld", c, (long)r); );
+    return r;
+}
+void* hook_69(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[69].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( char c[80]; if(!read_str(a1,c,sizeof c)) strcpy(c,"<null>");
+        char sc[80]; sc[0]=0; uintptr_t s=(uintptr_t)r;
+        if(s>=0x100000 && !(s&7)){ void* scat=*(void**)(s+0x28); if(!read_str(scat,sc,sizeof sc)) strcpy(sc,"?"); }
+        else strcpy(sc,"<null-set>");
+        flog("QSETFROM cat='%s' -> set.cat='%s'", c, sc); );
+    return r;
+}
+// slot 70 FORCEUNLK: QuestSummary.get_unlocked() @0x103A46C -> force true. Fully replaces the
+// original (does NOT call orig): the real fn returns _unlocked@0xC0 which offline is always 0.
+// Returning true makes Chapter/Act.UpdateProgression mark the chapter/act unlocked, so the STORY
+// mission tile stops showing "Unlock by completing Act 0" and becomes playable. Logs once so the
+// unlock can be confirmed in the log, then throttles.
+void* hook_70(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    static int n = 0;
+    if (n < 3) { PROTECT( flog("FORCEUNLK -> true"); ); n++; }
+    return (void*)1;
+}
+// slot 71 FORCEACT: Act.UpdateProgression @0xC2ADC8. Run original, then force this.unlocked=1
+// (byte @0x30) so the STORY ActPanel (which reads the field directly) renders unlocked/playable.
+void* hook_71(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[71].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( uintptr_t act=(uintptr_t)a0;
+        if(act>=0x100000 && !(act&7)){
+            static int n=0;
+            unsigned char bu=*(unsigned char*)(act+0x30);
+            unsigned char bc=*(unsigned char*)(act+0x31);
+            // The act's chapters have no quests linked when UpdateProgression runs at login, so it
+            // computes unlocked=0 (OR of nothing) and completed=1 (AND of nothing). Force unlocked=1
+            // AND completed=0 so get_isLocked() is false and get_isCurrent() (unlocked && !completed)
+            // is true -> the STORY act renders as the current, playable act (not "completed"/empty).
+            *(unsigned char*)(act+0x30) = 1;   // unlocked
+            *(unsigned char*)(act+0x31) = 0;   // completed
+            if(n<4){ flog("FORCEACT unlocked %d->1 completed %d->0", bu, bc); n++; }
+        } );
+    return r;
+}
+// slot 72 FORCELOCK: QuestSelectPanelBase.get_isLocked @0xCB2954 -> force false (not locked).
+// Fully replaces the original (does NOT call orig): the real getter ORs several lock bits
+// (isLevelLocked/isJoinReq/actData==null/act.unlocked==0/isActivationLocked) that are all set or
+// null offline (level/CL 0, no activation data). Returning false makes the STORY act panel and its
+// mission node render unlocked/tappable instead of showing the red padlock. Logs a few times.
+void* hook_72(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    static int n = 0;
+    if (n < 4) { PROTECT( flog("FORCELOCK -> false"); ); n++; }
+    return (void*)0;
+}
+// slot 73 RMV: ActPanel.RefreshMainView(this=a0) diagnostic. Read the act link structure the
+// render path gates on: _actIndex@0x228, _actData@0x220 (Act); Act.Chapters[] (@0x28, arr len@0x18,
+// elems@0x20); Chapters[1] (@0x28); Chapters[1].Quests[] (Summary[] @0x28, len@0x18); and the real
+// quest Quests[1] (@0x28) unlocked byte@0xC0. Tells us exactly which array is short/unlinked.
+void* hook_73(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( uintptr_t p=(uintptr_t)a0;
+        int actIdx=-1; uintptr_t act=0; int chLen=-1; uintptr_t ch1=0; int qLen=-1; int q1unl=-1;
+        if(p>=0x100000 && !(p&7)){
+            actIdx=*(int*)(p+0x228);
+            act=*(uintptr_t*)(p+0x220);
+            if(act>=0x100000 && !(act&7)){
+                uintptr_t chs=*(uintptr_t*)(act+0x28);          // Chapter[] Chapters
+                if(chs>=0x100000 && !(chs&7)){
+                    chLen=*(int*)(chs+0x18);
+                    if(chLen>=2){ ch1=*(uintptr_t*)(chs+0x28);   // Chapters[1]
+                        if(ch1>=0x100000 && !(ch1&7)){
+                            uintptr_t qs=*(uintptr_t*)(ch1+0x28); // Summary[] Quests
+                            if(qs>=0x100000 && !(qs&7)){
+                                qLen=*(int*)(qs+0x18);
+                                if(qLen>=2){ uintptr_t q1=*(uintptr_t*)(qs+0x28); // Quests[1]
+                                    if(q1>=0x100000 && !(q1&7)) q1unl=*(unsigned char*)(q1+0xC0); }
+                            } } } } } }
+        flog("RMV actIdx=%d act=%p chLen=%d ch1=%p qLen=%d q1unl=%d", actIdx,(void*)act,chLen,(void*)ch1,qLen,q1unl); );
+    return H[73].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 74 FORCECHAP: Chapter.UpdateProgression @0xD13E78. Mirror of FORCEACT (slot 71). Run the
+// original, then force this.unlocked(@0x30)=1 and this.completed(@0x31)=0 so ChapterPanel.OnPanelClicked
+// (which reads Chapter.unlocked @0x30 directly) enters the mission instead of showing the "Unlock by
+// completing Chapter 0" warning. The chapter's Quests aren't linked when this runs at login, so the
+// real computation yields unlocked=0/completed=1; only the authored chapters reach here.
+void* hook_74(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[74].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT( uintptr_t ch=(uintptr_t)a0;
+        if(ch>=0x100000 && !(ch&7)){
+            static int n=0;
+            unsigned char bu=*(unsigned char*)(ch+0x30);
+            unsigned char bc=*(unsigned char*)(ch+0x31);
+            *(unsigned char*)(ch+0x30) = 1;   // unlocked
+            *(unsigned char*)(ch+0x31) = 0;   // completed
+            if(n<4){ flog("FORCECHAP unlocked %d->1 completed %d->0", bu, bc); n++; }
+        } );
+    return r;
+}
+// slot 75 CHAPCLK: ChapterPanel.OnPanelClicked(this=a0, go=a1) diagnostic. Log _chapterData@0x88,
+// its unlocked byte@0x30, and whether onClick@0x78 is non-null (the wired transition callback).
+void* hook_75(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( uintptr_t p=(uintptr_t)a0; int unl=-1; int hasClick=-1; uintptr_t cd=0;
+        if(p>=0x100000 && !(p&7)){
+            cd=*(uintptr_t*)(p+0x88);
+            if(cd>=0x100000 && !(cd&7)) unl=*(unsigned char*)(cd+0x30);
+            hasClick = (*(uintptr_t*)(p+0x78)!=0)?1:0;
+        }
+        flog("CHAPCLK chapterData=%p unlocked=%d onClickWired=%d", (void*)cd, unl, hasClick); );
+    return H[75].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 76 FORCECHAPSD: ChapterPanel.SetData(this=a0, chapterIndex=a1, chapterData=a2) @0xD14470.
+// Force the bound chapter (a2) unlocked(@0x30)=1 and completed(@0x31)=0 BEFORE the original runs
+// (which stores it and refreshes the display) so the STORY chapter panel renders unlocked and its
+// OnPanelClicked — which reads Chapter.unlocked@0x30 directly — enters the mission instead of the
+// "complete Chapter 0" warning. This targets the exact Chapter instance the panel uses (unlike
+// FORCECHAP, which only caught the login UpdateProgression instances).
+void* hook_76(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT( uintptr_t cd=(uintptr_t)a2;
+        if(cd>=0x100000 && !(cd&7)){
+            static int n=0; unsigned char bu=*(unsigned char*)(cd+0x30);
+            *(unsigned char*)(cd+0x30)=1;   // unlocked
+            *(unsigned char*)(cd+0x31)=0;   // completed
+            if(n<4){ flog("FORCECHAPSD chapter=%p unlocked %d->1", (void*)cd, bu); n++; }
+        } );
+    return H[76].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 // slot 45 HEROBASE: BCGHeroBase..ctor(this=a0, IDictionary=a1). Bracket the ctor with
 // g_inhb so slots 5/6/8/53/54/55 tag every field key read inside it as "HB <tag> <key>".
@@ -435,7 +668,9 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
     hook_31,hook_32,hook_33,hook_34,hook_35,hook_36,hook_37,hook_38,hook_39,hook_40,hook_41,hook_42,hook_43,
     hook_44,hook_45,hook_46,hook_47,hook_48,hook_49,hook_50,hook_51,hook_52,
-    hook_53,hook_54,hook_55,hook_56,hook_57,hook_58 };
+    hook_53,hook_54,hook_55,hook_56,hook_57,hook_58,
+    hook_59,hook_60,hook_61,hook_62,hook_63,hook_64,hook_65,hook_66,
+    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

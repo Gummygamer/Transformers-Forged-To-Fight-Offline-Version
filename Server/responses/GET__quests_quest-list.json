@@ -1,1 +1,20 @@
-{"error":null,"result":[]}
+{"error":null,"result":[{
+ "hash":"h1","setId":"story_act1","setName":"ACT 1","expiry":0,"timeLimit":0,"timeLimitGrace":0,
+ "showUI":true,"group":"story","difficulty":"normal","difficulty_label":"NORMAL",
+ "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":true,
+ "category":"Story","tags":[],
+ "actCount":1,"chapterCount":[1,1],
+ "acts":[{"name":"ACT 1","index":0},{"name":"ACT 1","index":1}],
+ "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1}],
+ "availableQuests":[
+   {
+     "id":"1.1.1",
+     "act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,
+     "friendlyName":"Arrival","description":"The first battle.",
+     "category":"story","difficulty":"normal",
+     "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
+     "minHealthPerTile":100,"maxHealthPerTile":100,
+     "image":"","theme":""
+   }
+ ]
+}]}
