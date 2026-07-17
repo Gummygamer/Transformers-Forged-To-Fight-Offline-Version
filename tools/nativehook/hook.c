@@ -230,6 +230,18 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // falls into RefreshDisplay. Force the passed chapterData.unlocked(@0x30)=1 / completed(@0x31)=0
     // BEFORE the original runs, so the panel both renders unlocked and enters the mission on tap.
     { 0xD14470, "FORCECHAPSD", 2, 0 }, // 76 ChapterPanel.SetData -> force chapterData.unlocked=1
+    // FIXWRAPMI (session 10): make selecting a bot into the STORY squad not crash. Tapping any
+    // bot in the EDIT SQUAD roster hard-SIGSEGVs at libil2cpp 0x152b5ec inside
+    // SafeAction.<>c__DisplayClass1_0<object>.<Wrap>b__0(T obj) (entry 0x152B570). That method is
+    // generic-shared, so its hidden last arg (x2) is the MethodInfo* it needs to resolve
+    // Action<object>::Invoke via RGCTX (ldr [x2,#0x18] @0x152b5ec). The bot-select onClick reaches
+    // it through a void-signature delegate Invoke chain (OnDragNotification.Invoke -> EB.Action.Invoke
+    // -> here) that does NOT thread the gshared MethodInfo through, so x2 arrives NULL -> null-deref.
+    // Every legit invocation of this one <object> instantiation passes the SAME MethodInfo, so cache
+    // the first non-null x2 and substitute it whenever x2 is null. this(x0)/obj(x1) are intact; only
+    // the RGCTX pointer is missing, so restoring it lets cb.Invoke(obj) (the real add-to-squad
+    // callback) run. Same targeted-arg-fix approach as SETACTFIX (slot 58).
+    { 0x152B570, "FIXWRAPMI", 2, 0 }, // 77 SafeAction.<Wrap>b__0<object> -> restore null gshared MethodInfo
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -503,6 +515,24 @@ void* hook_76(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         } );
     return H[76].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+// slot 77 FIXWRAPMI: SafeAction.<>c__DisplayClass1_0<object>.<Wrap>b__0(this=a0, obj=a1, MethodInfo*=a2)
+// @0x152B570. This gshared method needs a2 (its MethodInfo) to resolve Action<object>::Invoke via
+// RGCTX. Tapping a bot in the EDIT SQUAD roster reaches it through a mis-signatured delegate-Invoke
+// chain (UIScrollView.OnDragNotification.Invoke -> EB.Action.Invoke -> here) that passes NEITHER a
+// valid obj arg NOR the hidden gshared MethodInfo (a2 arrives NULL). Restoring a2 alone just pushes
+// the crash one frame deeper: cb.Invoke(obj) then runs an isinst type-check on the bogus obj
+// (obj.klass.typeHierarchy) and null-derefs inside EditTeamScreenPresentation.OnGridItemInitialized.
+// A gshared invocation with a null MethodInfo can never be legitimate, so SKIP it entirely (return
+// without calling the body). The real bot-select add path (the grid item's own click handler) is a
+// separately-wired, correctly-signatured call that passes a non-null MethodInfo, so it is unaffected
+// -- only this spurious drag-notification callback is suppressed.
+void* hook_77(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    if ((uintptr_t)a2 < 0x1000) {   // null / bogus MethodInfo -> broken gshared call, skip
+        static int n=0; if(n<8){ n++; flog("FIXWRAPMI skip null-MethodInfo call (this=%p obj=%p)", a0, a1); }
+        return NULL;
+    }
+    return H[77].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 // slot 45 HEROBASE: BCGHeroBase..ctor(this=a0, IDictionary=a1). Bracket the ctor with
 // g_inhb so slots 5/6/8/53/54/55 tag every field key read inside it as "HB <tag> <key>".
 // One ==HEROBASE== marker pair per parsed (blueprint,rank) BCGHeroBase entry.
@@ -670,7 +700,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_44,hook_45,hook_46,hook_47,hook_48,hook_49,hook_50,hook_51,hook_52,
     hook_53,hook_54,hook_55,hook_56,hook_57,hook_58,
     hook_59,hook_60,hook_61,hook_62,hook_63,hook_64,hook_65,hook_66,
-    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76 };
+    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
@@ -759,6 +789,19 @@ static int find_cb(struct dl_phdr_info* info, size_t sz, void* data){
     return 0;
 }
 
+// Single 32-bit instruction rewrite at (g_base+rva). Installed before the target is first
+// executed (constructor thread runs at app start; the patched funcs run only later), so
+// libnb's lazy translation picks up the new word -- same guarantee as the inline hooks.
+static void poke32(uintptr_t rva, uint32_t word){
+    uint8_t* t = (uint8_t*)(g_base + rva);
+    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
+    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
+    uint32_t old = *(uint32_t*)t;
+    *(uint32_t*)t = word;
+    __builtin___clear_cache((char*)t, (char*)t + 4);
+    LOG("poked 0x%lx : %08x -> %08x", (long)rva, old, word);
+}
+
 static void* installer(void* arg){
     for (int i = 0; i < 1200; i++) {           // up to 60s
         g_base = 0; dl_iterate_phdr(find_cb, NULL);
@@ -774,6 +817,17 @@ static void* installer(void* arg){
     LOG("il2cpp_string_new=%p il2cpp_array_new=%p", (void*)g_strnew, (void*)g_arraynew);
     for (int i = 0; i < NH; i++)
         inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
+    // FIXSYN (session 10): BCGBlueprintBase.get_SynergyBonuses (@0xC17198) throws
+    // NullReferenceException when this._synergyBonuses (List<string> @0xE0) is null -- which it
+    // ALWAYS is offline (the blueprint ctor never parses a synergy key). Adding a bot to the STORY
+    // squad runs TeamData.RefreshSynergyBonusData -> b__56_0 -> get_SynergyBonuses on each hero's
+    // blueprint and the throw surfaces as the "unknown error" dialog. The getter already allocates
+    // a fresh empty result List<string> (x19) BEFORE the null-check and returns it at 0xC17340;
+    // the null branch instead jumps to the throw at 0xC17370. Redirect that one `cbz x0` from the
+    // throw to the normal empty-list return -> get_SynergyBonuses returns an empty list for a null
+    // field instead of throwing. (Same spirit as the Tags empty-collection fix; done as a targeted
+    // instruction poke rather than fabricating a List<string> whose RGCTX may be uninitialized.)
+    poke32(0xC17278, 0xB4000640);   // cbz x0, 0xC17370 (throw) -> cbz x0, 0xC17340 (return empty)
     LOG("install done (%d hooks)", NH);
     return NULL;
 }
