@@ -524,11 +524,21 @@ def build_quest_detail(mission_id="1.1.1", set_id="story_act1"):
 
 
 def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
-    """One entry of quest-begin's result["activeQuests"]. ActiveQuest (TypeDefIndex 12572)
-    holds uniqueId/qid/category/mode + data (Summary) + map (Map) + progression. The exact
-    WIRE key names are still unknown (ActiveQuest deserialize was never reached until now,
-    so no FDS2 log existed); emitting C#-field-name guesses so the parser DESCENDS and the
-    native FDS2 hook logs the real names to author against. map is empty pending that."""
+    """The per-qid VALUE object in quest-begin's result["activeQuests"] dict. Disassembly of
+    QuestDB.DeserializeActiveQuests (@0x12E43EC) shows: activeQuests is a Dictionary keyed by
+    qid; each value is enumerated, an inner ARRAY is read via Dot.Array (the per-quest instance
+    list), and ActiveQuest.ctor(idStr, thisValueDict, instanceElement, index, bgs) is called
+    ONCE PER array element (@0x12E47C8). So this object must carry (a) a non-empty instance array
+    under the Dot.Array key, plus (b) the quest fields ActiveQuest.ctor reads (data/map/category).
+    The Dot.Array key is being harvested live (hook slot 78); until confirmed, emit the array under
+    several candidate keys so at least one matches and BuildActiveQuest fires -> ctor keys log."""
+    instance = {
+        "id": qid, "qid": qid, "index": 0, "instanceIndex": 0,
+        "phase": 0, "startTime": 0, "expiryTime": 0,
+        "data": build_quest_summary(qid, set_id),
+        "map": {},
+    }
+    arr = [instance]
     return {
         "uniqueId": qid, "qid": qid, "id": qid,
         "category": "story", "mode": "story",
@@ -536,16 +546,19 @@ def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
         "data": build_quest_summary(qid, set_id),
         "map": {},
         "progression": {},
+        # candidate Dot.Array keys (only the real one is consumed; extras are ignored):
+        "instances": arr, "battlegroups": arr, "bgs": arr,
+        "instance": arr, "battleGroups": arr, "quests": arr,
     }
 
 
 def build_quest_begin(qid="1.1.1", set_id="story_act1", team=None):
-    """POST /quests/quest-begin/<qid> reply. After START the client posts the team + setId
-    and expects result["activeQuests"] (confirmed live: the parser looks up "activeQuests"
-    and errors when absent -> "unknown error"). Returns the newly-active quest so combat can
-    load its map. Currently a probe: activeQuests carries one quest with an empty map."""
+    """POST /quests/quest-begin/<qid> reply. QuestDB.DeserializeActiveQuests reads
+    result["activeQuests"] via Dot.Object -> it must be a DICTIONARY keyed by qid (an array
+    yields null and the parse exits immediately, which is what left combat unloaded). Each value
+    is a per-quest object (see build_active_quest)."""
     return {
-        "activeQuests": [build_active_quest(qid, set_id, team)],
+        "activeQuests": {qid: build_active_quest(qid, set_id, team)},
     }
 
 
