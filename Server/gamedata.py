@@ -621,6 +621,48 @@ def build_quest_map(qid="1.1.1"):
     }
 
 
+LOCAL_UID = "1000000000001"   # POST /auth/login result.user.uid (get_LocalUserId)
+
+
+def build_quest_progression(qid="1.1.1", start=(0, 1)):
+    """The per-instance QuestProgression data (the instance dict IS the data passed to
+    QuestProgression..ctor @0xCA5684). This is what puts the PLAYER (and thus the camera focus)
+    on the board so the tappable nodes become visible/reachable.
+
+    Disassembly of QuestProgression..ctor + Gameboard.SetPlayerPosition/InitializePlayer:
+      - The board's local player = ActiveQuest.get_player() (@0x10A02CC) = quest.mission(the
+        QuestProgression).localPlayer(@0x80). SetPlayerPosition (@0xA52804) BAILS if get_player()
+        is null -> no player, no camera focus, invisible nodes.
+      - QuestProgression..ctor iterates the `users` dict (key = uid string). For the entry whose
+        key == get_LocalUserId() (@0x146C1B0 -> our POST/auth/login uid 1000000000001) it builds a
+        Player via Player..ctor(Id, thisProgression, data) (@0xDAA80C) and stores it as
+        localPlayer(@0x80). Every other key becomes a remote entry in users(@0x88). So `users` MUST
+        contain a "1000000000001" entry for the local player to exist.
+      - The local player's position = Player.get_position (@0xDAA948) = progression.currentPos(@0x18)
+        (it reads the PROGRESSION's currentPos, not the user's), so `currentPos` here places the
+        player on a tile. GetTile uses (x=row, y=col); our walkable path is the middle column
+        (col=1), so start (row=0, col=1) is the entry tile.
+    The user value dict fields (harvested QS vocab: name/tag/strongestHero/team/currentPos/points);
+    lists (team/buffs) default to empty (QuestUserInfo..ctor uses get_EmptyArray), so team may be []."""
+    sx, sy = start
+    user = {
+        "name": "Commander", "tag": "", "strongestHero": "",
+        "currentPos": {"x": sx, "y": sy},
+        "team": [], "points": 0,
+    }
+    return {
+        "version": 1,
+        "currentPos": {"x": sx, "y": sy},
+        "cleared": [],
+        "previouslyCleared": [],
+        # revealed = List<QuestTileProgressionNode>; each authored as a tile position so the path
+        # tiles read as revealed (non-hidden path tiles are visible regardless, but keep it explicit).
+        "revealed": [{"x": r, "y": 1} for r in range(3)],
+        # users keyed by uid string; the local-uid entry becomes the board player (see above).
+        "users": {LOCAL_UID: user},
+    }
+
+
 def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
     """The per-qid VALUE object in quest-begin's result["activeQuests"] dict. Disassembly of
     QuestDB.DeserializeActiveQuests (@0x12E43EC) shows: activeQuests is a Dictionary keyed by
@@ -637,6 +679,9 @@ def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
         "data": build_quest_summary(qid, set_id),
         "map": qmap,
     }
+    # The instance dict IS the QuestProgression wire data (QuestProgression..ctor reads its keys
+    # directly). Author the player/progression so the board gets a local player + camera focus.
+    instance.update(build_quest_progression(qid))
     arr = [instance]
     return {
         "uniqueId": qid, "qid": qid, "id": qid,
