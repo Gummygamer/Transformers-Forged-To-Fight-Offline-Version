@@ -528,7 +528,7 @@ def build_quest_summary(mission_id="1.1.1", set_id="story_act1"):
         "category": "story", "difficulty": "normal",
         "energyPerTile": 1, "minXpPerTile": 1, "maxXpPerTile": 2,
         "minHealthPerTile": 100, "maxHealthPerTile": 100,
-        "image": "", "theme": "", "todIndex": 0,
+        "image": "", "theme": "primordial", "todIndex": 0,
     }
 
 
@@ -568,20 +568,47 @@ def build_quest_map(qid="1.1.1"):
 
     # 3x3 grid, indexed grid[row][col]. Straight walkable path down the middle column
     # (col=1): start at (0,1), boss/final at (2,1). Edge columns are non-walkable filler.
+    # Tile wire keys (harvested live from QuestMapTile.Deserialize via the FDS2/dA field log):
+    # base MapTile has start/final/hidden/walkable(bool); QuestMapTile adds `lab`/`lab_loc`
+    # (label), `boss`(BCGEntity)/`bossSlot`, `bt`/`db`/`pt`(arrays), `renderTemplate`, `bg`,
+    # `timeLimit`. `label`/`nodeNumber` (used before) are NOT real keys and were ignored -- the
+    # node label comes from `lab`. We author only labels here; the boss BCGEntity is left unset
+    # (no offline enemy data yet), so the final tile is marked purely via `final`.
     grid = []
     for row in range(dim):
         r = []
         for col in range(dim):
             if col == 1:
                 if row == 0:
-                    r.append(tile(start=True, nodeNumber=0, label="Start"))
+                    r.append(tile(start=True, lab="Start"))
                 elif row == dim - 1:
-                    r.append(tile(final=True, nodeNumber=row, label="Boss"))
+                    r.append(tile(final=True, lab="Boss"))
                 else:
-                    r.append(tile(nodeNumber=row))
+                    r.append(tile(lab="Node %d" % row))
             else:
                 r.append(tile(walkable=False, hidden=True))
         grid.append(r)
+
+    # pathData drives Quests.Map.paths (@0x50). Map.Deserialize (@0x14837EC) reads pathData
+    # via EB.Dot.Array; if its element count < 1 it stores paths = NULL (str xzr,[map,#0x50]
+    # @0x1484084) -- which makes Quests.Presentation.PathAnalyzer.GetPathsFromMap (@0xB3C718)
+    # NRE on the `ldr x0,[map,#0x50]; cbz x0` null-check at board build (Gameboard.DoSetup).
+    # So pathData MUST have >=1 element. Each element becomes a MapPath via
+    # MapPath..ctor(map, dict) (@0x14840FC), which reads a Vector2-list wire key through
+    # GetVector2List (@0x1242828 -> EB.Dot.Array with a NON-null empty-array default). A
+    # missing/unknown key therefore yields an EMPTY (not null) tiles list -- safe: Path..ctor
+    # (@0xD2A704) `cbz tiles` short-circuits, so an empty MapPath renders without a crash.
+    # One empty path element makes paths non-null but yields a 0-tile MapPath, which
+    # leaves the board with no nodes and the DoSetup coroutine stalls on LOADING. A real
+    # path is needed: each pathData element is a MapPath dict with a `path` key (confirmed
+    # live: MapPath..ctor -> GetVector2List reads EB.Dot.Array("path")). `path` is a list of
+    # Vector2 elements, each a dict of two INTEGER keys -> (x, y) (GetVector2List reads them
+    # via EB.Dot.Integer). map.GetTile(x, y) (@0x14849c8) indexes grid[x, y] with x=row,
+    # y=col (index = x*dim + y). Our walkable path is the middle column (col=1), rows 0..2.
+    # x/y sub-key names are being confirmed live this drive; author the straight column path.
+    path_data = [{
+        "path": [{"x": r, "y": 1} for r in range(dim)],
+    }]
 
     return {
         "hash": "qm_%s" % qid, "v": 1, "mapHash": "qm_%s" % qid,
@@ -589,7 +616,7 @@ def build_quest_map(qid="1.1.1"):
         "grid": grid,
         "walkableCount": dim,           # 3 walkable tiles in the middle column
         "visibleWalkableCount": dim,
-        "pathData": [],
+        "pathData": path_data,
         "overrideZoom": 0,
     }
 
