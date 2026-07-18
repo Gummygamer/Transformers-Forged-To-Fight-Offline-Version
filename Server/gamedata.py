@@ -479,6 +479,27 @@ def build_saved_team(team_id="0", heroes=None):
     }
 
 
+# A BCGUserActiveTeam for the getUserData `updates.activeTeams` array. QuestFlow.CalculateFlowState
+# gates the STORY quest-begin -> mission-board transition on GetActiveTeam(id) @0xC1FFDC returning
+# non-null; id is the ActiveQuest's team id, format "<qid>-<teamID>" (e.g. "1.1.1-0"). That looks up
+# BCGUserData.activeTeams (BCGUserActiveTeamDict @0x30), keyed by BCGUserActiveTeam.ActivityID (@0x10,
+# the first Dot.String the ctor @0xA610F0 reads; confirmed as the dict fold-key in
+# BCGManagerBase.HandleUserDataUpdates @0x1696F14). With an empty activeTeams the lookup returned null
+# and CalculateFlowState stayed at BeginQuest(1) forever (the ~14/sec quest-begin retry loop / blank
+# board). Providing this entry advanced the flow all the way to LoadGameBoard (state 4). The wire
+# key names below were confirmed live via the ==ATCTOR== ctor bracket + FDS2 Dot.String log:
+#   aid -> ActivityID (the dict key; must equal "<qid>-<teamID>"), type -> Type, modes -> Modes,
+#   expire -> EstimatedExpire, heroes -> TeamHeroes (each element a BCGHeroDetails dict).
+def build_active_team(activity_id="1.1.1-0", heroes=None):
+    bids = heroes if heroes is not None else DEFAULT_TEAM[:2]
+    hero_dicts = [build_hero_entry(b) for b in bids]
+    return {
+        "aid": activity_id,
+        "type": "PvE", "modes": ["PvE"],
+        "heroes": hero_dicts, "expire": 0,
+    }
+
+
 def build_user_data():
     """Full getUserData result. userData maxes + owned heroes through `updates`,
     exactly as the proven response and the README/TECHNICAL_NOTES describe."""
@@ -486,7 +507,7 @@ def build_user_data():
     return {
         "userData": {"blueprintsMax": 500, "teamSizeMax": 3, "teamCountMax": 5},
         "updates": {"heroes": heroes, "savedTeams": [build_saved_team()],
-                    "activeTeams": []},
+                    "activeTeams": [build_active_team()]},
         "deletes": {},
     }
 
@@ -523,6 +544,56 @@ def build_quest_detail(mission_id="1.1.1", set_id="story_act1"):
     }
 
 
+def build_quest_map(qid="1.1.1"):
+    """The QuestMap object (ActiveQuest.map). Disassembly of base Map.Deserialize
+    (@0x14837EC) shows the wire shape precisely:
+      - `mapHash`(String), `gridDimension`(Integer): the grid is allocated as a SQUARE
+        MapTile[gridDimension, gridDimension] 2D array.
+      - `grid`(Array): a NESTED array -- exactly gridDimension rows, each row an array of
+        exactly gridDimension tile dicts (the loop indexes outer[0..dim-1] then
+        inner[0..dim-1]; every cell must be a non-null dict or the parse errors). The tile's
+        position is taken from the (row, col) loop indices, NOT from any wire key. Each cell
+        is deserialized by QuestMapTile.Deserialize -> base MapTile.Deserialize; base
+        Serializable.Deserialize returns true unconditionally, so even `{}` is a valid tile.
+      - `walkableCount`/`visibleWalkableCount`(Integer), `pathData`(Array), `overrideZoom`(f).
+    MapTile wire keys (all optional, from MapTileJSONKeys @309090): `start`/`final`/`hidden`/
+    `walkable`(bool), `barrier`/`item`/`dialogue`/`dialoguePE`(string). start=true -> startTile,
+    final=true -> endTile. QuestMapTile adds label/timeLimit/boss/etc (LegacyDeserialize)."""
+    dim = 3
+
+    def tile(**kw):
+        t = {"walkable": True, "hidden": False}
+        t.update(kw)
+        return t
+
+    # 3x3 grid, indexed grid[row][col]. Straight walkable path down the middle column
+    # (col=1): start at (0,1), boss/final at (2,1). Edge columns are non-walkable filler.
+    grid = []
+    for row in range(dim):
+        r = []
+        for col in range(dim):
+            if col == 1:
+                if row == 0:
+                    r.append(tile(start=True, nodeNumber=0, label="Start"))
+                elif row == dim - 1:
+                    r.append(tile(final=True, nodeNumber=row, label="Boss"))
+                else:
+                    r.append(tile(nodeNumber=row))
+            else:
+                r.append(tile(walkable=False, hidden=True))
+        grid.append(r)
+
+    return {
+        "hash": "qm_%s" % qid, "v": 1, "mapHash": "qm_%s" % qid,
+        "gridDimension": dim,
+        "grid": grid,
+        "walkableCount": dim,           # 3 walkable tiles in the middle column
+        "visibleWalkableCount": dim,
+        "pathData": [],
+        "overrideZoom": 0,
+    }
+
+
 def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
     """The per-qid VALUE object in quest-begin's result["activeQuests"] dict. Disassembly of
     QuestDB.DeserializeActiveQuests (@0x12E43EC) shows: activeQuests is a Dictionary keyed by
@@ -532,23 +603,28 @@ def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
     under the Dot.Array key, plus (b) the quest fields ActiveQuest.ctor reads (data/map/category).
     The Dot.Array key is being harvested live (hook slot 78); until confirmed, emit the array under
     several candidate keys so at least one matches and BuildActiveQuest fires -> ctor keys log."""
+    qmap = build_quest_map(qid)
     instance = {
         "id": qid, "qid": qid, "index": 0, "instanceIndex": 0,
         "phase": 0, "startTime": 0, "expiryTime": 0,
         "data": build_quest_summary(qid, set_id),
-        "map": {},
+        "map": qmap,
     }
     arr = [instance]
     return {
         "uniqueId": qid, "qid": qid, "id": qid,
-        "category": "story", "mode": "story",
+        # category is matched as a STRING by QuestDB.GetActiveQuest (op_Inequality);
+        # the active-quest taxonomy the client queries is PvE/AvE/AvA (a story mission is
+        # PvE), NOT the set-visibility category "Story". A "story" here made
+        # GetActiveQuest("PvE") return null, so QuestFlow.CalculateFlowState never advanced
+        # past BeginQuest and the client re-POSTed quest-begin forever.
+        "category": "PvE", "mode": "PvE",
         "setId": set_id, "hash": "h1", "phase": 0,
         "data": build_quest_summary(qid, set_id),
-        "map": {},
+        "map": qmap,
         "progression": {},
-        # candidate Dot.Array keys (only the real one is consumed; extras are ignored):
-        "instances": arr, "battlegroups": arr, "bgs": arr,
-        "instance": arr, "battleGroups": arr, "quests": arr,
+        # `instances` is the confirmed Dot.Array key iterated by DeserializeActiveQuests.
+        "instances": arr,
     }
 
 
