@@ -179,14 +179,51 @@ The live client has accepted consecutive moves from `(0,1)` to `(1,1)` and then 
 animated the bot between nodes, refreshed reachability, and changed explored progress from
 0% through 33% to 66%. See `media/story-board-second-move.mp4`.
 
+## STORY encounter / live-combat milestone
+
+The final tile now carries an authored boss in its `entities` dictionary. Each entity value
+must name both `entityType` and `parentEntityType` as `boss`; that makes
+`Quests.Builder.NewEntity` construct a real `BCGEntity`, verified by the native hook. The tile's
+`boss` field points to the same dictionary key. Crucially, that key is not an arbitrary encounter
+identifier: `PrefightScreenData` sends the entity's `key` verbatim as `bid` to
+`/bcg/getBaseHeroData`. Using `story_1_1_1_boss` therefore produced the anonymous fist/8888 marker;
+using `sharkticon_gs_brawler` resolves the authored blueprint and produces the real Sharkticon
+class, name, health, power, and rating.
+
+Arrival returns two ordered action results: the existing `moveto` action followed by
+`{"action":{"battle":...}}`. The battle variant reads `x`, `y`, `isFinalBoss`,
+`battleEnemy`, and `battleTower` -- notably, `battleEnemy` is the wire key, not `enemy`.
+Progression also carries `currentBattleId`, `currentBattlePos`, a compact
+`currentBattleEnemy: {"id": ...}` record, and `currentBattleEnemyHealth`. With these fields the
+unmodified client completes the board animation and opens its native `SELECT YOUR BOT` screen.
+The local `QuestUserInfo` also needs parallel `currentBattleId`, `currentBattlePos`, and
+`currentBattleState: "activated"` fields. Its `team` is an object keyed by hero blueprint, not an
+array; each value is a `QuestUserHero` record with exactly `hp`, `pi`, `sig_lvl`, `stat_mods`, and
+`sig_mods`. A normalized `hp` of `1.0` plus an authored `pi` is enough to populate both selectable
+squad entries and the matchup detail. See `media/story-prefight-combatants-populated.png`.
+
+Pressing the enabled FIGHT button now posts:
+
+`POST /matches/activate-match/quests_fight`
+
+with `hero`, `qid`, and `battleId`. The current generic success envelope is sufficient for the
+client to leave pre-fight, load the Karnak assets, hide the fight loading screen, and enter the
+interactive 3D arena. Attack input visibly animates the fighters; the HUD shows the authored
+Optimus Primal and Sharkticon names, ratings, and full health bars. This is live-verified in
+`media/story-live-3d-combat.png` and the 18-second `media/story-live-3d-combat.mp4` capture. The
+remaining identity bug is equally specific: the player HUD says Optimus Primal, but the player
+currently renders with the Sharkticon model. A specialized activation payload and the later
+battle-result/progression endpoints have not yet been reconstructed.
+
 ## Known remaining frontiers
 
-1. Live 3D content rendering under an emulator. The models do render, but this area is
-sensitive to the emulator graphics backend and to texture compression settings. This is a
-graphics matter, not a data matter.
+1. Correct the STORY player's rendered model identity. Both sides currently load the Sharkticon
+model even though the player HUD and selected hero are Optimus Primal. Trace the match builder's
+fighter-data source and replace the generic `/matches/activate-match/quests_fight` response with
+the exact contract if required.
 
-2. The final STORY tile needs an enemy `BCGEntity` and the server-side battle contract that
-turns arrival into an encounter. This is the next narrow target.
+2. Reconstruct and verify fight completion, result submission, quest progression, and rewards.
+The launch path and interactive arena now work; the post-fight path is untested.
 
 3. The wider server content database: more quests and maps, opponent lineups, per-bot
 abilities, rewards, persistence, and the economy.
