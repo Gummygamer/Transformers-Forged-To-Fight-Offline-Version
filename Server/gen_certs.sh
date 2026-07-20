@@ -43,6 +43,7 @@ DNS.12 = sparx.io
 DNS.13 = gametalk.sparx.io
 DNS.14 = *.s3.amazonaws.com
 DNS.15 = *.amazonaws.com
+IP.1   = 127.0.0.1
 EOF
 
 openssl genrsa -out server.key 2048

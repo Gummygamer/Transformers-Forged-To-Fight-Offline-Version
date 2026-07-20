@@ -178,6 +178,37 @@ root and writable system), Python on the PC, and the items from the section abov
 6. Wait about 45 seconds, then tap the title screen to log in. You should reach the home
    screen.
 
+### Running on a non-rooted phone over USB
+
+Retail phones cannot use the emulator's root-only hosts and system-CA bind mounts. Build a
+phone variant that redirects the embedded backend names to loopback and uses Android's
+owner-installed CA trust, then use ADB reverse to carry the traffic over USB:
+
+1. Run `python Server/build_phone_apk.py "Transformers 9.2 offline.apk" build/phone-unsigned.apk`.
+   The builder also injects the current `tools/nativehook/libdothook.so`, so phone builds
+   include the same gameplay fixes tested on the emulator.
+2. Sign the result with Android `apksigner`, writing
+   `build/Transformers-9.2-offline-phone.apk`. The generated local build uses your Android
+   debug key. If a differently signed build of the same package is already installed, it
+   must be uninstalled first; doing so erases that installation's local game data.
+3. Start `python Server/run_local.py` on the laptop.
+4. Connect and authorize exactly one physical phone, then run `Server/provision_phone.sh`.
+   If Play Protect rejects this locally modified APK with
+   `INSTALL_FAILED_VERIFICATION_FAILURE`, review the APK and rerun the first installation as
+   `ALLOW_UNVERIFIED_ADB=1 Server/provision_phone.sh`. This temporarily disables verification
+   for that ADB install only and restores both settings immediately. Later runs detect the
+   installed package and only restore forwarding/launch it. After rebuilding the APK, use
+   `UPDATE_APK=1 Server/provision_phone.sh` to update it in place while preserving game data.
+
+The phone APK preserves the original target SDK. Its bundled native validation patches accept
+the local server certificate; lowering the target SDK to inherit user-installed CA trust causes
+modern Play Protect to reject the APK.
+
+The USB connection must remain active: phone ports 8443 and 8080 are forwarded to the same
+laptop ports. The explicit unprivileged ports are necessary because stock Android's ADB cannot
+bind device ports 443 or 80. Re-run `provision_phone.sh` after a reboot or USB-debugging
+reconnection.
+
 If it hangs at login, check the very first item in the Gotchas section before anything else.
 
 
