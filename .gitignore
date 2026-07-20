@@ -1,5 +1,8 @@
 /Transformers *
 
+# Local media captures (including screenshots and recordings) must never be committed.
+/media/
+
 # Local demo captures (screen recordings of the running game contain copyrighted
 # game audiovisual content and must stay local -- see COMPLIANCE.md "never add game
 # assets or binaries to this repository").
