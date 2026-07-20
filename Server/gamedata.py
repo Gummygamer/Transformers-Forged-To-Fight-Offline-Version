@@ -468,6 +468,7 @@ def build_hero_entry(bid, rank=1, level=1):
 # "heroes" (-> TeamHeroes). Each "heroes" element is a hero DICT parsed by
 # BCGHeroDetails..ctor(IDictionary) (a bare bid string throws InvalidCastException).
 DEFAULT_TEAM = ["optimusprimal_bw_mp32", "optimusprime_cin_tf", "megatron_g1_mp10"]
+BOSS_BLUEPRINT = "sharkticon_gs_brawler"
 
 
 def build_saved_team(team_id="0", heroes=None):
@@ -575,8 +576,11 @@ def build_quest_map(qid="1.1.1"):
     # base MapTile has start/final/hidden/walkable(bool); QuestMapTile adds `lab`/`lab_loc`
     # (label), `boss`(BCGEntity)/`bossSlot`, `bt`/`db`/`pt`(arrays), `renderTemplate`, `bg`,
     # `timeLimit`. `label`/`nodeNumber` (used before) are NOT real keys and were ignored -- the
-    # node label comes from `lab`. We author only labels here; the boss BCGEntity is left unset
-    # (no offline enemy data yet), so the final tile is marked purely via `final`.
+    # node label comes from `lab`. The final tile carries the first authored BCG encounter.
+    # `entities` is a DICTIONARY keyed by the entity's stable id. MapTile.Deserialize reads
+    # each value's `entityType` and `parentEntityType`, asks Quests.Builder.NewEntity for the
+    # concrete instance, then calls Entity/QuestBoss/BCGEntity.Deserialize on that same value.
+    # `boss` is the key of that entity and is how QuestMapTile links its encounter controller.
     # A tile's `links` are the ABSOLUTE positions it can be moved to (its walkable neighbours).
     # This is what makes movement possible at all: Gameboard.RequestMove(Direction) (@0xA54540)
     # gates every move on Gameboard.IsMoveValid (@0xA547E4), which ends in
@@ -597,6 +601,8 @@ def build_quest_map(qid="1.1.1"):
             return []
         return [{"x": r, "y": 1} for r in (row - 1, row + 1) if 0 <= r < dim]
 
+    boss = build_quest_enemy()
+
     grid = []
     for row in range(dim):
         r = []
@@ -606,7 +612,13 @@ def build_quest_map(qid="1.1.1"):
                 if row == 0:
                     r.append(tile(start=True, lab="Start", links=lk, visibleLinks=lk))
                 elif row == dim - 1:
-                    r.append(tile(final=True, lab="Boss", links=lk, visibleLinks=lk))
+                    r.append(tile(
+                        final=True, lab="Boss", links=lk, visibleLinks=lk,
+                        boss=BOSS_BLUEPRINT,
+                        entities={
+                            BOSS_BLUEPRINT: boss,
+                        },
+                    ))
                 else:
                     r.append(tile(lab="Node %d" % row, links=lk, visibleLinks=lk))
             else:
@@ -645,6 +657,29 @@ def build_quest_map(qid="1.1.1"):
     }
 
 
+def build_quest_enemy():
+    """An authored STORY BCGEntity in the exact QuestBoss wire schema.
+
+    The field names were captured from the live QuestBoss.Deserialize call after the first
+    entity successfully selected Quests.BCGEntity in Builder.NewEntity. In particular the
+    compact keys are `characters`, `sig_lvl`, `flvl`, `aiString`, and `aiPer`; the earlier
+    property-name guesses were silently ignored and produced the anonymous 8888 placeholder.
+    """
+    return {
+        # The entity key doubles as the combat blueprint id. PrefightScreenData sends it
+        # verbatim to /bcg/getBaseHeroData; an arbitrary encounter id therefore creates a
+        # real BCGEntity but an invalid/anonymous combatant.
+        "key": BOSS_BLUEPRINT,
+        "entityType": "boss",
+        "parentEntityType": "boss",
+        "isFinalBoss": True,
+        "characters": [BOSS_BLUEPRINT],
+        "rank": 1, "level": 1, "sig_lvl": 0, "flvl": 0,
+        "aiType": 0, "aiString": "default", "aiPer": "default",
+        "mapOverride": "", "todIndex": 0,
+    }
+
+
 LOCAL_UID = "1000000000001"   # POST /auth/login result.user.uid (get_LocalUserId)
 
 
@@ -666,13 +701,26 @@ def build_quest_progression(qid="1.1.1", start=(0, 1)):
         (it reads the PROGRESSION's currentPos, not the user's), so `currentPos` here places the
         player on a tile. GetTile uses (x=row, y=col); our walkable path is the middle column
         (col=1), so start (row=0, col=1) is the entry tile.
-    The user value dict fields (harvested QS vocab: name/tag/strongestHero/team/currentPos/points);
-    lists (team/buffs) default to empty (QuestUserInfo..ctor uses get_EmptyArray), so team may be []."""
+    The user value dict fields (harvested QS vocab: name/tag/strongestHero/team/currentPos/points).
+    `team` is read with Dot.Object and folded into List<QuestUserHero>; its dictionary keys are
+    blueprint ids and each value supplies the quest-local health/rating record. It is not the
+    BCGUserActiveTeam `heroes` dictionary: the pre-fight provider builds its selectable HeroData
+    from this local QuestUserInfo team."""
     sx, sy = start
+    quest_team = {}
+    for bid in DEFAULT_TEAM[:2]:
+        hp, atk = base_stats(bid, 1, 1)
+        quest_team[bid] = {
+            "hp": 1.0,
+            "pi": (hp + atk) // 20,
+            "sig_lvl": 0,
+            "stat_mods": [],
+            "sig_mods": [],
+        }
     user = {
-        "name": "Commander", "tag": "", "strongestHero": "",
+        "name": "Commander", "tag": "", "strongestHero": DEFAULT_TEAM[0],
         "currentPos": {"x": sx, "y": sy},
-        "team": [], "points": 0,
+        "team": quest_team, "points": 0,
     }
     return {
         "version": 1,
@@ -785,10 +833,44 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1)):
     }
     actions = [action]
 
+    # Arriving at the authored final tile is a two-action result: MOVE_TO animates the squad
+    # onto the node, then BATTLE makes Gameboard.Action_Battle open the real pre-fight screen.
+    # QuestActionResult chooses its enum by the first non-null nested variant; `battle` is slot
+    # 3 (BATTLE). Its x/y locate actionTile and `battleEnemy` is deserialized into the
+    # encounter entity. The name is live-confirmed from QuestActionResult's field trace.
+    if (nx, ny) == (2, 1):
+        actions.append({
+            "action": {
+                "battle": {
+                    "x": nx, "y": ny, "isFinalBoss": True,
+                    "battleEnemy": build_quest_enemy(),
+                },
+            },
+        })
+
     # Updated progression: player now on the new tile; old tile cleared/revealed.
     prog = build_quest_progression(qid, start=(nx, ny))
     prog["cleared"] = [{"x": sx, "y": sy}]
     prog["revealed"] = [{"x": r, "y": 1} for r in range(3)]
+    if (nx, ny) == (2, 1):
+        prog.update({
+            "currentBattleId": BOSS_BLUEPRINT,
+            "currentBattlePos": {"x": nx, "y": ny},
+            # This compact identity is the chosen enemy CHARACTER blueprint, not the stable
+            # encounter entity key. PrefightScreenData feeds it directly to GetBlueprint;
+            # using the encounter id produced live `GETBP story_1_1_1_boss` misses and an
+            # empty opponent. Position and health remain sibling progression fields.
+            "currentBattleEnemy": {"id": BOSS_BLUEPRINT},
+            "currentBattleEnemyHealth": 1.0,
+        })
+        # QuestProgression and the local QuestUserInfo retain parallel battle state. The
+        # pre-fight screen reads the latter through ActiveQuest.localPlayer; progression-only
+        # battle fields open the window but leave its fight launch state incomplete.
+        prog["users"][LOCAL_UID].update({
+            "currentBattleId": BOSS_BLUEPRINT,
+            "currentBattlePos": {"x": nx, "y": ny},
+            "currentBattleState": "activated",
+        })
 
     # teamData -> QuestsManager.UpdateActiveTeam. Reuse the active-team shape; harmless if unread.
     team_data = build_active_team("%s-0" % qid)

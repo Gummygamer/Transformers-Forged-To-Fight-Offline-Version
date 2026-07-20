@@ -31,9 +31,11 @@ This was the hard part and it is solved. The client itself is alive again offlin
 
 ## What does not work, and why
 
-The authored STORY board does not yet transition into a mission fight. Its final tile currently
-has no enemy `BCGEntity`, battle payload, or result handling, so reaching that tile leaves the bot
-on the board at 66% explored. Reconstructing that enemy/battle contract is the next concrete gate.
+The authored STORY fight is playable but does not yet have completely correct fighter identity:
+the selected Optimus Primal has the right HUD name/rating but currently renders with the
+Sharkticon model. The specialized match-activation response, battle completion, quest progression,
+and reward handling also remain to be reconstructed and verified. Wider mission content, enemy
+lineups, abilities, rewards, persistence, and economy data are still intentionally sparse.
 
 Forged to Fight was fully server authoritative. The app on the phone is essentially a
 screen with controls. Almost nothing about the game lived in the app. Every mission, every
