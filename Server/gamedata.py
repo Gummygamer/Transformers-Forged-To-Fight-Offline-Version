@@ -489,10 +489,13 @@ def build_saved_team(team_id="0", heroes=None):
 # board). Providing this entry advanced the flow all the way to LoadGameBoard (state 4). The wire
 # key names below were confirmed live via the ==ATCTOR== ctor bracket + FDS2 Dot.String log:
 #   aid -> ActivityID (the dict key; must equal "<qid>-<teamID>"), type -> Type, modes -> Modes,
-#   expire -> EstimatedExpire, heroes -> TeamHeroes (each element a BCGHeroDetails dict).
+#   expire -> EstimatedExpire, heroes -> TeamHeroes. Unlike BCGUserSavedTeam, the active-team
+# ctor reads `heroes` with Dot.Object and enumerates the dictionary values before constructing
+# each BCGHeroDetails. Sending an array makes Dot.Object fall back to an empty dictionary, which
+# leaves TeamData with no lead character and prevents QuestPlayerController from loading an actor.
 def build_active_team(activity_id="1.1.1-0", heroes=None):
     bids = heroes if heroes is not None else DEFAULT_TEAM[:2]
-    hero_dicts = [build_hero_entry(b) for b in bids]
+    hero_dicts = {b: build_hero_entry(b) for b in bids}
     return {
         "aid": activity_id,
         "type": "PvE", "modes": ["PvE"],
@@ -574,17 +577,38 @@ def build_quest_map(qid="1.1.1"):
     # `timeLimit`. `label`/`nodeNumber` (used before) are NOT real keys and were ignored -- the
     # node label comes from `lab`. We author only labels here; the boss BCGEntity is left unset
     # (no offline enemy data yet), so the final tile is marked purely via `final`.
+    # A tile's `links` are the ABSOLUTE positions it can be moved to (its walkable neighbours).
+    # This is what makes movement possible at all: Gameboard.RequestMove(Direction) (@0xA54540)
+    # gates every move on Gameboard.IsMoveValid (@0xA547E4), which ends in
+    #     currentTile.links.Contains(player.position + GetOffsetFromDirection(dir))
+    # (links is MapTile @0x58; the tail call at 0xA548B4 is the List<Vector2>.Contains). With no
+    # links the Contains is always false, so RequestMove returns before ever posting a move --
+    # which is why the board sat inert (no node response, no client traffic at all).
+    # `links` is NOT in MapTileJSONKeys; MapTile.Deserialize reads it late (+0xf3c) through
+    # Tools.GetVector2List (@0x1242828) using a metadata-indexed literal. Harvested live with a
+    # temp hook on GetVector2List: the keys are exactly `links`, `visibleLinks` and `bt`
+    # (buffTargets), and every tile we authored was logged as `links count=0`.
+    # `visibleLinks` mirrors links (it drives the drawn path segments between nodes).
+    # Direction offsets (float tables @0x22754e0/@0x2275500, dir order N,S,E,W,NW,NE,SW,SE) are
+    # N=(0,-1) S=(0,+1) E=(+1,0) W=(-1,0) -- x is the GetTile row, y the column. Our path runs
+    # down the middle column (y=1) varying the row, so a step along it is EAST/WEST.
+    def links_for(row, col):
+        if col != 1:
+            return []
+        return [{"x": r, "y": 1} for r in (row - 1, row + 1) if 0 <= r < dim]
+
     grid = []
     for row in range(dim):
         r = []
         for col in range(dim):
             if col == 1:
+                lk = links_for(row, col)
                 if row == 0:
-                    r.append(tile(start=True, lab="Start"))
+                    r.append(tile(start=True, lab="Start", links=lk, visibleLinks=lk))
                 elif row == dim - 1:
-                    r.append(tile(final=True, lab="Boss"))
+                    r.append(tile(final=True, lab="Boss", links=lk, visibleLinks=lk))
                 else:
-                    r.append(tile(lab="Node %d" % row))
+                    r.append(tile(lab="Node %d" % row, links=lk, visibleLinks=lk))
             else:
                 r.append(tile(walkable=False, hidden=True))
         grid.append(r)
@@ -679,9 +703,17 @@ def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
         "data": build_quest_summary(qid, set_id),
         "map": qmap,
     }
-    # The instance dict IS the QuestProgression wire data (QuestProgression..ctor reads its keys
-    # directly). Author the player/progression so the board gets a local player + camera focus.
-    instance.update(build_quest_progression(qid))
+    # ActiveQuest..ctor (@0xC38BC8) builds the QuestProgression from
+    #   Dot.Object(<key>, instance)   (@0xC38FF4 -> stored to sp+0x50 -> QuestProgression..ctor x2)
+    # -- an instance-only read (no quest-level fallback, unlike the `data`/`map` reads just above
+    # it). So the progression wire data is a NESTED object on the instance, not flat instance keys:
+    # with it absent the ctor got data==null and every field fell back to its default, which is why
+    # currentPos read back as (0,0) live even though `QS O currentPos` appeared in the key log
+    # (Dot.Object still logs the key when obj is null). Keep the flat copy too -- harmless, and it
+    # is what the session-17 board-render milestone shipped with.
+    progression = build_quest_progression(qid)
+    instance["progression"] = progression
+    instance.update(progression)
     arr = [instance]
     return {
         "uniqueId": qid, "qid": qid, "id": qid,
@@ -707,6 +739,66 @@ def build_quest_begin(qid="1.1.1", set_id="story_act1", team=None):
     is a per-quest object (see build_active_quest)."""
     return {
         "activeQuests": {qid: build_active_quest(qid, set_id, team)},
+    }
+
+
+def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1)):
+    """POST /quests/quest-movedir/<qid>-<teamId>/<offX>/<offY> reply. This is what makes the
+    player VISIBLY move one tile on the board.
+
+    RESPONSE FLOW (disassembled this session):
+      QuestsAPI move callback -> QuestsManager.<>c__DisplayClass69_0.b__0(error, data) @0xCDD92C:
+        if String.IsNullOrEmpty(error) and displayClass.quest != null:
+          QuestsManager.ProcessActionResultsAndProgression(quest, data) @0xD65D88, which:
+            - ActiveQuest.AddActionResultsAndUpdateProgression(data, cb) @0xC3A278:
+                reads an ACTIONS array via EB.Dot.Array(<key>) @0xc3a320, iterates, each element
+                -> QuestActionResult..ctor(dict, activeQuest) @0xEA28BC (reads actionType via
+                Dot.Integer, actionPos via Dot.Object {x,y}, qid via Dot.String, ...); then reads a
+                progression-update object via Dot.Object(<key>) @0xc3a414; ProcessPendingUpdates.
+            - then EB.Dot.Object(<teamData key>, data) @0xd65e70 -> QuestsManager.UpdateActiveTeam.
+      The LIVE `data` (=response result) was read (QS log) for keys `results`, `progression`,
+      `teamData` -- so those are the top-level result keys. With an empty {} result the upstream
+      handler found `results`==null and never called ProcessActionResults (AddActionResults' init
+      flag @0x2e3c562 read back 0 = never ran), so NO move. This authors all three.
+
+    Action.Type is NOT a plain integer field on the wire. QuestActionResult..ctor reads a nested
+    container element["action"], then probes ~11 nested VARIANT keys off it; the FIRST non-null
+    variant sets actionType by its slot index (variant "moveto" is slot 1 => MOVE_TO=1, "teleport"
+    slot 2, ... in the ctor's priority chain). The chosen variant object then supplies actionPos
+    via two Dot.Integer reads keyed "x"/"y", and actionTile = QuestMap.GetTile(actionPos).
+
+    The three literals were resolved live from the running process memory (the il2cpp string-literal
+    slots are DOUBLE-indirect: `ldr x8,[slot]; ldr x0,[x8]` -> Il2CppString*): key0="action",
+    variant key1="moveto", position keys "x"/"y"."""
+    sx, sy = start
+    nx, ny = sx + int(offx), sy + int(offy)          # new tile (row, col)
+
+    # A single MOVE_TO action. The exact nested shape the ctor descends:
+    #   { "action": { "moveto": { "x": <row>, "y": <col> } } }
+    # element["action"]  -> the variant container (x23)
+    # ["moveto"]         -> non-null => actionType = MOVE_TO (1)
+    # ["x"],["y"]        -> the absolute destination tile => actionPos -> GetTile -> actionTile
+    action = {
+        "action": {
+            "moveto": {"x": nx, "y": ny},
+        },
+    }
+    actions = [action]
+
+    # Updated progression: player now on the new tile; old tile cleared/revealed.
+    prog = build_quest_progression(qid, start=(nx, ny))
+    prog["cleared"] = [{"x": sx, "y": sy}]
+    prog["revealed"] = [{"x": r, "y": 1} for r in range(3)]
+
+    # teamData -> QuestsManager.UpdateActiveTeam. Reuse the active-team shape; harmless if unread.
+    team_data = build_active_team("%s-0" % qid)
+
+    return {
+        # `results` is the AddActionResultsAndUpdateProgression Dot.Array key (live-confirmed);
+        # `progression` + `teamData` are the other two top-level result keys it reads.
+        "results": actions,
+        "progression": prog,
+        "teamData": team_data,
     }
 
 
