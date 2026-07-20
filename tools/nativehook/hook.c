@@ -242,6 +242,11 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // the RGCTX pointer is missing, so restoring it lets cb.Invoke(obj) (the real add-to-squad
     // callback) run. Same targeted-arg-fix approach as SETACTFIX (slot 58).
     { 0x152B570, "FIXWRAPMI", 2, 0 }, // 77 SafeAction.<Wrap>b__0<object> -> restore null gshared MethodInfo
+    // STORY encounter discovery: MapTile.Deserialize calls this factory once for every
+    // entry in tile["entities"]. Log the two parsed type strings and the returned runtime
+    // class so authored enemy data can be verified without guessing which of boss/tower/bcg
+    // selected the BCGEntity constructor.
+    { 0xEF28CC, "NEWENTITY", 2, 0 }, // 78 Quests.Builder.NewEntity(baseType,entityType,...)
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -533,6 +538,35 @@ void* hook_77(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     }
     return H[77].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+// slot 78 NEWENTITY: Quests.Builder.NewEntity(this=a0, baseType=a1, entityType=a2,
+// position in v0, extraData=a3). The generic fn8 prototype cannot name the float registers,
+// but the two type strings completely identify which constructor branch is selected. The
+// returned object's class name confirms whether the result is Quests.BCGEntity or the base
+// EB.Missions.Entity fallback.
+void* hook_78(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    char base[80], type[80];
+    PROTECT(
+        if(!read_str(a1,base,sizeof base)) strcpy(base,"<null>");
+        if(!read_str(a2,type,sizeof type)) strcpy(type,"<null>");
+        flog("NEWENTITY request base='%s' type='%s'", base, type);
+    );
+    void* r = H[78].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT(
+        char cls[80]; cls[0]=0; uintptr_t p=(uintptr_t)r;
+        if(p>=0x100000 && !(p&7)){
+            uintptr_t k=*(uintptr_t*)p;
+            if(k>=0x100000 && !(k&7)){
+                char* n=*(char**)(k+0x10); int i=0;
+                if((uintptr_t)n>=0x100000) for(;i<(int)sizeof(cls)-1;i++){
+                    char c=n[i]; if(c<=0||c>=127) break; cls[i]=c;
+                }
+                cls[i]=0;
+            }
+        }
+        flog("NEWENTITY result=%p class='%s'", r, cls[0]?cls:"<unknown>");
+    );
+    return r;
+}
 // slot 45 HEROBASE: BCGHeroBase..ctor(this=a0, IDictionary=a1). Bracket the ctor with
 // g_inhb so slots 5/6/8/53/54/55 tag every field key read inside it as "HB <tag> <key>".
 // One ==HEROBASE== marker pair per parsed (blueprint,rank) BCGHeroBase entry.
@@ -700,7 +734,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_44,hook_45,hook_46,hook_47,hook_48,hook_49,hook_50,hook_51,hook_52,
     hook_53,hook_54,hook_55,hook_56,hook_57,hook_58,
     hook_59,hook_60,hook_61,hook_62,hook_63,hook_64,hook_65,hook_66,
-    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77 };
+    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77,hook_78 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
