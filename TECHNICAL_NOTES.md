@@ -161,12 +161,32 @@ drives damage offline, and it now carries authored constants instead of a bare s
 per-bot ability definitions are still the open frontier — the balance table has numbers,
 but individual special-move effects remain to be authored.
 
+## STORY board movement milestone
+
+The first authored mission now reaches an interactive board with a live 3D squad leader.
+Three details were required beyond rendering the map itself:
+
+- `activeTeams[*].heroes` is a dictionary keyed by bot id, not an array. That gives
+  `QuestPlayerController` a lead character to load.
+- Each map tile carries absolute `links` and `visibleLinks` vectors. The client rejects a
+  move locally unless the destination appears in the current tile's `links` list.
+- `/quests/quest-movedir/<qid>-<teamId>/<offX>/<offY>` returns `results`, `progression`, and
+  `teamData`. A move result is shaped as
+  `{"action":{"moveto":{"x":row,"y":column}}}`. The fake server retains the current tile
+  per quest because subsequent requests contain only a direction, not an absolute origin.
+
+The live client has accepted consecutive moves from `(0,1)` to `(1,1)` and then `(2,1)`,
+animated the bot between nodes, refreshed reachability, and changed explored progress from
+0% through 33% to 66%. See `media/story-board-second-move.mp4`.
+
 ## Known remaining frontiers
 
 1. Live 3D content rendering under an emulator. The models do render, but this area is
 sensitive to the emulator graphics backend and to texture compression settings. This is a
 graphics matter, not a data matter.
 
-2. The server content database. Quests, maps, opponents, the full roster numbers, the
-abilities, and the economy. This is the large reconstruction effort, and it is the actual
-revival.
+2. The final STORY tile needs an enemy `BCGEntity` and the server-side battle contract that
+turns arrival into an encounter. This is the next narrow target.
+
+3. The wider server content database: more quests and maps, opponent lineups, per-bot
+abilities, rewards, persistence, and the economy.
