@@ -17,16 +17,23 @@ live servers anywhere. From the home screen the menus navigate without crashing:
 base, the bots roster (with an owned bot present in the account), the fight mode select,
 the crystals screen, and the usual popups and tips. The full login flow completes, every
 online subsystem connects, and the first time experience and tutorial gates are cleared.
-The scripted intro fight (Optimus vs Starscream) even gets far enough to begin loading
-the battle, and the 3D character models render and animate.
+The scripted intro fight (Optimus vs Starscream) is playable through its light-attack
+tutorial, including live 3D characters and combat controls.
+
+The first authored STORY mission also works through its mission-board phase. The real client
+renders the STORY act/chapter/mission UI, accepts a selected squad, loads the primordial board,
+spawns the squad's lead bot, draws reachable paths, and sends movement requests when a node is
+tapped. The offline server applies those requests authoritatively, and the bot visibly walks
+between nodes while the explored percentage and reachable-node state update. The milestone
 
 This was the hard part and it is solved. The client itself is alive again offline.
 
 
 ## What does not work, and why
 
-Actual gameplay does not work. Story shows no missions, and fights cannot fully load.
-This is not a bug and it is not something a patch can fix.
+The authored STORY board does not yet transition into a mission fight. Its final tile currently
+has no enemy `BCGEntity`, battle payload, or result handling, so reaching that tile leaves the bot
+on the board at 66% explored. Reconstructing that enemy/battle contract is the next concrete gate.
 
 Forged to Fight was fully server authoritative. The app on the phone is essentially a
 screen with controls. Almost nothing about the game lived in the app. Every mission, every

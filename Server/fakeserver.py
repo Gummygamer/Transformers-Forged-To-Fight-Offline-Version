@@ -23,6 +23,13 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LOGFILE = os.path.join(LOG_DIR, "requests.log")
 _lock = threading.Lock()
 
+# Minimal server-authoritative quest state. quest-movedir only sends a direction,
+# not the player's absolute position, so remembering the last accepted tile is
+# required for a second move to advance beyond the first node. A fresh quest-begin
+# resets the corresponding mission to its authored start tile.
+_quest_positions = {}
+_quest_state_lock = threading.Lock()
+
 # Tutorials whose interactive "prompt" branch infinite-loops the main thread offline.
 # We return an error envelope for these so the flow aborts gracefully instead of freezing.
 BLOCK_TUTORIALS = {"ShieldTutorial"}
@@ -165,6 +172,36 @@ class H(http.server.BaseHTTPRequestHandler):
                 result = gamedata.build_quest_begin(qid, set_id, team)
             else:
                 result = {"activeQuests": []}
+            with _quest_state_lock:
+                _quest_positions[qid] = (0, 1)
+            return json.dumps({"error": None, "result": result}).encode()
+
+        # quests/quest-movedir/<qid>-<teamId>/<offX>/<offY>: tapping a reachable board node POSTs
+        # this. The response must carry results/progression/teamData so the client's
+        # ProcessActionResultsAndProgression -> AddActionResultsAndUpdateProgression runs and the
+        # player animates one tile. See gamedata.build_quest_movedir.
+        if "/quests/quest-movedir/" in p:
+            parts = p.rsplit("/", 3)   # [..., "<qid>-<teamId>", "<offX>", "<offY>"]
+            team_seg, offx, offy = parts[-3], parts[-2], parts[-1]
+            qid = team_seg.rsplit("-", 1)[0]   # "1.1.1-0" -> "1.1.1"
+            try:
+                offx_i, offy_i = int(offx), int(offy)
+            except Exception:
+                offx_i, offy_i = 1, 0
+            with _quest_state_lock:
+                start = _quest_positions.get(qid, (0, 1))
+                candidate = (start[0] + offx_i, start[1] + offy_i)
+                # The authored 1.1.1 map is a three-node vertical path in map
+                # coordinates (x=0..2, y=1). Ignore impossible directions rather
+                # than corrupting progression with an out-of-map position.
+                if 0 <= candidate[0] < 3 and candidate[1] == 1:
+                    _quest_positions[qid] = candidate
+                else:
+                    offx_i = offy_i = 0
+            if gamedata is not None:
+                result = gamedata.build_quest_movedir(qid, offx_i, offy_i, start=start)
+            else:
+                result = {}
             return json.dumps({"error": None, "result": result}).encode()
 
         # bcg/setSavedTeam: echo a BCGUserData-shaped update so the saved team is reflected
