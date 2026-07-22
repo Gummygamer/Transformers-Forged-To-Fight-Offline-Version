@@ -7,6 +7,7 @@ walking its request sequence. This is both the probe harness and the seed of the
 real fake server.
 """
 import http.server, socketserver, ssl, os, sys, json, threading, datetime
+import urllib.parse
 
 try:
     import gamedata  # authored roster + combat curve (single source of truth)
@@ -67,6 +68,29 @@ class H(http.server.BaseHTTPRequestHandler):
         the request's `tid`; their client callback does UpdateTutorialData(result)
         then _userData.get_Item(tid), which KeyNotFounds unless result[tid] exists."""
         p = path.split("?")[0]
+
+        # TuningGameplay subscribes after the account-data config event, so repeat the
+        # missions config through the periodic grouped autorefresh path. The response
+        # shape is AutoRefreshingUpdate's exact Dot field contract; unrelated groups
+        # are omitted and retain the fake server's existing fallback behavior.
+        if p.endswith("/autorefresh/grouprefresh") and gamedata is not None:
+            query = urllib.parse.parse_qs(
+                urllib.parse.urlsplit(path).query, keep_blank_values=True
+            )
+            group_names = {
+                value
+                for key, values in query.items()
+                if key.startswith("groups.") and key.endswith(".name")
+                for value in values
+            }
+            updates = []
+            if "missionsconfig" in group_names:
+                updates.append(gamedata.build_missions_autorefresh_update())
+            return json.dumps(
+                {"error": None, "result": {"updates": updates}},
+                separators=(",", ":"),
+            ).encode()
+
         tut_eps = ("/tutorial/start-tutorial", "/tutorial/start-branch",
                    "/tutorial/early-start-branch", "/tutorial/complete-tutorial")
         if any(p.endswith(e) for e in tut_eps):

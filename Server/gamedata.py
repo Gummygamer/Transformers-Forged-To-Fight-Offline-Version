@@ -20,8 +20,8 @@ WHY IT IS SEPARATE
 Keeping the content here (instead of inline in fakeserver.py or scattered across
 hand-edited JSON files) makes the roster and balance easy to extend the way the
 README describes: add a row, run `python gamedata.py`, verify against the client,
-repeat. `build_responses()` regenerates the roster-driven response files from this
-one source so they can never drift out of sync.
+repeat. `build_responses()` regenerates the roster-driven response files and merges
+the authored combat tuning into account data so they can never drift out of sync.
 
 The character id list is taken from re_notes/ASSET_INVENTORY.txt -- these are the
 bundles that already ship in the app, so their art exists; only the numbers were
@@ -284,28 +284,95 @@ def build_characters():
 
 
 def build_attack_values():
-    """`attackValues` combat balance table. The proven response ships a single
-    'default' entry with keys a/m/c/d/p; the client falls back to it for any move
-    without a specific entry, so 'default' is what actually drives damage offline.
+    """`attackValues` rows used by normal attacks in live combat.
 
-    We keep 'default' and add authored per-class rows (same shape) so the balance is
-    documented and tunable. Every number here is ORIGINAL -- Kabam's real attackValues
-    table was server-side and is gone (see TECHNICAL_NOTES 'Why combat is the wall')."""
-    def av(a, m, c, d, p):
-        # a: base attack multiplier   m: special-move multiplier
-        # c: crit chance (0..1)        d: crit damage multiplier
-        # p: penetration / chip factor
-        return {"a": a, "m": m, "c": c, "d": d, "p": p}
+    PlayerAttributes.GetAttackPercent converts AttackLevel through EnumMap and performs
+    a case-sensitive dictionary lookup with the .NET enum names below. A missing row
+    returns 0 -- there is no ``default`` fallback -- which makes hits animate without
+    reducing health. Special attacks use the blueprint's s1/s2/s3 fields instead.
 
-    table = {"default": av(1.0, 1.0, 0.05, 1.5, 0.0)}
-    # Authored class flavour for combat, mirroring the stat-curve intent.
-    table["braw"] = av(1.00, 1.05, 0.04, 1.5, 0.05)
-    table["tact"] = av(1.00, 1.00, 0.05, 1.5, 0.00)
-    table["scou"] = av(1.05, 1.00, 0.10, 1.6, 0.00)
-    table["demo"] = av(1.00, 1.10, 0.05, 1.5, 0.08)
-    table["warr"] = av(1.10, 1.05, 0.06, 1.7, 0.00)
-    table["tech"] = av(0.98, 1.00, 0.05, 1.5, 0.10)
-    return table
+    BCGAttackValue parses id/a/m/c/d/p as attack id, damage percent, mana gain, critical
+    chance, critical damage, and critical pierce. All values are ORIGINAL authored
+    balance, not recovered Kabam data.
+    """
+    def av(attack_id, percent, mana_gain, crit_chance, crit_damage, crit_pierce):
+        return {
+            "id": attack_id,
+            "a": percent,
+            "m": mana_gain,
+            "c": crit_chance,
+            "d": crit_damage,
+            "p": crit_pierce,
+        }
+
+    return {
+        "Light": av("Light", 0.35, 0.08, 0.05, 1.5, 0.0),
+        "Medium": av("Medium", 0.60, 0.10, 0.05, 1.5, 0.0),
+        "Heavy": av("Heavy", 1.00, 0.15, 0.05, 1.5, 0.05),
+        "Ranged": av("Ranged", 0.40, 0.08, 0.05, 1.5, 0.0),
+    }
+
+
+def build_missions_config():
+    """Mission combat tuning consumed by ``TuningGameplay``.
+
+    The client selects this config with the exact runtime mode ``bcg-combat``. A
+    positive armor constant is required even while authored heroes have zero armor:
+    GetArmorDR computes ``armor / (abs(armor) + constant)``, so the default 0/0
+    becomes NaN and causes GetDamageReceived to clamp every hit to zero.
+    """
+    return {
+        "configsHash": "offline-v1",
+        "configs": {
+            "bcg-combat": {
+                "armorRatingConstant": 1000.0,
+            },
+        },
+    }
+
+
+def build_missions_autorefresh_result():
+    """Direct ``/autorefresh/missionsconfig/refresh`` result.
+
+    ``refresh`` is an absolute client/server time, not a delay. Zero deliberately
+    keeps this manager due so grouped refreshes repeat the config after combat's
+    ``TuningGameplay`` object has subscribed to config changes.
+    """
+    return {
+        "check": "offline-v1",
+        "refresh": 0,
+        "cache": False,
+        # Direct refresh data is keyed by manager name. Grouped updates use the
+        # generic ``data`` field built below.
+        "missionsconfig": build_missions_config(),
+    }
+
+
+def build_missions_autorefresh_update():
+    """Missions-config entry in an autorefresh ``updates`` list."""
+    result = build_missions_autorefresh_result()
+    return {
+        "name": "missionsconfig",
+        "error": "",
+        "check": result["check"],
+        "locHash": "",
+        "refresh": result["refresh"],
+        "data": result["missionsconfig"],
+        "cache": result["cache"],
+    }
+
+
+def build_missions_account_data():
+    """Account bootstrap consumed by both ConfigManager and its refresh base class.
+
+    Login passes this object directly to ``ConfigManager.OnData``, which reads the
+    top-level config fields. ``AutoRefreshingManager.Connect`` later reuses the same
+    object as a refresh response, so it also needs refresh metadata plus nested data
+    to make missionsconfig eligible for grouped refreshes.
+    """
+    account_data = build_missions_config()
+    account_data.update(build_missions_autorefresh_result())
+    return account_data
 
 
 _CLASS_NAMES = {
@@ -908,9 +975,11 @@ def build_base_hero_details(req_heroes):
 
 
 def build_responses():
-    """Regenerate the roster-driven canned response files from this single source.
-    Run this after editing ROSTER. Only touches the two roster files; the auth /
-    account / tutorial responses are left as hand-tuned files."""
+    """Regenerate roster responses and merge authored combat tuning into account data.
+
+    Account data remains otherwise hand-tuned: only its ``missionsconfig`` member is
+    replaced, leaving auth, resources, featured-hero, and tutorial data untouched.
+    """
     env = lambda result: json.dumps({"error": None, "result": result},
                                      separators=(",", ":"))
     targets = {
@@ -922,6 +991,21 @@ def build_responses():
         with open(path, "w", encoding="utf-8") as f:
             f.write(env(result))
         print(f"wrote {fname}  ({len(OWNED) if 'UserData' in fname else len(ROSTER)} entries)")
+
+    account_path = os.path.join(RESP_DIR, "GET__account_data.json")
+    with open(account_path, encoding="utf-8") as f:
+        account = json.load(f)
+    account["result"]["missionsconfig"] = build_missions_account_data()
+    with open(account_path, "w", encoding="utf-8") as f:
+        f.write(json.dumps(account, separators=(",", ":")))
+    print("updated GET__account_data.json missionsconfig")
+
+    refresh_path = os.path.join(
+        RESP_DIR, "GET__autorefresh_missionsconfig_refresh.json"
+    )
+    with open(refresh_path, "w", encoding="utf-8") as f:
+        f.write(env(build_missions_autorefresh_result()))
+    print("wrote GET__autorefresh_missionsconfig_refresh.json")
 
 
 if __name__ == "__main__":
