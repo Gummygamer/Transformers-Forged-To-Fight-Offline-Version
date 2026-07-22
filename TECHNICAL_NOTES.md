@@ -156,10 +156,29 @@ character, and owned-hero JSON keys are exactly the shapes proven to parse (the 
 the original three-entry seed used); `entity_type`/`et` stays `bot` per the roster gotcha
 above, and the msa values of the three original seed entries are preserved so the intro
 fight is not regressed. `fakeserver.py`'s `/bcg/getBaseHeroData` handler computes stats
-from the same curve. This is groundwork for combat: the `attackValues.default` row is what
-drives damage offline, and it now carries authored constants instead of a bare stub. The
-per-bot ability definitions are still the open frontier — the balance table has numbers,
-but individual special-move effects remain to be authored.
+from the same curve. Normal combat damage requires case-sensitive `attackValues` rows named
+`Light`, `Medium`, `Heavy`, and `Ranged`; `PlayerAttributes.GetAttackPercent` returns zero
+when a row is absent and does not fall back to `default`. The table now carries an authored
+row for every normal attack level. A second independent input is required in account data:
+the `missionsconfig.configs["bcg-combat"].armorRatingConstant` value consumed by
+`TuningGameplay`. `PlayerAttributes.GetArmorDR` divides armor by
+`abs(armor) + armorRatingConstant`; zero authored armor and a missing (zero) constant produce
+`0/0 = NaN`, after which `GetDamageReceived` clamps otherwise-positive damage to zero. The
+authored positive constant keeps armor reduction finite, allowing landed hits to reduce
+health. Both the `bcg-combat` mode name and the `armorRatingConstant` key were confirmed from
+the live client; the number itself is original offline balance data.
+
+The missions-config account member deliberately satisfies two client contracts. Its top-level
+`configsHash` and `configs` fields feed `ConfigManager.OnData`, while `check`, `refresh`,
+`cache`, and the nested `missionsconfig` field let `AutoRefreshingManager.Connect` replay the
+same object as a direct refresh result after `TuningGameplay` has subscribed. A direct refresh
+uses the manager name (`missionsconfig`) for its data field; a grouped refresh update instead
+uses the generic `data` field. The fake server also emits that exact grouped update whenever a
+client includes `missionsconfig` in `/autorefresh/grouprefresh`. In the successful emulator run,
+periodic grouped requests did not include that manager, but the account bootstrap replay was
+sufficient: the native trace recorded non-null `CONFIGDATA`, then `TUNECHANGE` for
+`bcg-combat`. The per-bot ability definitions are still the open frontier — the balance table
+has numbers, but individual special-move effects remain to be authored.
 
 ## STORY board movement milestone
 
@@ -212,8 +231,15 @@ interactive 3D arena. Attack input visibly animates the fighters; the HUD shows 
 Optimus Primal and Sharkticon names, ratings, and full health bars. This is live-verified in
 `media/story-live-3d-combat.png` and the 18-second `media/story-live-3d-combat.mp4` capture. The
 remaining identity bug is equally specific: the player HUD says Optimus Primal, but the player
-currently renders with the Sharkticon model. A specialized activation payload and the later
-battle-result/progression endpoints have not yet been reconstructed.
+currently renders with the Sharkticon model.
+
+Mission-fight completion is now live-verified as well. With the authored attack rows and armor
+constant loaded, the trace reports finite `armordr=0`, positive `DMGREC out` values, and
+`APPLYDMG` transitions all the way from Sharkticon's `2750` health to `0`. The client then posts
+`/matches/resolve-match/quests_fight` with `result: "WON"`, `enemyHealth: 0`, and telemetry that
+records all 2750 enemy HP lost, and it returns to the mission board. The generic success envelope
+is sufficient for this result submission. A local verification capture is stored under `media/`,
+which remains ignored and must never be committed.
 
 ## Known remaining frontiers
 
@@ -222,8 +248,9 @@ model even though the player HUD and selected hero are Optimus Primal. Trace the
 fighter-data source and replace the generic `/matches/activate-match/quests_fight` response with
 the exact contract if required.
 
-2. Reconstruct and verify fight completion, result submission, quest progression, and rewards.
-The launch path and interactive arena now work; the post-fight path is untested.
+2. Persist completed quest progression and rewards after a resolved fight. Combat and result
+submission now finish, but the authored fake server does not yet retain completion across
+sessions or implement the full reward contract.
 
 3. The wider server content database: more quests and maps, opponent lineups, per-bot
 abilities, rewards, persistence, and the economy.
