@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Provision a non-rooted Android phone over USB for the phone-specific APK.
+# Install and launch the phone-specific APK. USB mode also creates adb reverse
+# forwarding; wifi mode only needs ADB for this initial install/launch.
 set -euo pipefail
 
 ADB="${ADB:-/home/darabat/Android/Sdk/platform-tools/adb}"
@@ -10,6 +11,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 APK="${APK:-$HERE/../build/Transformers-9.2-offline-phone.apk}"
 ALLOW_UNVERIFIED_ADB="${ALLOW_UNVERIFIED_ADB:-0}"
 UPDATE_APK="${UPDATE_APK:-0}"
+CONNECTION_MODE="${CONNECTION_MODE:-usb}"
+
+if [[ "$CONNECTION_MODE" != usb && "$CONNECTION_MODE" != wifi ]]; then
+  echo "CONNECTION_MODE must be 'usb' or 'wifi'." >&2
+  exit 1
+fi
 
 if [[ -n "$D" ]]; then
   ADB_TARGET=("$ADB" -s "$D")
@@ -73,16 +80,27 @@ EOF
   fi
 fi
 
-echo "[*] reverse phone ports :8443/:8080 to matching laptop ports"
-"${ADB_TARGET[@]}" reverse tcp:8443 tcp:8443
-"${ADB_TARGET[@]}" reverse tcp:8080 tcp:8080
-"${ADB_TARGET[@]}" reverse --list
+if [[ "$CONNECTION_MODE" == usb ]]; then
+  echo "[*] reverse phone ports :8443/:8080 to matching laptop ports"
+  "${ADB_TARGET[@]}" reverse tcp:8443 tcp:8443
+  "${ADB_TARGET[@]}" reverse tcp:8080 tcp:8080
+  "${ADB_TARGET[@]}" reverse --list
+else
+  echo "[*] Wi-Fi/LAN mode: no adb reverse forwarding"
+fi
 
 echo "[*] launch game"
 "${ADB_TARGET[@]}" shell am force-stop "$PKG"
 "${ADB_TARGET[@]}" shell am start -n "$PKG/$ACTIVITY" >/dev/null
 
-cat <<'EOF'
-[+] Phone provisioned and game launched.
+if [[ "$CONNECTION_MODE" == usb ]]; then
+  cat <<'EOF'
+[+] Phone provisioned and game launched in USB mode.
 Keep Server/run_local.py running and keep USB debugging connected while playing.
 EOF
+else
+  cat <<'EOF'
+[+] Phone provisioned and game launched in Wi-Fi/LAN mode.
+Keep Server/run_local.py running. The USB cable may now be disconnected.
+EOF
+fi
