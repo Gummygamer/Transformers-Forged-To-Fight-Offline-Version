@@ -178,20 +178,46 @@ root and writable system), Python on the PC, and the items from the section abov
 6. Wait about 45 seconds, then tap the title screen to log in. You should reach the home
    screen.
 
+### Running on a non-rooted phone over Wi-Fi (no USB while playing)
+
+The phone and laptop can communicate directly over the same Wi-Fi/LAN. The APK must be
+built with the laptop's LAN IPv4 address because a stock phone cannot override the dead
+Kabam DNS names. For example, if the laptop is `192.168.0.139`:
+
+1. Build the LAN variant:
+   `python3 Server/build_phone_apk.py --server-host 192.168.0.139 "Transformers 9.2 offline.apk" build/phone-wifi-unsigned.apk`.
+2. Align and sign it with Android build-tools:
+   `zipalign -f -p 4 build/phone-wifi-unsigned.apk build/phone-wifi-aligned.apk`, then
+   `apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/Transformers-9.2-offline-phone-wifi.apk build/phone-wifi-aligned.apk`.
+3. Start `python3 Server/run_local.py` on the laptop. It listens on every network interface
+   at HTTPS port 8443 and HTTP port 8080. Allow those two TCP ports through the laptop's
+   firewall for the private LAN if a firewall is enabled.
+4. Install once over USB with
+   `CONNECTION_MODE=wifi UPDATE_APK=1 APK=build/Transformers-9.2-offline-phone-wifi.apk Server/provision_phone.sh`.
+   The update preserves game data when the installed app uses the same signing key. You can
+   instead transfer and install the signed APK by another trusted local method.
+5. Disconnect USB. Keep the fake server running and keep the phone and laptop on the same
+   LAN while playing.
+
+The embedded address must remain assigned to the laptop. A DHCP reservation is recommended;
+if the address changes, rebuild and update the APK with the new address. Guest Wi-Fi networks
+often isolate clients from one another and will not work. The native validation patches accept
+the local server certificate, so installing a CA on the phone is not required.
+
 ### Running on a non-rooted phone over USB
 
 Retail phones cannot use the emulator's root-only hosts and system-CA bind mounts. Build a
 phone variant that redirects the embedded backend names to loopback and uses Android's
 owner-installed CA trust, then use ADB reverse to carry the traffic over USB:
 
-1. Run `python Server/build_phone_apk.py "Transformers 9.2 offline.apk" build/phone-unsigned.apk`.
+1. Run `python3 Server/build_phone_apk.py "Transformers 9.2 offline.apk" build/phone-unsigned.apk`.
    The builder also injects the current `tools/nativehook/libdothook.so`, so phone builds
    include the same gameplay fixes tested on the emulator.
 2. Sign the result with Android `apksigner`, writing
    `build/Transformers-9.2-offline-phone.apk`. The generated local build uses your Android
    debug key. If a differently signed build of the same package is already installed, it
    must be uninstalled first; doing so erases that installation's local game data.
-3. Start `python Server/run_local.py` on the laptop.
+3. Start `python3 Server/run_local.py` on the laptop.
 4. Connect and authorize exactly one physical phone, then run `Server/provision_phone.sh`.
    If Play Protect rejects this locally modified APK with
    `INSTALL_FAILED_VERIFICATION_FAILURE`, review the APK and rerun the first installation as
