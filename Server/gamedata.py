@@ -243,6 +243,15 @@ def build_blueprints():
             # FriendlyName / FriendlyNameShort -- non-null so SetScreenType's tile setup
             # doesn't deref a null name (see display_name).
             "name": name, "name_s": name,
+            # m/mdl -> BCGBlueprintBase.ModelID (_modelID@0x40). This is the field the combat
+            # actor loader (CharacterWorldLoader.LoadActor(blueprint)) uses to mount the 3D
+            # mesh bundle. It was NEVER emitted here, so every fighter loaded the generic
+            # placeholder mech. Author the full-bid model id (see model_id) so the player's
+            # Optimus and each enemy render their real character mesh. i/img keeps the SHORT
+            # portrait base; ma/map_asset mirrors the model id for the questboard marker.
+            "m": model_id(bid), "mdl": model_id(bid),
+            "i": art_base(bid), "img": art_base(bid),
+            "ma": model_id(bid), "map_asset": model_id(bid),
             # s1/s2/s3: transform/special-attack damage ratios (see
             # special_damage_ratios). Above every normal-attack percent so a transform
             # out-damages punches and kicks.
@@ -255,11 +264,41 @@ def build_blueprints():
 
 
 def art_base(bid):
-    """Short art base for a bot id, used for portrait/model asset names. The real art
+    """Short art base for a bot id, used for PORTRAIT asset names. The real portrait art
     is keyed by a short base (e.g. bid 'arcee_gs_deluxe2014' -> art 'arcee_gs'); we
     approximate it by taking the first two underscore tokens (name_faction)."""
     parts = bid.split("_")
     return "_".join(parts[:2]) if len(parts) >= 2 else bid
+
+
+# A few bots have no mesh bundle of their own and must borrow another character's mesh.
+# The scripted first-time-experience (FTE) fighters are variant ids (fte_optimus_gs_t3 /
+# fte_stars_gs_t3) that the game reuses for the intro Optimus-vs-Starscream duel, but the
+# APK ships no fte_* asset bundle -- so their model id must point at a real mesh or the intro
+# Optimus loads the generic placeholder. Optimus -> the movie Optimus Prime bundle; Starscream
+# -> skywarp (the same Seeker jet mold, the closest shipped mesh; there is no Starscream bundle).
+_MODEL_OVERRIDE = {
+    "fte_optimus_gs_t3": "optimusprime_cin_tf",
+    "fte_stars_gs_t3": "skywarp_gs_leader2015",
+}
+
+
+def model_id(bid):
+    """3D model / mesh asset id for a bot -- the id the client feeds to the actor loader
+    to pick which character asset bundle to mount in live combat (and on the questboard).
+
+    Unlike the 2D portrait (art_base, a SHORT name), the combat MESH bundle is named by the
+    FULL bid: each character ships as `assets/assetpack/<bid>_odr/<bid>.assetbundle` with the
+    ODR toc bundle key == <bid> (verified against the extracted APK, e.g.
+    optimusprime_cin_tf_odr/optimusprime_cin_tf.assetbundle). CharacterWorldLoader.LoadActor
+    reads BCGBlueprintBase.ModelID (_modelID@0x40, wire key m/mdl) to resolve that bundle.
+    When ModelID is empty (blueprints never authored it) or truncated to the short art_base
+    (optimusprime_cin), the bundle path does not exist, so EVERY fighter -- the player's
+    Optimus and the Sharkticon alike -- fell back to the same generic placeholder mech
+    (visible in media/mission-fight-*.mp4: both robots share one purple mesh). Returning the
+    full bid makes the loader mount the character's real mesh. A few variant ids that ship
+    no bundle of their own borrow a real character's mesh via _MODEL_OVERRIDE."""
+    return _MODEL_OVERRIDE.get(bid, bid)
 
 
 def display_name(bid):
@@ -298,9 +337,12 @@ def build_characters():
             # the roster tile's name label isn't a null string (see display_name).
             "name": name, "name_s": name,
             "sg": "", "gen": faction, "aip": "", "sps": "",
+            # i/img -> portrait (SHORT art base); m/mdl -> ModelID (the 3D combat mesh
+            # bundle, named by the FULL bid, see model_id). Truncating the model id to the
+            # short base pointed at a non-existent bundle and forced the placeholder mesh.
             "i": base, "img": base,
-            "m": base, "mdl": base,
-            "ma": base, "map_asset": base,
+            "m": model_id(bid), "mdl": model_id(bid),
+            "ma": model_id(bid), "map_asset": model_id(bid),
             "hc": faction, "hero_colour": faction,
         }
     return out
@@ -557,7 +599,10 @@ def build_hero_entry(bid, rank=1, level=1):
 # dump (dotkeys.log QDLIT): BCGUserSavedTeam..ctor(IDictionary) reads "sid" (-> TeamID) and
 # "heroes" (-> TeamHeroes). Each "heroes" element is a hero DICT parsed by
 # BCGHeroDetails..ctor(IDictionary) (a bare bid string throws InvalidCastException).
-DEFAULT_TEAM = ["optimusprimal_bw_mp32", "optimusprime_cin_tf", "megatron_g1_mp10"]
+# The lead (index 0) is the bot the player controls on-screen in the mission fight, so it is
+# Optimus Prime (optimusprime_cin_tf -- the iconic truck robot, whose real mesh now loads via
+# the model_id fix above), not Optimus Primal.
+DEFAULT_TEAM = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_g1_mp10"]
 BOSS_BLUEPRINT = "sharkticon_gs_brawler"
 
 
