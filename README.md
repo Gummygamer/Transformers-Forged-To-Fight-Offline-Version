@@ -1,10 +1,9 @@
 # Transformers: Forged to Fight, offline revival handoff
 
-This package contains a working offline boot of Transformers: Forged to Fight, plus
-every tool, patch, and reverse engineering note used to get there. It is meant to be
-picked up by someone who has the time and energy to take the next and much larger step,
-which is rebuilding the game's server side content from scratch. Everything here is
-documented so you do not have to start from zero the way I did.
+This package contains a working local offline revival of Transformers: Forged to Fight,
+plus the tools, patches, and reverse-engineering notes used to build it. It is a handoff
+for continuing the much larger task: authoring replacement server-side content from
+scratch. The original online service data is not included or reconstructed here.
 
 Read this whole file before you touch anything. The "Gotchas" section in particular will
 save you days.
@@ -12,30 +11,28 @@ save you days.
 
 ## What actually works right now
 
-The game boots completely offline and reaches its real interactive home screen with no
-live servers anywhere. From the home screen the menus navigate without crashing: the
-base, the bots roster (with an owned bot present in the account), the fight mode select,
-the crystals screen, and the usual popups and tips. The full login flow completes, every
-online subsystem connects, and the first time experience and tutorial gates are cleared.
-The scripted intro fight (Optimus vs Starscream) is playable through its light-attack
-tutorial, including live 3D characters and combat controls.
+The game boots completely offline and reaches the real interactive home screen without a
+live Kabam service. The base, roster, fight-mode selection, crystals screen, popups, and
+tips navigate without crashing. Login and first-time-experience gates complete locally.
+The scripted Optimus-versus-Starscream intro fight is playable through its light-attack
+tutorial, with live 3D characters and combat controls.
 
-The first authored STORY mission also works through its mission-board phase. The real client
-renders the STORY act/chapter/mission UI, accepts a selected squad, loads the primordial board,
-spawns the squad's lead bot, draws reachable paths, and sends movement requests when a node is
-tapped. The offline server applies those requests authoritatively, and the bot visibly walks
-between nodes while the explored percentage and reachable-node state update. The milestone
-
-This was the hard part and it is solved. The client itself is alive again offline.
+The local server also supplies a complete, authored STORY 1.1.1 loop: select a squad,
+enter the primordial board, move between reachable nodes, trigger the final boss,
+choose a bot on the native pre-fight screen, fight the Sharkticon, resolve a win, and
+return to the board. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attack rows
+and combat armor tuning allow landed hits to reduce health. The roster, hero details,
+team selection, and battle model IDs are generated from the same original data source,
+so combat uses the matching 3D mesh instead of a generic placeholder.
 
 
 ## What does not work, and why
 
-The authored STORY fight is playable but does not yet have completely correct fighter identity:
-the selected Optimus Primal has the right HUD name/rating but currently renders with the
-Sharkticon model. The specialized match-activation response, battle completion, quest progression,
-and reward handling also remain to be reconstructed and verified. Wider mission content, enemy
-lineups, abilities, rewards, persistence, and economy data are still intentionally sparse.
+This is a playable preservation sandbox, not a complete replacement for the original game.
+Only one small STORY path and one boss encounter are authored. Match resolution currently
+uses the minimal success response required to return to the board; completed progression,
+rewards, and quest state are not persisted. Per-bot ability effects, additional missions
+and enemy lineups, the economy, and most progression systems remain to be authored.
 
 Forged to Fight was fully server authoritative. The app on the phone is essentially a
 screen with controls. Almost nothing about the game lived in the app. Every mission, every
@@ -44,14 +41,11 @@ the balance lived on Kabam's servers and were streamed to the device each sessio
 the servers were shut down in early 2020 that content database went with them, and it was
 never released or publicly archived anywhere I can reach.
 
-So the situation is split cleanly in two. The art and audio survived, because they ship
-inside the app (see `re_notes/ASSET_INVENTORY.txt`). Every character is a full Unity asset
-bundle holding the model, textures, rig, animation clips, animator controllers, effects,
-and audio. The environments, buildings, UI, portraits, cutscenes, and dialogue are all
-there too. What did not survive is the data that told the game which of those assets to
-use, how to assemble them into a fight or a mission, and what every bot's numbers actually
-were. All the pieces are present. There is just nothing left that knows how to put them
-together. Rebuilding that is the whole job that remains.
+The client can load art and audio from a copy of the app that the operator supplies. What
+is missing is the server data that selected those assets, assembled fights and missions,
+and defined stats and abilities. This project supplies only new, hand-authored data in
+the shapes the client parses; it does not include the APK, game assets, original binaries,
+or captured game audiovisual material. See `COMPLIANCE.md` before extending it.
 
 
 ## How the offline boot works
@@ -68,9 +62,9 @@ Kabam.
    pop the "failed to log in" dialog. It also re-injects a single dependency entry (see the
    Gotchas section) so the runtime hook actually loads. The output is `libil2cpp.patched.so`.
 
-2. A fake Sparx server. `server/fakeserver.py` stands in for Kabam's backend. It listens on
+2. A fake Sparx server. `Server/fakeserver.py` stands in for Kabam's backend. It listens on
    TLS 443 and plain HTTP 80 and answers the game's API calls. Canned responses live in
-   `server/responses/`, one file per endpoint, named by method and path, for example
+   `Server/responses/`, one file per endpoint, named by method and path, for example
    `GET__account_data.json`. A few endpoints are answered dynamically in code rather than
    from a file, because the game expects them to echo values from the request (the tutorial
    endpoints and the hero detail endpoint). The response envelope is
@@ -91,7 +85,7 @@ Kabam.
    emulator restart, because those mounts do not survive a reboot.
 
 The data flow at runtime is: game makes an HTTPS call to a Kabam domain, the hosts file
-sends it to the PC, the fake server answers with a response from `server/responses/`, the
+sends it to the PC, the fake server answers with a response from `Server/responses/`, the
 patched library accepts the cert and the answer, and the hook logs what was read. That loop
 is how every screen in this build was brought up.
 
@@ -100,17 +94,21 @@ is how every screen in this build was brought up.
 
 ```
 README.md                     this file
-COMPLIANCE.md                 how the reconstructed content stays copyright- and security-compliant
+COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
   patch_il2cpp.py             the six native patches plus the dependency re-injection
   disasm_fn.py                helper: disassemble a function at an offset
   find_callers.py             helper: find callers of a function
   find_str_ref.py             helper: find references to a string
-server/
+Server/
   fakeserver.py               the fake Sparx server
-  gamedata.py                 authored roster + combat balance; regenerates the roster responses
+  gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
+  test_gamedata.py            verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
+  run_local.py                run the server on unprivileged phone-friendly ports
+  build_phone_apk.py          create an unsigned local-server APK for a stock phone
+  provision_phone.sh          install, launch, and configure USB or Wi-Fi phone use
   setup_device.sh             device side network and trust setup reference
   iterate.sh                  quick restart and capture loop
   responses/                  one JSON file per endpoint the game calls
@@ -134,7 +132,7 @@ re_notes/
   dump.cs                     the full IL2CPP dump: every class, method, and field in the game
   decomp_out.c                decompiled bodies of key functions
   decompile_targets.txt       the offsets worth decompiling
-  ASSET_INVENTORY.txt         what art and audio already ships inside the app
+  ASSET_INVENTORY.txt         inventory of asset identifiers in an operator-supplied app
 ```
 
 `re_notes/dump.cs` is the single most valuable file for the work that remains. It is the
@@ -148,11 +146,11 @@ to know what shape a response should be, the answer is in there.
 These were left out on purpose, because they are large, or copyrighted, or secret, or you
 should generate your own.
 
-- The APK itself (`com.kabam.bigrobot`, version 9.2.0). It is about 800 MB. Source your own
-  copy. The package name and version are in `TECHNICAL_NOTES.md`.
+- The APK itself (`com.kabam.bigrobot`, version 9.2.0). Source and use only a copy you are
+  entitled to use. The package name and version are in `TECHNICAL_NOTES.md`.
 - The original `libil2cpp.so` and the game assets. Both come straight out of the APK. Unzip
   the APK, the library is under `lib/arm64-v8a/`, the assets are under `assets/`.
-- The TLS cert and CA. Do not ship private keys. Run `server/gen_certs.sh` to make your own
+- The TLS cert and CA. Do not ship private keys. Run `Server/gen_certs.sh` to make your own
   matching pair, then point the device trust store at the new CA.
 - The patched library. Regenerate it: run `patches/patch_il2cpp.py` against the original
   `libil2cpp.so` from the APK.
@@ -160,6 +158,8 @@ should generate your own.
   `re_notes/dump.cs` from the APK's library and global metadata.
 - The Android NDK (r26 was used) and JDK 21, needed to build the hook and to run the Ghidra
   headless decompiler.
+- Anything under `media/` or `probe/`. Those are local screenshots and recordings, may contain
+  copyrighted game audiovisual content, are ignored by Git, and must never be added or committed.
 
 
 ## How to run what exists today
@@ -167,11 +167,11 @@ should generate your own.
 You need the APK installed on an ARM translation capable emulator (LDPlayer 9 was used, with
 root and writable system), Python on the PC, and the items from the section above.
 
-1. Generate certs once: `bash server/gen_certs.sh`.
-2. Build the patched library once: `python patches/patch_il2cpp.py path/to/original/libil2cpp.so --apply`.
+1. Generate certs once: `bash Server/gen_certs.sh`.
+2. Build the patched library once: `python3 patches/patch_il2cpp.py path/to/original/libil2cpp.so --apply`.
 3. Build the hook once if you want to rebuild it, otherwise use the prebuilt one. See
    `tools/nativehook/deploy.sh`.
-4. Start the fake server on the PC: `python server/fakeserver.py`. It needs to be reachable
+4. Start the fake server on the PC: `python3 Server/fakeserver.py`. It needs to be reachable
    on ports 443 and 80 from the emulator.
 5. Provision the device: `bash tools/provision_ldplayer.sh <your-PC-LAN-IP>`. Re-run this
    after every emulator reboot.
@@ -276,33 +276,27 @@ so all of it has to be authored fresh, in the exact shapes the client expects.
 The method that works is the loop this project is built around. Run the game with the hook
 attached. The hook logs every key the client reads. When the client asks for something you
 have not provided, you see exactly what it wanted. You then synthesize a response in the
-right shape, drop it in `server/responses/` or add it to the dynamic handler in
-`fakeserver.py`, restart, and verify the client accepts it and moves forward. Repeat. Every
+right shape, drop it in `Server/responses/` or add it to the dynamic handler in
+`Server/fakeserver.py`, restart, and verify the client accepts it and moves forward. Repeat. Every
 screen in the current build was brought up this exact way. `re_notes/dump.cs` tells you the
 shape of each structure before you even run, because it lists every field the client reads.
 
 A sane order to attack it:
 
-1. Get a single complete fight to load and run end to end. This is the highest value target
-   because combat is the core of the game and it exercises the most server data at once. You
-   need the participant definitions, their stats and abilities, and whatever the fight init
-   path asks for. The intro fight already starts loading, so that is the place to push first.
-   Decompile the fight init and combat data paths (use `decompile_targets.py`) and read off
-   the exact fields.
-2. Reconstruct the roster data model fully, one bot at a time, stats and abilities included.
-   The art for each bot already exists in the bundles listed in `ASSET_INVENTORY.txt`, so you
-   are only authoring numbers and ability definitions, not assets.
-3. Rebuild the quest and map structures so Story stops being empty. The base structure was
-   partially cracked already, see `TECHNICAL_NOTES.md` for the keys.
-4. Fill in the economy and progression last, once fights and missions exist to spend it on.
+1. Persist quest completion and author the reward contract for the existing STORY fight.
+2. Add original per-bot ability definitions and test their in-fight effects. The normal attack
+   and special-damage data already have a working generated path in `Server/gamedata.py`.
+3. Add missions, maps, and opponent lineups one small path at a time, using the runtime hook
+   and `re_notes/dump.cs` to establish the client contract.
+4. Add the economy and wider progression only after the missions and rewards that use them.
 
 Be realistic about scale. Even for games where fans saved the live server data before
 shutdown, standing up a private server is a long project. Here there is no saved data to
 start from, so every number and every ability has to be researched or reinvented and then
 verified against the client. This is a multi-person, multi-year effort if the goal is the
-real game. That said, the path is no longer a mystery. The boot is solved, the feedback loop
-exists, the type model is dumped, and the assets are intact. What remains is a very large
-amount of careful data reconstruction, not more reverse engineering of the unknown.
+real game. That said, the path is no longer a mystery. The offline boot, a first STORY fight,
+and the feedback loop are working; the type model is dumped. What remains is a large amount
+of careful, original data authoring and verification.
 
 Start with `TECHNICAL_NOTES.md`. It is the deeper technical reference, with the exact
 patches, the recovered data shapes, and the specific findings, in more detail than this
