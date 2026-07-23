@@ -59,6 +59,58 @@ class TransformDamageTests(unittest.TestCase):
             self.assertEqual(blueprints[bid]["s3"], bp["s3"])
 
 
+class ModelMeshTests(unittest.TestCase):
+    """The combat actor loader mounts a bot's 3D mesh from BCGBlueprintBase.ModelID
+    (wire key m/mdl). The mesh bundle is named by the FULL bid; the 2D portrait uses a
+    SHORT art base. Truncating the model id (or omitting it) pointed at a missing bundle
+    and forced every fighter to the same generic placeholder mesh."""
+
+    def test_blueprint_model_id_matches_model_id_helper(self):
+        # ModelID is the full bid, except a few variants that borrow a real mesh bundle.
+        for bid, bp in gamedata.build_blueprints().items():
+            self.assertEqual(bp["m"], gamedata.model_id(bid))
+            self.assertEqual(bp["mdl"], gamedata.model_id(bid))
+
+    def test_character_model_id_matches_model_id_helper(self):
+        for bid, ch in gamedata.build_characters().items():
+            self.assertEqual(ch["m"], gamedata.model_id(bid))
+            self.assertEqual(ch["mdl"], gamedata.model_id(bid))
+
+    def test_non_override_model_id_is_the_full_bid(self):
+        for bid in gamedata.ROSTER:
+            if bid in gamedata._MODEL_OVERRIDE:
+                continue
+            self.assertEqual(gamedata.model_id(bid), bid)
+
+    def test_fte_optimus_uses_real_optimus_prime_mesh(self):
+        # The intro fighter the player controls ("Optimus") has no fte_* bundle, so it must
+        # borrow the real movie Optimus Prime mesh rather than the generic placeholder.
+        self.assertEqual(
+            gamedata.model_id("fte_optimus_gs_t3"), "optimusprime_cin_tf"
+        )
+        self.assertEqual(
+            gamedata.build_blueprints()["fte_optimus_gs_t3"]["mdl"],
+            "optimusprime_cin_tf",
+        )
+
+    def test_portrait_stays_short_art_base(self):
+        # The portrait id must remain the short base, not the model id, or portraits break.
+        blueprints = gamedata.build_blueprints()
+        self.assertEqual(blueprints["optimusprime_cin_tf"]["img"], "optimusprime_cin")
+        self.assertEqual(blueprints["optimusprime_cin_tf"]["mdl"], "optimusprime_cin_tf")
+
+    def test_player_lead_is_optimus_prime(self):
+        # The bot the player controls on-screen (team lead, index 0) is Optimus Prime.
+        self.assertEqual(gamedata.DEFAULT_TEAM[0], "optimusprime_cin_tf")
+
+    def test_login_response_carries_model_ids(self):
+        response_path = Path(gamedata.RESP_DIR) / "GET__bcg_getLoginData.json"
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        blueprints = response["result"]["blueprints"]
+        for bid in gamedata.build_blueprints():
+            self.assertEqual(blueprints[bid]["mdl"], gamedata.model_id(bid))
+
+
 class MissionsConfigTests(unittest.TestCase):
     def test_combat_armor_rating_constant_is_finite_and_positive(self):
         missions_config = gamedata.build_missions_config()
