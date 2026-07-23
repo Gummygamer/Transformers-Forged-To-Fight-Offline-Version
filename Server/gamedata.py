@@ -77,7 +77,7 @@ ROSTER = {
     "jetfire_gs_leader2014":        ("autobot",    "tech", 4),
     "mirage_gs_deluxe2016":         ("autobot",    "scou", 3),
     "optimusprimal_bw_mp32":        ("autobot",    "braw", 5),
-    "optimusprime_cin_tf":          ("autobot",    "tact", 5),
+    "optimusprime_cin_tf":          ("autobot",    "braw", 5),
     "prowl_gs_deluxe2016":          ("autobot",    "tact", 3),
     "ratchet_gs_kabam":             ("autobot",    "tech", 2),
     "rhinox_gs_voyager2014":        ("autobot",    "braw", 3),
