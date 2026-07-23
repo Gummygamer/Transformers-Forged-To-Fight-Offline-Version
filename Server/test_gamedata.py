@@ -26,6 +26,39 @@ class AttackValuesTests(unittest.TestCase):
         )
 
 
+class TransformDamageTests(unittest.TestCase):
+    def test_every_special_out_damages_every_normal_attack(self):
+        """A transform (special attack) must hit harder than punches and kicks. The
+        special ratios (s1/s2/s3) and normal-attack percents share one scale, so the
+        weakest special must exceed the strongest normal attack."""
+        attack_rows = gamedata.build_attack_values()
+        strongest_normal = max(row["a"] for row in attack_rows.values())
+
+        blueprints = gamedata.build_blueprints()
+        self.assertTrue(blueprints)
+        for bid, bp in blueprints.items():
+            specials = (bp["s1"], bp["s2"], bp["s3"])
+            self.assertGreater(
+                min(specials), strongest_normal,
+                msg=f"{bid} special weaker than a normal attack",
+            )
+
+    def test_specials_escalate_by_index(self):
+        for bid in gamedata.ROSTER:
+            bp = gamedata.build_blueprints()[bid]
+            self.assertLess(bp["s1"], bp["s2"])
+            self.assertLess(bp["s2"], bp["s3"])
+
+    def test_generated_login_response_uses_current_special_ratios(self):
+        response_path = Path(gamedata.RESP_DIR) / "GET__bcg_getLoginData.json"
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        blueprints = response["result"]["blueprints"]
+        for bid, bp in gamedata.build_blueprints().items():
+            self.assertEqual(blueprints[bid]["s1"], bp["s1"])
+            self.assertEqual(blueprints[bid]["s2"], bp["s2"])
+            self.assertEqual(blueprints[bid]["s3"], bp["s3"])
+
+
 class MissionsConfigTests(unittest.TestCase):
     def test_combat_armor_rating_constant_is_finite_and_positive(self):
         missions_config = gamedata.build_missions_config()
