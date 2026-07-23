@@ -194,6 +194,25 @@ def max_special_attacks(bid, star):
     return 1 if star <= 1 else (2 if star <= 3 else 3)
 
 
+# Special-attack ("transform") damage ratios -> blueprint s1/s2/s3, parsed into
+# BCGBlueprintBase.Special1Damage/Special2Damage/Special3Damage. These are on the same
+# scale as the normal-attack `attackValues` percents (see build_attack_values): a Heavy
+# is 1.0, Medium 0.60, Light 0.35. When a bot transforms it fires one of these specials,
+# so each ratio must clearly exceed a regular punch/kick for the transform to read as the
+# hardest hit. The proven response shipped a flat placeholder 1.0/1.0/1.0, which made a
+# transform land no harder than a Heavy and only ~1.7x a Medium -- the "transforms don't
+# hit harder" report. The escalating curve below keeps SP1 < SP2 < SP3 and puts every
+# special above the Heavy normal attack.
+_SPECIAL_DAMAGE_RATIOS = (1.75, 2.50, 3.50)
+
+
+def special_damage_ratios(bid, star):
+    """(s1, s2, s3) transform/special-attack damage ratios for a bot. Uniform authored
+    curve for now; kept as a function so per-bot or per-class tuning can hang off it
+    later the same way base_stats/max_special_attacks do."""
+    return _SPECIAL_DAMAGE_RATIOS
+
+
 # ---------------------------------------------------------------------------
 # JSON builders -- emit the exact proven shapes from Server/responses/.
 # ---------------------------------------------------------------------------
@@ -212,6 +231,7 @@ def build_blueprints():
     out = {}
     for bid, (faction, klass, star) in ROSTER.items():
         name = display_name(bid)
+        s1, s2, s3 = special_damage_ratios(bid, star)
         out[bid] = {
             "id": bid, "et": "bot",
             "c": bid, "r": star, "a": faction,
@@ -223,7 +243,10 @@ def build_blueprints():
             # FriendlyName / FriendlyNameShort -- non-null so SetScreenType's tile setup
             # doesn't deref a null name (see display_name).
             "name": name, "name_s": name,
-            "s1": 1.0, "s2": 1.0, "s3": 1.0,
+            # s1/s2/s3: transform/special-attack damage ratios (see
+            # special_damage_ratios). Above every normal-attack percent so a transform
+            # out-damages punches and kicks.
+            "s1": s1, "s2": s2, "s3": s3,
             "msa": max_special_attacks(bid, star),
             "ab": 100.0, "gg": 1, "mfl": 0, "nfr": 0,
             "fcpg": "", "fhpag": "",

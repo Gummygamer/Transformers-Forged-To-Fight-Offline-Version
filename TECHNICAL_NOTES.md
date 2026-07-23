@@ -180,6 +180,30 @@ sufficient: the native trace recorded non-null `CONFIGDATA`, then `TUNECHANGE` f
 `bcg-combat`. The per-bot ability definitions are still the open frontier — the balance table
 has numbers, but individual special-move effects remain to be authored.
 
+### Transform damage and hit reactions (playtest feedback)
+
+Two combat-feel reports were checked against the current build:
+
+- *"When a bot transforms he should deal more damage than regular hits (punches and
+  kicks)."* A transform is a special attack, whose damage ratio is the blueprint's
+  `s1`/`s2`/`s3` (parsed into `BCGBlueprintBase.Special1Damage`/`Special2Damage`/
+  `Special3Damage`). These ship on the same scale as the normal-attack `attackValues`
+  percents (`Heavy` = 1.0, `Medium` = 0.60, `Light` = 0.35). The proven response ships a
+  flat placeholder `1.0/1.0/1.0`, so a transform landed no harder than a Heavy and only
+  ~1.7x a Medium — exactly the report. `gamedata.special_damage_ratios` now authors an
+  escalating `1.75/2.50/3.50` curve (SP1 < SP2 < SP3, every special above the Heavy normal
+  attack), regenerated into `getLoginData`. Covered by `TransformDamageTests`. The normal
+  charged/heavy attack already out-damaged punches and kicks and was left unchanged.
+- *"When a bot is getting hit he's not supposed to be able to react (land a hit)."* This
+  hit-stun is fully engine-implemented and **not** authorable from the offline data layer:
+  `PlayerController.ReceiveHit` calls `ApplyHitStun(hitData.HitStun)`, and
+  `ConditionNode_HitStunned` / `CompositeNode_CanAct` gate whether a stunned bot may act.
+  The stun duration lives in `HitData.HitStun`, a per-move field serialized inside each
+  character's move/animation asset bundle — the server `attackValues` rows (`BCGAttackValue`
+  = Percent/ManaGain/CritChance/CritDamage/CritPierce only) carry no stun field at all.
+  There is therefore no server/JSON knob to change here; if the stagger is not felt in a
+  live fight it is the ODR move-bundle not loading (the asset wall), not a data gap.
+
 ## STORY board movement milestone
 
 The first authored mission now reaches an interactive board with a live 3D squad leader.
