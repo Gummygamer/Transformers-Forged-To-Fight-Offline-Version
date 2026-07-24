@@ -7,9 +7,16 @@ requires root.  A retail phone cannot do either.  This builder instead:
 * rewrites the game's known backend hosts to a configurable server host on
   port 8443.  Use a laptop LAN address for cable-free play, or the default
   127.0.0.1 with adb reverse for the original USB setup.
-* embeds the repository's current arm64 runtime hook.  The source APK is a
-  convenient build input, but its bundled hook may predate later gameplay
-  fixes.
+* embeds the repository's current runtime hook for the chosen ABI.  The source
+  APK is a convenient build input, but its bundled hook may predate later
+  gameplay fixes.
+
+The APK ships native libraries for both arm64-v8a and armeabi-v7a, so --abi
+picks which one the build targets.  arm64-v8a is the default and is the better
+tested path; armeabi-v7a exists for 32-bit devices and 32-bit emulators.  By
+default the other ABI's libraries are dropped, because Android prefers the
+64-bit ones whenever they are present and would otherwise load the unpatched
+library and silently ignore the whole offline build.
 
 The original target SDK is preserved. The bundled native patches handle the
 fake server certificate; lowering the target SDK causes modern Play Protect
@@ -31,8 +38,39 @@ from pathlib import Path
 METADATA = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
 SPARX_MANIFEST = "res/raw/sparxmanifest"
 ENDPOINT_CONFIG = "assets/bin/Data/e1917cd7a6bdb4492a247b8f758df2ae"
-ARM64_HOOK = "lib/arm64-v8a/libdothook.so"
-CURRENT_HOOK = Path(__file__).resolve().parents[1] / "tools/nativehook/libdothook.so"
+ARM64 = "arm64-v8a"
+ARMV7 = "armeabi-v7a"
+NATIVEHOOK = Path(__file__).resolve().parents[1] / "tools/nativehook"
+# (hook source built for this ABI, expected ELF class, expected e_machine)
+ABIS = {
+    ARM64: (NATIVEHOOK / "libdothook.so", 2, 183),                    # ELFCLASS64, EM_AARCH64
+    ARMV7: (NATIVEHOOK / "libdothook-armeabi-v7a.so", 1, 40),         # ELFCLASS32, EM_ARM
+}
+ARM64_HOOK = f"lib/{ARM64}/libdothook.so"
+CURRENT_HOOK = ABIS[ARM64][0]
+
+
+def hook_entry(abi: str) -> str:
+    return f"lib/{abi}/libdothook.so"
+
+
+def check_hook(data: bytes, abi: str, path: Path) -> None:
+    """Reject a hook built for the wrong ABI.
+
+    Dropping an arm64 hook into the armeabi-v7a slot produces an APK that
+    installs and launches, then silently never loads the hook, which looks
+    exactly like the game hanging at login for unrelated reasons.
+    """
+    _, want_class, want_machine = ABIS[abi]
+    if not data.startswith(b"\x7fELF"):
+        raise ValueError(f"runtime hook is not an ELF library: {path}")
+    elf_class = data[4]
+    machine = struct.unpack_from("<H", data, 18)[0]
+    if elf_class != want_class or machine != want_machine:
+        raise ValueError(
+            f"runtime hook {path} is ELF class {elf_class}/machine {machine}, "
+            f"but {abi} needs class {want_class}/machine {want_machine}"
+        )
 DEFAULT_SERVER_HOST = "127.0.0.1"
 HOSTNAME_RE = re.compile(
     r"(?=.{1,253}\Z)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*"
@@ -109,19 +147,28 @@ def patch_endpoint_config(data: bytes, server_host: str) -> bytes:
     return data.replace(old, new + b" " * (len(old) - len(new)))
 
 
-def build(source: Path, destination: Path, server_host: str = DEFAULT_SERVER_HOST) -> list[str]:
+def build(
+    source: Path,
+    destination: Path,
+    server_host: str = DEFAULT_SERVER_HOST,
+    abi: str = ARM64,
+    keep_other_abi: bool = False,
+) -> list[str]:
     if source.resolve() == destination.resolve():
         raise ValueError("destination must differ from source; the original APK is preserved")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if not CURRENT_HOOK.is_file():
-        raise ValueError(f"current runtime hook is missing: {CURRENT_HOOK}")
-    hook = CURRENT_HOOK.read_bytes()
-    if not hook.startswith(b"\x7fELF"):
-        raise ValueError(f"current runtime hook is not an ELF library: {CURRENT_HOOK}")
+    hook_path = ABIS[abi][0]
+    if not hook_path.is_file():
+        raise ValueError(f"current runtime hook is missing: {hook_path}")
+    hook = hook_path.read_bytes()
+    check_hook(hook, abi, hook_path)
+
+    wanted_hook = hook_entry(abi)
+    other_abi_prefix = f"lib/{ARMV7 if abi == ARM64 else ARM64}/"
 
     with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(destination, "w") as zout:
         names = set(zin.namelist())
-        for required in ("AndroidManifest.xml", METADATA, SPARX_MANIFEST, ENDPOINT_CONFIG, ARM64_HOOK):
+        for required in ("AndroidManifest.xml", METADATA, SPARX_MANIFEST, ENDPOINT_CONFIG, wanted_hook):
             if required not in names:
                 raise ValueError(f"APK is missing {required}")
 
@@ -130,6 +177,8 @@ def build(source: Path, destination: Path, server_host: str = DEFAULT_SERVER_HOS
             # Old JAR signatures are invalid after modification. apksigner will add new ones.
             upper = info.filename.upper()
             if upper.startswith("META-INF/") and upper.endswith((".SF", ".RSA", ".DSA", ".EC", "MANIFEST.MF")):
+                continue
+            if not keep_other_abi and info.filename.startswith(other_abi_prefix):
                 continue
             data = zin.read(info)
             if info.filename == METADATA:
@@ -140,7 +189,7 @@ def build(source: Path, destination: Path, server_host: str = DEFAULT_SERVER_HOS
                 changed_hosts.append("tform-0901-hzlhiniyfcwf.tf-cdn.net")
             elif info.filename == ENDPOINT_CONFIG:
                 data = patch_endpoint_config(data, server_host)
-            elif info.filename == ARM64_HOOK:
+            elif info.filename == wanted_hook:
                 data = hook
             zout.writestr(info, data)
     return list(dict.fromkeys(changed_hosts))
@@ -159,12 +208,29 @@ def main() -> None:
             f"(default: {DEFAULT_SERVER_HOST}, for adb reverse)"
         ),
     )
+    parser.add_argument(
+        "--abi",
+        choices=sorted(ABIS),
+        default=ARM64,
+        help=f"native ABI to build for (default: {ARM64})",
+    )
+    parser.add_argument(
+        "--keep-other-abi",
+        action="store_true",
+        help=(
+            "keep the other ABI's native libraries. They are dropped by default "
+            "because Android prefers arm64 whenever it is present, which would "
+            "load the unpatched library instead of the patched one."
+        ),
+    )
     args = parser.parse_args()
-    hosts = build(args.source, args.destination, args.server_host)
+    hosts = build(args.source, args.destination, args.server_host, args.abi, args.keep_other_abi)
+    hook_path = ABIS[args.abi][0]
     print(f"wrote unsigned APK: {args.destination}")
+    print(f"abi: {args.abi}" + ("" if args.keep_other_abi else " (other ABI's libraries dropped)"))
     print("redirected: " + ", ".join(hosts))
     print(f"fake server: https://{args.server_host}:8443")
-    print(f"embedded runtime hook: {CURRENT_HOOK} ({CURRENT_HOOK.stat().st_size} bytes)")
+    print(f"embedded runtime hook: {hook_path} ({hook_path.stat().st_size} bytes)")
     print("targetSdkVersion: preserved")
 
 

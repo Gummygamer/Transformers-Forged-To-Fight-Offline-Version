@@ -9,9 +9,13 @@
 # assets or binaries to this repository").
 /probe/
 
+# Locally built ARM32 hook; binaries must not be committed.
+/tools/nativehook/libdothook-armeabi-v7a.so
+
 # Generated local-server artifacts; certificates and request logs can contain
 # private keys and session data and must remain local.
 /Server/__pycache__/
+/patches/__pycache__/
 /Server/certs/
 /Server/logs/
 
