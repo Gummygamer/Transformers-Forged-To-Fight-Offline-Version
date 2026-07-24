@@ -54,8 +54,12 @@ def hook_entry(abi: str) -> str:
     return f"lib/{abi}/libdothook.so"
 
 
-def check_hook(data: bytes, abi: str, path: Path) -> None:
-    """Reject a hook built for the wrong ABI.
+def il2cpp_entry(abi: str) -> str:
+    return f"lib/{abi}/libil2cpp.so"
+
+
+def check_elf(data: bytes, abi: str, path: Path, description: str) -> None:
+    """Reject a native library built for the wrong ABI.
 
     Dropping an arm64 hook into the armeabi-v7a slot produces an APK that
     installs and launches, then silently never loads the hook, which looks
@@ -63,14 +67,20 @@ def check_hook(data: bytes, abi: str, path: Path) -> None:
     """
     _, want_class, want_machine = ABIS[abi]
     if not data.startswith(b"\x7fELF"):
-        raise ValueError(f"runtime hook is not an ELF library: {path}")
+        raise ValueError(f"{description} is not an ELF library: {path}")
     elf_class = data[4]
     machine = struct.unpack_from("<H", data, 18)[0]
     if elf_class != want_class or machine != want_machine:
         raise ValueError(
-            f"runtime hook {path} is ELF class {elf_class}/machine {machine}, "
+            f"{description} {path} is ELF class {elf_class}/machine {machine}, "
             f"but {abi} needs class {want_class}/machine {want_machine}"
         )
+
+
+def check_hook(data: bytes, abi: str, path: Path) -> None:
+    check_elf(data, abi, path, "runtime hook")
+
+
 DEFAULT_SERVER_HOST = "127.0.0.1"
 HOSTNAME_RE = re.compile(
     r"(?=.{1,253}\Z)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*"
@@ -153,6 +163,7 @@ def build(
     server_host: str = DEFAULT_SERVER_HOST,
     abi: str = ARM64,
     keep_other_abi: bool = False,
+    patched_il2cpp: Path | None = None,
 ) -> list[str]:
     if source.resolve() == destination.resolve():
         raise ValueError("destination must differ from source; the original APK is preserved")
@@ -162,13 +173,27 @@ def build(
         raise ValueError(f"current runtime hook is missing: {hook_path}")
     hook = hook_path.read_bytes()
     check_hook(hook, abi, hook_path)
+    replacement_il2cpp = None
+    if patched_il2cpp is not None:
+        if not patched_il2cpp.is_file():
+            raise ValueError(f"patched libil2cpp is missing: {patched_il2cpp}")
+        replacement_il2cpp = patched_il2cpp.read_bytes()
+        check_elf(replacement_il2cpp, abi, patched_il2cpp, "patched libil2cpp")
+        if b"libdothook.so" not in replacement_il2cpp:
+            raise ValueError(
+                f"patched libil2cpp does not reference libdothook.so: {patched_il2cpp}"
+            )
 
     wanted_hook = hook_entry(abi)
+    wanted_il2cpp = il2cpp_entry(abi)
     other_abi_prefix = f"lib/{ARMV7 if abi == ARM64 else ARM64}/"
 
     with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(destination, "w") as zout:
         names = set(zin.namelist())
-        for required in ("AndroidManifest.xml", METADATA, SPARX_MANIFEST, ENDPOINT_CONFIG, wanted_hook):
+        for required in (
+            "AndroidManifest.xml", METADATA, SPARX_MANIFEST, ENDPOINT_CONFIG,
+            wanted_il2cpp,
+        ):
             if required not in names:
                 raise ValueError(f"APK is missing {required}")
 
@@ -191,7 +216,13 @@ def build(
                 data = patch_endpoint_config(data, server_host)
             elif info.filename == wanted_hook:
                 data = hook
+            elif info.filename == wanted_il2cpp and replacement_il2cpp is not None:
+                data = replacement_il2cpp
             zout.writestr(info, data)
+        # A pristine APK has no runtime hook entry. Replace it when rebuilding a
+        # previous offline APK, or add it here when building from the original.
+        if wanted_hook not in names:
+            zout.writestr(wanted_hook, hook)
     return list(dict.fromkeys(changed_hosts))
 
 
@@ -223,14 +254,32 @@ def main() -> None:
             "load the unpatched library instead of the patched one."
         ),
     )
+    parser.add_argument(
+        "--patched-il2cpp",
+        type=Path,
+        default=None,
+        help=(
+            "replace lib/<abi>/libil2cpp.so with this already-patched ELF. "
+            "This avoids unpacking and repacking the whole source APK."
+        ),
+    )
     args = parser.parse_args()
-    hosts = build(args.source, args.destination, args.server_host, args.abi, args.keep_other_abi)
+    hosts = build(
+        args.source,
+        args.destination,
+        args.server_host,
+        args.abi,
+        args.keep_other_abi,
+        args.patched_il2cpp,
+    )
     hook_path = ABIS[args.abi][0]
     print(f"wrote unsigned APK: {args.destination}")
     print(f"abi: {args.abi}" + ("" if args.keep_other_abi else " (other ABI's libraries dropped)"))
     print("redirected: " + ", ".join(hosts))
     print(f"fake server: https://{args.server_host}:8443")
     print(f"embedded runtime hook: {hook_path} ({hook_path.stat().st_size} bytes)")
+    if args.patched_il2cpp is not None:
+        print(f"embedded patched libil2cpp: {args.patched_il2cpp}")
     print("targetSdkVersion: preserved")
 
 

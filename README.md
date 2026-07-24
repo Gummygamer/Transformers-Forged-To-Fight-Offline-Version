@@ -8,6 +8,10 @@ scratch. The original online service data is not included or reconstructed here.
 Read this whole file before you touch anything. The "Gotchas" section in particular will
 save you days.
 
+For a complete native Windows 7 build of the 32-bit `armeabi-v7a` phone APK,
+including server setup, signing, installation, Wi-Fi, and USB operation, see
+[`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md).
+
 
 ## What actually works right now
 
@@ -256,9 +260,11 @@ were verified firing during that run.
 
 1. Patch the 32-bit library:
    `python3 patches/patch_il2cpp.py --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
-   The same six patches apply; only the addresses and encodings differ. The 32-bit build
-   cannot use the hand-rolled `DT_NEEDED` byte cave (its offsets are specific to the arm64
-   binary), so this path requires `patchelf`, which it runs for you.
+   The same six patches apply; only the addresses and encodings differ. Linux continues to
+   use `patchelf` by default. Windows uses the strict in-place injector, which reuses a
+   verified alias string and spare dynamic-table slot without moving code or changing any
+   patch offset. Either route can be selected explicitly with `--needed patchelf` or
+   `--needed inplace`.
 2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so
    -o tools/nativehook/libdothook-armeabi-v7a.so tools/nativehook/hook_arm32.c -llog`,
    The resulting `.so` is a local build artifact and must not be committed.
