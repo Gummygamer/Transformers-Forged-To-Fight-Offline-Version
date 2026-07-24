@@ -265,6 +265,43 @@ records all 2750 enemy HP lost, and it returns to the mission board. The generic
 is sufficient for this result submission. A local verification capture is stored under `media/`,
 which remains ignored and must never be committed.
 
+## The armeabi-v7a port
+
+`patches/abi_map.py` translates arm64 method addresses and field offsets to the 32-bit
+build by pairing the two Il2CppDumper dumps, which both come from the same
+`global-metadata.dat`. That covers the six native patches and ten of the twelve hook sites.
+It does not cover anything that is not a method address, and two fixes are exactly that.
+Both were re-derived against the 32-bit binary; the reasoning is written out in
+`tools/nativehook/hook_arm32.c` next to each fix, and both were confirmed firing live.
+
+`SETACTFIX` needs the combat game clock, which the arm64 hook reaches through a hard-coded
+`.got` slot (`0x2c1a928`). GOT layout differs between the builds, so the address cannot be
+translated. It does not have to be: `PlayerInput.QueuedAction.HasAction` returns
+`TimeStamp > now`, so it must read the same clock, and it spells the chain out in its own
+code. On armv7 (`0x907EC0`) that is a pc-relative pair resolving to GOT slot `0x2826E00`,
+then `[.] -> [.+0x5c] -> [.] -> float @0xC`, against `TimeStamp` at `this+0xC`. The arm64
+build does the identical four derefs with `0xb8`/`0x18` off `0x2c1a928` — the usual pointer
+halving. `SetAction`'s own copy of the chain resolves to the same slot, which is the
+cross-check, and both slots are in `.got` in their respective binaries. Live log:
+`SETACTFIX clk=652.300 ts=652.800`, the clock advancing monotonically across taps.
+
+`FIXSYN` is a branch rewrite inside `BCGBlueprintBase.get_SynergyBonuses`. arm64 re-points
+a `cbz` from the throw block to the empty-list return. ARM32 has no throw block to
+re-point: the compiler emits the il2cpp null check as a *call* that only falls through.
+
+    0x7A3EA4  ldr r4,[r6,#0x7c]     ; this->_synergyBonuses (a64 0xE0)
+    0x7A3EA8  cmp r4,#0
+    0x7A3EAC  bne 0x7A3EB4          ; non-null: run the loop
+    0x7A3EB0  bl  0x4F1EA4          ; null: throw (noreturn)
+
+`0x7A3EB0` is therefore reached only when the field is null, and nothing else branches to
+it, so overwriting that call with `b 0x7A3FB8` — the `ldr r0,[sp,#4]` that loads the fresh
+empty `List<string>` built before the null check, plus the epilogue — is the same fix. It
+also skips the enumerator's `Dispose`, which is correct, because it skips the enumerator's
+construction too and the slot was zeroed at entry. The hook's `poke32` refuses to write
+unless the target still holds the exact instruction the RE was done against
+(`ebf537fb`), so a different binary fails loudly instead of being corrupted.
+
 ## Known remaining frontiers
 
 1. Correct the STORY player's rendered model identity. Both sides currently load the Sharkticon
