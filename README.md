@@ -98,6 +98,7 @@ COMPLIANCE.md                 copyright, trademark, and security boundaries for 
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
   patch_il2cpp.py             the six native patches plus the dependency re-injection
+  abi_map.py                  translate arm64 addresses and field offsets to armeabi-v7a
   disasm_fn.py                helper: disassemble a function at an offset
   find_callers.py             helper: find callers of a function
   find_str_ref.py             helper: find references to a string
@@ -123,8 +124,10 @@ tools/
   frida_run.py
   hook_dot.js
   nativehook/
-    hook.c                    source of libdothook.so, the runtime hook
+    hook.c                    source of libdothook.so, the runtime hook (arm64)
     libdothook.so             prebuilt hook, arm64
+    hook_arm32.c              armeabi-v7a hook: the behaviour fixes, no key logging
+    libdothook-armeabi-v7a.so locally built hook, armeabi-v7a (ignored)
     deploy.sh                 build and deploy the hook
     relaunch_and_capture.sh   relaunch the game and capture logs
   hook/dothook.c              earlier hook variant, kept for reference
@@ -169,6 +172,7 @@ root and writable system), Python on the PC, and the items from the section abov
 
 1. Generate certs once: `bash Server/gen_certs.sh`.
 2. Build the patched library once: `python3 patches/patch_il2cpp.py path/to/original/libil2cpp.so --apply`.
+   That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
 3. Build the hook once if you want to rebuild it, otherwise use the prebuilt one. See
    `tools/nativehook/deploy.sh`.
 4. Start the fake server on the PC: `python3 Server/fakeserver.py`. It needs to be reachable
@@ -238,6 +242,55 @@ reconnection.
 If it hangs at login, check the very first item in the Gotchas section before anything else.
 
 
+### Building for 32-bit ARM (armeabi-v7a)
+
+The APK ships native libraries for both `arm64-v8a` and `armeabi-v7a`. Everything above
+targets arm64, which remains the default. A 32-bit build exists for 32-bit devices and
+32-bit emulator instances, and is selected with `--abi`.
+
+The 32-bit build has been run end to end: it boots offline to the home screen, selects a
+STORY squad, enters the board, moves between nodes, opens the pre-fight screen, fights the
+Sharkticon in the live 3D arena, and resolves the match `WON` with the enemy at zero
+health, with no crash and all twelve hooks installed. Both of the fixes described below
+were verified firing during that run.
+
+1. Patch the 32-bit library:
+   `python3 patches/patch_il2cpp.py --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
+   The same six patches apply; only the addresses and encodings differ. The 32-bit build
+   cannot use the hand-rolled `DT_NEEDED` byte cave (its offsets are specific to the arm64
+   binary), so this path requires `patchelf`, which it runs for you.
+2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so
+   -o tools/nativehook/libdothook-armeabi-v7a.so tools/nativehook/hook_arm32.c -llog`,
+   The resulting `.so` is a local build artifact and must not be committed.
+3. Build the APK: `python3 Server/build_phone_apk.py --abi armeabi-v7a ...`. It embeds the
+   matching hook and, by default, drops the arm64 libraries. That last part matters: Android
+   prefers arm64 whenever it is present, so an APK containing both would load the unpatched
+   64-bit library and ignore the offline build entirely.
+
+One difference from the arm64 build is deliberate: `hook_arm32.c` carries only the
+behaviour fixes, not the `EB.Dot.*` key logging. The data authoring loop runs on arm64,
+and both builds parse the same JSON, so keys discovered there apply unchanged.
+
+Two of the fixes could not be ported by translating an address, because neither one is a
+method address. Both were re-derived against the 32-bit binary instead, and the derivation
+is written out where the fix lives so it can be re-checked:
+
+- `SETACTFIX` (the combat input-buffer window) reaches the game clock through a `.got`
+  slot, and the two builds lay out their GOTs differently. Rather than translate it, the
+  chain is read back out of `QueuedAction.HasAction`, which necessarily reads the same
+  clock it compares against. Two independent sites in the 32-bit binary agree on the slot.
+- `FIXSYN` (the synergy-bonus null branch) has no throw block to re-point on ARM32: the
+  compiler emits the null check as a call to the throw helper that only falls through. The
+  call site is reachable only when the field is null, so overwriting it with a jump to the
+  empty-list return is the same fix.
+
+`patches/abi_map.py` is what makes this tractable. Both libraries are generated from the
+same `global-metadata.dat`, so it can pair the two Il2CppDumper dumps and translate any
+arm64 address or field offset to its armv7 equivalent. Run its `verify` mode first: it
+cross-checks two independent pairings (method name, and metadata order) against each other.
+Do not translate addresses by hand, and do not trust a nearest-symbol guess for generic
+methods -- several reference-type instantiations share one body.
+
 ## The gotchas that will eat your time
 
 These are the ones that cost me hours. They are written down so they do not cost you
@@ -253,6 +306,12 @@ the same.
 - The device network mounts do not survive an emulator reboot. The hosts redirect and the CA
   trust are bind mounts. After any restart of the emulator you must re-run
   `provision_ldplayer.sh` or nothing will connect.
+- Install with `adb install --no-incremental`. Modern `adb` prefers an incremental install,
+  which mounts the app's native library directory from an `incremental-fs` image. That
+  directory is then read-only even to root, so pushing the patched `libil2cpp.so` and the
+  hook into it fails with "Permission denied" while everything else looks normal. This
+  matters most when switching ABIs, because that requires a reinstall
+  (`adb install -r --no-incremental --abi armeabi-v7a ...`).
 - Inside Sparx error payloads the field is `err`, not `error`. Using the wrong one produces
   responses the client silently ignores or mishandles.
 - Interactive tutorial prompt states loop forever offline. Do not try to answer a tutorial
