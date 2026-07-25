@@ -91,6 +91,17 @@ class H(http.server.BaseHTTPRequestHandler):
                 separators=(",", ":"),
             ).encode()
 
+        # base/active: the home screen's base board. BaseManager parses this into the
+        # user's `Base` (an ActiveMission), which HomeFlow turns into the ActiveQuest
+        # that builds the "Baseboard" scene. With the previous default {} reply the
+        # base stayed null and the home screen rendered an empty black board.
+        # See gamedata.build_base_active for the wire shape.
+        if p.endswith("/base/active") and gamedata is not None:
+            return json.dumps(
+                {"error": None, "result": gamedata.build_base_active()},
+                separators=(",", ":"),
+            ).encode()
+
         tut_eps = ("/tutorial/start-tutorial", "/tutorial/start-branch",
                    "/tutorial/early-start-branch", "/tutorial/complete-tutorial")
         if any(p.endswith(e) for e in tut_eps):
