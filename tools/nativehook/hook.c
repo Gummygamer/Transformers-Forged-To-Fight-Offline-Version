@@ -345,6 +345,41 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // board-root deactivation does not reach the AssetManager-resident fallback anchors that
     // BLDGACT made visible, so hide the hook-touched objects here before STORY takes its camera.
     { 0xA6F844, "BLDGLEAVE", 2, 0 }, // 96 BaseBoard.LeaveBoard -> hide tracked base objects
+    // Base-builder entry diagnostics: marker-only hooks; no method behaviour is changed.
+    { 0xA71810, "CARDTAP",    2, 0 }, // 97 BaseBoard.OnCardTapped(this,card)
+    { 0xA712FC, "TILEBLDG",   2, 0 }, // 98 BaseBoard.HandleTileBuildingInteraction(this,tile)
+    { 0xA70A80, "EDITPOP",    3, 0 }, // 99 BaseBoard.OpenBaseEditBuildingPopup(this,tile,cb)
+    { 0x121D450,"POPENTER",  2, 0 }, // 100 BaseEditBuildingPopup.WindowEnter(this,isFirstEntry)
+    { 0x1220D40,"NODEPOP",   2, 0 }, // 101 BaseEditNodePopup.WindowEnter(this,isFirstEntry)
+    // Workaround: the fixed login tutorial response omits only FTEBaseCrystal completion.
+    { 0x14F8578,"FTEBASEFIX",2, 0 }, // 102 TutorialManagerHelper.IsBranchComplete(tutorial,branch)
+    // Base-builder card lifecycle diagnostics.  These are deliberately observational:
+    // RelicCard.Init is the only writer of its base-node gate (@0x88), while Show/
+    // Hide/provider initialization establish whether the card ever becomes clickable.
+    { 0xE27978, "RCINIT",    3, 0 }, // 103 RelicCard.Init(this,tile,provider)
+    { 0xE27888, "RCSHOW",    2, 0 }, // 104 RelicCard.Show(this,...)
+    { 0xE2791C, "RCHIDE",    2, 0 }, // 105 RelicCard.Hide(this,...)
+    { 0xE27B78, "RCACTIVE", 2, 0 }, // 106 RelicCard.UpdateActiveGameObject
+    { 0xE27A80, "RCCOLLIDER",2, 0 }, // 107 RelicCard.UpdateCollider
+    { 0xE27D94, "RCCLICK",   2, 0 }, // 108 RelicCard.OnClick
+    { 0xCF3584, "CARDLOAD",  2, 0 }, // 109 BaseNodeController.OnRelicCardLoaded
+    { 0xA7223C, "SHOWCARDS", 2, 0 }, // 110 BaseBoard.ShowAllNodeCards
+    { 0xA708B0, "HIDECARDS", 2, 0 }, // 111 BaseBoard.HideAllNodeCards
+    { 0xE27680, "RCAWAKE",   2, 0 }, // 112 RelicCard.Awake
+    { 0x1BF84A4,"UICLICK",   2, 0 }, // 113 UIEventListener.OnClick
+    // The card collider and listener are both live, but UICamera's world raycast
+    // never returns them on this offline base scene.  ProcessTouch is the narrow
+    // real-input seam used for the fallback below (one normal card OnClick per tap).
+    { 0x1F82794,"BASETAPFIX",3, 0 }, // 114 UICamera.ProcessTouch
+    // Popup-initialization bisect.  These remain marker-only while diagnosing the
+    // managed exception after POPENTER; the order matches the coroutine chain.
+    { 0xC407D4, "POPINITSM",  1, 0 }, // 115 <DoWindowInitialization>d__11.MoveNext
+    { 0x121D670,"POPINIT",    3, 0 }, // 116 BaseEditBuildingPopupPresentation.Init
+    { 0x121D7EC,"POPSETPARAM",3, 0 }, // 117 BaseEditBuildingPopupPresentation.SetEnterParams
+    { 0x121E540,"POPBUILD",   1, 0 }, // 118 BaseEditBuildingPopupPresentation.BuildPresentation
+    { 0x121EBF8,"POPLIST",    2, 0 }, // 119 BaseEditBuildingPopupPresentation.GetBuildingList
+    { 0x1220128,"POPFILTER",  3, 0 }, // 120 BaseEditBuildingPopupPresentation.FilterBuildingData
+    { 0x121D89C,"POPUPDATE",  2, 0 }, // 121 BaseEditBuildingPopupPresentation.UpdatePresentation
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -355,6 +390,11 @@ static volatile int g_inhb = 0;
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
 // are prefixed "QS " so the quest-list/details field keys can be grepped out.
 static volatile int g_inqs = 0;
+// Runtime input fallback, not a data substitute: populated only after RelicCard.Init
+// has received a BaseNodeController and a tile with an actual building.
+static void* g_base_tap_card = NULL;
+static void* g_base_tap_go = NULL;
+static volatile int g_base_tap_dispatching = 0;
 // LoadBuildingObject receives the authored model id before its failed standalone-asset
 // request falls back to DefaultRelic.  SpawnBuilding then receives DefaultRelic, so retain
 // the authored ids in call order and use them to pair those fallback anchors with the
@@ -2385,6 +2425,10 @@ void* hook_95(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 // the fallback anchors/clones it touches live under AssetManager and therefore need the same
 // explicit deactivation before a STORY board reuses the scene/camera.
 void* hook_96(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    // RCINIT re-arms these on the next BaseBoard entry.  Clear them before the
+    // outgoing board can be torn down so ProcessTouch cannot dispatch a stale card.
+    g_base_tap_card=NULL;
+    g_base_tap_go=NULL;
 #if BLDGLEAVE
     PROTECT({
         void (*go_set_active)(void*,int,void*) =
@@ -2400,6 +2444,139 @@ void* hook_96(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     });
 #endif
     return H[96].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// Base-builder entry markers (slots 97-101): intentionally log only, then execute originals.
+#define MK_BASEMARK(n) \
+void* hook_##n(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    LOG("%s this=%p arg1=%p arg2=%p", H[n].tag, a0, a1, a2); \
+    return H[n].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+}
+MK_BASEMARK(97) MK_BASEMARK(98) MK_BASEMARK(99) MK_BASEMARK(100) MK_BASEMARK(101)
+#undef MK_BASEMARK
+// Popup initialization bisect markers (slots 115-120): no behavioural changes.
+#define MK_POPMARK(n) \
+void* hook_##n(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    LOG("%s this=%p arg1=%p arg2=%p", H[n].tag, a0, a1, a2); \
+    return H[n].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+}
+MK_POPMARK(115) MK_POPMARK(116) MK_POPMARK(117) MK_POPMARK(119) MK_POPMARK(120)
+#undef MK_POPMARK
+// The retail BaseEditBuildingPopup prefab present in this APK has no serialized
+// button SCI references.  BuildPresentation first dereferences _addButtonSCI@0x70
+// and throws; UpdatePresentation would repeat that same UI-only setup.  These two
+// hooks preserve the popup lifecycle by taking the methods' normal successful tail:
+// SafeInvoke(onReady).  They intentionally do not fabricate UI objects or alter
+// authored base data; the visible base board remains under the open popup.
+static void popup_safe_ready(void* onReady) {
+    if (onReady) ((void(*)(void*,void*))(g_base + 0xDC8048))(onReady, NULL);
+}
+void* hook_118(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("POPBUILD this=%p onReady=%p (missing prefab SCI workaround)",a0,a1);
+    popup_safe_ready(a1);
+    return NULL;
+}
+void* hook_121(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("POPUPDATE this=%p onReady=%p (missing prefab SCI workaround)",a0,a1);
+    popup_safe_ready(a1);
+    return NULL;
+}
+// Card-state logger used only for RE.  @0x88 is true exactly when Init receives a
+// BaseNodeController provider; @0x48 selects the active-FX branch.  The remaining
+// fields are enough to tell whether the card has a tile and a collider component.
+static void log_relic_card(const char* tag, void* card){
+    PROTECT({
+        if (!obj_ok(card)) { LOG("%s card=%p invalid", tag, card); return; }
+        void* cardgo=((void*(*)(void*,void*))(g_base+0x1B4BD28))(card,NULL);
+        void* collider=*(void**)((uintptr_t)card+0x50);
+        void* collidergo=collider ? ((void*(*)(void*,void*))(g_base+0x1B4BD28))(collider,NULL) : NULL;
+        void* listener=collidergo ? ((void*(*)(void*,void*))(g_base+0x1BF8C0C))(collidergo,NULL) : NULL;
+        int cardactive=cardgo ? ((int(*)(void*,void*))(g_base+0x1B50D38))(cardgo,NULL) : -1;
+        int collideractive=collidergo ? ((int(*)(void*,void*))(g_base+0x1B50D38))(collidergo,NULL) : -1;
+        int layer=collidergo ? ((int(*)(void*,void*))(g_base+0x1B50C18))(collidergo,NULL) : -1;
+        int colenabled=collider ? ((int(*)(void*,void*))(g_base+0x21B5694))(collider,NULL) : -1;
+        int trigger=collider ? ((int(*)(void*,void*))(g_base+0x21B5764))(collider,NULL) : -1;
+        float* p = (float*)((uintptr_t)card + 0x58);
+        LOG("%s card=%p gate88=%u flag48=%u cardgo=%p active=%d comp50=%p colgo=%p active=%d layer=%d colenabled=%d trigger=%d listener=%p onclick=%p tilec0=%p p58=(%.1f,%.1f) s60=(%.1f,%.1f) p68=(%.1f,%.1f) s70=(%.1f,%.1f) p78=(%.1f,%.1f) s80=(%.1f,%.1f)",
+            tag, card, *(uint8_t*)((uintptr_t)card+0x88), *(uint8_t*)((uintptr_t)card+0x48),
+            cardgo,cardactive,collider,collidergo,collideractive,layer,colenabled,trigger,listener,listener?*(void**)((uintptr_t)listener+0x28):NULL,*(void**)((uintptr_t)card+0xc0),
+            p[0],p[1],p[2],p[3],p[4],p[5],p[6],p[7],p[8],p[9],p[10],p[11]);
+    });
+}
+void* hook_103(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("RCINIT card=%p tile=%p provider=%p", a0, a1, a2);
+    void* r=H[103].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({
+        void* building=((void*(*)(void*,void*))(g_base+0x1094230))(a1,NULL);
+        if (!g_base_tap_card && building) {
+            g_base_tap_card=a0;
+            g_base_tap_go=((void*(*)(void*,void*))(g_base+0x1B4BD28))(a0,NULL);
+            LOG("BASETAPFIX armed card=%p tile=%p building=%p",g_base_tap_card,a1,building);
+        }
+    });
+    log_relic_card("RCINIT_DONE",a0); return r;
+}
+#define MK_RELICMARK(n) \
+void* hook_##n(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    log_relic_card(H[n].tag,a0); return H[n].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+}
+MK_RELICMARK(104) MK_RELICMARK(105) MK_RELICMARK(106) MK_RELICMARK(107) MK_RELICMARK(108)
+#undef MK_RELICMARK
+#define MK_CARDMARK(n) \
+void* hook_##n(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){ \
+    LOG("%s this=%p arg1=%p",H[n].tag,a0,a1); return H[n].orig(a0,a1,a2,a3,a4,a5,a6,a7); \
+}
+MK_CARDMARK(109) MK_CARDMARK(110) MK_CARDMARK(111)
+#undef MK_CARDMARK
+void* hook_112(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("RCAWAKE card=%p",a0); void* r=H[112].orig(a0,a1,a2,a3,a4,a5,a6,a7); log_relic_card("RCAWAKE_DONE",a0); return r;
+}
+void* hook_113(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("UICLICK listener=%p onClick=%p",a0,obj_ok(a0)?*(void**)((uintptr_t)a0+0x28):NULL);
+    return H[113].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_114(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r=H[114].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    // ProcessTouch receives `pressed` in w1; dispatch only on that edge, not the
+    // matching release/update call for the same Android touch.
+    if ((uintptr_t)a1 & 1) {
+        // UICamera.get_isOverUI is static: x0 is its hidden MethodInfo* (NULL).
+        // If NGUI handled the touch (including the top navigation), preserve that
+        // UI action and do not turn it into a base-card click.
+        int over=1;
+        int dispatched=0;
+        PROTECT({ over=((int(*)(void*))(g_base+0x1F7B2EC))(NULL); });
+        if (!over && g_base_tap_card && !g_base_tap_dispatching) {
+            g_base_tap_dispatching=1;
+            dispatched=1;
+            H[108].orig(g_base_tap_card,g_base_tap_go,NULL,NULL,NULL,NULL,NULL,NULL);
+            // BaseBoard.OnCardTapped has a shipped RelicCard/BossCard type mismatch in
+            // this client build (it logs CARDTAP then aborts before the tile handler).
+            // The normal destination is nevertheless known and receives the real tile.
+            PROTECT({
+                void* node=*(void**)((uintptr_t)g_base_tap_card+0x38); // QuestCard._provider
+                void* board=node ? *(void**)((uintptr_t)node+0x48) : NULL; // NodeController._provider
+                void* tile=*(void**)((uintptr_t)g_base_tap_card+0xC0);
+                LOG("BASETAPFIX -> HandleTileBuildingInteraction board=%p tile=%p",board,tile);
+                if (board && tile) H[98].orig(board,tile,NULL,NULL,NULL,NULL,NULL,NULL);
+            });
+            g_base_tap_dispatching=0;
+        }
+        LOG("BASETAPFIX gate overUI=%d card=%p -> %s",over,g_base_tap_card,
+            dispatched ? "dispatch" : "skip");
+    }
+    return r;
+}
+// FTEBASEFIX (slot 102): permit the base-edit branch only; authored tutorial state is
+// otherwise unchanged and the original result is retained for every other branch.
+void* hook_102(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[102].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    char tutorial[32]={0}, branch[48]={0};
+    PROTECT({ read_str(a0,tutorial,sizeof tutorial); read_str(a1,branch,sizeof branch); });
+    if (!strcmp(tutorial,"FTE") && !strcmp(branch,"FTEBaseCrystal")) {
+        LOG("FTEBASEFIX forced complete tutorial=%s branch=%s",tutorial,branch);
+        return (void*)1;
+    }
+    return r;
 }
 // CAMFRAME (slot 94): a0 is the base's BaseCameraController. get__CurrentPosOffset runs every
 // frame from UpdateCamera (right after it applies the FOV), so it is a convenient place to poke
@@ -2425,7 +2602,10 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_59,hook_60,hook_61,hook_62,hook_63,hook_64,hook_65,hook_66,
     hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77,hook_78,
     hook_79,hook_80,hook_81,hook_82,hook_83,hook_84,hook_85,hook_86,hook_87,hook_88,
-    hook_89,hook_90,hook_91,hook_92,hook_93,hook_94,hook_95,hook_96 };
+    hook_89,hook_90,hook_91,hook_92,hook_93,hook_94,hook_95,hook_96,
+    hook_97,hook_98,hook_99,hook_100,hook_101,hook_102,
+    hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
+    hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
