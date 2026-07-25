@@ -116,7 +116,9 @@ class MissionsConfigTests(unittest.TestCase):
         missions_config = gamedata.build_missions_config()
 
         self.assertEqual(missions_config["configsHash"], "offline-v1")
-        self.assertEqual(set(missions_config["configs"]), {"bcg-combat"})
+        self.assertEqual(
+            set(missions_config["configs"]), {"bcg-combat", "user-base"}
+        )
         armor_constant = missions_config["configs"]["bcg-combat"][
             "armorRatingConstant"
         ]
@@ -159,6 +161,146 @@ class MissionsConfigTests(unittest.TestCase):
         self.assertEqual(update["name"], "missionsconfig")
         self.assertEqual(update["data"], gamedata.build_missions_config())
         self.assertEqual(update["refresh"], 0)
+
+
+class BaseActiveTests(unittest.TestCase):
+    """/base/active -- the home screen's base board.
+
+    These lock in the wire contract read out of the client (see the comments above
+    gamedata.build_base_active): the four `user`-prefixed keys with NO dot separator,
+    the three non-empty ActiveMission identity fields, and a Map that cannot make the
+    board builder null-deref.
+    """
+
+    def test_keys_use_the_concatenated_user_prefix(self):
+        result = gamedata.build_base_active()
+
+        self.assertEqual(
+            set(result),
+            {"userBase", "userAvailableBuildings", "userBuildings", "userSockets"},
+        )
+
+    def test_mission_identity_fields_are_all_non_empty(self):
+        mission = gamedata.build_base_active()["userBase"]
+
+        # ActiveMission.Deserialize aborts the whole parse if any of these is empty.
+        for key in ("mode", "category", "id"):
+            self.assertTrue(mission[key], f"{key} must be non-empty")
+        # A valid uid is what makes Base.get_type answer "users" (the player's base)
+        # rather than "alliances".
+        self.assertEqual(mission["uid"], gamedata.LOCAL_UID)
+
+    def test_summary_theme_resolves_to_a_bundled_base_library(self):
+        summary = gamedata.build_base_active()["userBase"]["data"]
+
+        # The builder loads "library_" + theme + "_base"; primordial_base ships in the APK.
+        self.assertEqual(summary["theme"], "primordial")
+
+    def test_map_grid_is_square_and_has_exactly_one_start_tile(self):
+        game_map = gamedata.build_base_active()["userBase"]["map"]
+        dim = game_map["gridDimension"]
+
+        self.assertEqual(len(game_map["grid"]), dim)
+        for row in game_map["grid"]:
+            self.assertEqual(len(row), dim)
+        starts = [
+            (r, c)
+            for r, row in enumerate(game_map["grid"])
+            for c, tile in enumerate(row)
+            if tile.get("start")
+        ]
+        self.assertEqual(len(starts), 1)
+
+    def test_map_has_path_data_so_the_path_analyzer_cannot_null_deref(self):
+        game_map = gamedata.build_base_active()["userBase"]["map"]
+
+        self.assertGreaterEqual(len(game_map["pathData"]), 1)
+        for path in game_map["pathData"]:
+            self.assertGreaterEqual(len(path["path"]), 1)
+
+    def test_every_walkable_tile_offers_an_unlocked_building_socket(self):
+        result = gamedata.build_base_active()
+        game_map = result["userBase"]["map"]
+
+        walkable = [
+            tile
+            for row in game_map["grid"]
+            for tile in row
+            if tile.get("walkable")
+        ]
+        self.assertEqual(len(walkable), game_map["walkableCount"])
+        for tile in walkable:
+            self.assertTrue(tile["sockets"])
+            for socket in tile["sockets"].values():
+                # The value's entityType becomes Socket.type, and tile.sockets is
+                # keyed by TYPE -- "building" is what buildingSocket lookup wants.
+                # (Socket.id comes from the dict entry key, not an `id` field.)
+                self.assertEqual(socket["entityType"], "building")
+            for socket_id in tile["sockets"]:
+                # The per-player unlock overlay must know every authored socket.
+                self.assertTrue(result["userSockets"][socket_id])
+
+    def test_placements_reference_authored_sockets_and_buildings(self):
+        result = gamedata.build_base_active()
+        mission = result["userBase"]
+        available = {b["id"] for b in result["userAvailableBuildings"]}
+        socket_ids = {
+            socket_id
+            for row in mission["map"]["grid"]
+            for tile in row
+            for socket_id in tile.get("sockets", {})
+        }
+
+        self.assertTrue(mission["placements"])
+        for socket_id, placement in mission["placements"].items():
+            # The placements dict key must be a real tile socket id: the tile's
+            # building is mission.placement.entities[tile.buildingSocket.id].
+            self.assertIn(socket_id, socket_ids)
+            # entityType "building" routes NewEntity to the Building branch, and
+            # `key` (extraData) must name a catalogue entry to clone.
+            self.assertEqual(placement["entityType"], "building")
+            self.assertIn(placement["key"], available)
+
+    def test_owned_buildings_come_from_the_available_catalogue(self):
+        result = gamedata.build_base_active()
+        available = {b["id"] for b in result["userAvailableBuildings"]}
+
+        self.assertTrue(result["userBuildings"])
+        for owned in result["userBuildings"]:
+            # DeserializeOwnedBuildings drops (and logs an error for) any owned id
+            # missing from availableBuildings -- it clones the catalogue entry.
+            self.assertIn(owned["id"], available)
+            self.assertIn(owned["key"], result["userSockets"])
+
+    def test_available_buildings_use_shipped_model_ids(self):
+        # modelId must be a child of library_buildings in buildings.assetbundle;
+        # this is the complete shipped set (see the note at BASE_BUILDINGS).
+        shipped = {
+            "z_bldg_alliance_help_%02d" % i for i in range(4)
+        } | {
+            "z_bldg_away_team_%02d" % i for i in range(4)
+        } | {
+            "z_bldg_battle_centre_%02d" % i for i in range(4)
+        } | {"z_bldg_gacha_daily_01", "z_bldg_gacha_free_01", "z_bldg_gacha_other_01"}
+
+        buildings = gamedata.build_base_active()["userAvailableBuildings"]
+        self.assertTrue(buildings)
+        for building in buildings:
+            self.assertEqual(building["entityType"], "building")
+            self.assertIn(building["modelId"], shipped)
+            # Building.Deserialize aborts unless the identity fields parse.
+            self.assertTrue(building["id"])
+            self.assertTrue(building["name"])
+
+    def test_links_only_point_at_walkable_neighbours(self):
+        game_map = gamedata.build_base_active()["userBase"]["map"]
+        grid = game_map["grid"]
+
+        for row in grid:
+            for tile in row:
+                for link in tile.get("links", []):
+                    target = grid[link["x"]][link["y"]]
+                    self.assertTrue(target.get("walkable"))
 
 
 if __name__ == "__main__":
