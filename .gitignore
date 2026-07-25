@@ -22,3 +22,4 @@
 # Local ffmpeg two-pass encoding artifacts.
 /ffmpeg2pass-*.log
 /ffmpeg2pass-*.log.mbtree
+.longtask/
