@@ -337,6 +337,14 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // CAMFRAME (slot 94): BaseCameraController.get__CurrentPosOffset -- override the baked
     // pos-offset so the small authored board frames close. See the CAMFRAME note above.
     { 0x121C634, "CAMFRAME",  2, 0 }, // 94 BaseCameraController.get__CurrentPosOffset(this=a0)
+    // BLDGSWAP: SpawnBuilding is the visible-object creation site. The normal path resolves
+    // "buildings/prefabs/" + name as a standalone asset and falls back to DefaultRelic, but
+    // the real z_bldg_* prefabs are inactive children registered in _BuildingLibrary@0x158.
+    { 0xB67CC0, "BLDGSWAP",  2, 0 }, // 95 GameboardBuilder.SpawnBuilding(name=a1,node=a2) -> custom
+    // BLDGLEAVE: BaseBoard.LeaveBoard is the base-specific teardown path. The game's normal
+    // board-root deactivation does not reach the AssetManager-resident fallback anchors that
+    // BLDGACT made visible, so hide the hook-touched objects here before STORY takes its camera.
+    { 0xA6F844, "BLDGLEAVE", 2, 0 }, // 96 BaseBoard.LeaveBoard -> hide tracked base objects
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -347,6 +355,41 @@ static volatile int g_inhb = 0;
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
 // are prefixed "QS " so the quest-list/details field keys can be grepped out.
 static volatile int g_inqs = 0;
+// LoadBuildingObject receives the authored model id before its failed standalone-asset
+// request falls back to DefaultRelic.  SpawnBuilding then receives DefaultRelic, so retain
+// the authored ids in call order and use them to pair those fallback anchors with the
+// PrefabLibrary children that actually contain the real meshes.
+#define BLDG_FIFO_CAP 16
+static char g_bldg_fifo[BLDG_FIFO_CAP][96];
+static int g_bldg_fifo_head = 0, g_bldg_fifo_count = 0;
+#define BLDG_TRACK_CAP 24
+static void* g_bldg_tracked[BLDG_TRACK_CAP];
+static int g_bldg_tracked_count = 0;
+static int read_str(void* s, char* buf, int cap);
+static int obj_ok(void* p);
+static void bldg_track(void* go){
+    if (!obj_ok(go)) return;
+    for (int i=0;i<g_bldg_tracked_count;i++) if (g_bldg_tracked[i] == go) return;
+    if (g_bldg_tracked_count < BLDG_TRACK_CAP) g_bldg_tracked[g_bldg_tracked_count++] = go;
+}
+static void bldg_fifo_push(const char* name){
+    int slot;
+    if (!name || strncmp(name, "z_bldg_", 7) != 0) return;
+    if (g_bldg_fifo_count == BLDG_FIFO_CAP) {
+        g_bldg_fifo_head = (g_bldg_fifo_head + 1) % BLDG_FIFO_CAP;
+        g_bldg_fifo_count--;
+    }
+    slot = (g_bldg_fifo_head + g_bldg_fifo_count) % BLDG_FIFO_CAP;
+    snprintf(g_bldg_fifo[slot], sizeof g_bldg_fifo[slot], "%s", name);
+    g_bldg_fifo_count++;
+}
+static int bldg_fifo_pop(char* out, int cap){
+    if (!out || cap < 1 || g_bldg_fifo_count < 1) return 0;
+    snprintf(out, (size_t)cap, "%s", g_bldg_fifo[g_bldg_fifo_head]);
+    g_bldg_fifo_head = (g_bldg_fifo_head + 1) % BLDG_FIFO_CAP;
+    g_bldg_fifo_count--;
+    return 1;
+}
 static void log_key(const char* tag, void* s) {
     if (!g_f) return;
     uintptr_t p = (uintptr_t)s;
@@ -391,7 +434,21 @@ MKHOOK(33) MKHOOK(34) MKHOOK(35) MKHOOK(39) MKHOOK(40) MKHOOK(41) MKHOOK(42)
 MKHOOK(47) MKHOOK(48) MKHOOK(49) MKHOOK(51)
 // slots 53/54/55: BCGHeroBase ctor field readers (jp=1 key logging, HB-prefixed via g_inhb)
 MKHOOK(53) MKHOOK(54) MKHOOK(55)
-MKHOOK(91) MKHOOK(92)
+MKHOOK(91)
+// LOADBLDG (slot 92): log the requested model as before, then queue authored building ids
+// so the later DefaultRelic SpawnBuilding fallbacks can be paired FIFO with their real prefab.
+void* hook_92(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        char name[96];
+        if (read_str(a1, name, sizeof name)) {
+            flog("LOADBLDG %s", name);
+            bldg_fifo_push(name);
+        } else {
+            flog("LOADBLDG <null>");
+        }
+    });
+    return H[92].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 // Read the combat game-clock singleton (same chain OnReceive/OnRelease/HasAction/SetAction use):
 //   [g_base+0x2c1a928] -> [.] -> [.+0xb8] -> [.] -> float @0x18
 static float game_clock(void){
@@ -671,6 +728,10 @@ void* hook_78(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 // materials fail the same way the terrain's does.
 #define KEYBOOST 1
 #define KEYBOOST_VAL 12000.0f
+// Base-board visibility workarounds: BLDGACT force-activates a building GameObject the
+// game itself disables (not a root-cause fix).  SHFIX injects flat-white spherical-harmonic
+// ambient because baked lighting supplies none (a cosmetic workaround).  The base terrain's
+// material is still a broken baked shader variant and remains black; that is known unfixed.
 // SHFIX: 1 = overwrite the BASE reflection probe's spherical harmonics with a flat
 // white ambient of SHFIX_VAL and re-Apply. See log_tod_lighting for the derivation.
 #define SHFIX 1
@@ -679,7 +740,7 @@ void* hook_78(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 // the black terrain. ~12 lands near white post-exposure; 15 keeps them clearly bright at any
 // framing. Only the buildings' PBR material samples this ambient; the terrain variant ignores
 // it (s27), so cranking it does not touch the terrain.
-#define SHFIX_VAL 6.0f
+#define SHFIX_VAL 0.5f
 // METALFIX: 1 = bind an explicit black texture to the terrain material's
 // _metallic_tex, which is unassigned despite _METALLIC_TOGGLE being compiled in.
 #define METALFIX 0
@@ -866,6 +927,32 @@ static const int TF_WHITE[4] = { 1, 1, 0, 1 };
 // read. The fov-field poke lives in hook_94 behind this switch for future experiments.
 #define CAMFRAME 0
 #define CAMFOV 15.0f
+// BLDGSWAP: LoadBuildingObject first asks for an authored z_bldg_* asset, fails, and its
+// fallback creates a DefaultRelic anchor. hook_92 remembers those authored ids FIFO; here the
+// DefaultRelic calls consume them and put the matching PrefabLibrary child under the returned
+// anchor, hiding the rock renderer. A later refresh calls SpawnBuilding with the real id but
+// still gets no standalone asset: in that NULL-return phase this hook creates, parents and
+// returns the library clone itself so OnBuildingSet receives a real GameObject.
+#define BLDGSWAP 1
+// BLDGSCALE: presentation-only magnification of the swapped-in base-building clones.
+// The authored/base-game scale leaves the buildings ~415 world units from the baked
+// base camera, i.e. a few pixels tall. This is a COSMETIC framing workaround, not a
+// fidelity fix: it makes the base readable at the default framing without moving the
+// camera (camera reframing is a closed dead end -- it occludes the buildings behind
+// the terrain stitch hump).
+#define BLDGSCALE     1
+#define BLDGSCALE_VAL 1.5f
+// BLDGDIAG records the hierarchy and renderer bounds at Refresh to distinguish an
+// inactive/empty/off-frame building from one that is merely too small or dark.
+// BLDGACT forces the building plus any inactive ancestors active; BLDGPROBE moves
+// the first building roughly 100 units in front of the base camera as a draw probe.
+#define BLDGDIAG  1
+#define BLDGACT   1
+#define BLDGPROBE 0
+// BLDGLEAVE undoes the cosmetic force-activation/rescaling workaround when BaseBoard leaves.
+// Those objects live under AssetManager rather than the normal board root, so without this
+// matching teardown they survive into STORY even though the game correctly hides its own board.
+#define BLDGLEAVE 1
 // SHADERSWAP is retired: it called Material.set_shader on GameboardBuilder._ThemeMaterial,
 // which is a ThemeMaterial MonoBehaviour and not a Material at all (see the correction note
 // in hook_79). It could never have worked, and the reading that motivated it was garbage.
@@ -873,6 +960,7 @@ static const int TF_WHITE[4] = { 1, 1, 0, 1 };
 // otherwise be read as extra arguments. A 3-float struct is an AAPCS64 HFA, so Unity's
 // Transform.get_position returns it in s0/s1/s2 and a plain C struct return matches.
 typedef struct { float x, y, z; } V3;
+typedef struct { float cx, cy, cz, ex, ey, ez; } Bounds;
 // Same reason, and the same HFA rule: a 4-float struct comes back in s0-s3, matching
 // UnityEngine.Color as returned by Material.get_color.
 typedef struct { float r, g, b, a; } COL4;
@@ -2081,6 +2169,8 @@ static void dump_go(const char* tag, void* go){
 void* hook_90(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[90].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     static int dumps = 0;
+    static int diag_nodes = 0;
+    static int probe_nodes = 0;
     PROTECT({
         void* go = fld_p(a0, 0x28);
         if (obj_ok(go) && dumps < 24) {
@@ -2091,6 +2181,83 @@ void* hook_90(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
             snprintf(tag, sizeof tag, "BLDGO node=%p id=%s", a0, bid);
             dump_go(tag, go);
         }
+#if BLDGDIAG || BLDGACT || BLDGPROBE
+        if (obj_ok(go) && diag_nodes < 8) {
+            diag_nodes++;
+            int  (*go_active)(void*,void*) = (int(*)(void*,void*))(g_base + 0x1B50CF8);
+            int  (*go_active_h)(void*,void*) = (int(*)(void*,void*))(g_base + 0x1B50D38);
+            void (*go_set_active)(void*,int,void*) = (void(*)(void*,int,void*))(g_base + 0x1B50CA8);
+            void* (*go_transform)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B50BD8);
+            void* (*tr_get_parent)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16AA7D8);
+            void  (*tr_set_position)(void*,V3,void*) = (void(*)(void*,V3,void*))(g_base + 0x16B7CB4);
+            void  (*tr_set_local_scale)(void*,V3,void*) = (void(*)(void*,V3,void*))(g_base + 0x16B84CC);
+            void* (*comp_get_go)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B4BD28);
+            void* (*go_gcic)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x11E5B70);
+            void  (*rend_get_bounds)(void*,Bounds*,void*) = (void(*)(void*,Bounds*,void*))(g_base + 0x16AD7EC);
+            void* (*obj_get_name)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16A16A0);
+            void* chain[13];
+            int chain_count = 0;
+            void* current = go;
+            while (obj_ok(current) && chain_count < 13) {
+                chain[chain_count++] = current;
+                char name[96]; name[0] = 0;
+                if (!read_str(obj_get_name(current,NULL), name, sizeof name)) strcpy(name,"<noname>");
+#if BLDGDIAG
+                flog("BLDGANC level=%d go='%s' active=%d/%d", chain_count - 1, name,
+                     go_active(current,NULL), go_active_h(current,NULL));
+#endif
+                void* tr = go_transform(current,NULL);
+                if (!obj_ok(tr)) break;
+                void* parent_tr = tr_get_parent(tr,NULL);
+                if (!obj_ok(parent_tr)) break;
+                current = comp_get_go(parent_tr,NULL);
+            }
+#if BLDGDIAG
+            void* gcicmi = fld_p(*(void**)(g_base + 0x2C33E58), 0x0);
+            void* rends = obj_ok(gcicmi) ? go_gcic(go,gcicmi) : NULL;
+            int render_count = obj_ok(rends) ? (int)*(int32_t*)((uintptr_t)rends + 0x18) : -1;
+            for (int k = 0; k < render_count && k < 6; k++) {
+                void* renderer = *(void**)((uintptr_t)rends + 0x20 + 8*k);
+                if (!obj_ok(renderer)) continue;
+                void* rgo = comp_get_go(renderer,NULL);
+                Bounds bounds;
+                bounds.cx=bounds.cy=bounds.cz=bounds.ex=bounds.ey=bounds.ez=0.0f;
+                rend_get_bounds(renderer,&bounds,NULL);
+                char rname[96]; rname[0] = 0;
+                if (!read_str(obj_ok(rgo)?obj_get_name(rgo,NULL):NULL,rname,sizeof rname)) strcpy(rname,"<null>");
+                flog("BLDGBND rend=%d go='%s' active=%d center=(%.2f,%.2f,%.2f) extents=(%.2f,%.2f,%.2f)",
+                     k, rname, obj_ok(rgo)?go_active_h(rgo,NULL):-1, bounds.cx,bounds.cy,bounds.cz,
+                     bounds.ex,bounds.ey,bounds.ez);
+            }
+#endif
+#if BLDGACT
+            int before = go_active_h(go,NULL);
+            int forced = 0;
+            if (before == 0) {
+                for (int k = chain_count - 1; k >= 0; k--) {
+                    if (obj_ok(chain[k]) && go_active(chain[k],NULL) == 0) {
+                        go_set_active(chain[k],1,NULL);
+                        forced++;
+                    }
+                }
+            }
+            flog("BLDGACT go=%p before=%d after=%d forced=%d", go, before,
+                 go_active_h(go,NULL), forced);
+#endif
+#if BLDGPROBE
+            if (probe_nodes++ == 0) {
+                void* tr = go_transform(go,NULL);
+                if (obj_ok(tr)) {
+                    V3 position; position.x=-38.0f; position.y=124.0f; position.z=-278.0f;
+                    V3 scale; scale.x=scale.y=scale.z=20.0f;
+                    tr_set_position(tr,position,NULL);
+                    tr_set_local_scale(tr,scale,NULL);
+                    flog("BLDGPROBE go=%p pos=(-38.0,124.0,-278.0) scale=20.0",go);
+                }
+            }
+#endif
+        }
+#endif
     });
     return r;
 }
@@ -2108,6 +2275,131 @@ void* hook_93(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     void* r = H[93].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({ if ((uintptr_t)a2) dump_go("ONBLDSET-post", a2); });
     return r;
+}
+// BLDGSWAP (slot 95): both the DefaultRelic fallback path and the later real-name refresh
+// miss the synthetic standalone path. Use the PrefabLibrary's exact child instead.
+void* hook_95(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[95].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    void* replacement = NULL;
+#if BLDGSWAP
+    PROTECT({
+        char requested[96]; char resolved[96];
+        int from_fifo=0;
+        int have_key=0;
+        int had_anchor=obj_ok(r);
+        requested[0]=resolved[0]=0;
+        if (!read_str(a1, requested, sizeof requested)) strcpy(requested, "<null>");
+        void* (*lib_contents)(void*,void*) = (void*(*)(void*,void*))(g_base + 0xE3B4D4);
+        int (*dict_has)(void*,void*,void*) = (int(*)(void*,void*,void*))(g_base + 0x1FFD7C8);
+        void* (*dict_get)(void*,void*,void*) = (void*(*)(void*,void*,void*))(g_base + 0x1FFD490);
+        void* (*obj_instantiate)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16A1AF8);
+        void  (*obj_set_name)(void*,void*,void*) = (void(*)(void*,void*,void*))(g_base + 0x16A1760);
+        void* (*go_transform)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B50BD8);
+        void  (*tr_set_parent)(void*,void*,int,void*) = (void(*)(void*,void*,int,void*))(g_base + 0x16B877C);
+        void  (*tr_set_local_position)(void*,V3,void*) = (void(*)(void*,V3,void*))(g_base + 0x16B7E0C);
+        void  (*tr_set_local_scale)(void*,V3,void*) = (void(*)(void*,V3,void*))(g_base + 0x16B84CC);
+        V3    (*tr_get_position)(void*,void*) = (V3(*)(void*,void*))(g_base + 0x16B7C04);
+        void  (*tr_set_position)(void*,V3,void*) = (void(*)(void*,V3,void*))(g_base + 0x16B7CB4);
+        void  (*go_set_active)(void*,int,void*) = (void(*)(void*,int,void*))(g_base + 0x1B50CA8);
+        void* (*comp_get_go)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B4BD28);
+        void* (*go_gcic)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x11E5B70);
+        void* lib = fld_p(a0, 0x158);
+        void* cont = obj_ok(lib) ? lib_contents(lib, NULL) : NULL;
+        void* mi_has = fld_p(*(void**)(g_base + 0x2C38CC0), 0x0);
+        void* mi_get = fld_p(*(void**)(g_base + 0x2C24188), 0x0);
+        void* selected_key=NULL;
+        void* prefab=NULL;
+        if (obj_ok(cont) && obj_ok(mi_has) && g_strnew) {
+            selected_key=g_strnew(requested);
+            if (obj_ok(selected_key) && dict_has(cont,selected_key,mi_has)==1) {
+                snprintf(resolved,sizeof resolved,"%s",requested);
+                have_key=1;
+            } else if (strcmp(requested,"DefaultRelic")==0 && bldg_fifo_pop(resolved,sizeof resolved)) {
+                from_fifo=1;
+                selected_key=g_strnew(resolved);
+                have_key=obj_ok(selected_key) && dict_has(cont,selected_key,mi_has)==1;
+            }
+        }
+        flog("BLDGSWAP requested='%s' key='%s' fifo=%d anchor=%p", requested,
+             resolved[0]?resolved:"<none>", from_fifo, r);
+        if (have_key && obj_ok(mi_get)) prefab=dict_get(cont,selected_key,mi_get);
+        if (!have_key || !obj_ok(prefab)) {
+            flog("BLDGSWAP outcome=decline key='%s' haveKey=%d prefab=%p", resolved, have_key, prefab);
+        } else if (had_anchor) {
+            // Capture these before the clone exists so only DefaultRelic renderer objects hide.
+            void* gcicmi=fld_p(*(void**)(g_base+0x2C33E58),0x0);
+            void* oldrends=obj_ok(gcicmi)?go_gcic(r,gcicmi):NULL;
+            int oldcount=obj_ok(oldrends)?*(int32_t*)((uintptr_t)oldrends+0x18):-1;
+            void* clone=obj_instantiate(prefab,NULL);
+            void* ctr=obj_ok(clone)?go_transform(clone,NULL):NULL;
+            void* rtr=go_transform(r,NULL);
+            if (obj_ok(clone) && obj_ok(ctr) && obj_ok(rtr)) {
+                bldg_track(r);
+                bldg_track(clone);
+                V3 zero; zero.x=zero.y=zero.z=0.0f;
+                tr_set_parent(ctr,rtr,0,NULL);
+                tr_set_local_position(ctr,zero,NULL);
+#if BLDGSCALE
+                V3 scale; scale.x=scale.y=scale.z=BLDGSCALE_VAL;
+                tr_set_local_scale(ctr,scale,NULL);
+                flog("BLDGSCALE applied key='%s' mult=%.2f",resolved,BLDGSCALE_VAL);
+#endif
+                go_set_active(clone,1,NULL);
+                char clonename[128]; snprintf(clonename,sizeof clonename,"BLDGSWAP-clone:%s",resolved);
+                void* managed_name=g_strnew?g_strnew(clonename):NULL;
+                if (obj_ok(managed_name)) obj_set_name(clone,managed_name,NULL);
+                if (obj_ok(oldrends) && oldcount>=0 && oldcount<=256) for(int i=0;i<oldcount;i++) {
+                    void* rr=*(void**)((uintptr_t)oldrends+0x20+8*i);
+                    void* rgo=obj_ok(rr)?comp_get_go(rr,NULL):NULL;
+                    if(obj_ok(rgo)) go_set_active(rgo,0,NULL);
+                }
+                flog("BLDGSWAP outcome=anchor-swap key='%s' clone=%p hiddenRenderers=%d",resolved,clone,oldcount);
+                dump_go("BLDGSWAP-clone",clone);
+            } else flog("BLDGSWAP outcome=anchor-clone-failed key='%s' clone=%p ctr=%p anchorTr=%p",resolved,clone,ctr,rtr);
+        } else {
+            void* clone=obj_instantiate(prefab,NULL);
+            void* ctr=obj_ok(clone)?go_transform(clone,NULL):NULL;
+            if (obj_ok(clone)) {
+                bldg_track(clone);
+                if (obj_ok(a1)) obj_set_name(clone,a1,NULL);
+                void* parent_go=fld_p(a0,0xB0);
+                void* parent_tr=obj_ok(parent_go)?go_transform(parent_go,NULL):NULL;
+                if (obj_ok(ctr) && obj_ok(parent_tr)) tr_set_parent(ctr,parent_tr,1,NULL);
+                if (obj_ok(ctr) && obj_ok(a2)) { V3 pos=tr_get_position(a2,NULL); tr_set_position(ctr,pos,NULL); }
+#if BLDGSCALE
+                if (obj_ok(ctr)) { V3 scale; scale.x=scale.y=scale.z=BLDGSCALE_VAL; tr_set_local_scale(ctr,scale,NULL); flog("BLDGSCALE applied key='%s' mult=%.2f",resolved,BLDGSCALE_VAL); }
+#endif
+                go_set_active(clone,1,NULL);
+                replacement=clone;
+                flog("BLDGSWAP outcome=return-clone key='%s' clone=%p parent=%p node=%p",resolved,clone,parent_tr,a2);
+                dump_go("BLDGSWAP-return",clone);
+            } else flog("BLDGSWAP outcome=return-clone-failed key='%s' clone=%p",resolved,clone);
+        }
+    });
+#endif
+    return replacement ? replacement : r;
+}
+// BLDGLEAVE (slot 96): BaseBoard.LeaveBoard is the confirmed base-board teardown path
+// (it calls SafeSetActive(false) on the regular board root).  BLDGACT is deliberately a
+// cosmetic workaround for the game's disabled-GameObject behaviour, not a root-cause fix;
+// the fallback anchors/clones it touches live under AssetManager and therefore need the same
+// explicit deactivation before a STORY board reuses the scene/camera.
+void* hook_96(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+#if BLDGLEAVE
+    PROTECT({
+        void (*go_set_active)(void*,int,void*) =
+            (void(*)(void*,int,void*))(g_base + 0x1B50CA8);
+        int hidden=0;
+        for (int i=0;i<g_bldg_tracked_count;i++) {
+            if (obj_ok(g_bldg_tracked[i])) { go_set_active(g_bldg_tracked[i],0,NULL); hidden++; }
+        }
+        flog("BLDGLEAVE base=%p hidden=%d tracked=%d",a0,hidden,g_bldg_tracked_count);
+        g_bldg_tracked_count=0;
+        g_bldg_fifo_count=0;
+        g_bldg_fifo_head=0;
+    });
+#endif
+    return H[96].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 // CAMFRAME (slot 94): a0 is the base's BaseCameraController. get__CurrentPosOffset runs every
 // frame from UpdateCamera (right after it applies the FOV), so it is a convenient place to poke
@@ -2133,7 +2425,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_59,hook_60,hook_61,hook_62,hook_63,hook_64,hook_65,hook_66,
     hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77,hook_78,
     hook_79,hook_80,hook_81,hook_82,hook_83,hook_84,hook_85,hook_86,hook_87,hook_88,
-    hook_89,hook_90,hook_91,hook_92,hook_93,hook_94 };
+    hook_89,hook_90,hook_91,hook_92,hook_93,hook_94,hook_95,hook_96 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
