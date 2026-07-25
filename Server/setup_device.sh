@@ -35,7 +35,13 @@ S 'cat /system/etc/hosts'
 
 echo "[*] install CA: $(basename "$CAHASH")"
 CADIR="/data/local/tmp/cacerts"
-S "rm -rf $CADIR; mkdir -p $CADIR; cp /system/etc/security/cacerts/* $CADIR/ 2>/dev/null; chmod 644 $CADIR/*"
+# Unmount BEFORE touching $CADIR. On a re-run it is still bind-mounted over
+# /system/etc/security/cacerts, so an `rm -rf` here wipes the mount source out from under the
+# live mount: the system store goes empty, the `cp` below copies nothing back, and the
+# following chmod then fails on an empty glob and takes the whole script down via `set -e` --
+# leaving the device with NO trusted CAs at all. Recovering needed a manual umount.
+S "mountpoint -q /system/etc/security/cacerts && umount /system/etc/security/cacerts 2>/dev/null; true"
+S "rm -rf $CADIR; mkdir -p $CADIR; cp /system/etc/security/cacerts/* $CADIR/ 2>/dev/null; chmod 644 $CADIR/* 2>/dev/null; true"
 "$ADB" -s "$D" push "$CAHASH" "$CADIR/" >/dev/null && echo "  pushed CA"
 S "chmod 644 $CADIR/$(basename "$CAHASH"); chown root:root $CADIR/* 2>/dev/null"
 S "mountpoint -q /system/etc/security/cacerts && umount /system/etc/security/cacerts 2>/dev/null; mount -o bind $CADIR /system/etc/security/cacerts && echo CACERTS_BOUND"

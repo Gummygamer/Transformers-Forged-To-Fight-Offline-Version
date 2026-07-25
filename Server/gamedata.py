@@ -385,12 +385,22 @@ def build_missions_config():
     positive armor constant is required even while authored heroes have zero armor:
     GetArmorDR computes ``armor / (abs(armor) + constant)``, so the default 0/0
     becomes NaN and causes GetDamageReceived to clamp every hit to zero.
+
+    The ``user-base`` entry is the player base's CommonConfig. ActiveQuest's
+    ConfigChangedCallback (@0x109F290) only builds a ``Quests.UserBaseConfig`` when a
+    config named exactly ``user-base`` arrives AND the base's type is ``users``;
+    without it the base ActiveQuest keeps a null config. Its two fields gate resource
+    claiming from base generators.
     """
     return {
         "configsHash": "offline-v1",
         "configs": {
             "bcg-combat": {
                 "armorRatingConstant": 1000.0,
+            },
+            "user-base": {
+                "minClaimInterval": 60,
+                "minClaimPercentage": 0.1,
             },
         },
     }
@@ -1016,6 +1026,322 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1)):
         "results": actions,
         "progression": prog,
         "teamData": team_data,
+    }
+
+
+# ---------------------------------------------------------------------------
+# The player's BASE (the home screen).
+#
+# The home screen is not a static backdrop: it is a second game board. HomeFlow
+# (@0xC5F55C) holds a `BaseBoard` (scene "Baseboard") and fills it from
+# QuestsManager.userBase -- an ActiveQuest built by `new ActiveQuest(Base)`
+# (@0x109EF6C) out of BaseManager's `Base`, which is nothing but a wrapper around
+# an EB.Missions.ActiveMission. So the base uses the SAME Summary + Map machinery
+# the STORY board already uses; it just arrives through a different endpoint.
+#
+# Wire path, all confirmed by disassembly:
+#   GET /base/active
+#     -> BaseManager.DeserializeData (@0x17343F8) calls
+#        BaseSubManager.DeserializeData (@0x173511C) TWICE, with prefix "user" and
+#        prefix "alliance". Each key is String.Concat(prefix, <name>) -- there is NO
+#        dot separator, so the wire keys are literally `userAvailableBuildings`,
+#        `userBuildings`, `userSockets`, `userBase` (an earlier note in
+#        TECHNICAL_NOTES spelled these "user.AvailableBuildings"; that is wrong).
+#     -> `userBase` is read with Dot.Object and handed to ActiveMission.Deserialize
+#        (@0x1514354), whose keys are mode/category/id (all three must be non-empty
+#        or the whole parse errors), hash/setName/setId/uid/aid, `data` (the Summary
+#        -- note it is `data` here, not `summary`), `map`, `placements`, `modes`.
+#     -> Base.get_type (@0x173249C) returns "users" when mission.uid is a VALID Id,
+#        else "alliances"; the "users" branch is what makes this the player's own base
+#        and selects the `user-base` entry of the missions config as its CommonConfig.
+#
+# Terrain: GameboardBuilder.BuildInternal (@0xF8B570) sets
+#   _ThemeName = summary.theme
+#   _ThemeNameFull = summary.theme + "_base"    (when the board is the user's base)
+#   library = "library_" + _ThemeNameFull.ToLower()
+# so theme "primordial" resolves to `library_primordial_base`, which is exactly the
+# `primordial_base` bundle that ships in the APK. Getting the theme wrong yields the
+# same missing-material MAGENTA the STORY board showed before session 16.
+# ---------------------------------------------------------------------------
+
+BASE_ID = "user_base_1"       # ActiveMission.id -> Base.uniqueId
+BASE_THEME = "primordial"     # -> library_primordial_base (see above)
+BASE_DIM = 5                  # Map.gridDimension (square grid)
+
+# Sockets (build plots), corrected against EB.Missions.MapTile.Deserialize
+# (@0x1484C04, socket loop @0x1485704):
+#   * the tile's `sockets` dict ENTRY KEY becomes Socket.id (builder.NewSocket's
+#     first arg is key.ToString());
+#   * the entry value's `entityType` field becomes Socket.type -- NOT a `type` key
+#     (Socket.Deserialize @0x137F434 itself reads only `locked` + base `v`);
+#   * tile.sockets is then keyed by socket TYPE (dict.Add uses Socket.type@0x28),
+#     which is what Quests.MapTile.Deserialize (@0x1093E9C) looks up with the
+#     literal keys "boss"/"tower"/"building"/"relic" to pick bossSocket /
+#     towerSocket / buildingSocket. An earlier draft keyed the wire dict by socket
+#     id and put the type in a `type` field -- both wrong, the socket was never
+#     found and no building could ever attach to a tile.
+# `userSockets` (a flat id -> bool map) is the per-player unlock state overlay,
+# parsed by BaseSubManager.DeserializeUnlocks (@0x1737CA8).
+BASE_SOCKET_TYPE = "building"
+
+# ---------------------------------------------------------------------------
+# Buildings.
+#
+# Wire path (all disassembled):
+#   * `userAvailableBuildings` -> BaseSubManager.DeserializeAvailableBuildings
+#     (@0x1737168): an ARRAY of dicts. Each: entityType (must be "building" --
+#     EB.Base.Builder.NewEntity @0x149B5D4 only takes the Building branch when
+#     baseType == "building"; parentEntityType defaults to entityType), then
+#     Building.Deserialize (@0x149C594) reads id / name / description / img
+#     (Dot.Loc, plain strings fine) / modelId / maxDamage / cost / comingSoon /
+#     levels / rank / level / damage / funds{upgrade,repair}. The parsed building
+#     lands in builder.availableBuildings keyed by its `id`.
+#   * `userBuildings` -> DeserializeOwnedBuildings (@0x17376D0): an ARRAY whose
+#     entries are {id, key}: `id` MUST match an available building (TryGetValue
+#     into builder.availableBuildings, else "Error deserializing owned
+#     buildingId="), the clone re-runs Deserialize on the entry (so rank/level
+#     could be overridden here) and is stored keyed by `key`.
+#   * The mission's `placements` -> Placement.Deserialize (@0x13A2DDC): a DICT
+#     keyed by SOCKET id. Each value: entityType/parentEntityType ("building"),
+#     `key` = the building id (passed as NewEntity's extraData, which is what
+#     makes the base builder CLONE availableBuildings[key]), `position` = tile
+#     coords. Placement.entities is keyed by the outer dict key.
+#   * Display: BaseNodeController.Refresh (@0xCF2D30) -> Quests.MapTile
+#     .get_building (@0x1094230) = mission.placement.entities[tile.buildingSocket
+#     .id] -- so the placements key must equal the tile's socket id -- then loads
+#     the prefab named by Building.modelId (@0x78) via GameboardBuilder
+#     .LoadBuildingObject ("buildings/prefabs/" + modelId).
+#
+# modelId therefore must be a child of the `library_buildings` prefab in the
+# APK's buildings.assetbundle. The full shipped set (dumped with UnityPy):
+#   z_bldg_alliance_help_00..03, z_bldg_away_team_00..03,
+#   z_bldg_battle_centre_00..03, z_bldg_gacha_daily_01, z_bldg_gacha_free_01,
+#   z_bldg_gacha_other_01
+# (the _00.._03 suffix is the visual upgrade tier).
+# ---------------------------------------------------------------------------
+
+BASE_BUILDINGS = {
+    "bldg_battle_centre": {
+        "name": "Battle Centre",
+        "desc": "Coordinate your Autobots' battles from here.",
+        "model": "z_bldg_battle_centre_01",
+    },
+    "bldg_away_team": {
+        "name": "Away Team",
+        "desc": "Send bots on away missions across Cybertron.",
+        "model": "z_bldg_away_team_01",
+    },
+    "bldg_alliance_help": {
+        "name": "Alliance Beacon",
+        "desc": "Call in help from allied Autobots.",
+        "model": "z_bldg_alliance_help_01",
+    },
+    "bldg_crystal_free": {
+        "name": "Crystal Chamber",
+        "desc": "Synthesizes a free crystal now and then.",
+        "model": "z_bldg_gacha_free_01",
+    },
+    "bldg_crystal_daily": {
+        "name": "Daily Crystal Vault",
+        "desc": "Produces one crystal every day.",
+        "model": "z_bldg_gacha_daily_01",
+    },
+    "bldg_crystal_premium": {
+        "name": "Premium Crystal Vault",
+        "desc": "Stores premium crystals.",
+        "model": "z_bldg_gacha_other_01",
+    },
+}
+
+# Which building sits in which plot's socket. All positions must be walkable
+# (on the plus-shaped walkway) so their tiles -- and building sockets -- exist.
+BASE_PLACEMENTS = {
+    (2, 2): "bldg_battle_centre",
+    (2, 1): "bldg_away_team",
+    (2, 3): "bldg_alliance_help",
+    (1, 2): "bldg_crystal_free",
+    (3, 2): "bldg_crystal_daily",
+}
+
+
+def build_base_summary():
+    """EB.Missions.Summary for the base, delivered as the mission's `data`.
+
+    Same reader as the STORY mission summary (see build_quest_summary), so the field
+    names carry over. `theme` is the one field that must be right: it selects the
+    terrain prefab library, and for a base the client appends "_base" to it.
+    """
+    return {
+        "id": BASE_ID, "setId": "", "hash": "b1",
+        "category": "base",
+        "friendlyName": "Base", "description": "Your base.",
+        "energyPerTile": 0, "minXpPerTile": 0, "maxXpPerTile": 0,
+        "minHealthPerTile": 0, "maxHealthPerTile": 0,
+        "image": "", "theme": BASE_THEME, "todIndex": 0,
+    }
+
+
+def build_base_map():
+    """The base's EB.Missions.Map.
+
+    Identical wire shape to the quest map (build_quest_map documents the reader in
+    detail): a square `grid` of gridDimension rows x gridDimension tile dicts indexed
+    [row][col], plus `pathData`. The differences are all base-specific:
+
+      * every walkable tile carries a `sockets` dictionary -- the build plots. Tile
+        sockets are what BaseBoard's node/building interaction hangs off; without them
+        a node has nothing to place into.
+      * there is no `final`/boss tile: a base is not cleared, so no encounter is
+        authored here.
+      * pathData must still hold at least one path element, for the same reason as the
+        quest board: Map.Deserialize stores paths = NULL for an empty pathData, and
+        PathAnalyzer.GetPathsFromMap (@0xB3C718) then NREs during board build.
+    """
+    dim = BASE_DIM
+    centre = dim // 2
+
+    def links_for(row, col):
+        """Absolute positions reachable from (row, col) -- the plus-shaped walkway."""
+        out = []
+        for r, c in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)):
+            if 0 <= r < dim and 0 <= c < dim and _base_walkable(r, c):
+                out.append({"x": r, "y": c})
+        return out
+
+    grid = []
+    for row in range(dim):
+        r = []
+        for col in range(dim):
+            if not _base_walkable(row, col):
+                r.append({"walkable": False, "hidden": True})
+                continue
+            lk = links_for(row, col)
+            tile = {
+                "walkable": True, "hidden": False,
+                "lab": "Plot %d-%d" % (row, col),
+                "links": lk, "visibleLinks": lk,
+                # Entry key -> Socket.id; `entityType` -> Socket.type (see the
+                # socket wire-contract note above BASE_BUILDINGS).
+                "sockets": {
+                    _base_socket_id(row, col): {
+                        "entityType": BASE_SOCKET_TYPE,
+                        "locked": False,
+                    },
+                },
+            }
+            if (row, col) == (centre, centre):
+                tile["start"] = True
+                tile["lab"] = "Command Centre"
+            r.append(tile)
+        grid.append(r)
+
+    walkable = sum(1 for row in range(dim) for col in range(dim)
+                   if _base_walkable(row, col))
+    # One path along the centre row and one down the centre column: the walkway the
+    # plus-shaped layout implies. Each element is a MapPath dict whose `path` key is a
+    # list of {x,y} integer tile positions (see build_quest_map).
+    path_data = [
+        {"path": [{"x": centre, "y": c} for c in range(dim)]},
+        {"path": [{"x": r, "y": centre} for r in range(dim)]},
+    ]
+
+    return {
+        "hash": "bm_%s" % BASE_ID, "v": 1, "mapHash": "bm_%s" % BASE_ID,
+        "gridDimension": dim,
+        "grid": grid,
+        "walkableCount": walkable,
+        "visibleWalkableCount": walkable,
+        "pathData": path_data,
+        "overrideZoom": 0,
+    }
+
+
+def _base_walkable(row, col):
+    """The authored base layout: a plus/cross of plots through the centre."""
+    centre = BASE_DIM // 2
+    return row == centre or col == centre
+
+
+def _base_socket_id(row, col):
+    return "sock_%d_%d" % (row, col)
+
+
+def build_base_mission():
+    """The EB.Missions.ActiveMission served as `userBase`.
+
+    ActiveMission.Deserialize (@0x1514354) logs an error and gives up unless `mode`,
+    `category` and `id` are all non-empty. `uid` must be the local user id: Base.get_type
+    keys off `Id.Valid` on it to decide this is a USER base ("users") rather than an
+    alliance one, and the "users" answer is what makes ActiveQuest pick UserBaseConfig
+    and BaseBoard treat the board as the player's own.
+    """
+    return {
+        "mode": "base", "category": "base", "id": BASE_ID,
+        "hash": "b1", "setName": "", "setId": "",
+        "uid": LOCAL_UID, "aid": "",
+        "modes": ["base"],
+        "data": build_base_summary(),
+        "map": build_base_map(),
+        # Placements: socket id -> the building occupying it. `key` is the
+        # building id; it travels to NewEntity as extraData, which is what makes
+        # the base builder clone the catalogue entry (see note at BASE_BUILDINGS).
+        "placements": {
+            _base_socket_id(r, c): {
+                "entityType": "building",
+                "parentEntityType": "building",
+                "key": bid,
+                "position": {"x": r, "y": c},
+            }
+            for (r, c), bid in BASE_PLACEMENTS.items()
+        },
+    }
+
+
+def build_base_available_buildings():
+    """The building catalogue, one entry per BASE_BUILDINGS row.
+
+    Keys per Building.Deserialize (@0x149C594); see the wire-contract note at
+    BASE_BUILDINGS. `levels` is a List<BuildingLevelRange> used only by the
+    upgrade-cost math, safe to leave empty for display.
+    """
+    out = []
+    for bid, spec in BASE_BUILDINGS.items():
+        out.append({
+            "entityType": "building",
+            "id": bid,
+            "name": spec["name"],
+            "description": spec["desc"],
+            "img": "",
+            "modelId": spec["model"],
+            "maxDamage": 100,
+            "cost": [],
+            "comingSoon": False,
+            "levels": [],
+            "rank": 1, "level": 1, "damage": 0,
+            "funds": {"upgrade": [], "repair": []},
+        })
+    return out
+
+
+def build_base_active():
+    """GET /base/active reply body (the `result`).
+
+    Only the `user*` half is authored: the alliance sub-manager is fed nothing, so
+    BaseSubManager leaves the alliance base null, which is correct offline (there is
+    no alliance). The placed buildings appear twice by design: once as owned
+    entries here (id + the socket-id `key` they occupy) and once in the mission's
+    `placements`, which is the copy the board actually renders from.
+    """
+    return {
+        "userBase": build_base_mission(),
+        "userAvailableBuildings": build_base_available_buildings(),
+        "userBuildings": [
+            {"id": bid, "key": _base_socket_id(r, c)}
+            for (r, c), bid in BASE_PLACEMENTS.items()
+        ],
+        "userSockets": {_base_socket_id(r, c): True
+                        for r in range(BASE_DIM) for c in range(BASE_DIM)
+                        if _base_walkable(r, c)},
     }
 
 

@@ -247,6 +247,96 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // class so authored enemy data can be verified without guessing which of boss/tower/bcg
     // selected the BCGEntity constructor.
     { 0xEF28CC, "NEWENTITY", 2, 0 }, // 78 Quests.Builder.NewEntity(baseType,entityType,...)
+    // BASEDIAG (session 24): the authored /base/active board BUILDS with zero client errors and
+    // pulls the right bundles (primordial_base, base_merged, assets_base) but renders almost
+    // entirely BLACK -- panning up shows a lit sky + a curved silhouette, so geometry exists but
+    // is unlit and/or the camera is aimed off the map. BaseBoard.OnBaseBoardBuildComplete
+    // (@0xA6EB98) is the one point where the whole build is finished and every field is final,
+    // so dump it in a single shot rather than guessing: the builder's time-of-day GameObject and
+    // resolved _TimeOfDayPath (a null ToD means no lights/skybox -> black terrain), the theme /
+    // theme-full names, _ThemeLibrary + _ThemeMaterial (null theme material = terrain with no
+    // material), the terrain/gameobject partition and light counts (zero terrain partitions would
+    // mean nothing was built at all), and the BaseCameraController's Target/_LookAtTarget/FoV
+    // (to see whether the camera is aimed at the authored map centre or at the origin).
+    { 0xA6EB98, "BASEDIAG", 2, 0 }, // 79 BaseBoard.OnBaseBoardBuildComplete -> dump build state
+    // The base's render settings are applied ONLY here, and OnBaseBoardBuildComplete reaches it
+    // through set_IsBase(true) -- which it skips entirely when GetActiveTimeOfDay() returns null
+    // (cbz @0xA6EE14). A missing BASEAPPLY line therefore means the base never got its ambient/
+    // fog/light settings, which is exactly what an all-black board looks like. Hooked here rather
+    // than on set_IsBase itself because that setter is only 20 bytes long -- too small to patch.
+    { 0xCF52DC, "BASEAPPLY", 2, 0 }, // 80 BaseRenderSettings.ApplyBaseSettings -> marker
+    // BASEAPPLY fires (confirmed live), so the base DOES get its render settings and the
+    // "ToD never applied" theory is dead. ApplyBaseSettings turns out to be fog-only, but
+    // its base class EBRenderSettingsBase drives a physically-based EXPOSURE (Aperture /
+    // ShutterTime / ISO -> GetEV100 -> ApplyExposure -> a global shader property) while the
+    // sky rides a separate SkyLuminousScale/SkyClearColor path. Zero/garbage exposure blacks
+    // out everything lit and leaves the sky and (unlit) UI text drawing -- which is EXACTLY
+    // the symptom. Fog is the other candidate: a black FogColor with a short FogDistEnd
+    // would paint identical results, camera being ~398 units from the map centre.
+    // ApplyWhenActivated runs once per render-settings activation, so logging the whole
+    // field block here yields both the base's numbers AND every other scene's numbers in one
+    // run -- a direct diff of a working scene against the black one, no guessing.
+    { 0x18C2CA4, "RSACTIVE", 2, 0 }, // 81 EBRenderSettingsBase.ApplyWhenActivated -> dump fields
+    // The active EBTimeOfDay ('Day_Base') has a non-null KeyLight, 1 LightObject, a skybox and
+    // a 1-entry Lightmaps array, and EBTimeOfDay.Apply is fully null-guarded, so the null
+    // MergedLights/LightmapSettings are harmless. But KeyLight is ONLY SetActive(true) from
+    // inside Apply (@0x124BFD8), and the merged lightmap is only bound to the global "_lm"
+    // shader texture in Apply's tail (@0x124C130) -- and BOTH are gated on enabled==true.
+    // If Apply never runs, or runs with enabled=false, the scene has no sun and no lightmap:
+    // geometry renders and depth-writes but shades black, exactly the symptom. Log the id and
+    // the enabled flag from both the per-ToD Apply and the manager-level Apply that drives it.
+    { 0x124BDE8, "TODAPPLY", 2, 0 },  // 82 EBTimeOfDayManager.EBTimeOfDay.Apply(id, enabled)
+    { 0x18C5150, "TODMGRAPPLY", 2, 0 }, // 83 EBTimeOfDayManager.Apply(broadcast, applyActive)
+    // FIXTERRAIN (session 25). GameboardBuilder.FixTerrain is where the terrain actually gets
+    // its material: at @0xB65058-0xB65094 it reads _ThemeMaterial, does
+    // GetComponentInChildren<Renderer> on it, takes that renderer's sharedMaterial, and
+    // assigns it to the freshly merged "<name>_terrain" GameObject's renderer. Every earlier
+    // "theme material" reading was taken off the ThemeMaterial MonoBehaviour itself, which is
+    // not a Material -- this is the real one. FixTerrain is shared by the STORY and BASE
+    // boards, so one hook logs both and the working board doubles as the control: if story's
+    // terrain material resolves a real shader and base's does not, the base theme asset is
+    // genuinely broken; if both look identical, the black is not a material problem at all.
+    { 0xB64608, "FIXTERRAIN", 2, 0 }, // 84 GameboardBuilder.FixTerrain(GameObject)
+    // The base/story terrain materials differ in exactly one meaningful way: the base one is
+    // bound to the shader variant 'Hidden/PBR_EB_PLANAR_REFLECTION_ON__...' while the story
+    // one uses 'Hidden/PBRTerrain_BASE_EB_EMISSIVE_NO_PULSE'. That variant name is baked into
+    // the material, so the base terrain ALWAYS samples the planar-reflection texture --
+    // EBPlanarReflectionManager.ReflectionTextureName, set as a global by Render(). If the
+    // manager is quality Off (eQUALITY.Off = -1, which is what PerformanceManager picks on a
+    // weak GPU) it never renders and never sets that global, leaving the terrain sampling an
+    // unset texture. Log the quality that gets chosen and whether Render ever runs.
+    { 0x1ABF03C, "PRINIT", 2, 0 },   // 85 EBPlanarReflectionManager.Init
+    { 0x1ABFCF0, "PRRENDER", 2, 0 }, // 86 EBPlanarReflectionManager.Render (once-flagged)
+    // Setup creates the reflection camera and render targets; LoadPlanarReflectionConfig is
+    // the EBSetup handler that fills in the Config (Quality@0x10) beforehand. Result: all four
+    // fire, six times each, at Quality=High(1) -- so RemapPlanarReflectionQuality (@0xDA74DC,
+    // `tier == 1 ? Off(-1) : High(1)`) is NOT classifying this emulator as the low tier, and
+    // "the reflection texture is never produced" is not the explanation for the black terrain.
+    { 0x1ABECE4, "PRSETUP", 2, 0 },  // 87 EBPlanarReflectionManager.Setup
+    { 0xDA8270,  "PRCONFIG", 2, 0 }, // 88 PerformanceManager.LoadPlanarReflectionConfig(ref Config)
+    // BASEBLD (session 28): the base's buildings are authored end-to-end and PARSE clean
+    // (catalogue x6 + owned x5 + placements x5 all create Building instances, NEWENTITY
+    // confirms), but no building model shows on the board. These four bracket the display
+    // side of the chain node-by-node:
+    //   AttachNodeController fires once per node object the builder creates -- if BASENODE
+    //   never appears, the base board never spawns nodes at all (the story board needed
+    //   QuestProgression players before its nodes appeared; the base may have its own gate).
+    //   The custom hook also dumps the tile's buildingSocket@0x130 / mission@0x140 /
+    //   mission.placement@0x70 / placement.entities@0x20 pointers: bs=0 means the socket
+    //   type lookup failed, ent=0 means placements never reached the tile's mission.
+    { 0xA6FF98, "BASENODE",   2, 0 }, // 89 BaseBoard.AttachNodeController(nodeObj,mapTile) -> custom dump
+    { 0xCF2D30, "NODEREFRESH",2, 0 }, // 90 BaseNodeController.Refresh (marker; runs get_building)
+    //   SetBuilding logs the resolved model name (a2): present+correct means the whole data
+    //   chain works and only the 3D load/lighting is left.
+    { 0xB67944, "SETBLDG",    3, 0 }, // 91 GameboardBuilder.SetBuilding(node=a1,name=a2,cb) -> jp3 logs a2
+    { 0xB67AB4, "LOADBLDG",   7, 0 }, // 92 GameboardBuilder.LoadBuildingObject(name=a1,cb) -> jp7 logs a1
+    //   ONBLDSET closes the load loop: go=0 means the asset request never produced a
+    //   GameObject (LOADBLDG fired but nothing came back -- an asset-resolution failure),
+    //   while go!=0 means the model IS instantiated and only rendering keeps it invisible.
+    { 0xCF4854, "ONBLDSET",   2, 0 }, // 93 BaseNodeController.OnBuildingSet(buildingId=a1,go=a2) -> custom
+    // CAMFRAME (slot 94): BaseCameraController.get__CurrentPosOffset -- override the baked
+    // pos-offset so the small authored board frames close. See the CAMFRAME note above.
+    { 0x121C634, "CAMFRAME",  2, 0 }, // 94 BaseCameraController.get__CurrentPosOffset(this=a0)
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -301,6 +391,7 @@ MKHOOK(33) MKHOOK(34) MKHOOK(35) MKHOOK(39) MKHOOK(40) MKHOOK(41) MKHOOK(42)
 MKHOOK(47) MKHOOK(48) MKHOOK(49) MKHOOK(51)
 // slots 53/54/55: BCGHeroBase ctor field readers (jp=1 key logging, HB-prefixed via g_inhb)
 MKHOOK(53) MKHOOK(54) MKHOOK(55)
+MKHOOK(91) MKHOOK(92)
 // Read the combat game-clock singleton (same chain OnReceive/OnRelease/HasAction/SetAction use):
 //   [g_base+0x2c1a928] -> [.] -> [.+0xb8] -> [.] -> float @0x18
 static float game_clock(void){
@@ -567,6 +658,1201 @@ void* hook_78(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     );
     return r;
 }
+// ---- base-board render diagnostics (slot 79) ----
+#define FORCELIGHT 1
+#define MATSWAP 0
+// KEYBOOST: 1 = force KEYBOOST_VAL as the _UnitIntensity of the BASE key light only.
+// See the block at the end of log_tod_lighting for what it proves.
+// s28 re-test: re-enabled now that BUILDINGS exist on the board. The s26 negative was
+// measured against the terrain only, whose material produces no lit output regardless
+// (s27) -- nothing on the board back then COULD respond to light. The building meshes
+// use their own materials from buildings.assetbundle, so if they appear under boost the
+// base's light/exposure combo is the residual culprit; if they stay black, the building
+// materials fail the same way the terrain's does.
+#define KEYBOOST 1
+#define KEYBOOST_VAL 12000.0f
+// SHFIX: 1 = overwrite the BASE reflection probe's spherical harmonics with a flat
+// white ambient of SHFIX_VAL and re-Apply. See log_tod_lighting for the derivation.
+#define SHFIX 1
+// The base's exposure multiplier is ~0.084 (s26), so SHFIX_VAL 3.0 lands at ~0.25 (mid grey)
+// -- enough to reveal buildings only where they silhouette against the sky, invisible against
+// the black terrain. ~12 lands near white post-exposure; 15 keeps them clearly bright at any
+// framing. Only the buildings' PBR material samples this ambient; the terrain variant ignores
+// it (s27), so cranking it does not touch the terrain.
+#define SHFIX_VAL 6.0f
+// METALFIX: 1 = bind an explicit black texture to the terrain material's
+// _metallic_tex, which is unassigned despite _METALLIC_TOGGLE being compiled in.
+#define METALFIX 0
+// LMFIX: 1 = after EBTimeOfDay.Apply runs on a MERGED time-of-day, re-bind the global
+// "_lm" shader texture to Texture2D.whiteTexture.
+//
+// This is the one asymmetry between the two boards that no experiment has touched yet, and
+// it is the only one that survives every negative result so far. Apply's tail (@0x124C110,
+// disassembled) is a two-way branch on IsMerged:
+//   IsMerged=1 (BASE):  if (Lightmaps != null && Lightmaps.Length == 1)
+//                           Shader.SetGlobalTexture("_lm", Lightmaps[0]);
+//   IsMerged=0 (STORY): t = GetCurrentLightmapType();
+//                       if (Lightmaps == null || t >= Lightmaps.Length) return;   <-- taken
+//                           Shader.SetGlobalTexture("_lm", Lightmaps[t]);
+// The base has isMerged=1 with exactly one loaded lightmap, so it DOES publish a global _lm.
+// The story bails and publishes nothing, so its shader samples the untouched default. That is
+// the only lighting input the base has and the story does not.
+//
+// Why that predicts pure black: the terrain is not authored geometry, it is a mesh stitched
+// together at runtime by GameboardBuilder from the map partitions ("terrain-stitch", per
+// BASEDIAG). A runtime-generated mesh has no baked lightmap UVs, so wherever the merged
+// lightmap is sampled it is sampled at meaningless coordinates -- and a lightmap multiplies
+// the lit result. That single multiply-by-zero explains every dead end at once: KEYBOOST
+// (x6000 direct), SHFIX (flat SH ambient) and METALFIX (diffuse restored) all feed terms
+// that are downstream of it, MATSWAP escaped it by swapping to a shader that never samples
+// _lm, and the story board renders precisely because it never binds one.
+//
+// whiteTexture is the neutral element for that multiply, so if the terrain lights up the
+// lightmap binding is confirmed as the cause. Gated on IsMerged so only the base is touched.
+// Applied AFTER the original: Apply is the only writer of this global in the binary, so the
+// last Apply for a given ToD wins and nothing overwrites it afterwards.
+//
+// RESULT: inert. LMFIX fired 3x (confirmed in the log, whiteTexture bound), terrain still pure
+// black. The merged lightmap is not the multiplier, and _lm is now a dead end too. Retired.
+#define LMFIX 0
+// THEMESWAP: 1 = on the BASE board only, repoint builder._ThemeMaterial@0x188 at the theme
+// library's "qb_theme_material" entry (the one the STORY board uses) instead of the
+// "qb_theme_material_base" entry it normally gets, before FixTerrain consumes it.
+//
+// Motivation, from disassembling GameboardBuilder.BuildInternal @0xF8B570. The theme material
+// is not resolved from the theme at all -- the key is hardcoded off the board's base-ness at
+// @0xF8CDBC:
+//     key = (isUsersBase@0x198 || flag@0x1A8) ? "qb_theme_material_base"   // @0xF8CDD0
+//                                             : "qb_theme_material";       // @0xF90840
+//     _ThemeLibrary@0x148 -> PrefabLibrary.get_Contents() -> Dictionary<string,GameObject>
+//     if (!ContainsKey(key)) skip;  go = dict[key];
+//     go.GetComponentInChildren<Renderer>().sharedMaterial   (a local, @0xF8CF04)
+//     go.GetComponent<ThemeMaterial>() -> _ThemeMaterial@0x188   (@0xF8CF1C-0xF8CF20)
+// So "the base picks the wrong entry out of the theme library" is dead as a theory: the base
+// deliberately asks for the _base entry and gets it. The entry it gets is the one carrying
+// qb_primordial_terrainblend_base and the Hidden/PBR_...EB_COMPOSITE_RMEAO_ variant that has
+// now defeated four separate forcing tests.
+//
+// What is still worth knowing is whether the plain "qb_theme_material" entry -- the one whose
+// material (Hidden/PBRTerrain_BASE_EB_EMISSIVE_NO_PULSE, keywordCount=0) demonstrably renders
+// on the story board -- is reachable from the BASE board's library. It may not be: the base
+// loads its library from themeFull='primordial_base' while the story loads 'primordial', so
+// these are two different PrefabLibrary assets. ContainsKey answers that directly, and the
+// answer is worth logging even if the swap cannot happen.
+//
+// The lookup is reproduced exactly as the call site does it, including taking each gshared
+// MethodInfo* from the specific GOT slot that call site uses (two derefs):
+//   PrefabLibrary.get_Contents 0xE3B4D4 (null mi)
+//   Dictionary.ContainsKey     0x1FFD7C8, mi GOT 0x2C38CC0
+//   Dictionary.get_Item        0x1FFD490, mi GOT 0x2C24188
+//   GameObject.GetComponent<T> 0x11E5734, mi GOT 0x2BCF8B8
+//
+// RESULT: the swap is impossible, and that is itself the finding.
+//   THEMESWAP lib=0x7600ffa50d80 contents=0x7600ffb06300 hasBaseKey=1 hasStoryKey=0
+// The base board's library (themeFull='primordial_base') contains ONLY the _base entry. The
+// story's working terrain material is not reachable from the base board at all, so there is
+// no in-game asset to substitute and no lookup left to correct. Retired.
+#define THEMESWAP 0
+// KWFIX: 1 = DisableKeyword("EB_PLANAR_REFLECTION_ON") on the live base terrain material.
+//
+// The last untested difference in the OUTPUT path. Base and story terrain materials differ in
+// their shader family, and of the base's eight keywords EB_PLANAR_REFLECTION_ON is the only
+// one that is both absent from the story material and about producing colour rather than
+// consuming a texture. Earlier sessions exonerated planar reflection by showing the manager
+// runs (PRCONFIG/PRSETUP/PRINIT/PRRENDER all fire 6x at Quality=High and _Color3@0x60 is
+// non-null afterwards) -- but that only proves the reflection is RENDERED, not that the
+// terrain samples it. Neither _planar_reflection_tex nor _reflection_tex exists on the
+// material (has=0 for both), so whatever it samples has to arrive as a global, and nothing
+// has ever confirmed that global is bound under the name this variant expects. A reflection
+// term that resolves to an unbound sampler is a plausible way to zero the shader's output
+// while leaving every lighting input we have forced completely irrelevant -- which is exactly
+// the pattern of KEYBOOST, SHFIX, METALFIX and LMFIX all landing on nothing.
+//
+// EB_PLANAR_REFLECTION_ON is a real runtime keyword (shaderKeywords[0]), so it can simply be
+// switched off: Material.DisableKeyword @0x1B56C4C. Caveat: the shader is a pre-generated
+// Hidden/PBR_ uber variant whose name bakes the whole keyword set in, so dropping a keyword
+// may select a variant that was never generated. That failure mode is informative too -- it
+// shows up as magenta, which earlier sessions established is what a missing material looks
+// like in this build, and magenta would prove the keyword set is live rather than frozen.
+//
+// RESULT: inert. The keyword set IS live and mutable (keywordCount went 8 -> 7 on both
+// partitions, and no magenta), so the variant is not frozen -- but the terrain is unchanged.
+// Measured over the board region, pan_lm vs pan_kw: mean 0.423 vs 0.434 / 255, and over the
+// terrain silhouette specifically 3 vs 4 pixels above threshold with an identical (57,72,77)
+// maximum in BOTH. That is noise. Planar reflection stays exonerated. Retired.
+#define KWFIX 0
+// TEXFIX: 1 = assign every UNASSIGNED texture slot on the base terrain material an explicit
+// neutral texture, each chosen to be the identity for what that map scales.
+//
+// METALFIX tested this idea but only one quarter of it. The probe output lists FOUR slots that
+// the variant compiles in and the material never fills -- _metallic_tex, _roughness_tex,
+// _ao_tex and _emissive_tex (all has=1, tex=0x0) -- and METALFIX bound only _metallic_tex.
+// Fixing metallic alone cannot show a result if any of the others is independently zeroing the
+// output, so a negative METALFIX never actually cleared the theory.
+//
+// _ao_tex is the one that matters. An unassigned texture samples the shader's declared default,
+// and a "black" default for an ambient-occlusion map means AO = 0, i.e. fully occluded. AO
+// multiplies the lit result, so it zeroes direct and indirect light alike -- which is precisely
+// why KEYBOOST (x6000 direct), SHFIX (flat SH ambient) and LMFIX (white lightmap) could each be
+// applied successfully and still change nothing: every one of them feeds a term downstream of
+// this multiply. The _AO_NONE keyword argues AO should be disabled, but EB_COMPOSITE_RMEAO is
+// compiled into the same variant and the composite path packs AO alongside roughness/metallic,
+// so the two can disagree and the composite sampler can win.
+//
+// Neutral value per slot -- these are NOT interchangeable, and getting metallic backwards is
+// what makes a surface black:
+//   _ao_tex        <- white   AO = 1, no occlusion
+//   _roughness_tex <- white   roughness = 1, fully diffuse (safe; a smooth mirror would need
+//                             the specular cubemap the base does not ship)
+//   _metallic_tex  <- BLACK   metallic = 0, full diffuse term (white here = pure metal = black)
+//   _emissive_tex  <- white   doubles as a positive control: if the shader can emit at all the
+//                             terrain glows, proving the variant produces output and isolating
+//                             the fault to the lighting path. _EMISSIVE_NONE is compiled in, so
+//                             no glow is the expected reading, not a failure.
+//
+// RESULT: inert. All eight assignments succeeded (logged, both partitions) and the board region
+// measured 0.423 mean / 0.56% non-black -- bit-identical to the baseline. AO is not the
+// multiplier, and METALFIX's negative result is now properly cleared rather than confounded.
+#define TEXFIX 0
+// File scope: a braced initialiser's commas would be read as extra arguments to PROTECT(),
+// which takes exactly one. Same rule that put V3/COL4 out here.
+static const char* const TF_NAME[4] =
+    { "_ao_tex", "_roughness_tex", "_metallic_tex", "_emissive_tex" };
+// 1 = bind whiteTexture, 0 = bind blackTexture. Only _metallic_tex wants black.
+static const int TF_WHITE[4] = { 1, 1, 0, 1 };
+// NORMFIX: 1 = DisableKeyword("_NORMAL_TEX") on the live base terrain material, so the shader
+// shades with the interpolated VERTEX normal instead of the tangent-space normal map.
+//
+// This is the one hypothesis that explains all six inert forcing tests without blaming the
+// shader. The terrain is not authored geometry -- GameboardBuilder stitches it at runtime from
+// the map partitions (both partitions log go='terrain-stitch'). Normal mapping needs per-vertex
+// TANGENTS to build the TBN basis, and a procedurally merged mesh very plausibly has none. With
+// no tangents the decoded normal degenerates, N.L collapses to zero for every light, and the
+// surface renders black no matter what is fed to it -- which is exactly the pattern: KEYBOOST,
+// SHFIX, LMFIX, METALFIX, KWFIX and TEXFIX each successfully changed an input that is
+// multiplied by a normal-dependent term downstream. It also explains why MATSWAP was the only
+// thing that ever produced pixels: EB/Particle/Uber/Base is unlit and never touches the normal.
+//
+// Dropping the keyword makes the shader skip the normal map entirely and use the vertex normal,
+// which a stitched mesh does carry. If the terrain lights up, the fault is the mesh's tangents,
+// not the material -- a completely different (and potentially fixable) place to work.
+// Precedent that this is safe: KWFIX established that keywords on this material are live and
+// mutable (8 -> 7) and that dropping one does not fall through to a missing variant/magenta.
+//
+// RESULT: inert, run together with TEXFIX. Keyword dropped on both partitions (8 -> 7),
+// measured 0.422 mean / 0.56% non-black against a 0.423 / 0.56% baseline. So the surface is
+// black even when shaded by the vertex normal with neutral AO/roughness/metallic -- missing
+// tangents are not the explanation either, and the mesh is exonerated along with the mesh-side
+// fix that would have followed from it.
+#define NORMFIX 0
+// CAMFRAME (session 28): the base camera's pos-offset is baked on the scene's
+// BaseCameraController for large retail bases (~(-60,160,-370) at the default zoom), which
+// parks our small authored board (buildings within +/-20 of origin) at the far horizon,
+// small and half-occluded. No server key touches it -- overrideZoom is read only by the dead
+// Legacy.QuestMap path, never by EB.Missions. get__CurrentPosOffset (@0x121C634, target mode
+// 0) returns lerp(near@0xb8, far@0xa0, clamp01(zoom@0x218)); forcing near==far==(CAMX,CAMY,
+// CAMZ) yields a fixed close, steeper offset regardless of the player's pinch-zoom. Cosmetic
+// framing only, base board only (BaseCameraController is the base's own camera component).
+// CAMFRAME retired (0): every attempt to reframe the base camera made the buildings WORSE, and
+// the failure was consistent and instructive. The baked far offset (-60,160,-370, fov 40) is the
+// ONLY sightline that clears the black terrain hump and shows the buildings silhouetted against
+// the SKY at the horizon. Moving the camera closer (posOffset override) dropped the buildings
+// into the black-terrain foreground where they are occluded; a telephoto FOV (0x1a0/0x1a4 -> 15)
+// magnified the horizon but recentred the frame on the terrain, again occluding them (verified:
+// building name-label UI renders at frame centre but the 3D meshes are behind the terrain, center
+// region max pixel (58,74,78) = bare sky tint). The terrain-stitch mesh is a solid occluder from
+// any lower/closer/narrower angle. So the camera is left at its baked default; the buildings show
+// against the sky exactly as the far view frames them, and SHFIX brightness is what makes them
+// read. The fov-field poke lives in hook_94 behind this switch for future experiments.
+#define CAMFRAME 0
+#define CAMFOV 15.0f
+// SHADERSWAP is retired: it called Material.set_shader on GameboardBuilder._ThemeMaterial,
+// which is a ThemeMaterial MonoBehaviour and not a Material at all (see the correction note
+// in hook_79). It could never have worked, and the reading that motivated it was garbage.
+// File scope: PROTECT(...) takes one macro argument, so the commas in the member list would
+// otherwise be read as extra arguments. A 3-float struct is an AAPCS64 HFA, so Unity's
+// Transform.get_position returns it in s0/s1/s2 and a plain C struct return matches.
+typedef struct { float x, y, z; } V3;
+// Same reason, and the same HFA rule: a 4-float struct comes back in s0-s3, matching
+// UnityEngine.Color as returned by Material.get_color.
+typedef struct { float r, g, b, a; } COL4;
+// Texture-property names for the EB PBR shader family. The first pass guessed Unity's
+// standard CamelCase names (_MainTex, _BumpMap, ...) and every one of them missed on BOTH the
+// black base material and the working story material, which looked like "the probe carries no
+// signal". It does -- the API works (Unity itself logs "doesn't have a texture property
+// '_MainTex'" for the base material) and EB simply names its properties in lower_snake_case.
+// The real names came out of the bundles: `strings primordial_base.assetbundle | grep -oE
+// '_[a-z][a-z0-9_]*(tex|map|reflect)[a-z0-9_]*'` yields _base_tex / _normal_tex / _ao_tex /
+// _emissive_tex / _base2_tex, and the shader-variant keyword list is spelled the same way.
+// File scope because a braced initialiser inside PROTECT(...) parses as extra macro arguments.
+static const char* const TEXPROPS[] = {
+    "_base_tex", "_base2_tex", "_normal_tex", "_ao_tex", "_emissive_tex",
+    "_roughness_tex", "_rmeao_tex", "_composite_rmeao_tex", "_metallic_tex",
+    "_lightmap", "_lm", "_planar_reflection_tex", "_reflection_tex"
+};
+// The base terrain material turned out to be healthy -- _base_tex resolves to a loaded
+// 'qb_primordial_ground_moss' with a live native handle -- so a missing asset is not the
+// reason it shades black. What is left inside the material is its scalars: the shader keeps
+// _METALLIC_TOGGLE and _ROUGHNESS_TEX enabled while _roughness_tex/_metallic_tex are both
+// null, and a metallic surface with zero roughness is a mirror that reflects the base board's
+// otherwise-empty scene, i.e. black, no matter how good the albedo is. These names come from
+// the same bundle-strings sweep as TEXPROPS.
+static const char* const FLOATPROPS[] = {
+    "_metallic", "_roughness", "_roughness_range", "_reflectance", "_reflectance_range",
+    "_ao", "_alpha", "_emissive_intensity", "_intensity"
+};
+static const char* const COLORPROPS[] = {
+    "_color", "_base_color", "_tint", "_base_tint", "_emissive_color", "_col"
+};
+// Safe field readers: every base-board field we want lives at a fixed offset off a managed
+// object, so read them directly (under PROTECT) rather than calling back into il2cpp.
+static int obj_ok(void* p){ return (uintptr_t)p >= 0x100000 && !((uintptr_t)p & 7); }
+static void* fld_p(void* o, int off){ return obj_ok(o) ? *(void**)((uintptr_t)o + off) : NULL; }
+static float fld_f(void* o, int off){ return obj_ok(o) ? *(float*)((uintptr_t)o + off) : -999.0f; }
+// System.Collections.Generic.List<T>._size lives at 0x18; -1 marks "list itself was null".
+static int list_count(void* l){ return obj_ok(l) ? *(int32_t*)((uintptr_t)l + 0x18) : -1; }
+// Vector3 fields are 3 packed floats stored inline in the object.
+static void fld_v3(void* o, int off, float* v){
+    v[0]=v[1]=v[2]=0.0f;
+    if (obj_ok(o)) memcpy(v, (void*)((uintptr_t)o + off), 12);
+}
+// Il2CppObject -> klass -> name. Lets a raw pointer be sanity-checked before its fields are
+// believed (a wrong static-field offset yields a plausible-looking but meaningless pointer).
+static void obj_class(void* o, char* buf, int cap){
+    buf[0]=0;
+    if(!obj_ok(o)) { strcpy(buf,"<null>"); return; }
+    uintptr_t k=*(uintptr_t*)o;
+    if(!obj_ok((void*)k)) { strcpy(buf,"<badklass>"); return; }
+    char* n=*(char**)(k+0x10); int i=0;
+    if((uintptr_t)n < 0x100000) { strcpy(buf,"<noname>"); return; }
+    for(;i<cap-1;i++){ char c=n[i]; if(c<=0||c>=127) break; buf[i]=c; }
+    buf[i]=0;
+}
+// Dump the active EBTimeOfDay's lighting state. This lives in a helper because it has to run
+// on BOTH boards: everything the base terrain needs in order not to be black has now been
+// verified good on the base side in isolation (key light 2.5 luminous, lightmap loaded,
+// material textured, shader compiling, planar reflection producing a target), so the only way
+// to make progress is to read the same numbers on the STORY board -- the one that renders --
+// and diff them. BASEDIAG is base-only, but FixTerrain runs on both, so call it from there.
+// EBTimeOfDayManager._this is reached the same way BASEDIAG does it: the GOT slot holds the
+// address of the TypeInfo global, whose value is the Il2CppClass*, static_fields at 0xB8.
+// EBTimeOfDay (dump.cs:374242): IsMerged@0x10 Name@0x18 RenderSettings@0x20
+// LightmapSettings@0x28 SkyBox@0x30 ReflectionProbe@0x38 KeyLight@0x48 LightObjects@0x50
+// MergedLights@0x58 CubeMapRule@0x68 CubeMapIndex@0x6C Lightmaps@0x70.
+// EBReflectionProbe (dump.cs:370440): Size@0x18 Textures@0x28 Color@0x30 IEM@0x40 PMREM@0x48
+// SH@0x50 IEM8Bit@0x98 PMREM8Bit@0xA0.
+static void log_tod_lighting(const char* tag){
+    void* todgot   = *(void**)(g_base + 0x2BDB680);
+    void* todinst  = fld_p(fld_p(fld_p(todgot, 0x0), 0xb8), 0x0);
+    void* todarr   = fld_p(todinst, 0x18);
+    void* tod0     = obj_ok(todarr) ? *(void**)((uintptr_t)todarr + 0x20) : NULL;
+    void* (*obj_get_name0)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16A16A0);
+    float (*tod_keylight_lum)(void*,void*) = (float(*)(void*,void*))(g_base + 0x124C1D4);
+    char todnm[80]; if(!read_str(fld_p(tod0,0x18), todnm, sizeof todnm)) strcpy(todnm,"<null>");
+    void* refl  = fld_p(tod0, 0x38);
+    void* lmaps = fld_p(tod0, 0x70);
+    float rc[3]; fld_v3(refl, 0x30, rc);
+    flog("%s TOD name='%s' isMerged=%d keyLightLuminous=%.4f cubeMapRule=%d cubeMapIndex=%d "
+         "rs=%p lmSettings=%p skybox=%p mergedLights=%p",
+         tag, todnm, obj_ok(tod0) ? *(uint8_t*)((uintptr_t)tod0+0x10) : -1,
+         obj_ok(tod0) ? tod_keylight_lum(tod0, NULL) : -999.0f,
+         obj_ok(tod0) ? *(int32_t*)((uintptr_t)tod0+0x68) : -999,
+         obj_ok(tod0) ? *(int32_t*)((uintptr_t)tod0+0x6C) : -999,
+         fld_p(tod0,0x20), fld_p(tod0,0x28), fld_p(tod0,0x30), fld_p(tod0,0x58));
+    flog("%s TOD refl=%p size=%d textures=%p texLen=%d color=(%.3f,%.3f,%.3f) "
+         "IEM=%p PMREM=%p SH=%p IEM8=%p PMREM8=%p",
+         tag, refl,
+         obj_ok(refl) ? *(int32_t*)((uintptr_t)refl+0x18) : -999,
+         fld_p(refl,0x28),
+         obj_ok(fld_p(refl,0x28)) ? (int)*(int32_t*)((uintptr_t)fld_p(refl,0x28)+0x18) : -1,
+         rc[0], rc[1], rc[2],
+         fld_p(refl,0x40), fld_p(refl,0x48), fld_p(refl,0x50),
+         fld_p(refl,0x98), fld_p(refl,0xA0));
+    for (int i = 0; obj_ok(lmaps) && i < *(int32_t*)((uintptr_t)lmaps+0x18) && i < 4; i++) {
+        void* lmt = *(void**)((uintptr_t)lmaps + 0x20 + 8*i);
+        char lmn2[80];
+        if(!read_str(obj_ok(lmt)?obj_get_name0(lmt,NULL):NULL, lmn2, sizeof lmn2))
+            strcpy(lmn2,"<null>");
+        flog("%s TOD lightmap[%d]=%p native=%p '%s'", tag, i, lmt, fld_p(lmt,0x10), lmn2);
+    }
+    // EB lights are physical: EBLight stores a _UnitIntensity in some eUNIT and the shaders
+    // divide the result by a photographic exposure built from the active render settings'
+    // Aperture/ShutterTime/ISO. The base key light measures 2.5 against the story's 12000 --
+    // 4800x dimmer -- so the question is whether the base's own render settings compensate.
+    // If they carry the same exposure as the story's, the base terrain is simply ~4800x
+    // underexposed, which is black no matter how correct the material is.
+    // EBRenderSettingsBase (dump.cs:374681): Aperture@0x20 ShutterTime@0x24 ISO@0x28
+    // DirectionalLightValueShift@0x5C SkyLuminousScale@0xE0 EmissiveOffset@0xF8
+    // UseNativeExposure@0xFC.
+    void* rs = fld_p(tod0, 0x20);
+    char rscls[80]; obj_class(rs, rscls, sizeof rscls);
+    float (*rs_get_ev100)(void*,void*) = (float(*)(void*,void*))(g_base + 0x18C27B8);
+    flog("%s TOD rs=%p class='%s' aperture=%.4f shutter=%.6f iso=%.1f dirLightShift=%.4f "
+         "skyLumScale=%.4f emissiveOffset=%.4f useNativeExposure=%d",
+         tag, rs, rscls, fld_f(rs,0x20), fld_f(rs,0x24), fld_f(rs,0x28),
+         fld_f(rs,0x5C), fld_f(rs,0xE0), fld_f(rs,0xF8),
+         obj_ok(rs) ? *(uint8_t*)((uintptr_t)rs+0xFC) : -1);
+    flog("%s TOD ev100=%.4f", tag, obj_ok(rs) ? rs_get_ev100(rs, NULL) : -999.0f);
+    // And how the key light itself is authored. GetComponent<EBLight> reuses the exact GOT
+    // slot GetKeyLightLuminousIntensity loads at 0x124C258, with the same two dereferences a
+    // _TypeInfo needs -- a single deref takes the process down.
+    // EBLight (dump.cs:370649): Type@0x18 InputType@0x38 _UnitIntensity@0x80
+    // LuminousEfficacy@0x84 _Color@0xD4 IsBaked@0x138.
+    void* kl = fld_p(tod0, 0x48);
+    void* (*go_getcomp)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x11E5734);
+    void* glmi = fld_p(*(void**)(g_base + 0x2BE1320), 0x0);
+    void* ebl  = (obj_ok(kl) && obj_ok(glmi)) ? go_getcomp(kl, glmi) : NULL;
+    char eblcls[80]; obj_class(ebl, eblcls, sizeof eblcls);
+    float klc[3]; fld_v3(ebl, 0xD4, klc);
+    flog("%s TOD keyLightGO=%p ebLight=%p class='%s' type=%d inputUnit=%d unitIntensity=%.4f "
+         "efficacy=%.4f color=(%.3f,%.3f,%.3f) isBaked=%d",
+         tag, kl, ebl, eblcls,
+         obj_ok(ebl) ? *(int32_t*)((uintptr_t)ebl+0x18) : -999,
+         obj_ok(ebl) ? *(int32_t*)((uintptr_t)ebl+0x38) : -999,
+         fld_f(ebl,0x80), fld_f(ebl,0x84), klc[0], klc[1], klc[2],
+         obj_ok(ebl) ? *(uint8_t*)((uintptr_t)ebl+0x138) : -1);
+    // KEYBOOST experiment. The measured numbers say the base is NOT underexposed: its
+    // EV100 is 3.31 against the story's 15.87, i.e. 12.56 stops = 6047x more exposure,
+    // which more than cancels the 4800x weaker key light (2.5 vs 12000 luminous). Net
+    // post-exposure direct sunlight on the base is 1.26x the story's, so "the base is
+    // too dark" cannot be the whole answer -- unless the directional term never reaches
+    // the terrain shader at all.
+    // That is exactly what this forces. EBLight drives lighting purely through global
+    // shader properties (there is no UnityEngine.Light anywhere on it); InternalUpdate
+    // @0x1D385E4 pushes _EBDirectionalLightDirection/-LuminanceIntensity, gated at
+    // @0x1D38688 by `if (IsBaked && !force) return`. The base key light has IsBaked=0,
+    // so LateUpdate re-pushes it EVERY frame -- writing _UnitIntensity@0x80 is therefore
+    // picked up on the next frame with no Apply/SetDirty needed.
+    // Reading: 12000 under the base's own 6047x exposure is a ~6000x overexposure. If the
+    // directional term reaches the terrain the board must saturate to white. If it stays
+    // black, direct light is not reaching this material at all and the missing ambient
+    // cubemaps (IEM8Bit/PMREM8Bit null, see EBReflectionProbe.Apply @0x18C170C) are the
+    // entire story. Deliberately a binary readout, because each run costs ~6 minutes.
+    // RESULT: still pure black at ~6000x overexposure. The directional term does not reach
+    // the terrain, so KEYBOOST is retired (left at 0) and ambient is the remaining suspect.
+#if KEYBOOST
+    if (obj_ok(ebl) && tag[3]=='B') {          // FT-BASE only, never FT-STORY
+        float before = fld_f(ebl, 0x80);
+        *(float*)((uintptr_t)ebl + 0x80) = KEYBOOST_VAL;
+        flog("%s KEYBOOST ebLight=%p unitIntensity %.4f -> %.4f", tag, ebl, before,
+             fld_f(ebl, 0x80));
+    }
+#endif
+    // SHFIX. The ambient story is finer-grained than "the base has no indirect light".
+    // EBReflectionProbe.Apply @0x18C170C has TWO independent ambient sources:
+    //   * cubemaps -- IEM/PMREM, overridden by IEM8Bit@0x98/PMREM8Bit@0xA0 when
+    //     GetCurrentLightmapType() is Forward(1) or Baked(2). All four are null on the base
+    //     (base_merged.assetbundle ships no Cubemap at all, while primordial_merged ships
+    //     PBR-IEM-*-8bit / PBR-PMREM-*-8bit), so @0x18C1904 branches to the null path, which
+    //     does not merely skip the bind -- it explicitly binds a ZERO ambient.
+    //   * spherical harmonics -- SH@0x50, read at @0x18C1BEC and pushed out as the seven
+    //     Property__SHAr..SHC globals. This one IS non-null on the base.
+    // So the base does have a live ambient path, and the only question left is whether its
+    // coefficients carry any energy. Dump them, then (SHFIX) overwrite with a flat white
+    // ambient and re-Apply. Unity packs SH so that a constant term C is just SHAr/g/b.w = C
+    // with the linear/quadratic bands zero -- the shader evaluates dot(SHAr, float4(N,1)).
+    // SHFIX_VAL is not arbitrary: the base's own RenderSettings.SkyLuminousScale is 3.0, and
+    // its exposure multiplier is 0.084, so 3.0 lands at ~0.25 post-exposure -- a mid grey,
+    // the same order as the story's sky (0.555). EBSphericalHarmonics (dump.cs:369406):
+    // SHAr@0x10 SHAg@0x20 SHAb@0x30 SHBr@0x40 SHBg@0x50 SHBb@0x60 SHC@0x70, all Vector4.
+    void* sh = fld_p(refl, 0x50);
+    if (obj_ok(sh)) {
+        static const int SHOFF[7] = { 0x10,0x20,0x30,0x40,0x50,0x60,0x70 };
+        static const char* SHNM[7] = { "SHAr","SHAg","SHAb","SHBr","SHBg","SHBb","SHC" };
+        for (int i = 0; i < 7; i++)
+            flog("%s TOD sh %s=(%.4f,%.4f,%.4f,%.4f)", tag, SHNM[i],
+                 fld_f(sh, SHOFF[i]),     fld_f(sh, SHOFF[i]+4),
+                 fld_f(sh, SHOFF[i]+8),   fld_f(sh, SHOFF[i]+12));
+    }
+#if SHFIX
+    if (obj_ok(sh) && obj_ok(refl) && tag[3]=='B') {   // FT-BASE only, never FT-STORY
+        for (int i = 0x10; i <= 0x70; i += 0x10)       // zero every band first
+            for (int j = 0; j < 16; j += 4) *(float*)((uintptr_t)sh + i + j) = 0.0f;
+        *(float*)((uintptr_t)sh + 0x10 + 12) = SHFIX_VAL;   // SHAr.w  (red   DC)
+        *(float*)((uintptr_t)sh + 0x20 + 12) = SHFIX_VAL;   // SHAg.w  (green DC)
+        *(float*)((uintptr_t)sh + 0x30 + 12) = SHFIX_VAL;   // SHAb.w  (blue  DC)
+        // Push it. TODAPPLY fires once more for Day_Base after FixTerrain, so this would
+        // eventually land anyway, but calling Apply directly removes the ordering guess.
+        void (*probe_apply)(void*,void*) = (void(*)(void*,void*))(g_base + 0x18C170C);
+        probe_apply(refl, NULL);
+        flog("%s SHFIX sh=%p flat ambient DC=%.4f applied", tag, sh, (double)SHFIX_VAL);
+    }
+#endif
+}
+// slot 79 BASEDIAG: BaseBoard.OnBaseBoardBuildComplete(this=a0). Runs after the board is fully
+// built, so dump the finished state (see the H-table comment for why each field matters).
+void* hook_79(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[79].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT(
+        void* bld = fld_p(a0, 0x30);          // BaseBoard._builder
+        void* cam = fld_p(a0, 0x68);          // BaseBoard._camera
+        char todname[80]; char todpath[200]; char theme[80]; char themefull[80];
+        if(!read_str(fld_p(bld,0x38), todname,  sizeof todname))  strcpy(todname,  "<null>");
+        if(!read_str(fld_p(bld,0x40), todpath,  sizeof todpath))  strcpy(todpath,  "<null>");
+        if(!read_str(fld_p(bld,0x178),theme,    sizeof theme))    strcpy(theme,    "<null>");
+        if(!read_str(fld_p(bld,0x180),themefull,sizeof themefull))strcpy(themefull,"<null>");
+        flog("==BASEDIAG== board=%p builder=%p root=%p aq=%p state=%d",
+             a0, bld, fld_p(a0,0x38), fld_p(a0,0x40),
+             obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x28) : -1);
+        flog("BASEDIAG tod=%p todName='%s' todPath='%s'", fld_p(bld,0x30), todname, todpath);
+        flog("BASEDIAG theme='%s' themeFull='%s' themeLib=%p commonLib=%p bldgLib=%p themeMat=%p",
+             theme, themefull, fld_p(bld,0x148), fld_p(bld,0x150), fld_p(bld,0x158), fld_p(bld,0x188));
+        flog("BASEDIAG terrainParts=%d goParts=%d pathParts=%d lights=%d builderNodes=%d "
+             "baseNodes=%d map=%p pathMat=%p isUsersBase=%d",
+             list_count(fld_p(bld,0x48)), list_count(fld_p(bld,0x50)), list_count(fld_p(bld,0x58)),
+             list_count(fld_p(bld,0x128)), list_count(fld_p(bld,0x130)), list_count(fld_p(bld,0x20)),
+             fld_p(bld,0x160), fld_p(bld,0x60),
+             obj_ok(bld) ? *(uint8_t*)((uintptr_t)bld+0x198) : -1);
+        flog("BASEDIAG boardNodes=%d boardBuildings=%d camera=%p",
+             list_count(fld_p(a0,0x58)), list_count(fld_p(a0,0x60)), cam);
+        float t[3]; float la[3]; float po[3]; float st[3];
+        fld_v3(cam, 0x94,  t);    // BaseCameraController.Target
+        fld_v3(cam, 0x204, la);   // _LookAtTarget
+        fld_v3(cam, 0xA0,  po);   // PosOffset
+        fld_v3(cam, 0x1F8, st);   // _StartingTarget
+        // EBTimeOfDayManager._this (static @0x0). OnBaseBoardBuildComplete bails to its tail
+        // call the moment get_Instance() returns null (cbz x0 @0xA6EE08), which SKIPS
+        // BaseRenderSettings.set_IsBase(true), InitFX and the base ambience -- i.e. the
+        // instantiated ToD prefab would never get applied to RenderSettings and everything
+        // lit would render black. Read the static directly to settle it.
+        // Two derefs: (g_base+slotVA) is a GOT entry holding the ADDRESS of the
+        // EBTimeOfDayManager_TypeInfo global, whose value is the Il2CppClass*. That is exactly
+        // the `ldr x8,[got]; ldr x9,[x8]; ldr x9,[x9,#0xb8]` pattern the game's own cctors use.
+        void* todgot   = *(void**)(g_base + 0x2BDB680);      // EBTimeOfDayManager_TypeInfo GOT
+        void* todklass = fld_p(todgot, 0x0);                 // Il2CppClass*
+        void* todstat  = fld_p(todklass, 0xb8);              // Il2CppClass.static_fields
+        void* todinst  = fld_p(todstat, 0x0);                // EBTimeOfDayManager._this
+        // GetActiveTimeOfDay (@0x18C33B0) is literally
+        //   TimeOfDays==null || ActiveTimeOfDay>=TimeOfDays.Length ? null : TimeOfDays[i]
+        // (length @0x18, data @0x20), and OnBaseBoardBuildComplete SKIPS
+        // BaseRenderSettings.IsBase=true when it returns null (cbz @0xA6EE14) -- which would
+        // leave the base with no applied render settings, i.e. black. Print the class name too,
+        // so a bogus pointer can't be mistaken for a real manager.
+        void* todarr = fld_p(todinst, 0x18);
+        char todcls[80]; obj_class(todinst, todcls, sizeof todcls);
+        flog("BASEDIAG todMgrInstance=%p class='%s' activeToD=%d todArray=%p todArrayLen=%d rsMgr=%p",
+             todinst, todcls, obj_ok(todinst) ? *(int32_t*)((uintptr_t)todinst+0x20) : -1,
+             todarr, obj_ok(todarr) ? (int)*(int32_t*)((uintptr_t)todarr+0x18) : -1,
+             fld_p(todinst, 0x28));
+        // The active EBTimeOfDay entry owns everything that LIGHTS the scene: KeyLight (the
+        // sun), LightObjects[]/MergedLights, the SkyBox, the baked Lightmaps[] and the
+        // reflection probe. Fog and exposure are both ruled out and the terrain silhouettes
+        // against the sky, so an absent KeyLight / empty MergedLights is the remaining way to
+        // get geometry that renders but shades black. Array data starts at 0x20, length 0x18.
+        void* tod0 = obj_ok(todarr) ? *(void**)((uintptr_t)todarr + 0x20) : NULL;
+        char todnm[80]; if(!read_str(fld_p(tod0,0x18), todnm, sizeof todnm)) strcpy(todnm,"<null>");
+        void* lightObjs = fld_p(tod0, 0x50);
+        void* lmaps     = fld_p(tod0, 0x70);
+        void* gos       = fld_p(tod0, 0x60);
+        flog("BASEDIAG tod0=%p name='%s' isMerged=%d id=%d rs=%p lmSettings=%p skybox=%p refl=%p",
+             tod0, todnm, obj_ok(tod0) ? *(uint8_t*)((uintptr_t)tod0+0x10) : -1,
+             obj_ok(tod0) ? *(int32_t*)((uintptr_t)tod0+0x78) : -1,
+             fld_p(tod0,0x20), fld_p(tod0,0x28), fld_p(tod0,0x30), fld_p(tod0,0x38));
+        flog("BASEDIAG tod0 keyLight=%p lightObjs=%p lightObjsLen=%d mergedLights=%p "
+             "gameObjs=%p gameObjsLen=%d lightmaps=%p lightmapsLen=%d",
+             fld_p(tod0,0x48), lightObjs,
+             obj_ok(lightObjs) ? (int)*(int32_t*)((uintptr_t)lightObjs+0x18) : -1,
+             fld_p(tod0,0x58), gos,
+             obj_ok(gos) ? (int)*(int32_t*)((uintptr_t)gos+0x18) : -1,
+             lmaps, obj_ok(lmaps) ? (int)*(int32_t*)((uintptr_t)lmaps+0x18) : -1);
+        // Same lighting dump FixTerrain makes on both boards, so the base numbers stay in
+        // BASEDIAG where the rest of the base-board state is.
+        log_tod_lighting("BASEDIAG");
+        // Everything upstream of the actual draw is now ruled out (fog, exposure, ToD Apply,
+        // KeyLight, lightmap binding, camera framing as *derived*). So inspect the draw itself:
+        // the theme/path material and their shaders, and -- crucially -- the terrain
+        // partitions' REAL world positions and active state. The camera framing argument was
+        // derived from MapCenter/TileToWorldPos arithmetic and never checked against a live
+        // transform; if the terrain is not actually sitting on the origin, the board is simply
+        // off-screen and the "silhouette" is something else entirely.
+        // Unity accessors resolved from script.json (RVAs, same convention as the H table).
+        void* (*obj_get_name)(void*,void*)    = (void*(*)(void*,void*))(g_base + 0x16A16A0);
+        void* (*mat_get_shader)(void*,void*)  = (void*(*)(void*,void*))(g_base + 0x1B56338);
+        int   (*go_active)(void*,void*)       = (int(*)(void*,void*))(g_base + 0x1B50D38);
+        // GameObject.get_transform, NOT Component.get_transform -- GameObject does not derive
+        // from Component, and calling the Component accessor on one faults (it did: PROTECT
+        // swallowed the rest of this block on the previous run).
+        void* (*go_transform)(void*,void*)    = (void*(*)(void*,void*))(g_base + 0x1B50BD8);
+        V3 (*tr_get_pos)(void*,void*)         = (V3(*)(void*,void*))(g_base + 0x16B7C04);
+        void* (*rend_get_shared_mat)(void*,void*) =
+            (void*(*)(void*,void*))(g_base + 0x16ADC78);
+        // Session 25 CORRECTION. The previous session read GameboardBuilder@0x188 as a
+        // UnityEngine.Material and called Material.get_shader on it; dump.cs:552190 says the
+        // field is `private ThemeMaterial _ThemeMaterial` and ThemeMaterial is a MonoBehaviour
+        // (dump.cs:420240), NOT a Material. get_shader is an icall that blindly dereferences
+        // the m_CachedPtr of whatever it is handed, so it returned garbage -- which is where
+        // the bogus 'Hidden/InternalErrorShader' reading came from, and why the SHADERSWAP
+        // experiment (Material.set_shader on a MonoBehaviour) always faulted. The whole
+        // "base theme shader failed to resolve" lead is void. Only _PathMaterial@0x60 is a
+        // real Material, and its 'EB/Particle/Uber/Base' reading was always genuine.
+        void* pmat = fld_p(bld, 0x60);
+        void* tmat = fld_p(bld, 0x188);
+        char tmn[80]; char pmn[80]; char psn[80];
+        if(!read_str(obj_ok(tmat)?obj_get_name(tmat,NULL):NULL, tmn, sizeof tmn)) strcpy(tmn,"<null>");
+        if(!read_str(obj_ok(pmat)?obj_get_name(pmat,NULL):NULL, pmn, sizeof pmn)) strcpy(pmn,"<null>");
+        void* psh = obj_ok(pmat) ? mat_get_shader(pmat,NULL) : NULL;
+        if(!read_str(obj_ok(psh)?obj_get_name(psh,NULL):NULL, psn, sizeof psn)) strcpy(psn,"<null>");
+        // ThemeMaterial's own fields (dump.cs:420240): LowEndMetallic@0x18 (float),
+        // LowResMask@0x20 (Texture2D), MaskValues@0x28 (ArrayHack[]). FixTerrain bakes these
+        // into the merged terrain mesh's vertex colours/UV4, so an empty mask is a candidate
+        // for "geometry draws and depth-writes but shades black".
+        void* lrmask = fld_p(tmat, 0x20);
+        void* mvals  = fld_p(tmat, 0x28);
+        char lrn[80];
+        if(!read_str(obj_ok(lrmask)?obj_get_name(lrmask,NULL):NULL, lrn, sizeof lrn)) strcpy(lrn,"<null>");
+        flog("BASEDIAG themeMat='%s'(ThemeMaterial) lowEndMetallic=%.3f lowResMask=%p name='%s' "
+             "maskValues=%p len=%d | pathMat='%s' shader='%s'",
+             tmn, fld_f(tmat,0x18), lrmask, lrn,
+             mvals, obj_ok(mvals) ? (int)*(int32_t*)((uintptr_t)mvals+0x18) : -1, pmn, psn);
+        // _TerrainPartitions is List<QuestMapTerrain.Partition> (dump.cs:552150), and
+        // QuestMapTerrain.Partition (dump.cs:553956) is a plain class with
+        // GameObject GameObject@0x10 / Mesh@0x18 / Renderer MeshRenderer@0x20 /
+        // MeshFilter@0x28 -- a SINGLE GameObject, not a List<GameObject> as the previous
+        // session assumed. The Renderer at 0x20 is the thing that actually draws the terrain,
+        // so read its sharedMaterial + shader directly: that settles what shades the board
+        // without any guessing about the theme material.
+        // List<T>: _items @0x10 (array, data @0x20), _size @0x18.
+        void* tparts = fld_p(bld, 0x48);
+        void* titems = fld_p(tparts, 0x10);
+        int tn = list_count(tparts);
+        for (int i = 0; i < tn && i < 4; i++) {
+            void* part = obj_ok(titems) ? *(void**)((uintptr_t)titems + 0x20 + 8*i) : NULL;
+            void* go   = fld_p(part, 0x10);
+            void* rend = fld_p(part, 0x20);
+            char gn[80]; char rmn[80]; char rsn[80];
+            if(!read_str(obj_ok(go)?obj_get_name(go,NULL):NULL, gn, sizeof gn)) strcpy(gn,"<null>");
+            void* rmat = obj_ok(rend) ? rend_get_shared_mat(rend,NULL) : NULL;
+            void* rsh  = obj_ok(rmat) ? mat_get_shader(rmat,NULL) : NULL;
+            if(!read_str(obj_ok(rmat)?obj_get_name(rmat,NULL):NULL, rmn, sizeof rmn)) strcpy(rmn,"<null>");
+            if(!read_str(obj_ok(rsh)?obj_get_name(rsh,NULL):NULL, rsn, sizeof rsn)) strcpy(rsn,"<null>");
+            V3 p; p.x=p.y=p.z=-9999.0f;
+            void* tr = obj_ok(go) ? go_transform(go,NULL) : NULL;
+            if (obj_ok(tr)) p = tr_get_pos(tr, NULL);
+            // MATSWAP (below) proved the terrain draws correctly once it is handed a working
+            // material, so camera framing, lighting, fog and exposure are ALL fine and the
+            // fault is this material alone. Narrow it down: UnityEngine.Object's native
+            // handle m_CachedPtr@0x10 is 0 for a "missing"/unloaded asset (that is what makes
+            // Unity's fake-null work), so a zero on the shader means the shader never loaded,
+            // while a zero on the main texture means the shader is fine and the textures did
+            // not come out of the bundle. renderQueue reads back as garbage when a material
+            // has no usable shader, giving a third independent signal.
+            int   (*mat_render_queue)(void*,void*) = (int(*)(void*,void*))(g_base + 0x1B56B6C);
+            void* (*mat_main_tex)(void*,void*)     = (void*(*)(void*,void*))(g_base + 0x1B565F4);
+            void* mtex = obj_ok(rmat) ? mat_main_tex(rmat,NULL) : NULL;
+            char mtn[80];
+            if(!read_str(obj_ok(mtex)?obj_get_name(mtex,NULL):NULL, mtn, sizeof mtn)) strcpy(mtn,"<null>");
+            flog("BASEDIAG terrainPart[%d] go='%s' active=%d pos=(%.2f,%.2f,%.2f) "
+                 "rend=%p mat=%p '%s' shader=%p '%s'",
+                 i, gn, obj_ok(go) ? go_active(go,NULL) : -1, p.x, p.y, p.z,
+                 rend, rmat, rmn, rsh, rsn);
+            flog("BASEDIAG terrainPart[%d] matNative=%p shaderNative=%p renderQueue=%d "
+                 "mainTex=%p '%s' texNative=%p | pathMatNative=%p pathShaderNative=%p pathQueue=%d",
+                 i, fld_p(rmat,0x10), fld_p(rsh,0x10),
+                 obj_ok(rmat) ? mat_render_queue(rmat,NULL) : -12345,
+                 mtex, mtn, fld_p(mtex,0x10),
+                 fld_p(pmat,0x10), fld_p(psh,0x10),
+                 obj_ok(pmat) ? mat_render_queue(pmat,NULL) : -12345);
+            // MATSWAP experiment. The terrain renderers all carry
+            // 'FA1D4FC4668CDA2E014788020357F43D9F88E625 (Instance)', whose Material.get_shader
+            // reads back as null -- while the SAME get_shader call on _PathMaterial correctly
+            // returns 'EB/Particle/Uber/Base'. So either that material really has no shader
+            // (it would draw black) or the reading is another artefact. Settle it by drawing
+            // the terrain with the known-good path material instead: if the board stops being
+            // black, the terrain material is the fault; if it stays black, materials are not
+            // the problem at all and the fault is upstream of the draw.
+            // Renderer.set_material (@0x16ADC28) rather than set_sharedMaterial, because
+            // FixTerrain itself calls set_material at @0xB65094 -- so that icall is certainly
+            // registered in this build, which Material.set_shader turned out not to be.
+#if MATSWAP
+            if (obj_ok(rend) && obj_ok(pmat)) {
+                void (*rend_set_mat)(void*,void*,void*) =
+                    (void(*)(void*,void*,void*))(g_base + 0x16ADC28);
+                rend_set_mat(rend, pmat, NULL);
+                flog("MATSWAP terrainPart[%d] material <- '%s'", i, pmn);
+            }
+#endif
+        }
+        // FORCELIGHT experiment. OnBaseBoardBuildComplete runs on the main thread with il2cpp
+        // in a normal state, so the game's own GameObject::SetActive can be called directly
+        // (address taken from the call at 0x124C020 inside EBTimeOfDay.Apply; x2 = MethodInfo,
+        // which that call site passes as null). Force the ToD's KeyLight, LightObjects[] and
+        // SkyBox active: if the board lights up, Apply either never ran or ran with
+        // enabled=false, and the TODAPPLY log in this same run says which.
+#if FORCELIGHT
+        if (obj_ok(tod0)) {
+            void (*go_setactive)(void*,int,void*) =
+                (void (*)(void*,int,void*))(g_base + 0x1B50CA8);
+            void* kl = fld_p(tod0, 0x48);
+            if (obj_ok(kl)) go_setactive(kl, 1, NULL);
+            if (obj_ok(lightObjs)) {
+                int n = *(int32_t*)((uintptr_t)lightObjs + 0x18);
+                for (int i = 0; i < n && i < 16; i++) {
+                    void* lo = *(void**)((uintptr_t)lightObjs + 0x20 + 8*i);
+                    if (obj_ok(lo)) go_setactive(lo, 1, NULL);
+                }
+            }
+            flog("FORCELIGHT keyLight=%p lightObjs=%p forced active", kl, lightObjs);
+        }
+#endif
+        flog("BASEDIAG cam target=(%.2f,%.2f,%.2f) lookAt=(%.2f,%.2f,%.2f) "
+             "posOffset=(%.2f,%.2f,%.2f) startTarget=(%.2f,%.2f,%.2f) fov=%.2f mode=%d",
+             t[0],t[1],t[2], la[0],la[1],la[2], po[0],po[1],po[2], st[0],st[1],st[2],
+             obj_ok(cam) ? *(float*)((uintptr_t)cam+0x1A0) : -1.0f,
+             obj_ok(cam) ? *(int32_t*)((uintptr_t)cam+0x1E4) : -1);
+    );
+    return r;
+}
+// slot 80 BASEAPPLY: BaseRenderSettings.ApplyBaseSettings(this=a0). This runs EVERY FRAME
+// (via ApplyEveryFrame), so log the presence marker once and then dump the BaseRenderSettings-
+// only fields -- the fog block it lerps between and the camera-height range that drives the
+// lerp. A black BaseFogColor, or a Min/MaximumCameraHeight range that doesn't bracket the
+// base camera's actual height (y=160), would leave the board fogged to black.
+static volatile int g_baseapply_dumped = 0;
+// Color is 4 packed floats (rgba) stored inline.
+static void fld_col(void* o, int off, float* c){
+    c[0]=c[1]=c[2]=c[3]=-999.0f;
+    if (obj_ok(o)) memcpy(c, (void*)((uintptr_t)o + off), 16);
+}
+// FOGFIX experiment. ApplyBaseSettings computes
+//   blend = Clamp01((_BaseCameraHeight - MinimumCameraHeight)/(Maximum - Minimum))
+//         = (250-0)/(250-0) = 1.0
+// then LerpFogSettings UNCONDITIONALLY copies BaseFogColorAmbient into FogColorAmbient
+// (@0xCF54A8..0xCF54BC -- not lerped, a straight 16-byte q-register move) and lerps the rest
+// of the fog block from the Base*/BaseZoom* pairs. Live values make the applied fog
+//   ambient=(0,0,0,0)  color=(0.3,0.3,0.3,0)  distStart=5 distEnd=50  height=-1..20
+// i.e. PURE BLACK ambient fog saturating 50 units out, with the camera ~400 units from the
+// board. The sky (separate SkyLuminousScale path) and the UI text are unfogged, which is
+// precisely what the screenshots show. Overwrite the Base* source fields with the working
+// non-base numbers this same object reports via RSACTIVE (distEnd 800, height 0..300, a
+// bluish ambient) -- if the board lights up, fog is confirmed as the blackener.
+// RESULT: fog is NOT the blackener. With the poke live the log confirmed the applied block
+// became distEnd=800 / height 0..300 / bluish ambient and the board stayed exactly as black,
+// while the terrain still silhouettes cleanly against the sky along the horizon curve -- so
+// geometry renders and depth-writes but shades pure black. That is a LIGHTING failure, not
+// fog, exposure, culling or framing. Kept at 0 as documentation of a ruled-out cause.
+#define FOGFIX 0
+// File scope on purpose: PROTECT(...) is a single-argument macro, so a braced initializer's
+// top-level commas would be parsed as extra macro arguments and fail to compile.
+static const float g_fogfix_amb[4] = {0.067f,0.169f,0.298f,0.361f}; // RSACTIVE FogColorAmbient
+static const float g_fogfix_col[4] = {0.015f,0.042f,0.071f,0.502f}; // RSACTIVE FogColor
+void* hook_80(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT(
+#if FOGFIX
+        if(obj_ok(a0)){
+            memcpy((void*)((uintptr_t)a0+0x1BC), g_fogfix_amb, 16);  // BaseFogColorAmbient
+            memcpy((void*)((uintptr_t)a0+0x1CC), g_fogfix_col, 16);  // BaseFogColor
+            memcpy((void*)((uintptr_t)a0+0x1EC), g_fogfix_col, 16);  // BaseZoomFogColor
+            *(float*)((uintptr_t)a0+0x1DC) =   0.0f;  // BaseFogDistStart
+            *(float*)((uintptr_t)a0+0x1E0) = 800.0f;  // BaseFogDistEnd
+            *(float*)((uintptr_t)a0+0x1E4) =   0.0f;  // BaseFogHeightStart
+            *(float*)((uintptr_t)a0+0x1E8) = 300.0f;  // BaseFogHeightEnd
+            *(float*)((uintptr_t)a0+0x1FC) =   0.0f;  // BaseZoomFogDistStart
+            *(float*)((uintptr_t)a0+0x200) = 800.0f;  // BaseZoomFogDistEnd
+            *(float*)((uintptr_t)a0+0x204) =   0.0f;  // BaseZoomFogHeightStart
+            *(float*)((uintptr_t)a0+0x208) = 300.0f;  // BaseZoomFogHeightEnd
+        }
+#endif
+        if(!g_baseapply_dumped){
+            g_baseapply_dumped = 1;
+            float amb[4]; float fog[4]; float zoom[4];
+            fld_col(a0, 0x1BC, amb);   // BaseFogColorAmbient
+            fld_col(a0, 0x1CC, fog);   // BaseFogColor
+            fld_col(a0, 0x1EC, zoom);  // BaseZoomFogColor
+            flog("BASEAPPLY this=%p isBase=%d baseCamHeight=%.2f minCamH=%.2f maxCamH=%.2f",
+                 a0, obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0x218) : -1,
+                 fld_f(a0,0x214), fld_f(a0,0x20C), fld_f(a0,0x210));
+            flog("BASEAPPLY baseFogAmb=(%.3f,%.3f,%.3f,%.3f) baseFog=(%.3f,%.3f,%.3f,%.3f) "
+                 "distStart=%.2f distEnd=%.2f heightStart=%.2f heightEnd=%.2f",
+                 amb[0],amb[1],amb[2],amb[3], fog[0],fog[1],fog[2],fog[3],
+                 fld_f(a0,0x1DC), fld_f(a0,0x1E0), fld_f(a0,0x1E4), fld_f(a0,0x1E8));
+            flog("BASEAPPLY zoomFog=(%.3f,%.3f,%.3f,%.3f) zoomDistStart=%.2f zoomDistEnd=%.2f "
+                 "zoomHeightStart=%.2f zoomHeightEnd=%.2f",
+                 zoom[0],zoom[1],zoom[2],zoom[3],
+                 fld_f(a0,0x1FC), fld_f(a0,0x200), fld_f(a0,0x204), fld_f(a0,0x208));
+        }
+    );
+    return H[80].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 81 RSACTIVE: EBRenderSettingsBase.ApplyWhenActivated(this=a0). Fires once per
+// activation for EVERY render-settings object in the game, so one run captures the base's
+// numbers next to those of scenes that render correctly. Dumps the exposure triple (the
+// prime suspect for "lit geometry is black but the sky isn't"), the live fog block, the sky
+// parameters and the directional-light shift, tagged with the concrete subclass name so the
+// base's entry can be picked out of the stream.
+void* hook_81(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT(
+        char cls[80]; obj_class(a0, cls, sizeof cls);
+        float amb[4]; float fog[4]; float sky[4];
+        fld_col(a0, 0x2C, amb);   // FogColorAmbient
+        fld_col(a0, 0x3C, fog);   // FogColor
+        fld_col(a0, 0xE4, sky);   // SkyClearColor
+        // Exposure: GetEV100 uses Aperture/ShutterTime/ISO. Any of them at 0 makes the
+        // EV100 log2() degenerate (inf/NaN), which collapses the global exposure to black.
+        flog("RSACTIVE this=%p class='%s' setting=%d aperture=%.4f shutter=%.5f iso=%.2f "
+             "nativeExp=%d",
+             a0, cls, obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x18) : -1,
+             fld_f(a0,0x20), fld_f(a0,0x24), fld_f(a0,0x28),
+             obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0xFC) : -1);
+        flog("RSACTIVE fogAmb=(%.3f,%.3f,%.3f,%.3f) fog=(%.3f,%.3f,%.3f,%.3f) "
+             "distStart=%.2f distEnd=%.2f heightStart=%.2f heightEnd=%.2f dirLightShift=%.3f",
+             amb[0],amb[1],amb[2],amb[3], fog[0],fog[1],fog[2],fog[3],
+             fld_f(a0,0x4C), fld_f(a0,0x50), fld_f(a0,0x54), fld_f(a0,0x58), fld_f(a0,0x5C));
+        flog("RSACTIVE skyScale=%.4f skyClear=(%.3f,%.3f,%.3f,%.3f) aoInfluence=%.3f "
+             "emissiveOffset=%.3f dir2Intensity=%.3f",
+             fld_f(a0,0xE0), sky[0],sky[1],sky[2],sky[3],
+             fld_f(a0,0xF4), fld_f(a0,0xF8), fld_f(a0,0x70));
+    );
+    return H[81].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 82 TODAPPLY: EBTimeOfDayManager.EBTimeOfDay.Apply(this=a0, int id=a1, bool enabled=a2).
+// Both int args arrive in the low 32 bits of their registers.
+void* hook_82(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT(
+        char nm[80]; if(!read_str(fld_p(a0,0x18), nm, sizeof nm)) strcpy(nm,"<null>");
+        flog("TODAPPLY this=%p name='%s' id=%d enabled=%d isMerged=%d keyLight=%p lightmaps=%p",
+             a0, nm, (int)(uintptr_t)a1 & 0xffffffff, (int)(uintptr_t)a2 & 1,
+             obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0x10) : -1,
+             fld_p(a0,0x48), fld_p(a0,0x70));
+    );
+    void* r = H[82].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    // LMFIX -- see the toggle block for the derivation. Must run after the original, since
+    // the original is what binds the real merged lightmap to the global. Uses the same
+    // SetGlobalTexture(string, Texture) overload the call site at @0x124C1AC tail-calls
+    // (0x16B0E78, not the 0x16B0EF4 sibling), with a null MethodInfo third argument.
+#if LMFIX
+    PROTECT(
+        if (obj_ok(a0) && *(uint8_t*)((uintptr_t)a0+0x10) == 1 && g_strnew) {
+            void* (*tex2d_white)(void*) = (void*(*)(void*))(g_base + 0x16B51C0);
+            void  (*sh_set_global_tex)(void*,void*,void*) =
+                (void(*)(void*,void*,void*))(g_base + 0x16B0E78);
+            void* white = tex2d_white(NULL);
+            void* pname = g_strnew("_lm");
+            flog("LMFIX merged tod=%p white=%p native=%p prop=%p", a0, white,
+                 fld_p(white,0x10), pname);
+            if (obj_ok(white) && obj_ok(pname)) {
+                sh_set_global_tex(pname, white, NULL);
+                flog("LMFIX global _lm <- whiteTexture");
+            }
+        }
+    );
+#endif
+    return r;
+}
+// slot 83 TODMGRAPPLY: EBTimeOfDayManager.Apply(this=a0, bool broadcast=a1, bool applyActive=a2).
+void* hook_83(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT(
+        void* arr = fld_p(a0, 0x18);
+        flog("TODMGRAPPLY this=%p broadcast=%d applyActive=%d activeIdx=%d todLen=%d",
+             a0, (int)(uintptr_t)a1 & 1, (int)(uintptr_t)a2 & 1,
+             obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x20) : -1,
+             obj_ok(arr) ? (int)*(int32_t*)((uintptr_t)arr+0x18) : -1);
+    );
+    return H[83].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slot 84 FIXTERRAIN: GameboardBuilder.FixTerrain(this=a0, GameObject go=a1). Runs once per
+// board build, for BOTH the story board (which renders correctly) and the base board (black),
+// so a single run that visits both yields a direct diff of the terrain's real material.
+// Reproduces the builder's own lookup at @0xB65058: _ThemeMaterial ->
+// GetComponentInChildren<Renderer> -> sharedMaterial -> shader. The generic method is the
+// gshared Component.GetComponentInChildren<T> (@0x11D45A4); its MethodInfo* is taken from the
+// exact GOT slot the call site uses (0x2C313D0, two derefs, same pattern as a _TypeInfo).
+void* hook_84(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    // THEMESWAP -- see the toggle block. Must run BEFORE the original, since the original is
+    // what reads _ThemeMaterial@0x188 and pushes its material onto the terrain renderers.
+    // Base board only (isUsersBase@0x198); the story board is the control and is left alone.
+    // Logs the ContainsKey probe unconditionally so a "not reachable" answer is still recorded.
+#if THEMESWAP
+    PROTECT(
+        if (obj_ok(a0) && *(uint8_t*)((uintptr_t)a0+0x198) && g_strnew) {
+            void* (*lib_contents)(void*,void*) = (void*(*)(void*,void*))(g_base + 0xE3B4D4);
+            int   (*dict_has)(void*,void*,void*) =
+                (int(*)(void*,void*,void*))(g_base + 0x1FFD7C8);
+            void* (*dict_get)(void*,void*,void*) =
+                (void*(*)(void*,void*,void*))(g_base + 0x1FFD490);
+            void* (*go_getcomp)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x11E5734);
+            void* mi_has = fld_p(*(void**)(g_base + 0x2C38CC0), 0x0);
+            void* mi_get = fld_p(*(void**)(g_base + 0x2C24188), 0x0);
+            void* mi_gc  = fld_p(*(void**)(g_base + 0x2BCF8B8), 0x0);
+            void* lib    = fld_p(a0, 0x148);
+            void* cont   = obj_ok(lib) ? lib_contents(lib, NULL) : NULL;
+            void* kbase  = g_strnew("qb_theme_material_base");
+            void* kstory = g_strnew("qb_theme_material");
+            int hb = (obj_ok(cont) && obj_ok(mi_has)) ? dict_has(cont, kbase,  mi_has) : -1;
+            int hs = (obj_ok(cont) && obj_ok(mi_has)) ? dict_has(cont, kstory, mi_has) : -1;
+            flog("THEMESWAP lib=%p contents=%p hasBaseKey=%d hasStoryKey=%d mi=%p/%p/%p",
+                 lib, cont, hb, hs, mi_has, mi_get, mi_gc);
+            if (hs == 1 && obj_ok(mi_get) && obj_ok(mi_gc)) {
+                void* go = dict_get(cont, kstory, mi_get);
+                void* tm = obj_ok(go) ? go_getcomp(go, mi_gc) : NULL;
+                flog("THEMESWAP storyPrefab=%p themeMaterial=%p (was %p)",
+                     go, tm, fld_p(a0, 0x188));
+                if (obj_ok(tm)) {
+                    *(void**)((uintptr_t)a0 + 0x188) = tm;
+                    flog("THEMESWAP _ThemeMaterial <- qb_theme_material");
+                }
+            }
+        }
+    );
+#endif
+    void* r = H[84].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT(
+        void* (*obj_get_name)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16A16A0);
+        void* (*mat_get_shader)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B56338);
+        void* (*rend_get_shared_mat)(void*,void*) =
+            (void*(*)(void*,void*))(g_base + 0x16ADC78);
+        void* (*comp_gic)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x11D45A4);
+        void* tmat = fld_p(a0, 0x188);
+        char theme[80]; char argn[80];
+        if(!read_str(fld_p(a0,0x178), theme, sizeof theme)) strcpy(theme,"<null>");
+        if(!read_str(obj_ok(a1)?obj_get_name(a1,NULL):NULL, argn, sizeof argn)) strcpy(argn,"<null>");
+        flog("==FIXTERRAIN== builder=%p isUsersBase=%d theme='%s' go='%s' themeMat=%p "
+             "lowEndMetallic=%.3f lowResMask=%p maskValues=%p",
+             a0, obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0x198) : -1, theme, argn, tmat,
+             fld_f(tmat,0x18), fld_p(tmat,0x20), fld_p(tmat,0x28));
+        // The whole point of running this on both boards: the base board's lighting all looks
+        // healthy in isolation, so only the story board's numbers can say which of them is
+        // actually abnormal. The base ToD reports IEM/PMREM/IEM8Bit/PMREM8Bit all null with
+        // CubeMapIndex=-1 -- if the story ToD reports the same, indirect lighting is not the
+        // difference and the shader family is; if the story ToD has real cubemaps, the base
+        // terrain is a PBR surface with no indirect term, which is black.
+        log_tod_lighting(obj_ok(a0) && *(uint8_t*)((uintptr_t)a0+0x198) ? "FT-BASE" : "FT-STORY");
+        // Plain field reads first, generic call LAST: a fault inside PROTECT swallows the rest
+        // of the block, and the previous attempt lost everything below this point (it passed a
+        // singly-dereferenced GOT entry as the MethodInfo* and took the process down with it).
+        // _TerrainPartitions@0x48 -> QuestMapTerrain.Partition { GameObject@0x10, Mesh@0x18,
+        // Renderer MeshRenderer@0x20 } -- the renderer that actually draws the terrain, so its
+        // sharedMaterial + shader answers the question with no generic call at all.
+        void* tparts = fld_p(a0, 0x48);
+        void* titems = fld_p(tparts, 0x10);
+        int tn = list_count(tparts);
+        for (int i = 0; i < tn && i < 3; i++) {
+            void* part = obj_ok(titems) ? *(void**)((uintptr_t)titems + 0x20 + 8*i) : NULL;
+            void* rend = fld_p(part, 0x20);
+            void* rmat = obj_ok(rend) ? rend_get_shared_mat(rend,NULL) : NULL;
+            void* rsh  = obj_ok(rmat) ? mat_get_shader(rmat,NULL) : NULL;
+            char rmn[80]; char rsn[80];
+            if(!read_str(obj_ok(rmat)?obj_get_name(rmat,NULL):NULL, rmn, sizeof rmn)) strcpy(rmn,"<null>");
+            // read_str refuses anything longer than its buffer, and shader names are paths
+            // ('EB/Terrain/...'), so give this one room and print the raw String* + length too
+            // -- the terrain shader's name came back unreadable at 80 chars while the material
+            // name on the same object read fine, and it matters whether that means "no name"
+            // or just "name too long for the buffer".
+            void* rshname = obj_ok(rsh) ? obj_get_name(rsh,NULL) : NULL;
+            char rsnbig[300];
+            if(!read_str(rshname, rsnbig, sizeof rsnbig)) strcpy(rsnbig,"<unreadable>");
+            flog("FIXTERRAIN part[%d] rend=%p mat='%s' shaderNameStr=%p len=%d shader='%s'",
+                 i, rend, rmn, rshname,
+                 obj_ok(rshname) ? *(int32_t*)((uintptr_t)rshname+0x10) : -1, rsnbig);
+            // Same three signals BASEDIAG collects, so the story board (which renders) can be
+            // diffed field-for-field against the base board (which does not): the native
+            // handles prove the assets actually loaded, and mainTexture/renderQueue say
+            // whether the material is properly set up.
+            int   (*mat_render_queue)(void*,void*) = (int(*)(void*,void*))(g_base + 0x1B56B6C);
+            void* (*mat_main_tex)(void*,void*)     = (void*(*)(void*,void*))(g_base + 0x1B565F4);
+            void* mtex = obj_ok(rmat) ? mat_main_tex(rmat,NULL) : NULL;
+            char mtn[80];
+            if(!read_str(obj_ok(mtex)?obj_get_name(mtex,NULL):NULL, mtn, sizeof mtn)) strcpy(mtn,"<null>");
+            flog("FIXTERRAIN part[%d] matNative=%p shaderNative=%p renderQueue=%d "
+                 "mainTex=%p '%s' texNative=%p",
+                 i, fld_p(rmat,0x10), fld_p(rsh,0x10),
+                 obj_ok(rmat) ? mat_render_queue(rmat,NULL) : -12345,
+                 mtex, mtn, fld_p(mtex,0x10));
+            // METALFIX. The base terrain draws with
+            //   Hidden/PBR_EB_PLANAR_REFLECTION_ON__AO_NONE__BASE_TEX__EMISSIVE_NONE_
+            //   _METALLIC_TOGGLE__MODE_BASIC__NORMAL_TEX__ROUGHNESS_TEX__EB_COMPOSITE_RMEAO_
+            // i.e. the _METALLIC_TOGGLE and _ROUGHNESS_TEX variants are compiled IN, so the
+            // shader samples _metallic_tex/_roughness_tex unconditionally -- but the probes
+            // say both are unassigned (has=1, tex=0x0), as are _ao_tex and _emissive_tex.
+            // The story's terrain material, by contrast, carries a real
+            // _roughness_tex=qb_primordial_ground_r_nograss.
+            // An unassigned texture property falls back to the shader's declared default, and
+            // a "white" default means metallic = 1.0. A fully metallic surface has NO diffuse
+            // term, which is exactly why the two lighting experiments changed nothing: KEYBOOST
+            // (directional x6000) and SHFIX (flat SH ambient) both feed diffuse, and diffuse is
+            // multiplied by (1 - metallic) = 0. All a metal can show is the PMREM specular
+            // cubemap -- null on the base. That predicts precisely what we see: geometry that
+            // depth-writes and renders pure black regardless of how much light it is given.
+            // Binding an explicit black texture forces metallic = 0 and hands the surface its
+            // diffuse term back. Texture2D.blackTexture @0x16B51F4 is static, so it takes only
+            // the MethodInfo* argument.
+#if METALFIX
+            if (obj_ok(rmat) && g_strnew) {
+                void* (*tex2d_black)(void*)      = (void*(*)(void*))(g_base + 0x16B51F4);
+                void  (*mat_set_tex)(void*,void*,void*,void*) =
+                    (void(*)(void*,void*,void*,void*))(g_base + 0x1B5682C);
+                void* black = tex2d_black(NULL);
+                void* pmet  = g_strnew("_metallic_tex");
+                if (obj_ok(black) && obj_ok(pmet)) {
+                    mat_set_tex(rmat, pmet, black, NULL);
+                    flog("FIXTERRAIN part[%d] METALFIX _metallic_tex <- blackTexture=%p "
+                         "native=%p", i, black, fld_p(black,0x10));
+                } else {
+                    flog("FIXTERRAIN part[%d] METALFIX FAILED black=%p prop=%p",
+                         i, black, pmet);
+                }
+            }
+#endif
+            // KWFIX -- see the toggle block. Operates on rmat, the per-renderer material
+            // INSTANCE that FixTerrain just assigned, so the change affects only the terrain.
+#if KWFIX
+            if (obj_ok(rmat) && g_strnew) {
+                void  (*mat_disable_kw)(void*,void*,void*) =
+                    (void(*)(void*,void*,void*))(g_base + 0x1B56C4C);
+                void* (*mat_get_kws)(void*,void*) =
+                    (void*(*)(void*,void*))(g_base + 0x1B56E1C);
+                void* kw = g_strnew("EB_PLANAR_REFLECTION_ON");
+                if (obj_ok(kw)) {
+                    mat_disable_kw(rmat, kw, NULL);
+                    void* kws = mat_get_kws(rmat, NULL);
+                    flog("FIXTERRAIN part[%d] KWFIX disabled EB_PLANAR_REFLECTION_ON "
+                         "keywordCount=%d", i,
+                         obj_ok(kws) ? (int)*(int32_t*)((uintptr_t)kws+0x18) : -1);
+                } else {
+                    flog("FIXTERRAIN part[%d] KWFIX FAILED kw=%p", i, kw);
+                }
+            }
+#endif
+            // TEXFIX -- see the toggle block. Table-driven so the per-slot neutral value stays
+            // next to its property name; white for the maps that scale light, black for
+            // metallic (which scales the diffuse term by 1-metallic and is therefore inverted).
+#if TEXFIX
+            if (obj_ok(rmat) && g_strnew) {
+                void* (*tex2d_white)(void*) = (void*(*)(void*))(g_base + 0x16B51C0);
+                void* (*tex2d_black)(void*) = (void*(*)(void*))(g_base + 0x16B51F4);
+                void  (*mat_set_tex)(void*,void*,void*,void*) =
+                    (void(*)(void*,void*,void*,void*))(g_base + 0x1B5682C);
+                void* white = tex2d_white(NULL);
+                void* black = tex2d_black(NULL);
+                for (int t = 0; t < 4; t++) {
+                    void* tex = TF_WHITE[t] ? white : black;
+                    void* pn  = g_strnew(TF_NAME[t]);
+                    if (obj_ok(tex) && obj_ok(pn)) {
+                        mat_set_tex(rmat, pn, tex, NULL);
+                        flog("FIXTERRAIN part[%d] TEXFIX %-15s <- %s native=%p",
+                             i, TF_NAME[t], TF_WHITE[t] ? "white" : "black", fld_p(tex,0x10));
+                    } else {
+                        flog("FIXTERRAIN part[%d] TEXFIX %-15s FAILED tex=%p prop=%p",
+                             i, TF_NAME[t], tex, pn);
+                    }
+                }
+            }
+#endif
+            // NORMFIX -- see the toggle block. Runs alongside TEXFIX so the surface has neutral
+            // AO/roughness/metallic at the same time: if the vertex normal is the missing piece
+            // there is then nothing else left multiplying the result to zero.
+#if NORMFIX
+            if (obj_ok(rmat) && g_strnew) {
+                void  (*mat_disable_kw2)(void*,void*,void*) =
+                    (void(*)(void*,void*,void*))(g_base + 0x1B56C4C);
+                void* (*mat_get_kws2)(void*,void*) =
+                    (void*(*)(void*,void*))(g_base + 0x1B56E1C);
+                void* nkw = g_strnew("_NORMAL_TEX");
+                if (obj_ok(nkw)) {
+                    mat_disable_kw2(rmat, nkw, NULL);
+                    void* kws = mat_get_kws2(rmat, NULL);
+                    flog("FIXTERRAIN part[%d] NORMFIX disabled _NORMAL_TEX keywordCount=%d",
+                         i, obj_ok(kws) ? (int)*(int32_t*)((uintptr_t)kws+0x18) : -1);
+                } else {
+                    flog("FIXTERRAIN part[%d] NORMFIX FAILED kw=%p", i, nkw);
+                }
+            }
+#endif
+        }
+        // Now the builder's own lookup: two derefs off the GOT, exactly as @0xB65060-0xB65070
+        // (x9 = *(g_base+0x2C313D0); x1 = *x9).
+        void* migot = *(void**)(g_base + 0x2C313D0);
+        void* mi    = fld_p(migot, 0x0);            // MethodInfo* for GetComponentInChildren<Renderer>
+        flog("FIXTERRAIN gicMethodInfo=%p", mi);
+        void* trend = (obj_ok(tmat) && obj_ok(mi)) ? comp_gic(tmat, mi) : NULL;
+        void* tm    = obj_ok(trend) ? rend_get_shared_mat(trend, NULL) : NULL;
+        void* tsh   = obj_ok(tm) ? mat_get_shader(tm, NULL) : NULL;
+        char tmn2[80]; char tsn2[80];
+        if(!read_str(obj_ok(tm)?obj_get_name(tm,NULL):NULL, tmn2, sizeof tmn2)) strcpy(tmn2,"<null>");
+        if(!read_str(obj_ok(tsh)?obj_get_name(tsh,NULL):NULL, tsn2, sizeof tsn2)) strcpy(tsn2,"<null>");
+        flog("FIXTERRAIN themeRend=%p appliedMat='%s' shader='%s'", trend, tmn2, tsn2);
+        // The control run settled it: the STORY theme hands the terrain
+        // 'Hidden/PBRTerrain_BASE_EB_EMISSIVE_NO_PULSE' (a dedicated terrain shader that reads
+        // the vertex colours / UV3 / UV4 FixTerrain bakes) and renders, while the BASE theme
+        // hands it 'Hidden/PBR_EB_..._BASE_TEX__NORMAL_TEX__ROUGHNESS_TEX...' -- a generic
+        // object shader that wants texture maps the terrain material has none of, so it shades
+        // black. GetComponentInChildren returns the FIRST match in a depth-first walk and
+        // skips inactive objects, so the likeliest explanation is that the base theme prefab
+        // has extra children (its bundle carries Animator/AnimationClip/SkinnedMeshRenderer
+        // classes the story one does not) and the terrain renderer is no longer first.
+        // Enumerate every renderer under the theme material to find out whether a PBRTerrain
+        // material is present but simply not the one being picked.
+        void* (*comp_get_go)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B4BD28);
+        void* (*go_gcic)(void*,void*)     = (void*(*)(void*,void*))(g_base + 0x11E5B70);
+        int   (*go_active_h)(void*,void*) = (int(*)(void*,void*))(g_base + 0x1B50D38);
+        void* tgo = obj_ok(tmat) ? comp_get_go(tmat, NULL) : NULL;
+        void* gcicmi = fld_p(*(void**)(g_base + 0x2C33E58), 0x0);  // <Renderer> MethodInfo
+        void* rends = (obj_ok(tgo) && obj_ok(gcicmi)) ? go_gcic(tgo, gcicmi) : NULL;
+        int rn = obj_ok(rends) ? (int)*(int32_t*)((uintptr_t)rends + 0x18) : -1;
+        flog("FIXTERRAIN themeGO=%p rendererCount=%d", tgo, rn);
+        for (int k = 0; k < rn && k < 12; k++) {
+            void* rr = *(void**)((uintptr_t)rends + 0x20 + 8*k);
+            if (!obj_ok(rr)) { flog("FIXTERRAIN  rend[%d]=<null>", k); continue; }
+            void* rgo = comp_get_go(rr, NULL);
+            void* rm  = rend_get_shared_mat(rr, NULL);
+            void* rs  = obj_ok(rm) ? mat_get_shader(rm, NULL) : NULL;
+            char gname[80]; char mname[80]; char sname[300];
+            if(!read_str(obj_ok(rgo)?obj_get_name(rgo,NULL):NULL, gname, sizeof gname)) strcpy(gname,"<null>");
+            if(!read_str(obj_ok(rm)?obj_get_name(rm,NULL):NULL, mname, sizeof mname)) strcpy(mname,"<null>");
+            if(!read_str(obj_ok(rs)?obj_get_name(rs,NULL):NULL, sname, sizeof sname)) strcpy(sname,"<null>");
+            flog("FIXTERRAIN  rend[%d] go='%s' active=%d mat='%s' shader='%s'",
+                 k, gname, obj_ok(rgo) ? go_active_h(rgo,NULL) : -1, mname, sname);
+            // Which texture slots does this material actually have, and are any of them
+            // filled? HasProperty says the slot exists on the shader; a non-null GetTexture
+            // says an asset is bound to it.
+            int   (*mat_has_prop)(void*,void*,void*) =
+                (int(*)(void*,void*,void*))(g_base + 0x1B56B10);
+            void* (*mat_get_tex)(void*,void*,void*) =
+                (void*(*)(void*,void*,void*))(g_base + 0x1B56704);
+            flog("FIXTERRAIN   probing textures mat=%p strnew=%p", rm, (void*)g_strnew);
+            if (obj_ok(rm) && g_strnew) {
+                for (unsigned t = 0; t < sizeof(TEXPROPS)/sizeof(TEXPROPS[0]); t++) {
+                    void* pn = g_strnew(TEXPROPS[t]);
+                    if (!obj_ok(pn)) { flog("FIXTERRAIN   prop %s <strnew failed>", TEXPROPS[t]); continue; }
+                    int has = mat_has_prop(rm, pn, NULL) & 1;
+                    void* tx = has ? mat_get_tex(rm, pn, NULL) : NULL;
+                    char txn[80];
+                    if(!read_str(obj_ok(tx)?obj_get_name(tx,NULL):NULL, txn, sizeof txn)) strcpy(txn,"<null>");
+                    flog("FIXTERRAIN   prop %-22s has=%d tex=%p native=%p '%s'",
+                         TEXPROPS[t], has, tx, fld_p(tx,0x10), txn);
+                }
+            }
+            // The shader variant is baked into the shader NAME here (Hidden/PBR_EB_..._ON__...),
+            // which is EB's stripped-variant naming, so the material's runtime keyword list is
+            // a separate thing worth seeing: it says which branches the material itself asks
+            // for. get_color reads the shader's _Color/_color tint -- a black tint on a
+            // BASE_TEX shader would explain a black surface all by itself, with no missing
+            // asset involved.
+            void* (*mat_keywords)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B56E1C);
+            COL4 (*mat_get_color)(void*,void*) = (COL4(*)(void*,void*))(g_base + 0x1B563C8);
+            if (obj_ok(rm)) {
+                COL4 c = mat_get_color(rm, NULL);
+                void* kw = mat_keywords(rm, NULL);
+                int kn = obj_ok(kw) ? (int)*(int32_t*)((uintptr_t)kw + 0x18) : -1;
+                flog("FIXTERRAIN   color=(%.3f,%.3f,%.3f,%.3f) keywordCount=%d",
+                     c.r, c.g, c.b, c.a, kn);
+                float (*mat_get_float)(void*,void*,void*) =
+                    (float(*)(void*,void*,void*))(g_base + 0x1B57610);
+                COL4 (*mat_get_colorn)(void*,void*,void*) =
+                    (COL4(*)(void*,void*,void*))(g_base + 0x1B564A8);
+                for (unsigned t = 0; t < sizeof(FLOATPROPS)/sizeof(FLOATPROPS[0]); t++) {
+                    void* pn = g_strnew(FLOATPROPS[t]);
+                    if (!obj_ok(pn)) continue;
+                    int has = mat_has_prop(rm, pn, NULL) & 1;
+                    flog("FIXTERRAIN   f %-20s has=%d val=%.4f", FLOATPROPS[t], has,
+                         has ? mat_get_float(rm, pn, NULL) : -999.0f);
+                }
+                for (unsigned t = 0; t < sizeof(COLORPROPS)/sizeof(COLORPROPS[0]); t++) {
+                    void* pn = g_strnew(COLORPROPS[t]);
+                    if (!obj_ok(pn)) continue;
+                    int has = mat_has_prop(rm, pn, NULL) & 1;
+                    COL4 cc; cc.r=cc.g=cc.b=cc.a=-999.0f;
+                    if (has) cc = mat_get_colorn(rm, pn, NULL);
+                    flog("FIXTERRAIN   c %-20s has=%d val=(%.3f,%.3f,%.3f,%.3f)",
+                         COLORPROPS[t], has, cc.r, cc.g, cc.b, cc.a);
+                }
+                for (int q = 0; q < kn && q < 16; q++) {
+                    char kb[160];
+                    if(!read_str(*(void**)((uintptr_t)kw + 0x20 + 8*q), kb, sizeof kb))
+                        strcpy(kb,"<unreadable>");
+                    flog("FIXTERRAIN   keyword[%d] '%s'", q, kb);
+                }
+            }
+        }
+    );
+    return r;
+}
+// slot 85 PRINIT: EBPlanarReflectionManager.Init(this=a0). Dump the quality actually chosen
+// and the render targets it allocated. Fields: _Config@0x18 (Quality@0x10, ClearMode@0x18,
+// UseReplacementShaders@0x30), _ReflectionCamera@0x20, _Color0@0x48, _Depth@0x70,
+// _ReflectionTextureProperty@0x40, _setup@0x81, CurrentQuality@0x84.
+void* hook_85(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[85].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT(
+        void* cfg = fld_p(a0, 0x18);
+        flog("PRINIT this=%p currentQuality=%d cfgQuality=%d clearMode=%d replShaders=%d "
+             "reflCam=%p color0=%p depth=%p texProp=%d setup=%d paused=%d",
+             a0,
+             obj_ok(a0)  ? *(int32_t*)((uintptr_t)a0+0x84)  : -999,
+             obj_ok(cfg) ? *(int32_t*)((uintptr_t)cfg+0x10) : -999,
+             obj_ok(cfg) ? *(int32_t*)((uintptr_t)cfg+0x18) : -999,
+             obj_ok(cfg) ? *(uint8_t*)((uintptr_t)cfg+0x30) : -1,
+             fld_p(a0,0x20), fld_p(a0,0x48), fld_p(a0,0x70),
+             obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x40) : -999,
+             obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0x81) : -1,
+             obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0x80) : -1);
+    );
+    return r;
+}
+// slot 86 PRRENDER: EBPlanarReflectionManager.Render. Runs per frame when reflections are on,
+// so log only the first call -- its presence or absence is the whole signal. It DOES fire, at
+// quality High: the previous session's "planar reflections never initialise" reading came
+// from a build where slots 85/86 were listed in the H table but never added to the
+// function-pointer array, so the hooks were simply not installed. What is odd is that _Color0
+// reads null on entry while _Depth is non-null, so log the whole render-target set again
+// after the original runs -- if Render allocates _Color0 lazily this is a non-issue, and if
+// it stays null the terrain is sampling a reflection texture that was never produced.
+static volatile int g_prrender_logged = 0;
+void* hook_86(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    int first = !g_prrender_logged;
+    if (first) {
+        g_prrender_logged = 1;
+        PROTECT(
+            flog("PRRENDER pre  this=%p currentQuality=%d color0=%p paused=%d",
+                 a0,
+                 obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x84) : -999,
+                 fld_p(a0,0x48),
+                 obj_ok(a0) ? *(uint8_t*)((uintptr_t)a0+0x80) : -1);
+        );
+    }
+    void* r = H[86].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    if (first) {
+        PROTECT(
+            // _Color0@0x48 _Color1@0x50 _Color2@0x58 _Color3@0x60 _Color3Blit@0x68 _Depth@0x70
+            flog("PRRENDER post color0=%p color1=%p color2=%p color3=%p blit=%p depth=%p "
+                 "replShader=%p texProp=%d",
+                 fld_p(a0,0x48), fld_p(a0,0x50), fld_p(a0,0x58), fld_p(a0,0x60),
+                 fld_p(a0,0x68), fld_p(a0,0x70), fld_p(a0,0x78),
+                 obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x40) : -999);
+        );
+    }
+    return r;
+}
+// slot 87 PRSETUP: EBPlanarReflectionManager.Setup(this=a0).
+void* hook_87(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[87].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT(
+        void* cfg = fld_p(a0, 0x18);
+        flog("PRSETUP this=%p cfg=%p cfgQuality=%d currentQuality=%d setup=%d reflCam=%p",
+             a0, cfg,
+             obj_ok(cfg) ? *(int32_t*)((uintptr_t)cfg+0x10) : -999,
+             obj_ok(a0)  ? *(int32_t*)((uintptr_t)a0+0x84)  : -999,
+             obj_ok(a0)  ? *(uint8_t*)((uintptr_t)a0+0x81)  : -1,
+             fld_p(a0,0x20));
+    );
+    return r;
+}
+// slot 88 PRCONFIG: PerformanceManager.LoadPlanarReflectionConfig(this=a0, ref Config=a1).
+// a1 is a byref, so the Config object is one dereference away (the method itself does
+// `ldr x21,[x19]` at 0xDA82F8 before writing Quality at +0x10). The return value in w0 is the
+// bool that tells EBSetup whether a config was produced at all.
+void* hook_88(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[88].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT(
+        void* cfg = obj_ok(a1) ? *(void**)a1 : NULL;
+        flog("PRCONFIG ret=%d cfg=%p quality=%d clearMode=%d replShaders=%d clipOffset=%.3f",
+             (int)(uintptr_t)r & 1, cfg,
+             obj_ok(cfg) ? *(int32_t*)((uintptr_t)cfg+0x10) : -999,
+             obj_ok(cfg) ? *(int32_t*)((uintptr_t)cfg+0x18) : -999,
+             obj_ok(cfg) ? *(uint8_t*)((uintptr_t)cfg+0x30) : -1,
+             fld_f(cfg, 0x2C));
+    );
+    return r;
+}
 // slot 45 HEROBASE: BCGHeroBase..ctor(this=a0, IDictionary=a1). Bracket the ctor with
 // g_inhb so slots 5/6/8/53/54/55 tag every field key read inside it as "HB <tag> <key>".
 // One ==HEROBASE== marker pair per parsed (blueprint,rank) BCGHeroBase entry.
@@ -727,6 +2013,117 @@ void* hook_28(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         flog("GETENT key=%s count=%d", k, sz); );
     return r;
 }
+// BASENODE (slot 89): per-node dump of the building-lookup chain, taken at
+// AttachNodeController time (this=a0, nodeObj=a1, mapTile=a2). Reads exactly the
+// fields Quests.MapTile.get_building (@0x1094230) reads: buildingSocket@0x130,
+// mission@0x140, mission.placement@0x70, placement.entities@0x20 -- plus the
+// socket id string so the placements key can be compared by eye.
+void* hook_89(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        uintptr_t t=(uintptr_t)a2;
+        if(t>=0x100000 && !(t&7)){
+            uintptr_t bs=*(uintptr_t*)(t+0x130); uintptr_t mi=*(uintptr_t*)(t+0x140);
+            uintptr_t pl=(mi>=0x100000 && !(mi&7))?*(uintptr_t*)(mi+0x70):0;
+            uintptr_t en=(pl>=0x100000 && !(pl&7))?*(uintptr_t*)(pl+0x20):0;
+            char sid[48]; sid[0]=0;
+            if(bs>=0x100000 && !(bs&7)){ uintptr_t s=*(uintptr_t*)(bs+0x20);
+                if(s>=0x100000 && !(s&7)){ int32_t l=*(int32_t*)(s+0x10); uint16_t* c=(uint16_t*)(s+0x14);
+                    if(l>0&&l<46){ int k=0; for(;k<l;k++) sid[k]=(c[k]<128)?(char)c[k]:'?'; sid[k]=0; } } }
+            flog("BASENODE tile=%lx bs=%lx sid=%s mission=%lx placement=%lx entities=%lx",
+                 t, bs, sid, mi, pl, en);
+        } else flog("BASENODE tile=%lx", t);
+    });
+    return H[89].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// Shared GameObject dump for the base-building diagnostics: name, active flags, world
+// position, localScale and up to 6 child renderers with their shader names.
+static void dump_go(const char* tag, void* go){
+    if (!obj_ok(go)) { flog("%s go=<null>", tag); return; }
+    int  (*go_active)(void*,void*)   = (int(*)(void*,void*))(g_base + 0x1B50CF8);
+    int  (*go_active_h)(void*,void*) = (int(*)(void*,void*))(g_base + 0x1B50D38);
+    void* (*go_transform)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B50BD8);
+    V3   (*tr_get_pos)(void*,void*)  = (V3(*)(void*,void*))(g_base + 0x16B7C04);
+    V3   (*tr_get_scale)(void*,void*)= (V3(*)(void*,void*))(g_base + 0x16B841C);
+    void* (*obj_get_name)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16A16A0);
+    void* (*comp_get_go)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x1B4BD28);
+    void* (*go_gcic)(void*,void*)     = (void*(*)(void*,void*))(g_base + 0x11E5B70);
+    void* (*rend_shared_mat)(void*,void*) = (void*(*)(void*,void*))(g_base + 0x16ADC78);
+    void* (*mat_get_shader)(void*,void*)  = (void*(*)(void*,void*))(g_base + 0x1B56338);
+    char bnm[80];
+    if(!read_str(obj_get_name(go,NULL), bnm, sizeof bnm)) strcpy(bnm,"<noname>");
+    void* tr = go_transform(go, NULL);
+    V3 p; p.x=p.y=p.z=0; V3 sc; sc.x=sc.y=sc.z=0;
+    if (obj_ok(tr)) { p = tr_get_pos(tr,NULL); sc = tr_get_scale(tr,NULL); }
+    flog("%s go='%s' active=%d/%d pos=(%.1f,%.1f,%.1f) scale=(%.2f,%.2f,%.2f)",
+         tag, bnm, go_active(go,NULL), go_active_h(go,NULL), p.x, p.y, p.z, sc.x, sc.y, sc.z);
+    void* gcicmi = fld_p(*(void**)(g_base + 0x2C33E58), 0x0);
+    void* rends = obj_ok(gcicmi) ? go_gcic(go, gcicmi) : NULL;
+    int rn = obj_ok(rends) ? (int)*(int32_t*)((uintptr_t)rends + 0x18) : -1;
+    flog("%s  rendererCount=%d", tag, rn);
+    for (int k = 0; k < rn && k < 6; k++) {
+        void* rr = *(void**)((uintptr_t)rends + 0x20 + 8*k);
+        if (!obj_ok(rr)) continue;
+        void* rgo = comp_get_go(rr, NULL);
+        void* rm  = rend_shared_mat(rr, NULL);
+        void* rs  = obj_ok(rm) ? mat_get_shader(rm, NULL) : NULL;
+        char gname[80]; char sname[200];
+        if(!read_str(obj_ok(rgo)?obj_get_name(rgo,NULL):NULL, gname, sizeof gname)) strcpy(gname,"<null>");
+        if(!read_str(obj_ok(rs)?obj_get_name(rs,NULL):NULL, sname, sizeof sname)) strcpy(sname,"<null>");
+        flog("%s  rend[%d] go='%s' goActive=%d shader='%s'",
+             tag, k, gname, obj_ok(rgo)?go_active_h(rgo,NULL):-1, sname);
+    }
+}
+// NODEREFRESH (slot 90): BaseNodeController.Refresh(this=a0). After the original runs,
+// dump the node's _building GameObject (@0x28 on NodeController): active flags, world
+// position, localScale (AnimateSetBuilding tweens scale in -- a stuck 0 scale would be
+// invisible regardless of lighting), and every child renderer's material+shader. This is
+// the ground truth for "the model is instanced -- what does its draw state look like".
+void* hook_90(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[90].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    static int dumps = 0;
+    PROTECT({
+        void* go = fld_p(a0, 0x28);
+        if (obj_ok(go) && dumps < 24) {
+            dumps++;
+            char bid[64]; bid[0]=0;
+            read_str(fld_p(a0,0x30), bid, sizeof bid);
+            char tag[96];
+            snprintf(tag, sizeof tag, "BLDGO node=%p id=%s", a0, bid);
+            dump_go(tag, go);
+        }
+    });
+    return r;
+}
+// ONBLDSET (slot 93): BaseNodeController.OnBuildingSet(this=a0, buildingId=a1, go=a2).
+// Logs the model-name string and whether a real GameObject arrived.
+void* hook_93(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        char nm[64]; nm[0]=0;
+        uintptr_t s=(uintptr_t)a1;
+        if(s>=0x100000 && !(s&7)){ int32_t l=*(int32_t*)(s+0x10); uint16_t* c=(uint16_t*)(s+0x14);
+            if(l>0&&l<62){ int k=0; for(;k<l;k++) nm[k]=(c[k]<128)?(char)c[k]:'?'; nm[k]=0; } }
+        flog("ONBLDSET name=%s go=%lx", nm, (uintptr_t)a2);
+        if ((uintptr_t)a2) dump_go("ONBLDSET", a2);
+    });
+    void* r = H[93].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({ if ((uintptr_t)a2) dump_go("ONBLDSET-post", a2); });
+    return r;
+}
+// CAMFRAME (slot 94): a0 is the base's BaseCameraController. get__CurrentPosOffset runs every
+// frame from UpdateCamera (right after it applies the FOV), so it is a convenient place to poke
+// the controller's FOV range fields (min@0x1a0, max@0x1a4) to a telephoto value -- magnifying
+// the distant buildings on the next frame without moving the camera off the sky-framed sightline.
+void* hook_94(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+#if CAMFRAME
+    PROTECT({
+        if (obj_ok(a0)) {
+            *(float*)((uintptr_t)a0+0x1a0)=CAMFOV;   // fov range min
+            *(float*)((uintptr_t)a0+0x1a4)=CAMFOV;   // fov range max
+        }
+    });
+#endif
+    return H[94].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -734,7 +2131,9 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_44,hook_45,hook_46,hook_47,hook_48,hook_49,hook_50,hook_51,hook_52,
     hook_53,hook_54,hook_55,hook_56,hook_57,hook_58,
     hook_59,hook_60,hook_61,hook_62,hook_63,hook_64,hook_65,hook_66,
-    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77,hook_78 };
+    hook_67,hook_68,hook_69,hook_70,hook_71,hook_72,hook_73,hook_74,hook_75,hook_76,hook_77,hook_78,
+    hook_79,hook_80,hook_81,hook_82,hook_83,hook_84,hook_85,hook_86,hook_87,hook_88,
+    hook_89,hook_90,hook_91,hook_92,hook_93,hook_94 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
