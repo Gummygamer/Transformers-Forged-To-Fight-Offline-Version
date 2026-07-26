@@ -28,6 +28,8 @@ return to the board. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attac
 and combat armor tuning allow landed hits to reduce health. The roster, hero details,
 team selection, and battle model IDs are generated from the same original data source,
 so combat uses the matching 3D mesh instead of a generic placeholder.
+During a STORY fight, the special-attack meter is no longer locked: it charges from landed
+and received hits, and a special attack can be fired for real damage.
 
 
 ## What does not work, and why
