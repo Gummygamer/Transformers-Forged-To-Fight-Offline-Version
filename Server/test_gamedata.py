@@ -1,20 +1,79 @@
 import json
 import math
+import importlib
+import os
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import gamedata
 
 
+class ManaStartDiagnosticTests(unittest.TestCase):
+    def test_default_mana_start_is_zero(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            importlib.reload(gamedata)
+            self.assertEqual(gamedata._DIAG_MANA_START, 0)
+            self.assertEqual(
+                gamedata.build_hero_base(gamedata.DEFAULT_TEAM[0])["mana_start"], 0
+            )
+        importlib.reload(gamedata)
+
+    def test_mana_start_diagnostic_can_be_enabled(self):
+        with mock.patch.dict(os.environ, {"TFTF_DIAG_MANA_START": "1"}):
+            importlib.reload(gamedata)
+            self.assertEqual(
+                gamedata.build_hero_base(gamedata.DEFAULT_TEAM[0])["mana_start"], 1
+            )
+        # Do not leak the full-meter diagnostic setting into the rest of this test module.
+        importlib.reload(gamedata)
+
+    def test_combat_attribute_builders_carry_authored_mana_fields(self):
+        entry = gamedata.build_hero_entry(gamedata.DEFAULT_TEAM[0])
+        details = gamedata.build_base_hero_details([
+            {"bid": gamedata.DEFAULT_TEAM[0]},
+            {"bid": gamedata.DEFAULT_TEAM[1]},
+        ])
+
+        self.assertIsInstance(entry["mana_gain"], float)
+        self.assertGreater(entry["mana_gain"], 0)
+        self.assertEqual(entry["mana_start"], gamedata._DIAG_MANA_START)
+        self.assertEqual(len(details), 2)
+        for record in details:
+            self.assertIsInstance(record["mana_gain"], float)
+            self.assertGreater(record["mana_gain"], 0)
+            self.assertEqual(record["mana_start"], gamedata._DIAG_MANA_START)
+
+    def test_generated_user_data_has_mana_gain_for_every_owned_bot(self):
+        response_path = Path(gamedata.RESP_DIR) / "GET__bcg_getUserData.json"
+        response = json.loads(response_path.read_text(encoding="utf-8"))
+        heroes = [
+            hero for hero in response["result"]["updates"]["heroes"]
+            if hero.get("entity_type") == "bot"
+        ]
+
+        self.assertTrue(heroes)
+        for hero in heroes:
+            self.assertIsInstance(hero["mana_gain"], float)
+            self.assertGreater(hero["mana_gain"], 0)
+            self.assertEqual(hero["mana_start"], gamedata._DIAG_MANA_START)
+
+
 class AttackValuesTests(unittest.TestCase):
     def test_normal_attack_levels_have_nonzero_damage_rows(self):
         rows = gamedata.build_attack_values()
+        mana_per_special = gamedata.build_missions_config()["configs"]["bcg-combat"][
+            "manaPerSpecial"
+        ]
 
         self.assertEqual(set(rows), {"Light", "Medium", "Heavy", "Ranged"})
         for attack_level, row in rows.items():
             self.assertEqual(row["id"], attack_level)
             self.assertGreater(row["a"], 0)
+            self.assertGreaterEqual(row["m"], 10.0)
             self.assertEqual(set(row), {"id", "a", "m", "c", "d", "p"})
+        self.assertGreater(rows["Heavy"]["m"], rows["Light"]["m"])
+        self.assertLessEqual(mana_per_special / rows["Light"]["m"], 10)
 
     def test_generated_login_response_contains_current_attack_rows(self):
         response_path = Path(gamedata.RESP_DIR) / "GET__bcg_getLoginData.json"
@@ -124,6 +183,10 @@ class MissionsConfigTests(unittest.TestCase):
         ]
         self.assertTrue(math.isfinite(armor_constant))
         self.assertGreater(armor_constant, 0)
+
+        mana_per_special = missions_config["configs"]["bcg-combat"]["manaPerSpecial"]
+        self.assertTrue(math.isfinite(mana_per_special))
+        self.assertGreater(mana_per_special, 0)
 
     def test_account_response_contains_current_missions_config(self):
         response_path = Path(gamedata.RESP_DIR) / "GET__account_data.json"

@@ -265,6 +265,57 @@ records all 2750 enemy HP lost, and it returns to the mission board. The generic
 is sufficient for this result submission. A local verification capture is stored under `media/`,
 which remains ignored and must never be committed.
 
+## The special-attack meter
+
+The locked special-attack meter had two independent wire-data causes. First,
+`special_attacks` was hard-coded as zero. That field becomes
+`BCGUserHeroBase._specialAttackCount@0x80`, is copied at `0xA62E34`/`0xA62E38` into
+`BCGAttributeDataBase.SpecialAttackCount@0x28`, and reaches
+`PlayerAttributes.get_NumSpecials@0xDAC3E4` as a bare `ldr w0,[x8,#0x28]` with no rank
+clamp. It then becomes `HudScreen.FighterInitData.NumSpecials@0x30`; at
+`HudSpecialMeter.Init@0xFEFD4C` a zero makes every segment render locked through
+`_lockIcons` and `LockUnfilledColor`. The same zero reached
+`BCGHeroDetails.AttributeData@0x40` through `POST /bcg/getBaseHeroData`
+(`BCGHeroDetails..ctor@0xA5AA14` to `BCGAttributeData..ctor@0xC14864`). Emitting the
+existing authored `max_special_attacks(bid, star)` rarity curve, which returns one through
+three, fixes the padlocks.
+
+That count also determines capacity. `PlayerAttributes.Init@0xDAB16C` computes
+`maxMana` as `TuningGameplay.ManaPerSpecial` (`SafeFloat@0x18`, loaded at `0xDABF88`)
+times `SpecialAttackCount@0x28` (loaded at `0xDABF3C`); the `scvtf`/`fmul` pair at
+`0xDAC044`/`0xDAC048` feeds argument two of `ResourceAttribute.Init@0xE2FC8C`. A count
+of zero therefore made the meter capacity zero as well as rendering every segment locked.
+`TuningGameplay` (`re_notes/dump.cs:424121`) is a `MonoBehaviour` whose
+`ManaPerSpecial` `SafeFloat@0x18` is Unity-serialized in the app's own bundle, so the
+300-per-segment capacity comes from the client rather than the server.
+
+Second, `mana_gain` was absent from the two payloads that construct the in-fight attribute
+data. The wire field becomes `BCGAttributeDataBase.ManaGain@0x54`, which
+`PlayerAttributes.Init@0xDAB16C` loads as base plus modified values at
+`0xDABE00`/`0xDABE08` into the `_powerGainRate@0x138` `StatAttribute`. Per-hit gain is
+`BCGAttackValue.ManaGain` (wire key `m`, field `@0x1C`) times `HitData.Mana` times that
+power-gain rate, using the `fmul` pair at `0xDADC80`/`0xDADC84` in
+`PlayerAttributes.GetAttackerManaGain@0xDADB68`; the defender sibling at `0xDADCA8`
+also applies `DefenderManaModifier` 1.25, and both paths are called by
+`PlayerController.ReceiveHit@0x1178790`. A missing `mana_gain` parses as zero, which is a
+multiplicative zero for both fighters regardless of `m`; increasing `attackValues[*].m`
+625-fold therefore changed the rendered meter by exactly zero pixels. Emitting
+`mana_gain` and `mana_start` from the other builders fixes charging.
+
+Treat combat attributes as a three-builder rule: any future field must be authored in
+`build_hero_base()`, `build_hero_entry()`, and `build_base_hero_details()`, with a test for
+each payload. Only `build_hero_base()` has the full attribute set; the other two use shorter
+subsets, so a field in only one builder can silently be zero in a fight while still looking
+authored in source. This also matters for STORY enemies: `PrefightScreenData.InitEnemy` reads
+only `character`, `rank`, `level`, `sig_lvl`, and `flvl` from `QuestBoss`, then gets the
+opponent's attributes from `POST /bcg/getBaseHeroData`, not from the quest boss entity.
+
+Live verification on an arm64-v8a emulator in STORY 1.1.1, Optimus Primal versus Sharkticon,
+showed three unlocked segments, about one full 300-mana segment per six landed light hits, and
+all three segments full and lit. Tapping the SP hexagon fired the special, drained the meter,
+and took the enemy from 52% to a 0% KO. Both fighters gain mana, confirming the defender path;
+the normal fighting-game pace leaves the authored `attackValues[*].m` values unchanged.
+
 ## The armeabi-v7a port
 
 `patches/abi_map.py` translates arm64 method addresses and field offsets to the 32-bit

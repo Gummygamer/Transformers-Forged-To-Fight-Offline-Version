@@ -33,6 +33,21 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 RESP_DIR = os.path.join(HERE, "responses")
 
+# DIAGNOSTIC ONLY — keep the default at 0. PlayerAttributes.Init@0xDAB16C initializes
+# starting mana as maxMana * mana_start. Setting TFTF_DIAG_MANA_START=1 therefore makes
+# the first combat frame distinguish maxMana == 0 (still empty) from a zero per-hit gain
+# (full). This is not gameplay tuning; all authored balance values in this revival remain
+# original inventions, never recovered Kabam data.
+_DIAG_MANA_START = max(0, min(1, int(os.environ.get("TFTF_DIAG_MANA_START", "0"))))
+
+# Wire `mana_gain` -> BCGAttributeDataBase.ManaGain@0x54 -> PlayerAttributes._powerGainRate
+# @0x138 (seeded in PlayerAttributes.Init@0xDAB16C, loads @0xDABE00/0xDABE08). Per-hit mana
+# is `attackValues[*].m * HitData.Mana * powerGainRate` (fmul @0xDADC80/0xDADC84), so a
+# missing or zero mana_gain multiplies every special-attack meter gain to zero for both
+# fighters. 1.0 means the original authored attackValues[*].m for this revival are taken at
+# face value; it is not recovered Kabam data.
+_MANA_GAIN_RATE = 1.0
+
 # The six combat classes are a factual part of the game's structure. Which class a
 # given bot belongs to on Kabam's servers is lost data, so the assignments below are
 # an original, self-consistent reconstruction, not the historical values.
@@ -357,8 +372,12 @@ def build_attack_values():
     reducing health. Special attacks use the blueprint's s1/s2/s3 fields instead.
 
     BCGAttackValue parses id/a/m/c/d/p as attack id, damage percent, mana gain, critical
-    chance, critical damage, and critical pierce. All values are ORIGINAL authored
-    balance, not recovered Kabam data.
+    chance, critical damage, and critical pierce. ``m`` feeds
+    BCGAttackValue.ManaGain@0x1C, so gain per hit is ``m * HitData.Mana * power_gain``.
+    TuningGameplay.ManaPerSpecial is 300 per segment, and PlayerAttributes.Init@0xDAB16C
+    computes max mana as ``ManaPerSpecial * SpecialAttackCount``. All values are
+    ORIGINAL authored balance for this revival, not recovered Kabam data: a 50-mana
+    Light hit is about one-sixth of a segment, so roughly six landed hits enable SP1.
     """
     def av(attack_id, percent, mana_gain, crit_chance, crit_damage, crit_pierce):
         return {
@@ -371,10 +390,10 @@ def build_attack_values():
         }
 
     return {
-        "Light": av("Light", 0.35, 0.08, 0.05, 1.5, 0.0),
-        "Medium": av("Medium", 0.60, 0.10, 0.05, 1.5, 0.0),
-        "Heavy": av("Heavy", 1.00, 0.15, 0.05, 1.5, 0.05),
-        "Ranged": av("Ranged", 0.40, 0.08, 0.05, 1.5, 0.0),
+        "Light": av("Light", 0.35, 50.0, 0.05, 1.5, 0.0),
+        "Medium": av("Medium", 0.60, 75.0, 0.05, 1.5, 0.0),
+        "Heavy": av("Heavy", 1.00, 120.0, 0.05, 1.5, 0.05),
+        "Ranged": av("Ranged", 0.40, 55.0, 0.05, 1.5, 0.0),
     }
 
 
@@ -397,6 +416,11 @@ def build_missions_config():
         "configs": {
             "bcg-combat": {
                 "armorRatingConstant": 1000.0,
+                # 300.0 mirrors TuningGameplay.DeserializeData@0x1425540's built-in
+                # default and documents attackValues[*].m's absolute unit; it is harmless
+                # if unread, since TuningGameplay's MonoBehaviour bundle serialization
+                # sets 300 per segment either way.
+                "manaPerSpecial": 300.0,
             },
             "user-base": {
                 "minClaimInterval": 60,
@@ -518,7 +542,7 @@ def build_hero_base(bid, rank=1):
     return {
         "id": bid, "r": rank, "m": star, "s": star,
         "max_hp": hp, "mhpb": hp, "attack": atk, "attb": atk,
-        "mana_start": 0, "stun_time": 0,
+        "mana_start": _DIAG_MANA_START, "stun_time": 0,
         "special_attacks": max_special_attacks(bid, star),
         "rating": rating,
         "rating_hp": hp // 2, "rating_attack": atk // 2,
@@ -526,7 +550,7 @@ def build_hero_base(bid, rank=1):
         "ab": 0,
         # combat-tuning floats: sensible neutral values (roster view doesn't need real balance)
         "hp": float(hp), "armor": 0.0, "crit_chance": 0.05, "crit_damage": 1.5,
-        "perfect_block_chance": 0.1, "block_proficiency": 0.75, "mana_gain": 1.0,
+        "perfect_block_chance": 0.1, "block_proficiency": 0.75, "mana_gain": _MANA_GAIN_RATE,
         "resist_magic": 0.0, "resist_physical": 0.0, "stun_chance": 0.05,
         "cr": 0.0, "rcr": 0.0, "rcd": 0.0, "spb": 0.0, "pjb": 0.0, "cpw": 0.0,
         "ap": 0.0, "bp": 0.0, "il": 0.0, "il2": 0.0, "il3": 0.0, "is4": 0.0,
@@ -586,7 +610,16 @@ def build_login_data():
 def build_hero_entry(bid, rank=1, level=1):
     """One owned-hero record for getUserData `updates.heroes`. Same keys as the
     proven single-hero response; entity_type MUST be 'bot'."""
+    # Combat HUD chain proved from the client: special_attacks ->
+    # BCGAttributeData.SpecialAttackCount@0x28 -> PlayerAttributes.NumSpecials@0xDAC3E4 ->
+    # HudScreen.FighterInitData.NumSpecials@0x30 -> HudSpecialMeter.Init@0xFEFD4C
+    # (_lockIcons/LockUnfilledColor). A zero made every SP segment render its lock icon.
+    # The count comes from this revival's existing original authored rarity curve, never
+    # recovered Kabam server data.
+    faction, klass, star = ROSTER.get(bid, ("decepticon", "tact", 1))
     hp, atk = base_stats(bid, rank, level)
+    # ManaGain@0x54 seeds _powerGainRate@0x138; these original authored values keep the
+    # per-hit `attackValues[*].m` contribution nonzero for this fighter.
     return {
         "entity_type": "bot", "bid": bid,
         "rank": rank, "level": level, "sig_lvl": 0,
@@ -596,7 +629,8 @@ def build_hero_entry(bid, rank=1, level=1):
         "rating": (hp + atk) // 20,
         "rating_attack": atk // 2, "rating_hp": hp // 2,
         "rating_attack_base": atk // 2, "rating_hp_base": hp // 2,
-        "special_attacks": 0, "pvpb": {}, "exc": {},
+        "special_attacks": max_special_attacks(bid, star), "pvpb": {}, "exc": {},
+        "mana_gain": _MANA_GAIN_RATE, "mana_start": _DIAG_MANA_START,
         "flvl": 0, "req_fxp": 0, "max_fxp": 0, "mfl": 0,
     }
 
@@ -1354,7 +1388,10 @@ def build_base_hero_details(req_heroes):
         bid = h.get("bid", "")
         rank = int(h.get("rank", 1) or 1)
         level = int(h.get("level", 1) or 1)
+        faction, klass, star = ROSTER.get(bid, ("decepticon", "tact", 1))
         hp, atk = base_stats(bid, rank, level)
+        # ManaGain@0x54 seeds _powerGainRate@0x138; these original authored values keep the
+        # per-hit `attackValues[*].m` contribution nonzero for both combatants.
         out.append({
             "bid": bid, "rank": rank, "level": level,
             "sig_lvl": int(h.get("sig_lvl", 0) or 0),
@@ -1362,7 +1399,8 @@ def build_base_hero_details(req_heroes):
             "rating_attack": atk, "attack": atk,
             "health": hp, "armor": 0, "crit_rate": 0, "crit_dmg": 0,
             "block_prof": 0, "perfect_block": 0, "sig_ability": 0,
-            "special_attacks": 0, "user_owned": True,
+            "special_attacks": max_special_attacks(bid, star), "user_owned": True,
+            "mana_gain": _MANA_GAIN_RATE, "mana_start": _DIAG_MANA_START,
             "synergyBonuses": [], "pvpb": {},
         })
     return out
