@@ -169,7 +169,9 @@ class H(http.server.BaseHTTPRequestHandler):
                         "rating_attack": atk, "attack": atk,
                         "health": hp, "armor": 0, "crit_rate": 0, "crit_dmg": 0,
                         "block_prof": 0, "perfect_block": 0, "sig_ability": 0,
-                        "special_attacks": 0, "user_owned": True,
+                        # These original revival fallback values prevent zero/missing mana_gain from locking the SP meter.
+                        "special_attacks": 3, "mana_gain": 1.0, "mana_start": 0,
+                        "user_owned": True,
                         "synergyBonuses": [], "pvpb": {},
                     })
             return json.dumps({"error": None, "result": out}).encode()

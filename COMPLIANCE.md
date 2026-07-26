@@ -17,6 +17,14 @@ it, `python Server/gamedata.py` regenerates two response files:
 `Server/fakeserver.py`'s dynamic `/bcg/getBaseHeroData` handler now computes hero stats
 from the same authored curve, so on-screen numbers stay consistent with the roster.
 
+The special-attack-meter work adds only newly authored original values, invented for this
+revival and never transcribed from recovered Kabam data: `_MANA_GAIN_RATE = 1.0` for wire
+`mana_gain`; `attackValues[*].m` values of 50, 75, 120, and 55 for Light, Medium, Heavy,
+and Ranged; and per-hero `special_attacks` counts of one through three from the pre-existing
+original `max_special_attacks` rarity curve. The `bcg-combat` config also carries
+`manaPerSpecial: 300.0`, deliberately mirroring the client's built-in default so the
+absolute unit of `m` is self-documenting.
+
 ## Why this is copyright-compliant
 
 - **Everything authored here is original.** Kabam's real balance data (the roster
