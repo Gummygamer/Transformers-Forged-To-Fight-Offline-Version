@@ -195,14 +195,21 @@ Two combat-feel reports were checked against the current build:
   attack), regenerated into `getLoginData`. Covered by `TransformDamageTests`. The normal
   charged/heavy attack already out-damaged punches and kicks and was left unchanged.
 - *"When a bot is getting hit he's not supposed to be able to react (land a hit)."* This
-  hit-stun is fully engine-implemented and **not** authorable from the offline data layer:
-  `PlayerController.ReceiveHit` calls `ApplyHitStun(hitData.HitStun)`, and
-  `ConditionNode_HitStunned` / `CompositeNode_CanAct` gate whether a stunned bot may act.
-  The stun duration lives in `HitData.HitStun`, a per-move field serialized inside each
-  character's move/animation asset bundle — the server `attackValues` rows (`BCGAttackValue`
-  = Percent/ManaGain/CritChance/CritDamage/CritPierce only) carry no stun field at all.
-  There is therefore no server/JSON knob to change here; if the stagger is not felt in a
-  live fight it is the ODR move-bundle not loading (the asset wall), not a data gap.
+  is authorable from the offline data layer, but through a different wire object than
+  `attackValues`. `PlayerController.ReceiveHit` takes `HitData.HitStun` in frames, divides it
+  by 30, and calls `ApplyHitStun(seconds)`; that calls
+  `StatModifierController.ApplyStatModifier("gp_hit_stun")`, which requires a
+  `BCGStatModifier` row at `result.statMods["gp_hit_stun"]`. The earlier reading that this was
+  not server-authorable and must be the asset wall was incorrect. It was tempting because
+  `BCGAttackValue` really does contain only Percent/ManaGain/CritChance/CritDamage/CritPierce;
+  the incorrect step was concluding that no other login-data field feeds stun. Emulator
+  `HitData` was measured as real — 9.000–21.067-frame stun values with named reactions such as
+  `HitReactionLightLeftHigh` and `HitReactionMediumBackLow` — so it was not a false negative.
+  With an empty `statMods` map, `seg05_before_arena.log` recorded `STATMOD ... ret=0` 68 times
+  and zero `HITSTQ ... now=1` events. With the authored row, `seg05_after_arena.log` recorded
+  `STATMOD ... ret=1` 51 times with no failures and 229 `HITSTQ ... now=1` events.
+  `get_CanAttack` consults `get_HitStunned`, and `TryExecuteAction` consults `get_CanAttack`,
+  so this gates the player as well as AI opponents.
 
 ## STORY board movement milestone
 
@@ -315,6 +322,37 @@ showed three unlocked segments, about one full 300-mana segment per six landed l
 all three segments full and lit. Tapping the SP hexagon fired the special, drained the meter,
 and took the enemy from 52% to a 0% KO. Both fighters gain mana, confirming the defender path;
 the normal fighting-game pace leaves the authored `attackValues[*].m` values unchanged.
+
+## Hit-stun
+
+The reported symptom was that a fighter being struck could still react and land a hit. The
+derivation began with `gp_hit_stun` in `PlayerController.DefaultStatMods`, then used temporary,
+read-only native probes on `ReceiveHit`, `ApplyHitStun`, `ApplyStatModifier`, `get_HitStunned`,
+and `TFormStatModsDB.RegisterStatModifier`. A bracket marker on
+`BCGStatModifier..ctor(IDictionary)` harvested the complete wire schema from the running
+client. The arm64 locations are `ReceiveHit` `0x1178790` (the `HitData` argument is third,
+`x3`, not second), `ApplyHitStun` `0x1179730` (its duration is a float in `v0`, unreadable
+through the generic `void *` thunk), `ApplyStatModifier(string,...)` `0xCCF67C`,
+`get_HitStunned` `0x1173D94`, `TFormStatModsDB.RegisterStatModifier` `0x10DAABC`, and
+`BCGStatModifier..ctor(IDictionary)` `0xA5DFBC`. Because `get_HitStunned` is called every
+frame, its probe logged transitions only to avoid flooding the device log.
+
+Those diagnostics were removed before shipping. The local reproduction patch is
+`.longtask/hitstun-combat/findings/seg-06-hitstun-diagnostic-hooks.patch`; `.longtask/` is
+gitignored, so this RVA list is the durable record. The shipped fix is one authored stat-modifier
+row: `build_stat_modifiers()` in `Server/gamedata.py` emits `statMods["gp_hit_stun"]`, covered
+by `HitStunStatModifierTests` in `Server/test_gamedata.py`.
+
+| Device log | `STATMOD id=gp_hit_stun` | `HITSTQ ... now=1` (`get_HitStunned` true) |
+| --- | --- | --- |
+| `probe/seg05_before_arena.log` (empty `statMods`) | `ret=0` x68, zero successes | 0 |
+| `probe/seg05_after_arena.log` (authored row) | `ret=1` x51, zero failures | 229 |
+
+This is data-only: the login response is served to whichever ABI is installed, so the fix applies
+to armeabi-v7a automatically and needs neither an armv7 RVA nor a change to
+`patches/abi_map.py`. The paired hook logs objectively verify the effect. The full-speed emulator
+captures do not, by eye, show an obviously distinct freeze: with placeholder actors the extra
+stun blends into the normal strike/stagger animation.
 
 ## The armeabi-v7a port
 
