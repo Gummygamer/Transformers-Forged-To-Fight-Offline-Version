@@ -85,6 +85,29 @@ class AttackValuesTests(unittest.TestCase):
         )
 
 
+class HitStunStatModifierTests(unittest.TestCase):
+    def test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row(self):
+        rows = gamedata.build_stat_modifiers()
+        row = rows["gp_hit_stun"]
+
+        self.assertEqual(set(rows), {"gp_hit_stun"})
+        self.assertEqual(row["id"], "gp_hit_stun")
+        self.assertEqual(
+            set(row),
+            {
+                "id", "t", "tm", "tr", "uit", "pri", "trm", "trs", "trr",
+                "c", "m", "d", "s", "ta", "mt", "v", "ms", "st", "g",
+                "gc", "gcv", "rcv", "ti", "a", "au", "rh", "ra",
+            },
+        )
+        self.assertEqual(row["t"], "hit_stun")
+        self.assertEqual(row["ta"], "self")
+        self.assertEqual(row["mt"], "debuff")
+        self.assertEqual(row["tr"], [])
+        self.assertEqual(row["uit"], [])
+        self.assertEqual(gamedata.build_login_data()["statMods"], rows)
+
+
 class TransformDamageTests(unittest.TestCase):
     def test_every_special_out_damages_every_normal_attack(self):
         """A transform (special attack) must hit harder than punches and kicks. The
