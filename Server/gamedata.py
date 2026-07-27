@@ -691,6 +691,46 @@ def build_hero_entry(bid, rank=1, level=1):
 DEFAULT_TEAM = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_g1_mp10"]
 BOSS_BLUEPRINT = "sharkticon_gs_brawler"
 
+# --- Story-fight ARENA -------------------------------------------------------
+# QuestBoss `mapOverride`@0x88 and `todIndex`@0x90 select the 3D fight arena. The
+# client carries them through QuestBoss -> Quests.OnFight(sceneName, timeOfDay) ->
+# FightFlow.sceneName@0x40 / FightFlow.timeOfDay@0x48 ->
+# FightData.SceneName@0x20 / FightData.TimeOfDay@0x14 ->
+# BattleArbiter.SceneName@0xA8 / BattleArbiter.TimeOfDayName@0xB8. The final
+# time-of-day prefab name is `<level>_timeofday_<idx>_<lightmaptype>`, assembled by
+# EBTimeOfDayManager.GetMergedTimeOfDayName (dump.cs:374351).
+#
+# An empty mapOverride means no arena is assigned, so the client falls back to karnak. Live
+# verification showed that karnak's ground terrain renders black in this offline build, so it
+# must remain selectable but cannot be the default. chicago was verified live to render its
+# ground and street completely, which is why it is the default below. TFTF_ARENA_LEVEL and
+# TFTF_ARENA_TOD make on-device sweeps of the other shipped levels cheap. This inventory was
+# measured from the shipped per-pack toc.txt files. primordial, ruinedcity, and aoe are
+# deliberately excluded because none ships its `<name>_merged` geometry prefab. These names
+# are only asset IDs already inside the user's APK: no game asset is vendored, copied, or
+# committed here (see COMPLIANCE.md's copyright-compliance rule).
+ARENA_LEVELS = {
+    "chicago":  (0, 1, 2),
+    "hongkong": (0, 1, 2),
+    "karnak":   (0, 1, 2),
+    "mine":     (0, 1, 2),
+    "rust":     (0, 1, 2),
+}
+
+ARENA_LEVEL = os.environ.get("TFTF_ARENA_LEVEL", "chicago")
+ARENA_TOD_INDEX = int(os.environ.get("TFTF_ARENA_TOD", "0"))
+
+if ARENA_LEVEL not in ARENA_LEVELS:
+    raise ValueError(
+        "Invalid TFTF_ARENA_LEVEL %r; valid levels: %s"
+        % (ARENA_LEVEL, ", ".join(ARENA_LEVELS))
+    )
+if ARENA_TOD_INDEX not in ARENA_LEVELS[ARENA_LEVEL]:
+    raise ValueError(
+        "Invalid TFTF_ARENA_TOD %r for level %r; valid indices: %s"
+        % (ARENA_TOD_INDEX, ARENA_LEVEL, ARENA_LEVELS[ARENA_LEVEL])
+    )
+
 
 def build_saved_team(team_id="0", heroes=None):
     bids = heroes if heroes is not None else DEFAULT_TEAM
@@ -878,7 +918,7 @@ def build_quest_map(qid="1.1.1"):
     }
 
 
-def build_quest_enemy():
+def build_quest_enemy(map_override=None, tod_index=None):
     """An authored STORY BCGEntity in the exact QuestBoss wire schema.
 
     The field names were captured from the live QuestBoss.Deserialize call after the first
@@ -886,6 +926,8 @@ def build_quest_enemy():
     compact keys are `characters`, `sig_lvl`, `flvl`, `aiString`, and `aiPer`; the earlier
     property-name guesses were silently ignored and produced the anonymous 8888 placeholder.
     """
+    map_override = ARENA_LEVEL if map_override is None else map_override
+    tod_index = ARENA_TOD_INDEX if tod_index is None else tod_index
     return {
         # The entity key doubles as the combat blueprint id. PrefightScreenData sends it
         # verbatim to /bcg/getBaseHeroData; an arbitrary encounter id therefore creates a
@@ -897,7 +939,7 @@ def build_quest_enemy():
         "characters": [BOSS_BLUEPRINT],
         "rank": 1, "level": 1, "sig_lvl": 0, "flvl": 0,
         "aiType": 0, "aiString": "default", "aiPer": "default",
-        "mapOverride": "", "todIndex": 0,
+        "mapOverride": map_override, "todIndex": tod_index,
     }
 
 

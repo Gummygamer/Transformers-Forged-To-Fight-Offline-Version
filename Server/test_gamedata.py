@@ -389,5 +389,85 @@ class BaseActiveTests(unittest.TestCase):
                     self.assertTrue(target.get("walkable"))
 
 
+class StoryFightArenaTests(unittest.TestCase):
+    def test_default_arena_is_not_the_black_karnak_fallback(self):
+        """ARENA_LEVEL must not default to karnak, whose offline ground is black."""
+        self.assertNotEqual(gamedata.ARENA_LEVEL, "karnak")
+        self.assertIn(gamedata.ARENA_LEVEL, gamedata.ARENA_LEVELS)
+
+    def test_quest_enemy_assigns_a_nonempty_shipped_arena_level(self):
+        enemy = gamedata.build_quest_enemy()
+
+        self.assertIsInstance(enemy["mapOverride"], str)
+        self.assertTrue(enemy["mapOverride"])
+        self.assertEqual(enemy["mapOverride"], gamedata.ARENA_LEVEL)
+        self.assertIn(enemy["mapOverride"], gamedata.ARENA_LEVELS)
+
+    def test_quest_enemy_tod_is_valid_for_its_arena_level(self):
+        enemy = gamedata.build_quest_enemy()
+
+        self.assertIsInstance(enemy["todIndex"], int)
+        self.assertIn(enemy["todIndex"], gamedata.ARENA_LEVELS[enemy["mapOverride"]])
+
+    def test_arena_environment_overrides_are_applied_on_reload(self):
+        with mock.patch.dict(
+            os.environ, {"TFTF_ARENA_LEVEL": "mine", "TFTF_ARENA_TOD": "2"}
+        ):
+            importlib.reload(gamedata)
+            enemy = gamedata.build_quest_enemy()
+            self.assertEqual(enemy["mapOverride"], "mine")
+            self.assertEqual(enemy["todIndex"], 2)
+        importlib.reload(gamedata)
+
+    def test_invalid_arena_level_raises_on_reload(self):
+        with mock.patch.dict(os.environ, {"TFTF_ARENA_LEVEL": "not-a-level"}):
+            with self.assertRaises(ValueError):
+                importlib.reload(gamedata)
+        importlib.reload(gamedata)
+
+    def test_invalid_arena_tod_raises_on_reload(self):
+        with mock.patch.dict(
+            os.environ, {"TFTF_ARENA_LEVEL": "mine", "TFTF_ARENA_TOD": "3"}
+        ):
+            with self.assertRaises(ValueError):
+                importlib.reload(gamedata)
+        importlib.reload(gamedata)
+
+    def test_final_map_tile_carries_the_authored_arena_assignment(self):
+        game_map = gamedata.build_quest_map()
+        final_tiles = [
+            tile
+            for row in game_map["grid"]
+            for tile in row
+            if tile.get("final")
+        ]
+
+        self.assertEqual(len(final_tiles), 1)
+        boss = final_tiles[0]["entities"][gamedata.BOSS_BLUEPRINT]
+        self.assertTrue(boss["mapOverride"])
+        self.assertEqual(boss["mapOverride"], gamedata.ARENA_LEVEL)
+        self.assertEqual(boss["todIndex"], gamedata.ARENA_TOD_INDEX)
+
+    def test_arena_inventory_matches_shipped_level_prefabs_when_available(self):
+        assets_dir = (
+            Path(__file__).resolve().parent.parent
+            / "Transformers 9.2 extracted"
+            / "assets"
+        )
+        if not assets_dir.is_dir():
+            self.skipTest("user-owned extracted game assets are not available")
+
+        for level, tod_indices in gamedata.ARENA_LEVELS.items():
+            toc_path = assets_dir / level / "toc.txt"
+            self.assertTrue(toc_path.is_file(), toc_path)
+            toc = json.loads(toc_path.read_text(encoding="utf-8"))
+            paths = toc["bundles"][f"{level}_merged"]["paths"]
+            self.assertIn(f"{level}_merged/{level}_merged", paths)
+            for tod_index in tod_indices:
+                self.assertIn(
+                    f"{level}_merged/{level}_timeofday_{tod_index}_forward", paths
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
