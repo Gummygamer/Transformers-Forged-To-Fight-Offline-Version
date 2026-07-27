@@ -572,6 +572,48 @@ def build_heroes():
     return {bid: {"1": build_hero_base(bid, 1)} for bid in OWNED}
 
 
+def build_stat_modifiers():
+    """Original offline stat modifiers keyed exactly as BCGStatModifierDict expects.
+
+    The complete short-key schema was captured live in seg-03.  `gp_hit_stun` is
+    registered by PlayerController.DefaultStatMods, so it intentionally needs no
+    per-hero stat_mods/buff_mods reference.
+    """
+    return {
+        "gp_hit_stun": {
+            "id": "gp_hit_stun",
+            "t": "hit_stun",
+            "tm": "",
+            "tr": [],
+            "uit": [],
+            "pri": 0,
+            "trm": 0.0,
+            "trs": "",
+            "trr": "none",
+            "c": 1.0,
+            "m": 1.0,
+            # ApplyHitStun supplies the gameplay duration.  This is only a
+            # 0.5-second authored fallback, intentionally in the observed window.
+            "d": 0.5,
+            "s": "none",
+            "ta": "self",
+            "mt": "debuff",
+            "v": "",
+            "ms": "",
+            "st": 0,
+            "g": "",
+            "gc": 0.0,
+            "gcv": "",
+            "rcv": "",
+            "ti": 0,
+            "a": [],
+            "au": [],
+            "rh": 0.0,
+            "ra": 0.0,
+        },
+    }
+
+
 def build_login_data():
     """Full getLoginData result. Preserves every top-level key from the proven
     response and only enriches blueprints / characters / attackValues plus the
@@ -583,7 +625,7 @@ def build_login_data():
         "heroRatingAttackWeight": 1.0,
         "heroRatingMaxHPWeight": 1.0,
         "attributeGrowthDefs": [],
-        "statMods": {},
+        "statMods": build_stat_modifiers(),
         "statModAppears": {},
         # NOTE (session 3): this map is BCGManager._baseHeroData (BCGHeroBaseDict), the per-
         # (blueprint,rank) BASE-ATTRIBUTE templates -> structure heroes[blueprintId][rank] =

@@ -25,6 +25,16 @@ original `max_special_attacks` rarity curve. The `bcg-combat` config also carrie
 `manaPerSpecial: 300.0`, deliberately mirroring the client's built-in default so the
 absolute unit of `m` is self-documenting.
 
+The hit-stun work likewise adds only newly authored original values, invented for this revival
+and never transcribed from recovered Kabam data. Its `statMods["gp_hit_stun"]` row uses
+`t="hit_stun"`, `ta="self"`, `mt="debuff"`, `c=1.0`, `m=1.0`, `d=0.5`, `pri=0`,
+`trr="none"`, and `s="none"`. The 0.5-second `d` is an authored fallback floor; real per-hit
+duration comes from `ApplyHitStun`. The remaining values in the 27-key row are empty strings,
+empty lists, or zeros. The identifier `gp_hit_stun` is a constant already present in the user's
+own client (`PlayerController.DefaultStatMods.kHitStun`), not recovered Kabam server data; the
+27 wire key names were observed from that client's parser at runtime as an interoperability
+schema observation, not copied content.
+
 ## Why this is copyright-compliant
 
 - **Everything authored here is original.** Kabam's real balance data (the roster
@@ -54,7 +64,9 @@ absolute unit of `m` is self-documenting.
 - **No new offensive capability was added.** The reconstruction work is pure data
   authoring plus a stat-calculation helper. No new binary patches, no new certificate
   bypass, no new hooks, and no new network interception were introduced beyond what
-  the package already contained for its own local loopback.
+  the package already contained for its own local loopback. Temporary read-only diagnostic
+  hooks were used during investigation and removed before shipping, so this describes the
+  shipped state deliberately rather than by omission.
 
 - **Local, self-directed, and owner-operated.** The fake server answers only the user's
   own emulator over their own LAN/loopback. There is no targeting of third parties, no
