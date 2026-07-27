@@ -231,6 +231,16 @@ animated the bot between nodes, refreshed reachability, and changed explored pro
 
 ## STORY encounter / live-combat milestone
 
+### Arena authoring
+
+`build_quest_enemy()` in `Server/gamedata.py` authors the QuestBoss wire keys
+`mapOverride` (level name) and `todIndex` (time-of-day index). An empty `mapOverride`
+means no arena is assigned, so the client falls back to Karnak; its ground renders black in
+this offline build. `chicago` is the verified-good default because its ground and street
+render completely. Set `TFTF_ARENA_LEVEL` and `TFTF_ARENA_TOD` to sweep the other shipped
+levels and time-of-day variants. These settings are read when `gamedata` is imported, so
+restart the local server after changing them; no APK rebuild or app restart is needed.
+
 The final tile now carries an authored boss in its `entities` dictionary. Each entity value
 must name both `entityType` and `parentEntityType` as `boss`; that makes
 `Quests.Builder.NewEntity` construct a real `BCGEntity`, verified by the native hook. The tile's
