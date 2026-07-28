@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_phone_apk as builder
+import export_payload
 
 
 def metadata_with_literals(literals):
@@ -234,6 +235,86 @@ class BuildAbiSelectionTests(unittest.TestCase):
                 patched = zf.read(builder.ENDPOINT_CONFIG)
         self.assertEqual(len(patched), len(endpoint))
         self.assertIn(b"http://127.0.0.1:8080", patched)
+
+
+class BundledServerTests(unittest.TestCase):
+    """Use the existing tiny APK shape; real APKs are far too large for unit tests."""
+
+    def make_source(self, path: Path, with_payload=False) -> None:
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("AndroidManifest.xml", b"manifest")
+            zf.writestr(builder.METADATA, b"\x00" * 64)
+            zf.writestr(builder.SPARX_MANIFEST, b"sparx")
+            zf.writestr(builder.ENDPOINT_CONFIG, b"endpoint")
+            zf.writestr(builder.il2cpp_entry(builder.ARM64), b"arm64 il2cpp")
+            zf.writestr(builder.il2cpp_entry(builder.ARMV7), b"armv7 il2cpp")
+            if with_payload:
+                zf.writestr(builder.PAYLOAD_ASSET, b"stale payload")
+
+    def build_synthetic(self, source: Path, destination: Path, **kwargs) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_path = Path(tmp) / "libdothook.so"
+            hook_path.write_bytes(ARM64_ELF)
+            saved = (builder.patch_metadata, builder.patch_sparx_manifest,
+                     builder.patch_endpoint_config, builder.ABIS)
+            builder.patch_metadata = lambda data, host, port=8443: (data, [])
+            builder.patch_sparx_manifest = lambda data, host, scheme="https", port=8443: data
+            builder.patch_endpoint_config = lambda data, host, scheme="https", port=8443: data
+            builder.ABIS = {
+                builder.ARM64: (hook_path, 2, 183),
+                builder.ARMV7: (hook_path, 1, 40),
+            }
+            try:
+                builder.build(source, destination, **kwargs)
+            finally:
+                (builder.patch_metadata, builder.patch_sparx_manifest,
+                 builder.patch_endpoint_config, builder.ABIS) = saved
+
+    def test_bundle_writes_stored_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, destination = Path(tmp) / "source.apk", Path(tmp) / "out.apk"
+            self.make_source(source)
+            self.build_synthetic(
+                source, destination, scheme="http", server_port=8123, bundle_server=True
+            )
+            with zipfile.ZipFile(destination) as zf:
+                info = zf.getinfo(builder.PAYLOAD_ASSET)
+                self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
+                self.assertEqual(info.date_time, (1980, 1, 1, 0, 0, 0))
+                self.assertEqual(info.external_attr, 0o644 << 16)
+                self.assertEqual(zf.read(builder.PAYLOAD_ASSET), export_payload.build_payload(8123))
+
+    def test_unbundled_build_does_not_add_payload_or_change_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, destination = Path(tmp) / "source.apk", Path(tmp) / "out.apk"
+            self.make_source(source)
+            with zipfile.ZipFile(source) as zf:
+                source_names = set(zf.namelist())
+            self.build_synthetic(source, destination, keep_other_abi=True)
+            with zipfile.ZipFile(destination) as zf:
+                self.assertNotIn(builder.PAYLOAD_ASSET, zf.namelist())
+                self.assertEqual(set(zf.namelist()), source_names | {builder.hook_entry(builder.ARM64)})
+
+    def test_rebuild_replaces_existing_payload_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, destination = Path(tmp) / "source.apk", Path(tmp) / "out.apk"
+            self.make_source(source, with_payload=True)
+            self.build_synthetic(
+                source, destination, scheme="http", server_port=8080, bundle_server=True
+            )
+            with zipfile.ZipFile(destination) as zf:
+                self.assertEqual(zf.namelist().count(builder.PAYLOAD_ASSET), 1)
+                self.assertEqual(zf.read(builder.PAYLOAD_ASSET), export_payload.build_payload(8080))
+
+    def test_bundle_validation(self):
+        source = Path("source.apk")
+        destination = Path("out.apk")
+        with self.assertRaisesRegex(ValueError, "armeabi-v7a hook"):
+            builder.build(source, destination, abi=builder.ARMV7, bundle_server=True)
+        with self.assertRaisesRegex(ValueError, "--scheme http"):
+            builder.build(source, destination, scheme="https", bundle_server=True)
+        with self.assertRaisesRegex(ValueError, "127.0.0.1"):
+            builder.build(source, destination, scheme="http", server_host="192.168.0.2", bundle_server=True)
 
 
 if __name__ == "__main__":

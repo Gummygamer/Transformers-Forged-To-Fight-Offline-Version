@@ -36,6 +36,11 @@ import struct
 import zipfile
 from pathlib import Path
 
+# Server/ is intentionally a script directory rather than a Python package.  A
+# plain import works both for ``python3 Server/build_phone_apk.py`` and for the
+# unittest suite, which inserts this directory on sys.path before importing us.
+import export_payload
+
 
 METADATA = "assets/bin/Data/Managed/Metadata/global-metadata.dat"
 SPARX_MANIFEST = "res/raw/sparxmanifest"
@@ -50,6 +55,7 @@ ABIS = {
 }
 ARM64_HOOK = f"lib/{ARM64}/libdothook.so"
 CURRENT_HOOK = ABIS[ARM64][0]
+PAYLOAD_ASSET = "assets/tftf_offline_payload.bin"
 
 
 def hook_entry(abi: str) -> str:
@@ -190,10 +196,21 @@ def build(
     patched_il2cpp: Path | None = None,
     scheme: str = "https",
     server_port: int = 8443,
+    *,
+    bundle_server: bool = False,
 ) -> list[str]:
     if source.resolve() == destination.resolve():
         raise ValueError("destination must differ from source; the original APK is preserved")
+    if bundle_server and abi != ARM64:
+        raise ValueError(
+            "bundled server requires --abi arm64-v8a; the armeabi-v7a hook has no in-app server yet"
+        )
+    if bundle_server and scheme != "http":
+        raise ValueError("bundled server requires --scheme http")
+    if bundle_server and server_host != "127.0.0.1":
+        raise ValueError("bundled server binds loopback only; --server-host must be 127.0.0.1")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = export_payload.build_payload(server_port) if bundle_server else None
     hook_path = ABIS[abi][0]
     if not hook_path.is_file():
         raise ValueError(f"current runtime hook is missing: {hook_path}")
@@ -231,6 +248,10 @@ def build(
                 continue
             if not keep_other_abi and info.filename.startswith(other_abi_prefix):
                 continue
+            # Rebuilding a bundled APK must replace the payload, rather than
+            # retaining a stale duplicate asset that Unity might mmap first.
+            if bundle_server and info.filename == PAYLOAD_ASSET:
+                continue
             data = zin.read(info)
             if info.filename == METADATA:
                 data, metadata_hosts = patch_metadata(data, server_host, server_port)
@@ -249,6 +270,11 @@ def build(
         # previous offline APK, or add it here when building from the original.
         if wanted_hook not in names:
             zout.writestr(wanted_hook, hook)
+        if payload is not None:
+            payload_info = zipfile.ZipInfo(PAYLOAD_ASSET, date_time=(1980, 1, 1, 0, 0, 0))
+            payload_info.compress_type = zipfile.ZIP_STORED
+            payload_info.external_attr = 0o644 << 16
+            zout.writestr(payload_info, payload)
     return list(dict.fromkeys(changed_hosts))
 
 
@@ -301,6 +327,14 @@ def main() -> None:
             "This avoids unpacking and repacking the whole source APK."
         ),
     )
+    parser.add_argument(
+        "--bundle-server",
+        action="store_true",
+        help=(
+            "bake the arm64 plain-HTTP loopback server payload into the APK "
+            "(requires --abi arm64-v8a --scheme http --server-host 127.0.0.1)"
+        ),
+    )
     args = parser.parse_args()
     hosts = build(
         args.source,
@@ -311,12 +345,20 @@ def main() -> None:
         args.patched_il2cpp,
         scheme=args.scheme,
         server_port=args.server_port,
+        bundle_server=args.bundle_server,
     )
     hook_path = ABIS[args.abi][0]
     print(f"wrote unsigned APK: {args.destination}")
     print(f"abi: {args.abi}" + ("" if args.keep_other_abi else " (other ABI's libraries dropped)"))
     print("redirected: " + ", ".join(hosts))
     print(f"fake server: {args.scheme}://{args.server_host}:{args.server_port}")
+    if args.bundle_server:
+        payload = export_payload.build_payload(args.server_port)
+        route_count = len(export_payload.load_payload(payload).entries)
+        print(
+            f"bundled server payload: {PAYLOAD_ASSET} "
+            f"({len(payload)} bytes, {route_count} routes, port {args.server_port})"
+        )
     print(f"embedded runtime hook: {hook_path} ({hook_path.stat().st_size} bytes)")
     if args.patched_il2cpp is not None:
         print(f"embedded patched libil2cpp: {args.patched_il2cpp}")

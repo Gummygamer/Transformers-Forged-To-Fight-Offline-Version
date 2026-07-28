@@ -179,8 +179,9 @@ root and writable system), Python on the PC, and the items from the section abov
 1. Generate certs once: `bash Server/gen_certs.sh`.
 2. Build the patched library once: `python3 patches/patch_il2cpp.py path/to/original/libil2cpp.so --apply`.
    That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
-3. Build the hook once if you want to rebuild it, otherwise use the prebuilt one. See
-   `tools/nativehook/deploy.sh`.
+3. Build the arm64 hook once if you want to rebuild it, otherwise use the prebuilt one:
+   `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
+   `tools/nativehook/deploy.sh` has historical Windows paths and is not the current command.
 4. Start the fake server on the PC: `python3 Server/fakeserver.py`. It needs to be reachable
    on ports 443 and 80 from the emulator.
 5. Provision the device: `bash tools/provision_ldplayer.sh <your-PC-LAN-IP>`. Re-run this
@@ -239,6 +240,9 @@ owner-installed CA trust, then use ADB reverse to carry the traffic over USB:
 The phone APK preserves the original target SDK. Its bundled native validation patches accept
 the local server certificate; lowering the target SDK to inherit user-installed CA trust causes
 modern Play Protect to reject the APK.
+
+For a self-contained backend, `--bundle-server` requires arm64 with `--scheme http` and
+`--server-host 127.0.0.1`; armv7 bundled-server builds are unsupported.
 
 The USB connection must remain active: phone ports 8443 and 8080 are forwarded to the same
 laptop ports. The explicit unprivileged ports are necessary because stock Android's ADB cannot
