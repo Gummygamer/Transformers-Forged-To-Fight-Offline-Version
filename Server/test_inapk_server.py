@@ -137,3 +137,60 @@ class InApkServerTests(unittest.TestCase):
             path = "/quests/quest-movedir/1.1.1-0/1/0"
             expected = self.dynamic(path, b"{}")
             self.assertEqual(self.request("POST", path, b"{}")[2], expected)
+
+
+class InApkCandidateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if shutil.which("cc") is None:
+            raise unittest.SkipTest("cc is not on PATH")
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.harness = Path(cls.tmp.name) / "candidates"
+        subprocess.run([
+            "cc", "-std=c11", "-O1", "-Wall", "-Wextra", "-o", str(cls.harness),
+            str(ROOT / "tools/nativehook/inapk_candidates_main.c"),
+            str(ROOT / "tools/nativehook/inapk_server.c"), "-lpthread",
+        ], check=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def candidates(self, maps, cmdline=None):
+        maps_path = Path(self.tmp.name) / "maps"
+        maps_path.write_text(maps)
+        cmdline_path = Path(self.tmp.name) / "cmdline"
+        if cmdline is None:
+            cmdline_path.unlink(missing_ok=True)
+        else:
+            cmdline_path.write_bytes(cmdline)
+        result = subprocess.run([str(self.harness), str(maps_path), str(cmdline_path)],
+                                check=True, capture_output=True, text=True)
+        return result.stdout.splitlines()
+
+    def test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(self):
+        gms = "/data/app/~~sdunyrwN8nShSO2adhEEjg==/com.google.android.gms-Db7dSfGIhIufd1UUBDv5Ww==/base.apk"
+        game = "/data/app/~~vxoZ9FQU_8mVV2lHYIaJuA==/com.kabam.bigrobot-TLmfuByms-uLJyuSkKWlAA==/base.apk"
+        split = "/data/app/~~vxoZ9FQU_8mVV2lHYIaJuA==/com.kabam.bigrobot-xyz==/split_config.arm64_v8a.apk"
+        maps = (
+            f"7a1b000000-7a1b100000 r--p 00000000 fd:03 12345  {gms}\n"
+            f"7a1c000000-7a1c100000 r--p 00000000 fd:03 12346  {game}\n"
+            f"7a1c100000-7a1c200000 r-xp 00010000 fd:03 12346  {game}\n"
+            f"7a1d000000-7a1d100000 r--p 00000000 fd:03 12347  {split}\n"
+            "7a1e000000-7a1e100000 r-xp 00000000 fd:03 12348  /apex/com.android.art/lib64/libart.so\n"
+        )
+        candidates = self.candidates(maps, b"com.kabam.bigrobot\0")
+        self.assertEqual(candidates[0], game)
+        self.assertEqual(candidates.count(game), 1)
+        self.assertIn(split, candidates)
+        self.assertIn(gms, candidates)
+
+    def test_empty_or_missing_cmdline_still_returns_all_apks(self):
+        first = "/data/app/a/com.google.android.gms-x/base.apk"
+        second = "/data/app/b/com.kabam.bigrobot-y/base.apk"
+        maps = (
+            f"1-2 r--p 0 00:00 1 {first}\n"
+            f"2-3 r--p 0 00:00 2 {second}\n"
+        )
+        self.assertCountEqual(self.candidates(maps, b""), [first, second])
+        self.assertCountEqual(self.candidates(maps), [first, second])
