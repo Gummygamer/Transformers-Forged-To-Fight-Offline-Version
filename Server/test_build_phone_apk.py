@@ -11,6 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_phone_apk as builder
 
 
+def metadata_with_literals(literals):
+    literal_offset = 24
+    literal_count = len(literals) * 8
+    data_offset = literal_offset + literal_count
+    metadata = bytearray(data_offset + sum(map(len, literals)))
+    struct.pack_into("<4I", metadata, 8, literal_offset, literal_count, data_offset, 0)
+    cursor = 0
+    for entry, literal in enumerate(literals):
+        struct.pack_into("<II", metadata, literal_offset + entry * 8, len(literal), cursor)
+        metadata[data_offset + cursor : data_offset + cursor + len(literal)] = literal
+        cursor += len(literal)
+    return bytes(metadata)
+
+
 class PhoneApkBuilderTests(unittest.TestCase):
     def test_validate_server_host(self):
         self.assertEqual(builder.validate_server_host("192.168.0.139"), "192.168.0.139")
@@ -22,23 +36,49 @@ class PhoneApkBuilderTests(unittest.TestCase):
     def test_patch_endpoint_config_preserves_size(self):
         original = b'{"Default":{"Prod":"https://tform-0901-hzlhiniyfcwf.tf-cdn.net"}}'
         patched = builder.patch_endpoint_config(original, "192.168.0.139")
+        manifest = builder.patch_sparx_manifest(
+            b"https://tform-0901-hzlhiniyfcwf.tf-cdn.net", "192.168.0.139"
+        )
         self.assertEqual(len(patched), len(original))
         self.assertIn(b"https://192.168.0.139:8443", patched)
+        self.assertIn(b"https://192.168.0.139:8443", manifest)
+
+    def test_http_scheme_and_port_rewrite_all_endpoints(self):
+        original = b'{"Default":{"Prod":"https://tform-0901-hzlhiniyfcwf.tf-cdn.net"}}'
+        endpoint = builder.patch_endpoint_config(original, "192.168.0.139", "http", 8080)
+        manifest = builder.patch_sparx_manifest(
+            b"before https://tform-0901-hzlhiniyfcwf.tf-cdn.net after",
+            "192.168.0.139",
+            "http",
+            8080,
+        )
+        self.assertEqual(len(endpoint), len(original))
+        self.assertIn(b"http://192.168.0.139:8080", endpoint)
+        self.assertTrue(endpoint.endswith(b" " * (len(original) - len(
+            b'{"Default":{"Prod":"http://192.168.0.139:8080"}}'
+        ))))
+        self.assertIn(b"http://192.168.0.139:8080", manifest)
+        metadata = metadata_with_literals(
+            [old for old, _ in builder.literal_replacements("192.168.0.139")]
+        )
+        patched_metadata, _ = builder.patch_metadata(metadata, "192.168.0.139", 8080)
+        for hostname in (
+            b"192.168.0.139:8080",
+            b"wss://192.168.0.139:30443",
+        ):
+            self.assertIn(hostname, patched_metadata)
+
+    def test_validate_server_port_rejects_invalid_values(self):
+        self.assertEqual(builder.validate_server_port("8080"), 8080)
+        for invalid in ("0", "70000", "abc"):
+            with self.subTest(invalid=invalid), self.assertRaises(argparse.ArgumentTypeError):
+                builder.validate_server_port(invalid)
 
     def test_patch_metadata_uses_lan_host_and_preserves_size(self):
         literals = [old for old, _ in builder.literal_replacements("192.168.0.139")]
-        literal_offset = 24
-        literal_count = len(literals) * 8
-        data_offset = literal_offset + literal_count
-        metadata = bytearray(data_offset + sum(map(len, literals)))
-        struct.pack_into("<4I", metadata, 8, literal_offset, literal_count, data_offset, 0)
-        cursor = 0
-        for entry, literal in enumerate(literals):
-            struct.pack_into("<II", metadata, literal_offset + entry * 8, len(literal), cursor)
-            metadata[data_offset + cursor : data_offset + cursor + len(literal)] = literal
-            cursor += len(literal)
+        metadata = metadata_with_literals(literals)
 
-        patched, changed = builder.patch_metadata(bytes(metadata), "192.168.0.139")
+        patched, changed = builder.patch_metadata(metadata, "192.168.0.139")
 
         self.assertEqual(len(patched), len(metadata))
         self.assertEqual(len(changed), len(literals))
@@ -113,9 +153,9 @@ class BuildAbiSelectionTests(unittest.TestCase):
             # the tests do not depend on a locally built, ignored binary.
             saved = (builder.patch_metadata, builder.patch_sparx_manifest,
                      builder.patch_endpoint_config, builder.ABIS)
-            builder.patch_metadata = lambda data, host: (data, [])
-            builder.patch_sparx_manifest = lambda data, host: data
-            builder.patch_endpoint_config = lambda data, host: data
+            builder.patch_metadata = lambda data, host, port=8443: (data, [])
+            builder.patch_sparx_manifest = lambda data, host, scheme="https", port=8443: data
+            builder.patch_endpoint_config = lambda data, host, scheme="https", port=8443: data
             builder.ABIS = {
                 builder.ARM64: (hook_paths[builder.ARM64], 2, 183),
                 builder.ARMV7: (hook_paths[builder.ARMV7], 1, 40),
@@ -163,6 +203,37 @@ class BuildAbiSelectionTests(unittest.TestCase):
         names, hook, _ = self.build_with(builder.ARMV7, include_hooks=False)
         self.assertIn(builder.hook_entry(builder.ARMV7), names)
         self.assertEqual(hook, ARMV7_ELF)
+
+    def test_build_with_http_options_rewrites_endpoint_config(self):
+        endpoint = b'{"Default":{"Prod":"https://tform-0901-hzlhiniyfcwf.tf-cdn.net"}}'
+        manifest = b"https://tform-0901-hzlhiniyfcwf.tf-cdn.net"
+        literals = [old for old, _ in builder.literal_replacements("127.0.0.1")]
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.apk"
+            destination = Path(tmp) / "out.apk"
+            hook_path = Path(tmp) / "libdothook.so"
+            hook_path.write_bytes(ARM64_ELF)
+            with zipfile.ZipFile(source, "w") as zf:
+                zf.writestr("AndroidManifest.xml", b"manifest")
+                zf.writestr(builder.METADATA, metadata_with_literals(literals))
+                zf.writestr(builder.SPARX_MANIFEST, manifest)
+                zf.writestr(builder.ENDPOINT_CONFIG, endpoint)
+                zf.writestr(builder.il2cpp_entry(builder.ARM64), b"arm64 il2cpp")
+            saved_abis = builder.ABIS
+            builder.ABIS = {
+                builder.ARM64: (hook_path, 2, 183),
+                builder.ARMV7: (hook_path, 1, 40),
+            }
+            try:
+                builder.build(
+                    source, destination, scheme="http", server_port=8080
+                )
+            finally:
+                builder.ABIS = saved_abis
+            with zipfile.ZipFile(destination) as zf:
+                patched = zf.read(builder.ENDPOINT_CONFIG)
+        self.assertEqual(len(patched), len(endpoint))
+        self.assertIn(b"http://127.0.0.1:8080", patched)
 
 
 if __name__ == "__main__":

@@ -4,9 +4,11 @@
 The emulator setup rewrites /system/etc/hosts and the system CA store, which
 requires root.  A retail phone cannot do either.  This builder instead:
 
-* rewrites the game's known backend hosts to a configurable server host on
-  port 8443.  Use a laptop LAN address for cable-free play, or the default
-  127.0.0.1 with adb reverse for the original USB setup.
+* rewrites the game's known backend hosts to a configurable server host,
+  scheme, and port (defaulting to https on 8443).  Use a laptop LAN address
+  for cable-free play, or the default 127.0.0.1 with adb reverse for the
+  original USB setup.  --scheme http and --server-port support a plain-HTTP
+  local server.
 * embeds the repository's current runtime hook for the chosen ABI.  The source
   APK is a convenient build input, but its bundled hook may predate later
   gameplay fixes.
@@ -105,22 +107,40 @@ def validate_server_host(value: str) -> str:
     return value
 
 
-def literal_replacements(server_host: str) -> tuple[tuple[bytes, bytes], ...]:
+def validate_server_port(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid server port: {value!r}") from None
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError("server port must be in the range 1..65535")
+    return port
+
+
+def literal_replacements(
+    server_host: str, server_port: int = 8443
+) -> tuple[tuple[bytes, bytes], ...]:
+    # Game code prepends these three bare-host literals with its own scheme;
+    # thus --scheme http would still dial them as https. This is accepted:
+    # Server/logs/*.log shows a full offline boot never requests them.
     host = server_host.encode("ascii")
+    port = str(server_port).encode("ascii")
     return (
-        (b"tf-odr.mcoc-cdn.cn", host + b":8443"),
-        (b"tf-static.mcoc-cdn.cn", host + b":8443"),
-        (b"words-express.tf-cdn.net", host + b":8443"),
+        (b"tf-odr.mcoc-cdn.cn", host + b":" + port),
+        (b"tf-static.mcoc-cdn.cn", host + b":" + port),
+        (b"words-express.tf-cdn.net", host + b":" + port),
         (b"wss://gametalk.sparx.io:30443", b"wss://" + host + b":30443"),
     )
 
 
-def patch_metadata(metadata: bytes, server_host: str) -> tuple[bytes, list[str]]:
+def patch_metadata(
+    metadata: bytes, server_host: str, server_port: int = 8443
+) -> tuple[bytes, list[str]]:
     """Rewrite IL2CPP string literals and their table lengths without shifting data."""
     out = bytearray(metadata)
     literal_offset, literal_count, data_offset, _ = struct.unpack_from("<4I", out, 8)
     changed: list[str] = []
-    pending = dict(literal_replacements(server_host))
+    pending = dict(literal_replacements(server_host, server_port))
     for entry in range(literal_offset, literal_offset + literal_count, 8):
         length, index = struct.unpack_from("<II", out, entry)
         value_start = data_offset + index
@@ -139,17 +159,21 @@ def patch_metadata(metadata: bytes, server_host: str) -> tuple[bytes, list[str]]
     return bytes(out), changed
 
 
-def patch_sparx_manifest(data: bytes, server_host: str) -> bytes:
+def patch_sparx_manifest(
+    data: bytes, server_host: str, scheme: str = "https", server_port: int = 8443
+) -> bytes:
     old = b"https://tform-0901-hzlhiniyfcwf.tf-cdn.net"
     if data.count(old) != 1:
         raise ValueError("unexpected Sparx manifest endpoint count")
-    return data.replace(old, f"https://{server_host}:8443".encode("ascii"))
+    return data.replace(old, f"{scheme}://{server_host}:{server_port}".encode("ascii"))
 
 
-def patch_endpoint_config(data: bytes, server_host: str) -> bytes:
+def patch_endpoint_config(
+    data: bytes, server_host: str, scheme: str = "https", server_port: int = 8443
+) -> bytes:
     """Patch fixed-size Unity TextAsset JSON, preserving its serialized byte length."""
     old = b'{"Default":{"Prod":"https://tform-0901-hzlhiniyfcwf.tf-cdn.net"}}'
-    new = f'{{"Default":{{"Prod":"https://{server_host}:8443"}}}}'.encode("ascii")
+    new = f'{{"Default":{{"Prod":"{scheme}://{server_host}:{server_port}"}}}}'.encode("ascii")
     if data.count(old) != 1:
         raise ValueError("unexpected Unity endpoint config count")
     if len(new) > len(old):
@@ -164,6 +188,8 @@ def build(
     abi: str = ARM64,
     keep_other_abi: bool = False,
     patched_il2cpp: Path | None = None,
+    scheme: str = "https",
+    server_port: int = 8443,
 ) -> list[str]:
     if source.resolve() == destination.resolve():
         raise ValueError("destination must differ from source; the original APK is preserved")
@@ -207,13 +233,13 @@ def build(
                 continue
             data = zin.read(info)
             if info.filename == METADATA:
-                data, metadata_hosts = patch_metadata(data, server_host)
+                data, metadata_hosts = patch_metadata(data, server_host, server_port)
                 changed_hosts.extend(metadata_hosts)
             elif info.filename == SPARX_MANIFEST:
-                data = patch_sparx_manifest(data, server_host)
+                data = patch_sparx_manifest(data, server_host, scheme, server_port)
                 changed_hosts.append("tform-0901-hzlhiniyfcwf.tf-cdn.net")
             elif info.filename == ENDPOINT_CONFIG:
-                data = patch_endpoint_config(data, server_host)
+                data = patch_endpoint_config(data, server_host, scheme, server_port)
             elif info.filename == wanted_hook:
                 data = hook
             elif info.filename == wanted_il2cpp and replacement_il2cpp is not None:
@@ -238,6 +264,18 @@ def main() -> None:
             "fake-server IPv4 address or DNS name reachable by the phone "
             f"(default: {DEFAULT_SERVER_HOST}, for adb reverse)"
         ),
+    )
+    parser.add_argument(
+        "--scheme",
+        choices=("https", "http"),
+        default="https",
+        help="fake-server URL scheme (default: https)",
+    )
+    parser.add_argument(
+        "--server-port",
+        type=validate_server_port,
+        default=8443,
+        help="fake-server TCP port in the range 1..65535 (default: 8443)",
     )
     parser.add_argument(
         "--abi",
@@ -271,12 +309,14 @@ def main() -> None:
         args.abi,
         args.keep_other_abi,
         args.patched_il2cpp,
+        scheme=args.scheme,
+        server_port=args.server_port,
     )
     hook_path = ABIS[args.abi][0]
     print(f"wrote unsigned APK: {args.destination}")
     print(f"abi: {args.abi}" + ("" if args.keep_other_abi else " (other ABI's libraries dropped)"))
     print("redirected: " + ", ".join(hosts))
-    print(f"fake server: https://{args.server_host}:8443")
+    print(f"fake server: {args.scheme}://{args.server_host}:{args.server_port}")
     print(f"embedded runtime hook: {hook_path} ({hook_path.stat().st_size} bytes)")
     if args.patched_il2cpp is not None:
         print(f"embedded patched libil2cpp: {args.patched_il2cpp}")
