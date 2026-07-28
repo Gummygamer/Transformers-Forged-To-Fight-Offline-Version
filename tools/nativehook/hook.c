@@ -2753,6 +2753,7 @@ static void init(void){
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK loaded (segv-guarded)");
     tftf_server_set_logger(inapk_log);
-    LOG("in-apk server start: %d", tftf_server_start_from_apk());
+    int inapk_rc = tftf_server_start_from_apk();
+    LOG("in-apk server start: %d", inapk_rc);
     pthread_t th; pthread_create(&th, NULL, installer, NULL);
 }
