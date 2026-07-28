@@ -401,6 +401,56 @@ construction too and the slot was zeroed at entry. The hook's `poke32` refuses t
 unless the target still holds the exact instruction the RE was done against
 (`ebf537fb`), so a different binary fails loudly instead of being corrupted.
 
+## In-app server payload (v1)
+
+`Server/export_payload.py` turns the authored Python game data into
+`assets/tftf_offline_payload.bin`, which the future arm64 in-app HTTP server can mmap
+directly from `base.apk`. It is a little-endian, deterministic binary: every offset is
+absolute from byte zero, four-byte aligned, and every stored key/body is NUL-terminated
+then NUL-padded to the next four-byte boundary. The stored length excludes the NUL.
+
+| Offset | Type | Meaning |
+| --- | --- | --- |
+| 0 | `char[8]` | Magic `TFTFPAY\0` |
+| 8 | `u32` | Format version (`1`) |
+| 12 | `u32` | Total blob size |
+| 16 | `u32` | Loopback listen port |
+| 20 | `u32` | Exact-entry count |
+| 24 | `u32` | Exact-entry array offset |
+| 28 | `u32` | Prefix-rule count |
+| 32 | `u32` | Prefix-rule array offset |
+| 36 | `u32` | Default-body offset |
+| 40 | `u32` | Default-body length |
+| 44 | `u32` | CRC-32 of bytes `[64:total_size]` |
+| 48 | `u32[4]` | Reserved zeroes |
+
+Exact entries and prefix rules both use a 16-byte record:
+`u32 key_off, u32 key_len, u32 body_off, u32 body_len`. Exact records are sorted by raw
+key bytes for `bsearch`; prefix records retain the authored `_prefix_rules.json` order
+and first matching `path starts with prefix` wins. HTTP keys are `METHOD /path` (no query
+string); helper keys begin with `@` and contain no spaces. The template placeholders
+`%TID%`, `%BID%`, and `%SIG%` are literal ASCII and are replaced by memcpy splicing.
+Hero-data lookup falls back in this order:
+`@hero:<bid>:<rank>:<level>`, `@hero:<bid>:1:1`, then `@hero:*:1:1`.
+
+Dispatch order remains the Python server's order: dynamic handling first, then exact
+canned route, then prefix rule, then `{"error":null,"result":{}}` (with HEAD returning
+an empty 200 response). Payload content is classified as: (A) fully static response files,
+prefix response, and default; (B) deterministic finite-input base/quest/grouprefresh
+responses; (C) request-body templates for tutorials, hero data, and saved teams; and (D)
+quest movement transitions. `_quest_positions` is the only cross-request server state the
+C implementation needs to retain: `quest-begin` resets it and `quest-movedir` looks up a
+baked transition/body pair before updating it.
+
+### In-app C server
+
+`tools/nativehook/inapk_server.c` is the arm64 process-local HTTP server. Its constructor caller
+finds mapped `base.apk` through `/proc/self/maps`, walks its ZIP directory for the stored payload
+(with a magic-scan fallback), and mmaps only that entry. It preserves Python dispatch order:
+dynamic handlers, exact route, prefix route, then default. `Server/test_inapk_server.py` compiles
+the host harness and compares live HTTP replies with `fakeserver`. armv7 is unsupported for this
+bundled server.
+
 ## Known remaining frontiers
 
 1. Correct the STORY player's rendered model identity. Both sides currently load the Sharkticon
