@@ -243,19 +243,124 @@ fail: pthread_mutex_unlock(&g_start_lock);logmsg("in-apk server bind failed on %
 
 static int find_entry(int fd, off_t fsize, off_t *off, size_t *len) {
     unsigned char e[22], h[30], c[46]; off_t start=fsize>(off_t)(65536+22)?fsize-(65536+22):0, pos;
-    size_t scan=(size_t)(fsize-start);unsigned char *buf=malloc(scan);if(!buf)return -1;if(pread(fd,buf,scan,start)!=(ssize_t)scan){free(buf);return -1;}pos=-1;for(size_t i=scan-22;;i--){if(!memcmp(buf+i,"PK\005\006",4)){pos=start+(off_t)i;break;}if(!i)break;}free(buf);if(pos<0||pread(fd,e,22,pos)!=22)return -1;uint32_t cdsize=le32(e+12),cdoff=le32(e+16);if(cdoff==0xffffffffu){logmsg("APK ZIP64 central directory unsupported");return -1;}if((uint64_t)cdoff+cdsize>(uint64_t)fsize)return -1;off_t at=cdoff,end=cdoff+cdsize;
-    while(at+46<=end&&pread(fd,c,46,at)==46&& !memcmp(c,"PK\001\002",4)){uint16_t nl=(uint16_t)(c[28]|c[29]<<8),xl=(uint16_t)(c[30]|c[31]<<8),cl=(uint16_t)(c[32]|c[33]<<8);uint32_t local=le32(c+42);char name[128];if(nl>=sizeof name)return -1;if(pread(fd,name,nl,at+46)!=nl)return -1;name[nl]=0;if(!strcmp(name,"assets/tftf_offline_payload.bin")){if((uint16_t)(c[10]|c[11]<<8)!=0){logmsg("APK payload is compressed, not STORED");return -1;}if(pread(fd,h,30,local)!=30||memcmp(h,"PK\003\004",4))return -1;uint16_t lnl=(uint16_t)(h[26]|h[27]<<8),lxl=(uint16_t)(h[28]|h[29]<<8);*off=(off_t)local+30+lnl+lxl;*len=le32(c+24);return 0;}at+=46+nl+xl+cl;}return -1;
+    size_t scan=(size_t)(fsize-start);unsigned char *buf=malloc(scan);if(!buf)return -1;if(pread(fd,buf,scan,start)!=(ssize_t)scan){free(buf);return -1;}pos=-1;for(size_t i=scan-22;;i--){if(!memcmp(buf+i,"PK\005\006",4)){pos=start+(off_t)i;break;}if(!i)break;}free(buf);if(pos<0||pread(fd,e,22,pos)!=22)return -1;uint32_t cdsize=le32(e+12),cdoff=le32(e+16);if(cdoff==0xffffffffu)return -1;if((uint64_t)cdoff+cdsize>(uint64_t)fsize)return -1;off_t at=cdoff,end=cdoff+cdsize;
+    while(at+46<=end&&pread(fd,c,46,at)==46&& !memcmp(c,"PK\001\002",4)){uint16_t nl=(uint16_t)(c[28]|c[29]<<8),xl=(uint16_t)(c[30]|c[31]<<8),cl=(uint16_t)(c[32]|c[33]<<8);uint32_t local=le32(c+42);char name[128];if(nl>=sizeof name)return -1;if(pread(fd,name,nl,at+46)!=nl)return -1;name[nl]=0;if(!strcmp(name,"assets/tftf_offline_payload.bin")){if((uint16_t)(c[10]|c[11]<<8)!=0)return -1;if(pread(fd,h,30,local)!=30||memcmp(h,"PK\003\004",4))return -1;uint16_t lnl=(uint16_t)(h[26]|h[27]<<8),lxl=(uint16_t)(h[28]|h[29]<<8);*off=(off_t)local+30+lnl+lxl;*len=le32(c+24);return 0;}at+=46+nl+xl+cl;}return -1;
 }
 static int map_payload_fd(int fd, off_t off, size_t len) { long pg=sysconf(_SC_PAGESIZE);off_t aligned=off&~((off_t)pg-1);size_t delta=(size_t)(off-aligned),whole=delta+len;void*m=mmap(NULL,whole,PROT_READ,MAP_PRIVATE,fd,aligned);if(m==MAP_FAILED)return -1;int rc=tftf_server_start_blob((unsigned char*)m+delta,len);if(rc)munmap(m,whole);return rc; }
 static int fallback_magic(int fd, off_t size) { unsigned char *buf=malloc(1024*1024+16);if(!buf)return -1;for(off_t at=0;at<size;at+=1024*1024){size_t want=(size-at>1024*1024+16)?1024*1024+16:(size_t)(size-at);if(pread(fd,buf,want,at)!=(ssize_t)want)break;for(size_t i=0;i+16<=want;i++)if(!memcmp(buf+i,"TFTFPAY\0",8)){size_t n=le32(buf+i+12);if(n&&at+(off_t)i+(off_t)n<=size&&map_payload_fd(fd,at+(off_t)i,n)==0){free(buf);logmsg("APK payload found by magic fallback");return 0;}}}free(buf);return -1; }
-int tftf_server_start_from_apk(void) {
-    FILE *f=fopen("/proc/self/maps","r");char line[4096],path[4096]={0};int fd,rc;struct stat st;off_t off;size_t len;
-    if (!f) return -1;
-    while (fgets(line,sizeof line,f)) { char *s=strchr(line,'/'); if(s) { size_t n=strcspn(s,"\n"); if(n>=9&&!memcmp(s+n-9,"/base.apk",9)) { if(n>=sizeof path)n=sizeof path-1; memcpy(path,s,n);path[n]=0;break; } } }
+
+#define MAX_APK_CANDIDATES 32
+
+static void read_package_name(const char *cmdline_path, char package[4096]) {
+    FILE *f;
+    size_t n;
+    char *suffix;
+    package[0] = 0;
+    if (!cmdline_path || !(f = fopen(cmdline_path, "r"))) return;
+    n = fread(package, 1, 4095, f);
     fclose(f);
-    if(!path[0]) { logmsg("in-apk payload absent: base.apk not mapped"); return -2; }
-    fd=open(path,O_RDONLY); if(fd<0)return -3;
-    if(fstat(fd,&st)){close(fd);return -4;}
-    if(!find_entry(fd,st.st_size,&off,&len)){rc=map_payload_fd(fd,off,len);if(!rc)logmsg("APK payload %s offset %lld size %zu",path,(long long)off,len);close(fd);return rc;}
-    rc=fallback_magic(fd,st.st_size);close(fd);if(rc)logmsg("in-apk payload absent in %s",path);return rc;
+    if (!n) return;
+    package[n] = 0;
+    /* /proc/self/cmdline is NUL-separated; its first token is already a C string. */
+    suffix = strchr(package, ':');
+    if (suffix) *suffix = 0;
+}
+
+static int apk_matches_package(const char *path, const char *package) {
+    const char *p;
+    size_t n;
+    if (!package || !package[0]) return 0;
+    n = strlen(package);
+    for (p = strstr(path, package); p; p = strstr(p + 1, package)) {
+        if (p > path && p[-1] == '/' &&
+            (p[n] == '-' || p[n] == '/' || !strcmp(p + n, ".apk"))) return 1;
+    }
+    return 0;
+}
+
+static int apk_rank(const char *path, const char *package) {
+    if (apk_matches_package(path, package)) return 2;
+    return has_suffix(path, "/base.apk") ? 1 : 0;
+}
+
+int tftf_apk_candidates(const char *maps_path, const char *cmdline_path,
+                        char out[][4096], int max) {
+    FILE *f;
+    char line[4096], package[4096];
+    int count = 0, limit, i;
+    if (!maps_path || !out || max <= 0) return 0;
+    limit = max < MAX_APK_CANDIDATES ? max : MAX_APK_CANDIDATES;
+    read_package_name(cmdline_path, package);
+    f = fopen(maps_path, "r");
+    if (!f) return 0;
+    while (fgets(line, sizeof line, f)) {
+        char *path = strchr(line, '/');
+        size_t n;
+        int rank, insert;
+        if (!path) continue;
+        n = strcspn(path, "\n");
+        if (n >= sizeof out[0]) continue;
+        path[n] = 0;
+        if (!has_suffix(path, ".apk")) continue;
+        for (i = 0; i < count; i++) if (!strcmp(out[i], path)) break;
+        if (i != count) continue;
+        rank = apk_rank(path, package);
+        insert = count;
+        for (i = 0; i < count; i++) {
+            if (rank > apk_rank(out[i], package)) { insert = i; break; }
+        }
+        if (count < limit || insert < limit) {
+            int end = count < limit ? count : limit - 1;
+            for (i = end; i > insert; i--) memcpy(out[i], out[i - 1], sizeof out[0]);
+            memcpy(out[insert], path, n + 1);
+            if (count < limit) count++;
+        }
+    }
+    fclose(f);
+    return count;
+}
+
+int tftf_server_start_from_apk(void) {
+    char paths[MAX_APK_CANDIDATES][4096], package[4096];
+    int count, i;
+    count = tftf_apk_candidates("/proc/self/maps", "/proc/self/cmdline", paths,
+                                MAX_APK_CANDIDATES);
+    read_package_name("/proc/self/cmdline", package);
+    for (i = 0; i < count; i++) {
+        int fd, rc;
+        struct stat st;
+        off_t off;
+        size_t len;
+        fd = open(paths[i], O_RDONLY);
+        if (fd < 0) {
+            logmsg("in-apk candidate rejected %s: open: %s", paths[i], strerror(errno));
+            continue;
+        }
+        if (fstat(fd, &st)) {
+            logmsg("in-apk candidate rejected %s: fstat: %s", paths[i], strerror(errno));
+            close(fd);
+            continue;
+        }
+        if (!find_entry(fd, st.st_size, &off, &len)) {
+            rc = map_payload_fd(fd, off, len);
+            close(fd);
+            if (!rc) {
+                logmsg("APK payload %s offset %lld size %zu", paths[i], (long long)off, len);
+                return 0;
+            }
+            logmsg("in-apk candidate rejected %s: payload could not start (%d)", paths[i], rc);
+            continue;
+        }
+        if (apk_matches_package(paths[i], package)) {
+            rc = fallback_magic(fd, st.st_size);
+            close(fd);
+            if (!rc) return 0;
+            logmsg("in-apk candidate rejected %s: payload entry and magic absent", paths[i]);
+        } else {
+            close(fd);
+            logmsg("in-apk candidate rejected %s: payload entry absent (not game APK)", paths[i]);
+        }
+    }
+    logmsg("in-apk payload not found in any of %d mapped APKs", count);
+    return -1;
 }
