@@ -241,8 +241,8 @@ The phone APK preserves the original target SDK. Its bundled native validation p
 the local server certificate; lowering the target SDK to inherit user-installed CA trust causes
 modern Play Protect to reject the APK.
 
-For a self-contained backend, `--bundle-server` requires arm64 with `--scheme http` and
-`--server-host 127.0.0.1`; armv7 bundled-server builds are unsupported.
+For a self-contained backend, see the
+[bundled-server recipe](#building-a-self-contained-apk-bundled-server-no-pc).
 
 The USB connection must remain active: phone ports 8443 and 8080 are forwarded to the same
 laptop ports. The explicit unprivileged ports are necessary because stock Android's ADB cannot
@@ -250,6 +250,27 @@ bind device ports 443 or 80. Re-run `provision_phone.sh` after a reboot or USB-d
 reconnection.
 
 If it hangs at login, check the very first item in the Gotchas section before anything else.
+
+### Building a self-contained APK (bundled server, no PC)
+
+Build, align, sign, and install an arm64 APK with the fake-server response payload embedded:
+
+1. `python3 Server/build_phone_apk.py "Transformers 9.2 offline.apk" build/phone-unsigned.apk --scheme http --server-host 127.0.0.1 --server-port 8080 --bundle-server`
+2. `~/Android/Sdk/build-tools/35.0.0/zipalign -f -p 4 build/phone-unsigned.apk build/phone-aligned.apk`
+3. `~/Android/Sdk/build-tools/35.0.0/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/bundled.apk build/phone-aligned.apk`
+4. `adb uninstall com.kabam.bigrobot` then `adb install --no-incremental --abi arm64-v8a build/bundled.apk`
+
+Nothing else is needed: no `run_local.py`, no `adb reverse`, no hosts file edits, no CA install,
+no root, and no `provision_*.sh`. Install and play. The existing host-server workflows above are
+unchanged and remain the default.
+
+`--bundle-server` supports arm64-v8a only and errors out on `armeabi-v7a`. It requires plain HTTP
+on loopback: `--scheme https` and non-loopback `--server-host` values are rejected. The baked
+payload is a snapshot of the authored data at build time, so changing `Server/gamedata.py`
+requires rebuilding the APK. Its responses are the same ones served by `Server/fakeserver.py`.
+
+For debugging, `adb logcat -s TFTFHOOK` should show `in-apk server listening on 127.0.0.1:8080`
+and `in-apk server start: 0`.
 
 
 ### Building for 32-bit ARM (armeabi-v7a)
