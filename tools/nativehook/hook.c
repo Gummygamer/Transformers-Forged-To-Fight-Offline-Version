@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <link.h>
 #include <dlfcn.h>
+#include "inapk_server.h"
 
 // forward decls (used by seg_handler below, defined later)
 static void flog(const char* fmt, ...);
@@ -2737,6 +2738,12 @@ static void* installer(void* arg){
     return NULL;
 }
 
+static void inapk_log(const char* fmt, ...){
+    char line[512]; va_list ap;
+    va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
+    LOG("%s", line);
+}
+
 __attribute__((constructor))
 static void init(void){
     struct sigaction sa; memset(&sa, 0, sizeof sa);
@@ -2745,5 +2752,7 @@ static void init(void){
     sigaction(SIGSEGV, &sa, &g_oldsegv);
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK loaded (segv-guarded)");
+    tftf_server_set_logger(inapk_log);
+    LOG("in-apk server start: %d", tftf_server_start_from_apk());
     pthread_t th; pthread_create(&th, NULL, installer, NULL);
 }
