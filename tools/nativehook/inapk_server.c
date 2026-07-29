@@ -1,3 +1,8 @@
+/* off_t must be 64-bit on 32-bit ARM: bionic's LP32 struct stat already carries a
+   64-bit st_size, so without this the APK offsets below truncate silently.  This
+   also redirects pread/mmap to pread64/mmap64.  No effect on 64-bit builds. */
+#define _FILE_OFFSET_BITS 64
+
 #define _POSIX_C_SOURCE 200809L
 #include "inapk_server.h"
 

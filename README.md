@@ -264,10 +264,34 @@ Nothing else is needed: no `run_local.py`, no `adb reverse`, no hosts file edits
 no root, and no `provision_*.sh`. Install and play. The existing host-server workflows above are
 unchanged and remain the default.
 
-`--bundle-server` supports arm64-v8a only and errors out on `armeabi-v7a`. It requires plain HTTP
-on loopback: `--scheme https` and non-loopback `--server-host` values are rejected. The baked
-payload is a snapshot of the authored data at build time, so changing `Server/gamedata.py`
-requires rebuilding the APK. Its responses are the same ones served by `Server/fakeserver.py`.
+`--bundle-server` supports both `arm64-v8a` (the default and primary tested path) and
+`armeabi-v7a`. It requires plain HTTP on loopback: `--scheme https` and non-loopback
+`--server-host` values are rejected. The baked payload is a snapshot of the authored data at build
+time, so changing `Server/gamedata.py` requires rebuilding the APK. Its responses are the same
+ones served by `Server/fakeserver.py`.
+
+For an ARMv7 bundled build, use the same align and signing steps with ARMv7 output names.
+Unlike the arm64 one, this build must also supply a patched library: `Transformers 9.2
+offline.apk` ships an **already patched** `lib/arm64-v8a/libil2cpp.so` but a **pristine**
+`lib/armeabi-v7a/libil2cpp.so`. Skip step 1 below and the APK installs and launches fine
+while `adb logcat -s TFTFHOOK` stays completely silent and nothing listens on 8080, because
+the hook is never loaded — which looks exactly like a broken server but is not one.
+
+1. `python3 patches/patch_il2cpp.py --abi armeabi-v7a --needed inplace --apply \
+   -o build/libil2cpp-armv7-patched.so "Transformers 9.2 extracted/lib/armeabi-v7a/libil2cpp.so"`
+   (`--needed inplace` avoids `patchelf`, which is not always on PATH.)
+2. `python3 Server/build_phone_apk.py --abi armeabi-v7a --bundle-server --scheme http \
+   --server-host 127.0.0.1 --server-port 8080 --patched-il2cpp build/libil2cpp-armv7-patched.so \
+   "Transformers 9.2 offline.apk" build/phone-armv7-unsigned.apk`
+3. `~/Android/Sdk/build-tools/35.0.0/zipalign -f -p 4 build/phone-armv7-unsigned.apk build/phone-armv7-aligned.apk`
+4. `~/Android/Sdk/build-tools/35.0.0/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/bundled-armv7.apk build/phone-armv7-aligned.apk`
+5. `adb install -r --no-incremental --abi armeabi-v7a build/bundled-armv7.apk`
+
+This exact sequence was run end to end on 2026-07-28: the game reached the home screen and a
+populated BOTS roster with no host server running and `adb reverse --list` empty.
+
+`--no-incremental` is mandatory: incremental-fs mounts the native library directory read-only,
+even to root.
 
 For debugging, `adb logcat -s TFTFHOOK` should show `in-apk server listening on 127.0.0.1:8080`
 and `in-apk server start: 0`.
@@ -275,9 +299,9 @@ and `in-apk server start: 0`.
 
 ### Building for 32-bit ARM (armeabi-v7a)
 
-The APK ships native libraries for both `arm64-v8a` and `armeabi-v7a`. Everything above
-targets arm64, which remains the default. A 32-bit build exists for 32-bit devices and
-32-bit emulator instances, and is selected with `--abi`.
+The APK ships native libraries for both `arm64-v8a` and `armeabi-v7a`. Most workflows above
+target arm64, which remains the default. A 32-bit build exists for 32-bit devices and 32-bit
+emulator instances, and is selected with `--abi`.
 
 The 32-bit build has been run end to end: it boots offline to the home screen, selects a
 STORY squad, enters the board, moves between nodes, opens the pre-fight screen, fights the
@@ -293,8 +317,10 @@ were verified firing during that run.
    patch offset. Either route can be selected explicitly with `--needed patchelf` or
    `--needed inplace`.
 2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so
-   -o tools/nativehook/libdothook-armeabi-v7a.so tools/nativehook/hook_arm32.c -llog`,
-   The resulting `.so` is a local build artifact and must not be committed.
+   -o tools/nativehook/libdothook-armeabi-v7a.so tools/nativehook/hook_arm32.c tools/nativehook/inapk_server.c -llog`.
+   Keep API level 21 for old 32-bit phones and `-Wl,-soname,libdothook.so` because
+   `libil2cpp.so`'s `DT_NEEDED` names `libdothook.so`. The resulting `.so` is a local build
+   artifact and must not be committed.
 3. Build the APK: `python3 Server/build_phone_apk.py --abi armeabi-v7a ...`. It embeds the
    matching hook and, by default, drops the arm64 libraries. That last part matters: Android
    prefers arm64 whenever it is present, so an APK containing both would load the unpatched
@@ -303,6 +329,9 @@ were verified firing during that run.
 One difference from the arm64 build is deliberate: `hook_arm32.c` carries only the
 behaviour fixes, not the `EB.Dot.*` key logging. The data authoring loop runs on arm64,
 and both builds parse the same JSON, so keys discovered there apply unchanged.
+
+A [self-contained bundled-server build](#building-a-self-contained-apk-bundled-server-no-pc)
+also works for ARMv7.
 
 Two of the fixes could not be ported by translating an address, because neither one is a
 method address. Both were re-derived against the 32-bit binary instead, and the derivation

@@ -85,8 +85,13 @@ def check_elf(data: bytes, abi: str, path: Path, description: str) -> None:
         )
 
 
-def check_hook(data: bytes, abi: str, path: Path) -> None:
+def check_hook(data: bytes, abi: str, path: Path, *, bundle_server: bool = False) -> None:
     check_elf(data, abi, path, "runtime hook")
+    if bundle_server and PAYLOAD_ASSET.encode() not in data:
+        raise ValueError(
+            f"runtime hook {path} was built without the in-app server "
+            f"(no {PAYLOAD_ASSET} reference); rebuild it with tools/nativehook/inapk_server.c"
+        )
 
 
 DEFAULT_SERVER_HOST = "127.0.0.1"
@@ -201,10 +206,6 @@ def build(
 ) -> list[str]:
     if source.resolve() == destination.resolve():
         raise ValueError("destination must differ from source; the original APK is preserved")
-    if bundle_server and abi != ARM64:
-        raise ValueError(
-            "bundled server requires --abi arm64-v8a; the armeabi-v7a hook has no in-app server yet"
-        )
     if bundle_server and scheme != "http":
         raise ValueError("bundled server requires --scheme http")
     if bundle_server and server_host != "127.0.0.1":
@@ -215,7 +216,9 @@ def build(
     if not hook_path.is_file():
         raise ValueError(f"current runtime hook is missing: {hook_path}")
     hook = hook_path.read_bytes()
-    check_hook(hook, abi, hook_path)
+    # A hook built without inapk_server.c installs and launches, then hangs at
+    # login with no listener; reject that bundled-server failure loudly.
+    check_hook(hook, abi, hook_path, bundle_server=bundle_server)
     replacement_il2cpp = None
     if patched_il2cpp is not None:
         if not patched_il2cpp.is_file():
@@ -331,8 +334,8 @@ def main() -> None:
         "--bundle-server",
         action="store_true",
         help=(
-            "bake the arm64 plain-HTTP loopback server payload into the APK "
-            "(requires --abi arm64-v8a --scheme http --server-host 127.0.0.1)"
+            "bake the plain-HTTP loopback server payload into the APK for either ABI "
+            "(requires --scheme http --server-host 127.0.0.1)"
         ),
     )
     args = parser.parse_args()

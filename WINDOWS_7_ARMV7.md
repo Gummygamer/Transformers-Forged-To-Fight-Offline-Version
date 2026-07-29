@@ -98,7 +98,7 @@ Return to Command Prompt:
 
 ```cmd
 cd /d C:\TFTF-Offline
-"%ANDROID_NDK_ROOT%\toolchains\llvm\prebuilt\windows-x86_64\bin\armv7a-linux-androideabi21-clang.cmd" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools\nativehook\libdothook-armeabi-v7a.so tools\nativehook\hook_arm32.c -llog
+"%ANDROID_NDK_ROOT%\toolchains\llvm\prebuilt\windows-x86_64\bin\armv7a-linux-androideabi21-clang.cmd" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools\nativehook\libdothook-armeabi-v7a.so tools\nativehook\hook_arm32.c tools\nativehook\inapk_server.c -llog
 ```
 
 Confirm the output exists:
@@ -107,7 +107,7 @@ Confirm the output exists:
 dir tools\nativehook\libdothook-armeabi-v7a.so
 ```
 
-This generated `.so` is a local artifact and must not be committed.
+This generated `.so` is a local build artifact and must not be committed.
 
 ## 6. Extract and patch the 32-bit `libil2cpp.so`
 
@@ -169,6 +169,12 @@ directly into the pristine source APK. It removes `arm64-v8a` by default so
 Android cannot select the unpatched 64-bit client. The new
 `--patched-il2cpp` option is optional; existing Linux workflows that supply an
 already-patched source APK continue to work unchanged.
+
+For a self-contained no-PC build, add `--bundle-server --scheme http --server-host
+127.0.0.1 --server-port 8080` to the command in this section. After signing and installing that
+APK, skip section 4 (certificate), the reverse/LAN host-server setup where it applies in the
+following workflow, section 9 (start the local server), and the `adb reverse` steps. Still use
+section 8 to align and sign the APK; nothing on the PC needs to run at play time.
 
 ## 8. Align and sign
 

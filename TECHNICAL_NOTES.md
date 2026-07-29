@@ -444,20 +444,24 @@ baked transition/body pair before updating it.
 
 ### In-app C server
 
-`tools/nativehook/inapk_server.c` is the arm64 process-local HTTP server. Its constructor caller
-finds mapped `base.apk` through `/proc/self/maps`, walks its ZIP directory for the stored payload
-(with a magic-scan fallback), and mmaps only that entry. It preserves Python dispatch order:
-dynamic handlers, exact route, prefix route, then default. `Server/test_inapk_server.py` compiles
-the host harness and compares live HTTP replies with `fakeserver`. armv7 is unsupported for this
-bundled server.
+`tools/nativehook/inapk_server.c` is the process-local HTTP server shared by both ABIs. It is
+compiled into `libdothook.so` for arm64 with `aarch64-linux-android28-clang` and into
+`libdothook-armeabi-v7a.so` for ARMv7 with `armv7a-linux-androideabi21-clang`. Its constructor
+caller finds mapped `base.apk` through `/proc/self/maps`, walks its ZIP directory for the stored
+payload (with a magic-scan fallback), and mmaps only that entry. It preserves Python dispatch
+order: dynamic handlers, exact route, prefix route, then default. `Server/test_inapk_server.py`
+compiles the host harness and compares live HTTP replies with `fakeserver`. The source is 32-bit
+clean through `#define _FILE_OFFSET_BITS 64`: 32-bit bionic's `struct stat.st_size` is 64-bit
+while bare `off_t` is 32-bit, so stat/mmap offsets would otherwise truncate. The ARMv7 hook builds
+warning-free.
 
 The server was verified on an `android-30 google_apis x86_64` emulator with ARM translation and
 `arm64-v8a`, using `Server/build_phone_apk.py --scheme http --server-host 127.0.0.1 --server-port
 8080 --bundle-server`. With guest SELinux enforcing, a stock `/system/etc/hosts`, no host server,
 and no `adb reverse` forwards, the game boots to the home screen, opens the first STORY mission,
 renders the game board, moves the player between board nodes, and plays the fight. The only
-listener is `127.0.0.1:8080` inside the game process. `--bundle-server` rejects `armeabi-v7a`,
-`--scheme https`, and non-loopback `--server-host` values.
+listener is `127.0.0.1:8080` inside the game process. `--bundle-server` rejects `--scheme https`,
+non-loopback `--server-host` values, and a hook built without the in-app server.
 
 ## Known remaining frontiers
 

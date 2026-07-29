@@ -117,6 +117,24 @@ class HookAbiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             builder.check_hook(b"not an elf", builder.ARM64, Path("libdothook.so"))
 
+    def test_check_hook_requires_server_for_bundled_builds(self):
+        for abi, hook in ((builder.ARM64, ARM64_ELF), (builder.ARMV7, ARMV7_ELF)):
+            with self.subTest(abi=abi):
+                path = Path(f"{abi}-libdothook.so")
+                builder.check_hook(hook, abi, path)
+                with self.assertRaisesRegex(ValueError, "without the in-app server"):
+                    builder.check_hook(hook, abi, path, bundle_server=True)
+                builder.check_hook(
+                    hook + builder.PAYLOAD_ASSET.encode(), abi, path, bundle_server=True
+                )
+
+    def test_checked_in_hooks_contain_server_marker(self):
+        for abi, (path, _, _) in builder.ABIS.items():
+            with self.subTest(abi=abi):
+                if not path.is_file():
+                    self.skipTest(f"prebuilt hook is missing: {path}")
+                self.assertIn(builder.PAYLOAD_ASSET.encode(), path.read_bytes())
+
 
 class BuildAbiSelectionTests(unittest.TestCase):
     def make_source(self, path: Path, include_hooks=True) -> None:
@@ -251,21 +269,34 @@ class BundledServerTests(unittest.TestCase):
             if with_payload:
                 zf.writestr(builder.PAYLOAD_ASSET, b"stale payload")
 
-    def build_synthetic(self, source: Path, destination: Path, **kwargs) -> None:
+    def build_synthetic(
+        self,
+        source: Path,
+        destination: Path,
+        *,
+        abi: str = builder.ARM64,
+        serverless_hook: bool = False,
+        **kwargs,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            hook_path = Path(tmp) / "libdothook.so"
-            hook_path.write_bytes(ARM64_ELF)
+            hook_paths = {
+                builder.ARM64: Path(tmp) / "libdothook-arm64.so",
+                builder.ARMV7: Path(tmp) / "libdothook-armv7.so",
+            }
+            marker = b"" if serverless_hook else builder.PAYLOAD_ASSET.encode()
+            hook_paths[builder.ARM64].write_bytes(ARM64_ELF + marker)
+            hook_paths[builder.ARMV7].write_bytes(ARMV7_ELF + marker)
             saved = (builder.patch_metadata, builder.patch_sparx_manifest,
                      builder.patch_endpoint_config, builder.ABIS)
             builder.patch_metadata = lambda data, host, port=8443: (data, [])
             builder.patch_sparx_manifest = lambda data, host, scheme="https", port=8443: data
             builder.patch_endpoint_config = lambda data, host, scheme="https", port=8443: data
             builder.ABIS = {
-                builder.ARM64: (hook_path, 2, 183),
-                builder.ARMV7: (hook_path, 1, 40),
+                builder.ARM64: (hook_paths[builder.ARM64], 2, 183),
+                builder.ARMV7: (hook_paths[builder.ARMV7], 1, 40),
             }
             try:
-                builder.build(source, destination, **kwargs)
+                builder.build(source, destination, abi=abi, **kwargs)
             finally:
                 (builder.patch_metadata, builder.patch_sparx_manifest,
                  builder.patch_endpoint_config, builder.ABIS) = saved
@@ -306,11 +337,55 @@ class BundledServerTests(unittest.TestCase):
                 self.assertEqual(zf.namelist().count(builder.PAYLOAD_ASSET), 1)
                 self.assertEqual(zf.read(builder.PAYLOAD_ASSET), export_payload.build_payload(8080))
 
+    def test_armv7_bundle_writes_payload_and_drops_arm64_libraries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, destination = Path(tmp) / "source.apk", Path(tmp) / "out.apk"
+            self.make_source(source)
+            self.build_synthetic(
+                source,
+                destination,
+                abi=builder.ARMV7,
+                scheme="http",
+                server_port=8080,
+                bundle_server=True,
+            )
+            with zipfile.ZipFile(destination) as zf:
+                self.assertEqual(
+                    zf.getinfo(builder.PAYLOAD_ASSET).compress_type, zipfile.ZIP_STORED
+                )
+                self.assertEqual(
+                    zf.read(builder.hook_entry(builder.ARMV7)),
+                    ARMV7_ELF + builder.PAYLOAD_ASSET.encode(),
+                )
+                self.assertNotIn(builder.il2cpp_entry(builder.ARM64), zf.namelist())
+                self.assertNotIn(builder.hook_entry(builder.ARM64), zf.namelist())
+
+    def test_serverless_hook_is_rejected_only_for_bundled_builds(self):
+        for abi in (builder.ARM64, builder.ARMV7):
+            with self.subTest(abi=abi), tempfile.TemporaryDirectory() as tmp:
+                source = Path(tmp) / "source.apk"
+                bundled = Path(tmp) / "bundled.apk"
+                unbundled = Path(tmp) / "unbundled.apk"
+                self.make_source(source)
+                with self.assertRaisesRegex(ValueError, "without the in-app server"):
+                    self.build_synthetic(
+                        source,
+                        bundled,
+                        abi=abi,
+                        serverless_hook=True,
+                        scheme="http",
+                        bundle_server=True,
+                    )
+                self.build_synthetic(source, unbundled, abi=abi, serverless_hook=True)
+                with zipfile.ZipFile(unbundled) as zf:
+                    self.assertEqual(
+                        zf.read(builder.hook_entry(abi)),
+                        ARM64_ELF if abi == builder.ARM64 else ARMV7_ELF,
+                    )
+
     def test_bundle_validation(self):
         source = Path("source.apk")
         destination = Path("out.apk")
-        with self.assertRaisesRegex(ValueError, "armeabi-v7a hook"):
-            builder.build(source, destination, abi=builder.ARMV7, bundle_server=True)
         with self.assertRaisesRegex(ValueError, "--scheme http"):
             builder.build(source, destination, scheme="https", bundle_server=True)
         with self.assertRaisesRegex(ValueError, "127.0.0.1"):

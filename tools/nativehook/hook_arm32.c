@@ -6,8 +6,10 @@
 // two builds parse identical JSON, so keys discovered there apply here unchanged).
 // The 32-bit build is for playing on a 32-bit device, not for authoring.
 //
-// Build (NDK r26): armv7a-linux-androideabi21-clang -shared -O2 -fPIC \
-//                    -Wl,-soname,libdothook.so -o libdothook.so hook_arm32.c -llog
+// Build (NDK r26): armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wall -Wextra \
+//                    -Wl,-soname,libdothook.so -o libdothook-armeabi-v7a.so \
+//                    hook_arm32.c inapk_server.c -llog
+// Keep the soname as libdothook.so: libil2cpp.so has that name in its DT_NEEDED entry.
 //
 // Two things differ from the arm64 hook, and both bite silently if forgotten:
 //
@@ -41,6 +43,7 @@
 #include <pthread.h>
 #include <link.h>
 #include <dlfcn.h>
+#include "inapk_server.h"
 
 static void flog(const char* fmt, ...);
 static uintptr_t g_base;
@@ -473,6 +476,12 @@ static void* installer(void* arg){
     return NULL;
 }
 
+static void inapk_log(const char* fmt, ...){
+    char line[512]; va_list ap;
+    va_start(ap, fmt); vsnprintf(line, sizeof line, fmt, ap); va_end(ap);
+    LOG("%s", line);
+}
+
 __attribute__((constructor))
 static void init(void){
     struct sigaction sa; memset(&sa, 0, sizeof sa);
@@ -481,5 +490,8 @@ static void init(void){
     sigaction(SIGSEGV, &sa, &g_oldsegv);
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK (armv7) loaded (segv-guarded)");
+    tftf_server_set_logger(inapk_log);
+    int inapk_rc = tftf_server_start_from_apk();
+    LOG("in-apk server start: %d", inapk_rc);
     pthread_t th; pthread_create(&th, NULL, installer, NULL);
 }
