@@ -9,6 +9,10 @@
 # assets or binaries to this repository").
 /probe/
 
+# Generated IL2CPP metadata dump. Regenerate locally from an entitled copy of
+# the 9.2 APK; do not commit it.
+/re_notes/dump.cs
+
 # Locally built ARM32 hook; binaries must not be committed.
 /tools/nativehook/libdothook-armeabi-v7a.so
 
