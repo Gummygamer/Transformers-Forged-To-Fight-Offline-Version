@@ -138,16 +138,32 @@ tools/
     relaunch_and_capture.sh   relaunch the game and capture logs
   hook/dothook.c              earlier hook variant, kept for reference
 re_notes/
-  dump.cs                     the full IL2CPP dump: every class, method, and field in the game
+  dump.cs                     locally generated IL2CPP type dump (ignored; see below)
   decomp_out.c                decompiled bodies of key functions
   decompile_targets.txt       the offsets worth decompiling
   ASSET_INVENTORY.txt         inventory of asset identifiers in an operator-supplied app
 ```
 
-`re_notes/dump.cs` is the single most valuable file for the work that remains. It is the
-complete type model of the game: every class, every method, and crucially every data field
-the client reads from the server. It is your map of the entire backend API. When you need
-to know what shape a response should be, the answer is in there.
+`re_notes/dump.cs` is deliberately not versioned. Generate it locally from an entitled
+Kabam 9.2 APK with Il2CppDumper; it needs the matching
+`lib/arm64-v8a/libil2cpp.so` and
+`assets/bin/Data/Managed/Metadata/global-metadata.dat` from that APK:
+
+```bash
+mkdir -p /tmp/tftf-il2cpp/{lib,assets/bin/Data/Managed/Metadata}
+unzip -p "Transformers 9.2 offline.apk" lib/arm64-v8a/libil2cpp.so \
+  > /tmp/tftf-il2cpp/lib/libil2cpp.so
+unzip -p "Transformers 9.2 offline.apk" assets/bin/Data/Managed/Metadata/global-metadata.dat \
+  > /tmp/tftf-il2cpp/assets/bin/Data/Managed/Metadata/global-metadata.dat
+Il2CppDumper /tmp/tftf-il2cpp/lib/libil2cpp.so \
+  /tmp/tftf-il2cpp/assets/bin/Data/Managed/Metadata/global-metadata.dat \
+  /tmp/tftf-il2cpp-out
+cp /tmp/tftf-il2cpp-out/dump.cs re_notes/dump.cs
+```
+
+The generated file is the complete type model of the game: every class, method, and data
+field the client reads from the server. It is ignored by Git so it remains a local,
+reproducible analysis artifact.
 
 
 ## What is not in this package, and where to get it
