@@ -45,6 +45,20 @@ file name of an asset that already ships inside the user's own copy of the app; 
 corrects which existing on-device asset the offline server points the client at. No artwork, no
 recovered server data, and no third-party text is introduced.
 
+The selected-squad persistence work authors no new game values: no numbers, names, balance data,
+or strings of game content. It is pure plumbing: the squad the user's own client sends in
+`POST /bcg/setSavedTeam` and `POST /quests/quest-begin/<qid>` is now echoed through the
+quest-progression, active-quest, movedir, and user-data responses instead of those responses
+hardcoding a default squad. The only identifiers involved — `setSavedTeam`, `activeTeams`,
+`savedTeams`, the `aid` key of the form `"<qid>-<teamID>"`, and the blueprint ids the client
+itself sends — are wire-key and asset-id names that already exist inside the user's own copy of
+the app. Observing which key the client sends and answering in the same shape is an
+interoperability schema observation, the same established precedent recorded above for the
+hit-stun wire keys. The in-APK C server change introduces no new capability: it makes the
+already-shipped local loopback server compute the same response bodies the Python server already
+produced, so the bundled build behaves like the host-server build. It adds no network
+interception, no new binary patch, and no new hook.
+
 ## Why this is copyright-compliant
 
 - **Everything authored here is original.** Kabam's real balance data (the roster

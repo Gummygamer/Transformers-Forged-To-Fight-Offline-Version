@@ -30,6 +30,20 @@ _lock = threading.Lock()
 # resets the corresponding mission to its authored start tile.
 _quest_positions = {}
 _quest_state_lock = threading.Lock()
+_saved_team = None
+
+
+def get_saved_team():
+    """Return a copy of the session squad so tests cannot mutate server state in place."""
+    with _quest_state_lock:
+        return list(_saved_team) if _saved_team is not None else None
+
+
+def reset_saved_team():
+    """Clear the session squad, restoring gamedata's DEFAULT_TEAM fallback."""
+    global _saved_team
+    with _quest_state_lock:
+        _saved_team = None
 
 # Tutorials whose interactive "prompt" branch infinite-loops the main thread offline.
 # We return an error envelope for these so the flow aborts gracefully instead of freezing.
@@ -68,6 +82,16 @@ class H(http.server.BaseHTTPRequestHandler):
         the request's `tid`; their client callback does UpdateTutorialData(result)
         then _userData.get_Item(tid), which KeyNotFounds unless result[tid] exists."""
         p = path.split("?")[0]
+
+        # getUserData is normally canned for the payload exporter and in-APK server, but the
+        # live host server can fold this response into the current session after a re-login.
+        # The saved-team response's activeTeams update was verified to drive the board marker
+        # and prefight selector, so preserve the same squad when that refresh occurs.
+        if p.endswith("/bcg/getUserData") and gamedata is not None:
+            return json.dumps(
+                {"error": None, "result": gamedata.build_user_data(team=get_saved_team())},
+                separators=(",", ":"),
+            ).encode()
 
         # TuningGameplay subscribes after the account-data config event, so repeat the
         # missions config through the periodic grouped autorefresh path. The response
@@ -198,19 +222,23 @@ class H(http.server.BaseHTTPRequestHandler):
         # result["activeQuests"] (the now-active quest, with its battle map). Without it the
         # begin flow throws "unknown error". See gamedata.build_quest_begin.
         if "/quests/quest-begin/" in p:
+            global _saved_team
             qid = p.rsplit("/", 1)[-1]
             try:
                 req = json.loads(btxt) if btxt else {}
             except Exception:
                 req = {}
             set_id = req.get("setId", "story_act1")
-            team = [req[k] for k in ("tm0", "tm1", "tm2") if req.get(k)]
+            posted_team = [req[k] for k in ("tm0", "tm1", "tm2") if req.get(k)]
+            with _quest_state_lock:
+                if posted_team:
+                    _saved_team = list(posted_team)
+                team = list(_saved_team) if _saved_team else []
+                _quest_positions[qid] = (0, 1)
             if gamedata is not None:
                 result = gamedata.build_quest_begin(qid, set_id, team)
             else:
                 result = {"activeQuests": []}
-            with _quest_state_lock:
-                _quest_positions[qid] = (0, 1)
             return json.dumps({"error": None, "result": result}).encode()
 
         # quests/quest-movedir/<qid>-<teamId>/<offX>/<offY>: tapping a reachable board node POSTs
@@ -227,6 +255,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 offx_i, offy_i = 1, 0
             with _quest_state_lock:
                 start = _quest_positions.get(qid, (0, 1))
+                team = list(_saved_team) if _saved_team else []
                 candidate = (start[0] + offx_i, start[1] + offy_i)
                 # The authored 1.1.1 map is a three-node vertical path in map
                 # coordinates (x=0..2, y=1). Ignore impossible directions rather
@@ -236,7 +265,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 else:
                     offx_i = offy_i = 0
             if gamedata is not None:
-                result = gamedata.build_quest_movedir(qid, offx_i, offy_i, start=start)
+                result = gamedata.build_quest_movedir(
+                    qid, offx_i, offy_i, start=start, team=team
+                )
             else:
                 result = {}
             return json.dumps({"error": None, "result": result}).encode()
@@ -250,12 +281,24 @@ class H(http.server.BaseHTTPRequestHandler):
                 req = {}
             team_id = str(req.get("teamID", "0"))
             heroes = req.get("heroes") or []
+            if not isinstance(heroes, list):
+                heroes = []
+            with _quest_state_lock:
+                _saved_team = list(heroes)
             if gamedata is not None:
                 team = gamedata.build_saved_team(team_id, heroes)
+                # The story mission is the only qid this host handler currently starts; mirror
+                # its existing literal so the active-team fold key is "<qid>-<teamID>".
+                active_team = gamedata.build_active_team("1.1.1-%s" % team_id, heroes=heroes)
             else:
                 team = {"TeamID": team_id, "teamID": team_id, "id": team_id,
                         "TeamHeroes": list(heroes), "heroes": list(heroes)}
-            result = {"updates": {"savedTeams": [team]}, "deletes": {}}
+                active_team = {"aid": "1.1.1-%s" % team_id, "type": "PvE",
+                               "modes": ["PvE"],
+                               "heroes": {bid: {"bid": bid} for bid in heroes[:2]},
+                               "expire": 0}
+            result = {"updates": {"savedTeams": [team], "activeTeams": [active_team]},
+                      "deletes": {}}
             return json.dumps({"error": None, "result": result}).encode()
         return None
 

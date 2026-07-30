@@ -138,6 +138,66 @@ def _move_body(qid: str, start: tuple[int, int], dx: int, dy: int) -> bytes:
     return _envelope(gamedata.build_quest_movedir(qid, dx, dy, start=start))
 
 
+def _replace_exact(body: bytes, old: bytes, new: bytes, expected: int, label: str) -> bytes:
+    """Replace an authored compact JSON value, refusing silent shape drift."""
+    actual = body.count(old)
+    if actual != expected:
+        raise ValueError(f"{label}: expected {expected} replacements, found {actual}")
+    return body.replace(old, new)
+
+
+def _team_values(team: list[str] | None = None) -> tuple[bytes, bytes, bytes]:
+    """Return compact saved, active, and quest team JSON values from gamedata."""
+    bids = gamedata.resolve_team(team)
+    saved = json.dumps([gamedata.build_hero_entry(bid) for bid in bids], separators=(",", ":")).encode()
+    active = json.dumps({bid: gamedata.build_hero_entry(bid) for bid in bids[:2]}, separators=(",", ":")).encode()
+    quest = json.dumps(
+        gamedata.build_quest_progression(team=bids)["users"][gamedata.LOCAL_UID]["team"],
+        separators=(",", ":"),
+    ).encode()
+    return saved, active, quest
+
+
+def _quest_begin_template(qid: str, set_id: str) -> bytes:
+    body = _envelope(gamedata.build_quest_begin(qid, set_id))
+    _, _, quest = _team_values()
+    lead = gamedata.DEFAULT_TEAM[0].encode()
+    body = _replace_exact(body, b'"strongestHero":"' + lead + b'"', b'"strongestHero":"%LEAD%"', 2,
+                          f"quest-begin {qid} lead")
+    return _replace_exact(body, quest, b"%QTEAM%", 2, f"quest-begin {qid} team")
+
+
+def _movedir_template(qid: str, start: tuple[int, int], dx: int, dy: int) -> bytes:
+    body = _move_body(qid, start, dx, dy)
+    _, active, quest = _team_values()
+    lead = gamedata.DEFAULT_TEAM[0].encode()
+    body = _replace_exact(body, b'"strongestHero":"' + lead + b'"', b'"strongestHero":"%LEAD%"', 1,
+                          f"movedir {qid}/{start}/{dx},{dy} lead")
+    body = _replace_exact(body, quest, b"%QTEAM%", 1, f"movedir {qid}/{start}/{dx},{dy} quest team")
+    return _replace_exact(body, active, b"%ATEAM%", 1, f"movedir {qid}/{start}/{dx},{dy} active team")
+
+
+def _saved_team_template() -> bytes:
+    request = json.dumps({"teamID": "%TID%", "heroes": list(gamedata.DEFAULT_TEAM)})
+    body = fakeserver.H._dynamic(None, "/bcg/setSavedTeam", request)
+    fakeserver.reset_saved_team()
+    if body is None:
+        raise ValueError("fakeserver did not produce saved-team template")
+    body = json.dumps(json.loads(body), separators=(",", ":")).encode()
+    saved, active, _ = _team_values()
+    if body.count(b"%TID%") != 2:
+        raise ValueError("saved-team template: expected two teamID tokens")
+    body = _replace_exact(body, saved, b"%STEAM%", 1, "saved-team saved heroes")
+    return _replace_exact(body, active, b"%ATEAM%", 1, "saved-team active heroes")
+
+
+def _user_data_template() -> bytes:
+    body = _envelope(gamedata.build_user_data())
+    saved, active, _ = _team_values()
+    body = _replace_exact(body, saved, b"%STEAM%", 1, "user-data saved heroes")
+    return _replace_exact(body, active, b"%ATEAM%", 1, "user-data active heroes")
+
+
 def build_entries(listen_port: int = 8080) -> dict[str, bytes]:
     """Return every exact route and helper key in deterministic insertion order."""
     if not 1 <= listen_port <= 65535:
@@ -168,7 +228,7 @@ def build_entries(listen_port: int = 8080) -> dict[str, bytes]:
     add("GET /base/active", _envelope(gamedata.build_base_active()))
     for set_id, qid in _mission_pairs():
         add(f"POST /quests/quest-detail/{qid}", _envelope(gamedata.build_quest_detail(qid, set_id)))
-        add(f"POST /quests/quest-begin/{qid}", _envelope(gamedata.build_quest_begin(qid, set_id)))
+        add(f"POST /quests/quest-begin/{qid}", _quest_begin_template(qid, set_id))
 
         add(f"@quest:start:{qid}", b"0 1")
         legal_lines = []
@@ -179,7 +239,7 @@ def build_entries(listen_port: int = 8080) -> dict[str, bytes]:
                     legal_lines.append((start[0], start[1], dx, dy, nx, ny))
                 add(
                     f"@movedir:{qid}:{start[0]}:{start[1]}:{dx}:{dy}",
-                    _move_body(qid, start, dx, dy),
+                    _movedir_template(qid, start, dx, dy),
                 )
         moves = b"".join(
             ("%d %d %d %d %d %d\n" % line).encode() for line in sorted(legal_lines)
@@ -201,9 +261,17 @@ def build_entries(listen_port: int = 8080) -> dict[str, bytes]:
                 add(f"@hero:{bid}:{rank}:{level}", _hero_detail(bid, rank, level))
     add("@hero:*:1:1", _hero_detail("__unknown_bid__", 1, 1))
 
-    add("@savedteam:open", b'{"error":null,"result":{"updates":{"savedTeams":[{"sid":"%TID%","heroes":[')
-    add("@savedteam:close", b"]}]},\"deletes\":{}}}")
+    add("@roster", "\n".join(sorted(gamedata.ROSTER)).encode())
+    add("@team:default", "\n".join(gamedata.DEFAULT_TEAM).encode())
     for bid in sorted(gamedata.OWNED):
+        team = gamedata.build_quest_progression(team=[bid])["users"][gamedata.LOCAL_UID]["team"]
+        encoded = json.dumps(team, separators=(",", ":")).encode()
+        if not (encoded.startswith(b"{") and encoded.endswith(b"}")):
+            raise ValueError(f"quest member {bid} was not an object")
+        add(f"@questmember:{bid}", encoded[1:-1])
+    add("@savedteam:template", _saved_team_template())
+    add("@userdata:template", _user_data_template())
+    for bid in sorted(set(gamedata.OWNED) | set(gamedata.DEFAULT_TEAM)):
         add(f"@savedteam:hero:{bid}", json.dumps(gamedata.build_hero_entry(bid), separators=(",", ":")).encode())
 
     return entries

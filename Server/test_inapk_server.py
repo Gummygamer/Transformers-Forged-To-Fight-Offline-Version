@@ -1,5 +1,6 @@
 """Wire-level regression test for the small native payload server."""
 import http.client
+import json
 import os
 from pathlib import Path
 import shutil
@@ -11,6 +12,7 @@ import unittest
 
 import export_payload
 import fakeserver
+import gamedata
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +38,7 @@ class InApkServerTests(unittest.TestCase):
 
     def setUp(self):
         fakeserver._quest_positions.clear()
+        fakeserver.reset_saved_team()
         export_payload.build_payload.cache_clear()
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
@@ -126,17 +129,47 @@ class InApkServerTests(unittest.TestCase):
         for body in (heroes, heroes_two):
             self.assertEqual(self.request("POST", "/bcg/getBaseHeroData", body)[2], self.dynamic("/bcg/getBaseHeroData", body))
         saved = b'{"heroes":["optimusprime_cin_tf","optimusprimal_bw_mp32"],"api":6,"nonce":"x","teamID":"0"}'
-        self.assertEqual(self.request("POST", "/bcg/setSavedTeam", saved)[2], self.dynamic("/bcg/setSavedTeam", saved))
+        self.assertEqual(self.request("POST", "/bcg/setSavedTeam", saved)[2],
+                         self.dynamic("/bcg/setSavedTeam", saved))
 
         detail = b'{"hash":"","setId":"story_act1"}'
         self.assertEqual(self.request("POST", "/quests/quest-detail/1.1.1?sig=x&stoken=y", detail)[2],
                          self.dynamic("/quests/quest-detail/1.1.1?sig=x&stoken=y", detail))
-        begin = b'{"setId":"story_act1","tm0":"optimusprime_cin_tf"}'
+        # The native session mirrors the host's selected squad through quest begin and movement.
+        begin = b'{"setId":"story_act1","tm0":"optimusprime_cin_tf","tm1":"optimusprimal_bw_mp32"}'
         self.assertEqual(self.request("POST", "/quests/quest-begin/1.1.1", begin)[2], self.dynamic("/quests/quest-begin/1.1.1", begin))
         for _ in range(3):
             path = "/quests/quest-movedir/1.1.1-0/1/0"
             expected = self.dynamic(path, b"{}")
             self.assertEqual(self.request("POST", path, b"{}")[2], expected)
+
+    def test_selected_squad_session_matches_fake_server(self):
+        def compare(method, path, body=b""):
+            conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+            self.addCleanup(conn.close)
+            conn.request(method, path, body or None, {"Connection": "close"})
+            response = conn.getresponse()
+            got = response.read()
+            conn.close()
+            self.assertEqual(got, self.dynamic(path, body))
+            return got
+
+        default = compare("GET", "/bcg/getUserData")
+        self.assertEqual(default, (RESP / "GET__bcg_getUserData.json").read_bytes())
+
+        selected = b'{"heroes":["megatron_cin_rotf","optimusprimal_bw_mp32"],"teamID":"0"}'
+        compare("POST", "/bcg/setSavedTeam", selected)
+        compare("GET", "/bcg/getUserData")
+        compare("POST", "/quests/quest-begin/1.1.1", b'{"setId":"story_act1"}')
+        compare("POST", "/quests/quest-movedir/1.1.1-0/1/0")
+
+        switched = b'{"setId":"story_act1","tm0":"optimusprime_cin_tf","tm1":"megatron_g1_mp10"}'
+        compare("POST", "/quests/quest-begin/1.1.1", switched)
+        unknown = b'{"heroes":["not_a_real_bot","optimusprimal_bw_mp32"],"teamID":"0"}'
+        compare("POST", "/bcg/setSavedTeam", unknown)
+        result = compare("GET", "/bcg/getUserData")
+        self.assertEqual(json.loads(result)["result"]["updates"]["savedTeams"][0]["heroes"][0]["bid"],
+                         gamedata.DEFAULT_TEAM[0])
 
 
 class InApkCandidateTests(unittest.TestCase):

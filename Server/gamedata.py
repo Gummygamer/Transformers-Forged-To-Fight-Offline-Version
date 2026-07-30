@@ -773,6 +773,21 @@ def build_hero_entry(bid, rank=1, level=1):
 DEFAULT_TEAM = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_g1_mp10"]
 BOSS_BLUEPRINT = "sharkticon_gs_brawler"
 
+
+# Live verification showed that changing only quest-begin updates its progression while the
+# board marker and prefight selector retain the active-team data folded from user-data updates.
+# Keep every team-producing response on one validated squad: an unknown bid otherwise becomes
+# an unresolvable hero there and leaves the board marker blank.
+def resolve_team(team=None):
+    """Normalize an optional client squad, preserving DEFAULT_TEAM as the safe fallback."""
+    try:
+        bids = list(team) if team else list(DEFAULT_TEAM)
+    except TypeError:
+        bids = list(DEFAULT_TEAM)
+    if not bids or any(not isinstance(bid, str) or bid not in ROSTER for bid in bids):
+        return list(DEFAULT_TEAM)
+    return bids
+
 # --- Story-fight ARENA -------------------------------------------------------
 # QuestBoss `mapOverride`@0x88 and `todIndex`@0x90 select the 3D fight arena. The
 # client carries them through QuestBoss -> Quests.OnFight(sceneName, timeOfDay) ->
@@ -815,7 +830,7 @@ if ARENA_TOD_INDEX not in ARENA_LEVELS[ARENA_LEVEL]:
 
 
 def build_saved_team(team_id="0", heroes=None):
-    bids = heroes if heroes is not None else DEFAULT_TEAM
+    bids = resolve_team(heroes)
     hero_dicts = [build_hero_entry(b) for b in bids]
     return {
         "sid": team_id,
@@ -838,7 +853,7 @@ def build_saved_team(team_id="0", heroes=None):
 # each BCGHeroDetails. Sending an array makes Dot.Object fall back to an empty dictionary, which
 # leaves TeamData with no lead character and prevents QuestPlayerController from loading an actor.
 def build_active_team(activity_id="1.1.1-0", heroes=None):
-    bids = heroes if heroes is not None else DEFAULT_TEAM[:2]
+    bids = resolve_team(heroes)[:2]
     hero_dicts = {b: build_hero_entry(b) for b in bids}
     return {
         "aid": activity_id,
@@ -847,14 +862,14 @@ def build_active_team(activity_id="1.1.1-0", heroes=None):
     }
 
 
-def build_user_data():
+def build_user_data(team=None):
     """Full getUserData result. userData maxes + owned heroes through `updates`,
     exactly as the proven response and the README/TECHNICAL_NOTES describe."""
     heroes = [build_hero_entry(bid) for bid in OWNED]
     return {
         "userData": {"blueprintsMax": 500, "teamSizeMax": 3, "teamCountMax": 5},
-        "updates": {"heroes": heroes, "savedTeams": [build_saved_team()],
-                    "activeTeams": [build_active_team()]},
+        "updates": {"heroes": heroes, "savedTeams": [build_saved_team(heroes=team)],
+                    "activeTeams": [build_active_team(heroes=team)]},
         "deletes": {},
     }
 
@@ -1028,7 +1043,7 @@ def build_quest_enemy(map_override=None, tod_index=None):
 LOCAL_UID = "1000000000001"   # POST /auth/login result.user.uid (get_LocalUserId)
 
 
-def build_quest_progression(qid="1.1.1", start=(0, 1)):
+def build_quest_progression(qid="1.1.1", start=(0, 1), team=None):
     """The per-instance QuestProgression data (the instance dict IS the data passed to
     QuestProgression..ctor @0xCA5684). This is what puts the PLAYER (and thus the camera focus)
     on the board so the tappable nodes become visible/reachable.
@@ -1052,8 +1067,9 @@ def build_quest_progression(qid="1.1.1", start=(0, 1)):
     BCGUserActiveTeam `heroes` dictionary: the pre-fight provider builds its selectable HeroData
     from this local QuestUserInfo team."""
     sx, sy = start
+    bids = resolve_team(team)
     quest_team = {}
-    for bid in DEFAULT_TEAM[:2]:
+    for bid in bids[:2]:
         hp, atk = base_stats(bid, 1, 1)
         quest_team[bid] = {
             "hp": 1.0,
@@ -1063,7 +1079,7 @@ def build_quest_progression(qid="1.1.1", start=(0, 1)):
             "sig_mods": [],
         }
     user = {
-        "name": "Commander", "tag": "", "strongestHero": DEFAULT_TEAM[0],
+        "name": "Commander", "tag": "", "strongestHero": bids[0],
         "currentPos": {"x": sx, "y": sy},
         "team": quest_team, "points": 0,
     }
@@ -1104,7 +1120,7 @@ def build_active_quest(qid="1.1.1", set_id="story_act1", team=None):
     # currentPos read back as (0,0) live even though `QS O currentPos` appeared in the key log
     # (Dot.Object still logs the key when obj is null). Keep the flat copy too -- harmless, and it
     # is what the session-17 board-render milestone shipped with.
-    progression = build_quest_progression(qid)
+    progression = build_quest_progression(qid, team=team)
     instance["progression"] = progression
     instance.update(progression)
     arr = [instance]
@@ -1135,7 +1151,7 @@ def build_quest_begin(qid="1.1.1", set_id="story_act1", team=None):
     }
 
 
-def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1)):
+def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1), team=None):
     """POST /quests/quest-movedir/<qid>-<teamId>/<offX>/<offY> reply. This is what makes the
     player VISIBLY move one tile on the board.
 
@@ -1194,7 +1210,7 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1)):
         })
 
     # Updated progression: player now on the new tile; old tile cleared/revealed.
-    prog = build_quest_progression(qid, start=(nx, ny))
+    prog = build_quest_progression(qid, start=(nx, ny), team=team)
     prog["cleared"] = [{"x": sx, "y": sy}]
     prog["revealed"] = [{"x": r, "y": 1} for r in range(3)]
     if (nx, ny) == (2, 1):
@@ -1218,7 +1234,7 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1)):
         })
 
     # teamData -> QuestsManager.UpdateActiveTeam. Reuse the active-team shape; harmless if unread.
-    team_data = build_active_team("%s-0" % qid)
+    team_data = build_active_team("%s-0" % qid, heroes=resolve_team(team)[:2])
 
     return {
         # `results` is the AddActionResultsAndUpdateProgression Dot.Array key (live-confirmed);
