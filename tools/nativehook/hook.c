@@ -381,6 +381,23 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x121EBF8,"POPLIST",    2, 0 }, // 119 BaseEditBuildingPopupPresentation.GetBuildingList
     { 0x1220128,"POPFILTER",  3, 0 }, // 120 BaseEditBuildingPopupPresentation.FilterBuildingData
     { 0x121D89C,"POPUPDATE",  2, 0 }, // 121 BaseEditBuildingPopupPresentation.UpdatePresentation
+    // TSHIDE is a workaround for BLDGACT/BLDGSWAP cosmetic workarounds not being torn down:
+    // BaseBoard.LeaveBoard is never called on the base -> squad-screen path.  TSDOWN (127),
+    // TSOUTBG (129), and TSPODD (131) never fire on this build.  TSOUTRO (128) and TSBACK
+    // (130) are the working screen-exit restore triggers.  TSPODC (132) fires during squad-
+    // screen setup and must therefore remain a log-only marker that never restores.  TSSHOW/
+    // TSSHOWW remain gated belt-and-braces fallbacks when the squad screen is not active.
+    { 0xF9D614, "TSINIT",     0, 0 }, // 122 TeamSelectPresentation.Init -> marker
+    { 0xF9E6DC, "TSPLAT",     0, 0 }, // 123 TeamSelectPresentation.SetupPlatform -> hide residual base objects
+    { 0xF9F9A8, "TSINTRO",    0, 0 }, // 124 TeamSelectPresentation.OnIntroTransitionEnd -> hide again
+    { 0xA6FAF0, "TSSHOW",     0, 0 }, // 125 BaseBoard.ResumeBoard -> restore TSHIDE objects
+    { 0xA6FB54, "TSSHOWW",    0, 0 }, // 126 BaseBoard.OnWindowEntered -> restore TSHIDE objects
+    { 0xF97D04, "TSDOWN",     0, 0 }, // 127 TeamSelectPresentation.TearDown -> restore TSHIDE objects
+    { 0xF9FFE4, "TSOUTRO",    0, 0 }, // 128 TeamSelectPresentation.OnOutroTransitionBegin -> restore TSHIDE objects
+    { 0xFA06D0, "TSOUTBG",    0, 0 }, // 129 TeamSelectPresentation.OnOutroBlurredBackgroundUp -> log-only marker (never fires on this build)
+    { 0xF97B10, "TSBACK",     0, 0 }, // 130 TeamSelectPresentation.OnBackClicked -> restore TSHIDE objects
+    { 0xF9D200, "TSPODD",     0, 0 }, // 131 TeamSelectPodium.Deactivate -> log-only marker (never fires on this build)
+    { 0xF9CFE8, "TSPODC",     0, 0 }, // 132 TeamSelectPodium.Cleanup -> log-only marker (fires during squad-screen setup; must not restore)
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -406,12 +423,24 @@ static int g_bldg_fifo_head = 0, g_bldg_fifo_count = 0;
 #define BLDG_TRACK_CAP 24
 static void* g_bldg_tracked[BLDG_TRACK_CAP];
 static int g_bldg_tracked_count = 0;
+#define BLDG_FORCED_CAP 64
+static void* g_bldg_forced[BLDG_FORCED_CAP];
+static int g_bldg_forced_count = 0;
+#define TS_HIDDEN_CAP (BLDG_TRACK_CAP + BLDG_FORCED_CAP)
+static void* g_ts_hidden[TS_HIDDEN_CAP];
+static int g_ts_hidden_count = 0;
+static int g_ts_screen_active = 0;
 static int read_str(void* s, char* buf, int cap);
 static int obj_ok(void* p);
 static void bldg_track(void* go){
     if (!obj_ok(go)) return;
     for (int i=0;i<g_bldg_tracked_count;i++) if (g_bldg_tracked[i] == go) return;
     if (g_bldg_tracked_count < BLDG_TRACK_CAP) g_bldg_tracked[g_bldg_tracked_count++] = go;
+}
+static void bldg_force_track(void* go){
+    if (!obj_ok(go)) return;
+    for (int i=0;i<g_bldg_forced_count;i++) if (g_bldg_forced[i] == go) return;
+    if (g_bldg_forced_count < BLDG_FORCED_CAP) g_bldg_forced[g_bldg_forced_count++] = go;
 }
 static void bldg_fifo_push(const char* name){
     int slot;
@@ -501,23 +530,38 @@ static float game_clock(void){
     p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
     return *(float*)(p+0x18);
 }
+#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.py; keep in step.
 // slot 58 FIX: PlayerInput.QueuedAction.SetAction(this=QueuedAction, action) @0xD35130.
-// A tap fully registers offline (OnReleaseAttackInput -> SetAction(Attack) runs), but SetAction
-// stores TimeStamp = now + 0: the buffered-input window it would add resolves to 0 because the
-// config it reads never loads offline. HasAction() (@0xD351F8) returns TimeStamp > now, so with
-// TimeStamp == now it is NEVER true -> PlayerInput.Simulate (@0x1180F88) never consumes the
-// queued action -> ExecuteAction never runs -> the queued light attack never lands and the FTE
-// "LIGHT ATTACK / TAP RIGHT" counter stays 0/4 (blocking the whole intro fight tutorial).
-// Restore the window: after the original SetAction, set QueuedAction.TimeStamp (this+0x14) =
-// now + 0.5s so HasAction() stays true for ~0.5s. Simulate then executes the action once and
-// ExecuteAction's ClearAction (@0xD35264) resets Action=0/TimeStamp=-1, so it can't re-trigger.
-// Applies to every queued action (attack/block/dash/special, both fighters) — that IS the
-// intended input-buffer semantics. With this the light attack lands, the counter reaches 4/4,
-// and the FTE advances to the medium-attack step.
+// Before maxQueuedActionTime was authored, a tap fully registered offline
+// (OnReleaseAttackInput -> SetAction(Attack) ran), but SetAction stored TimeStamp = now + 0:
+// the buffered-input window resolved to 0 because its config had not loaded. HasAction()
+// (@0xD351F8) returns TimeStamp > now, so TimeStamp == now was NEVER true ->
+// PlayerInput.Simulate (@0x1180F88) never consumed the queued action -> ExecuteAction never
+// ran -> the queued light attack never landed and the FTE "LIGHT ATTACK / TAP RIGHT" counter
+// stayed 0/4 (blocking the whole intro fight tutorial).
+// The root cause is now fixed in server data: bcg-combat authors maxQueuedActionTime = 0.2.
+// This hook remains only as a safety net if that config has not arrived when combat starts.
+// After the original SetAction, retain its usable TimeStamp window unchanged; only a missing
+// window is replaced with the matching 0.2s fallback. Simulate then executes the action once
+// and ExecuteAction's ClearAction (@0xD35264) resets Action=0/TimeStamp=-1, so it cannot
+// re-trigger. This applies to every queued action (attack/block/dash/special, both fighters),
+// which is the intended input-buffer semantics.
 void* hook_58(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[58].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT( uintptr_t q=(uintptr_t)a0; float clk=game_clock();
-        if(q>=0x100000 && !(q&7) && clk>=0){ *(float*)(q+0x14) = clk + 0.5f; } );
+    PROTECT({
+        uintptr_t q=(uintptr_t)a0;
+        float clk=game_clock();
+        if(q>=0x100000 && !(q&7) && clk>=0){
+            float ts=*(float*)(q+0x14);
+            static int diagnostics=0;
+            if(ts-clk>0.01f){
+                if(diagnostics<4){ diagnostics++; flog("SETACTFIX config window=%.3f (kept)",ts-clk); }
+            }else{
+                *(float*)(q+0x14)=clk+SETACT_FALLBACK_WINDOW;
+                if(diagnostics<4){ diagnostics++; flog("SETACTFIX no config window, fallback=%.3f",(float)SETACT_FALLBACK_WINDOW); }
+            }
+        }
+    });
     return r;
 }
 // ---- texture-load diagnostics (slots 44,46,48,49,50) ----
@@ -994,6 +1038,10 @@ static const int TF_WHITE[4] = { 1, 1, 0, 1 };
 // Those objects live under AssetManager rather than the normal board root, so without this
 // matching teardown they survive into STORY even though the game correctly hides its own board.
 #define BLDGLEAVE 1
+// TSHIDE is a workaround for the BLDGACT/BLDGSWAP cosmetic workarounds not being torn down:
+// BaseBoard.LeaveBoard is never called on the base -> squad-screen path, leaving their objects
+// active for the TeamSelectPresentation world camera to see.
+#define TSHIDE 1
 // SHADERSWAP is retired: it called Material.set_shader on GameboardBuilder._ThemeMaterial,
 // which is a ThemeMaterial MonoBehaviour and not a Material at all (see the correction note
 // in hook_79). It could never have worked, and the reading that motivated it was garbage.
@@ -2278,6 +2326,7 @@ void* hook_90(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
                 for (int k = chain_count - 1; k >= 0; k--) {
                     if (obj_ok(chain[k]) && go_active(chain[k],NULL) == 0) {
                         go_set_active(chain[k],1,NULL);
+                        bldg_force_track(chain[k]);
                         forced++;
                     }
                 }
@@ -2481,6 +2530,185 @@ void* hook_121(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     popup_safe_ready(a1);
     return NULL;
 }
+// TSHIDE (slots 123-127): BLDGACT and BLDGSWAP are cosmetic base-board workarounds, not a
+// root-cause fix.  BaseBoard.LeaveBoard is skipped on the base -> squad-screen navigation path,
+// so this workaround hides the residual anchors, clones, and forced ancestors before the squad
+// screen creates its 3D stage.  TSDOWN (127), TSOUTBG (129), and TSPODD (131) never fire on
+// this build.  TSOUTRO (128) and TSBACK (130) are the working screen-exit triggers that restore
+// only objects this hide pass turned off.  TSPODC (132) fires during squad-screen setup, so it
+// is log-only and must never restore.  TSSHOW/TSSHOWW are gated fallbacks.  Tracked
+// PrefabLibrary source objects already inactive by design stay inactive.  The tracking lists
+// deliberately remain populated for later squad-screen visits.
+static void tshide_hide(int diagnostics){
+#if TSHIDE
+    PROTECT({
+        void (*go_set_active)(void*,int,void*) =
+            (void(*)(void*,int,void*))(g_base + 0x1B50CA8);
+        int (*go_active)(void*,void*) =
+            (int(*)(void*,void*))(g_base + 0x1B50CF8);
+        int (*go_active_h)(void*,void*) =
+            (int(*)(void*,void*))(g_base + 0x1B50D38);
+        void* (*comp_get_go)(void*,void*) =
+            (void*(*)(void*,void*))(g_base + 0x1B4BD28);
+        void* (*go_gcic)(void*,void*) =
+            (void*(*)(void*,void*))(g_base + 0x11E5B70);
+        void (*rend_get_bounds)(void*,Bounds*,void*) =
+            (void(*)(void*,Bounds*,void*))(g_base + 0x16AD7EC);
+        void* (*obj_get_name)(void*,void*) =
+            (void*(*)(void*,void*))(g_base + 0x16A16A0);
+        int hidden_tracked=0;
+        int hidden_forced=0;
+        void* gcicmi = fld_p(*(void**)(g_base + 0x2C33E58), 0x0);
+        if (diagnostics) {
+            for (int i=0;i<g_bldg_tracked_count;i++) {
+                void* go=g_bldg_tracked[i];
+                if (!obj_ok(go)) continue;
+                char name[96]; name[0]=0;
+                if (!read_str(obj_get_name(go,NULL),name,sizeof name)) strcpy(name,"<noname>");
+                flog("TSDIAG src=tracked idx=%d go=%p name='%s' active=%d",i,go,name,go_active_h(go,NULL));
+                void* rends = obj_ok(gcicmi) ? go_gcic(go,gcicmi) : NULL;
+                int render_count = obj_ok(rends) ? (int)*(int32_t*)((uintptr_t)rends + 0x18) : -1;
+                for (int k=0;k<render_count && k<4;k++) {
+                    void* renderer=*(void**)((uintptr_t)rends + 0x20 + 8*k);
+                    if (!obj_ok(renderer)) continue;
+                    void* rgo=comp_get_go(renderer,NULL);
+                    Bounds bounds;
+                    bounds.cx=bounds.cy=bounds.cz=bounds.ex=bounds.ey=bounds.ez=0.0f;
+                    rend_get_bounds(renderer,&bounds,NULL);
+                    char rname[96]; rname[0]=0;
+                    if (!read_str(obj_ok(rgo)?obj_get_name(rgo,NULL):NULL,rname,sizeof rname)) strcpy(rname,"<null>");
+                    flog("TSBND src=tracked idx=%d rend=%d go='%s' center=(%.2f,%.2f,%.2f) extents=(%.2f,%.2f,%.2f)",
+                         i,k,rname,bounds.cx,bounds.cy,bounds.cz,bounds.ex,bounds.ey,bounds.ez);
+                }
+            }
+            for (int i=0;i<g_bldg_forced_count;i++) {
+                void* go=g_bldg_forced[i];
+                if (!obj_ok(go)) continue;
+                char name[96]; name[0]=0;
+                if (!read_str(obj_get_name(go,NULL),name,sizeof name)) strcpy(name,"<noname>");
+                flog("TSDIAG src=forced idx=%d go=%p name='%s' active=%d",i,go,name,go_active_h(go,NULL));
+                void* rends = obj_ok(gcicmi) ? go_gcic(go,gcicmi) : NULL;
+                int render_count = obj_ok(rends) ? (int)*(int32_t*)((uintptr_t)rends + 0x18) : -1;
+                for (int k=0;k<render_count && k<4;k++) {
+                    void* renderer=*(void**)((uintptr_t)rends + 0x20 + 8*k);
+                    if (!obj_ok(renderer)) continue;
+                    void* rgo=comp_get_go(renderer,NULL);
+                    Bounds bounds;
+                    bounds.cx=bounds.cy=bounds.cz=bounds.ex=bounds.ey=bounds.ez=0.0f;
+                    rend_get_bounds(renderer,&bounds,NULL);
+                    char rname[96]; rname[0]=0;
+                    if (!read_str(obj_ok(rgo)?obj_get_name(rgo,NULL):NULL,rname,sizeof rname)) strcpy(rname,"<null>");
+                    flog("TSBND src=forced idx=%d rend=%d go='%s' center=(%.2f,%.2f,%.2f) extents=(%.2f,%.2f,%.2f)",
+                         i,k,rname,bounds.cx,bounds.cy,bounds.cz,bounds.ex,bounds.ey,bounds.ez);
+                }
+            }
+        }
+        for (int i=0;i<g_bldg_tracked_count;i++) {
+            void* go=g_bldg_tracked[i];
+            if (!obj_ok(go) || go_active(go,NULL) != 1) continue;
+            int seen=0;
+            for (int k=0;k<g_ts_hidden_count;k++) if (g_ts_hidden[k] == go) { seen=1; break; }
+            if (!seen && g_ts_hidden_count < TS_HIDDEN_CAP) g_ts_hidden[g_ts_hidden_count++] = go;
+            go_set_active(go,0,NULL);
+            hidden_tracked++;
+        }
+        for (int i=0;i<g_bldg_forced_count;i++) {
+            void* go=g_bldg_forced[i];
+            if (!obj_ok(go) || go_active(go,NULL) != 1) continue;
+            int seen=0;
+            for (int k=0;k<g_ts_hidden_count;k++) if (g_ts_hidden[k] == go) { seen=1; break; }
+            if (!seen && g_ts_hidden_count < TS_HIDDEN_CAP) g_ts_hidden[g_ts_hidden_count++] = go;
+            go_set_active(go,0,NULL);
+            hidden_forced++;
+        }
+        if (diagnostics)
+            flog("TSPLAT hiddenTracked=%d hiddenForced=%d recorded=%d trackedCount=%d forcedCount=%d",
+                 hidden_tracked,hidden_forced,g_ts_hidden_count,g_bldg_tracked_count,g_bldg_forced_count);
+        else
+            flog("TSINTRO hiddenTracked=%d hiddenForced=%d recorded=%d",
+                 hidden_tracked,hidden_forced,g_ts_hidden_count);
+    });
+#else
+    (void)diagnostics;
+#endif
+}
+static void tshide_restore(const char* tag){
+#if TSHIDE
+    PROTECT({
+        void (*go_set_active)(void*,int,void*) =
+            (void(*)(void*,int,void*))(g_base + 0x1B50CA8);
+        int restored=0;
+        for (int i=0;i<g_ts_hidden_count;i++) {
+            void* go=g_ts_hidden[i];
+            if (obj_ok(go)) { go_set_active(go,1,NULL); restored++; }
+        }
+        flog("%s restored=%d recorded=%d",tag,restored,g_ts_hidden_count);
+        g_ts_hidden_count=0;
+    });
+#else
+    (void)tag;
+#endif
+}
+static void tshide_screen_exit(const char* tag){
+#if TSHIDE
+    flog("%s screenExit wasActive=%d recorded=%d",tag,g_ts_screen_active,g_ts_hidden_count);
+    g_ts_screen_active=0;
+    tshide_restore(tag);
+#else
+    (void)tag;
+#endif
+}
+void* hook_122(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("TSINIT this=%p",a0);
+    return H[122].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_123(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    g_ts_screen_active = 1;
+    tshide_hide(1);
+    return H[123].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_124(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    tshide_hide(0);
+    return H[124].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_125(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    if (g_ts_screen_active == 0) tshide_restore("TSSHOW");
+    else flog("TSSHOW skipped (screen active)");
+    return H[125].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_126(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    if (g_ts_screen_active == 0) tshide_restore("TSSHOWW");
+    else flog("TSSHOWW skipped (screen active)");
+    return H[126].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_127(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    g_ts_screen_active = 0;
+    tshide_restore("TSDOWN");
+    return H[127].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_128(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    tshide_screen_exit("TSOUTRO");
+    return H[128].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_129(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    flog("TSOUTBG marker (log-only: measured never to fire on this build) active=%d recorded=%d",
+         g_ts_screen_active,g_ts_hidden_count);
+    return H[129].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_130(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    tshide_screen_exit("TSBACK");
+    return H[130].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_131(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    flog("TSPODD marker (log-only: measured never to fire on this build) active=%d recorded=%d",
+         g_ts_screen_active,g_ts_hidden_count);
+    return H[131].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_132(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    flog("TSPODC marker (log-only: fires during squad-screen SETUP, must not restore) active=%d recorded=%d",
+         g_ts_screen_active,g_ts_hidden_count);
+    return H[132].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 // Card-state logger used only for RE.  @0x88 is true exactly when Init receives a
 // BaseNodeController provider; @0x48 selects the active-FX branch.  The remaining
 // fields are enough to tell whether the card has a tile and a collider component.
@@ -2606,7 +2834,8 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_89,hook_90,hook_91,hook_92,hook_93,hook_94,hook_95,hook_96,
     hook_97,hook_98,hook_99,hook_100,hook_101,hook_102,
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
-    hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121 };
+    hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
+    hook_128,hook_129,hook_130,hook_131,hook_132 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

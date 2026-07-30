@@ -23,6 +23,45 @@
 //      They come from `patches/abi_map.py fields <Type>`; the arm64 value is kept
 //      in a comment next to each one so the pair can be re-checked.
 //
+// PORT STATUS vs hook.c (arm64) -- READ BEFORE PORTING ANYTHING:
+//
+//   3. SETACTFIX. hook_11 carries the maxQueuedActionTime fallback change: keep
+//      the window computed by the game when it exists, and use
+//      SETACT_FALLBACK_WINDOW only when it does not. The real source of that
+//      window is bcg-combat.maxQueuedActionTime, authored in Server/gamedata.py;
+//      keep SETACT_FALLBACK_WINDOW in step with it. This armv7 source change has
+//      not been compiled or run on a 32-bit device. It is verified on arm64 only.
+//
+//   4. TSHIDE. The arm64 squad-screen-occlusion workaround in hook.c slots
+//      122-132 is deliberately not ported. It hides the base buildings that
+//      bleed into the pre-battle squad screen and restores the ones it hid on
+//      exit. Porting needs 11 armv7 RVAs and armv7 field offsets that have not
+//      been harvested, and no 32-bit device or AVD was available to verify them.
+//      A 32-bit build therefore still shows base buildings bleeding into the
+//      pre-battle squad screen.
+//
+//      A porter must translate every arm64 RVA with
+//      `patches/abi_map.py method <arm64 rva>` and every field offset with
+//      `patches/abi_map.py fields <Type>`, then re-verify live. The firing
+//      behaviour below was measured empirically on arm64; do not assume these
+//      lifecycle methods fire the same way on armv7, or at the same entry/exit
+//      point:
+//        122 TSINIT  TeamSelectPresentation.Init @0xF9D614
+//        123 TSPLAT  TeamSelectPresentation.SetupPlatform @0xF9E6DC (hide)
+//        124 TSINTRO TeamSelectPresentation.OnIntroTransitionEnd @0xF9F9A8
+//        125 TSSHOW  BaseBoard.ResumeBoard @0xA6FAF0 (gated restore)
+//        126 TSSHOWW BaseBoard.OnWindowEntered @0xA6FB54 (gated restore)
+//        127 TSDOWN  TeamSelectPresentation.TearDown @0xF97D04 (never fires)
+//        128 TSOUTRO TeamSelectPresentation.OnOutroTransitionBegin @0xF9FFE4
+//                    (fires on exit: restore)
+//        129 TSOUTBG TeamSelectPresentation.OnOutroBlurredBackgroundUp @0xFA06D0
+//                    (never fires; log-only)
+//        130 TSBACK  TeamSelectPresentation.OnBackClicked @0xF97B10
+//                    (fires on exit: restore)
+//        131 TSPODD  TeamSelectPodium.Deactivate @0xF9D200 (never fires; log-only)
+//        132 TSPODC  TeamSelectPodium.Cleanup @0xF9CFE8
+//                    (fires at entry; log-only)
+//
 // The library is ARM mode (A32), fixed 4-byte instructions -- NOT Thumb -- so the
 // same "overwrite the prologue and relocate it" technique as arm64 works, with an
 // A32 relocator. Like the arm64 hook this is a pure byte overwrite installed before
@@ -256,19 +295,32 @@ static float game_clock(void){
     p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
     return *(float*)(p + OFF_CLOCK_NOW);
 }
+#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.py; keep in step.
 
-// PlayerInput.QueuedAction.SetAction(this, action): restore the buffered-input window.
-// SetAction stores TimeStamp = now + <config>, and the config never loads offline, so
-// the window is 0 -- HasAction() (TimeStamp > now) is then never true, Simulate never
-// consumes the queued action, and the FTE light-attack counter stays 0/4. See hook.c
-// slot 58 for the full reasoning; it is unchanged here.
+// PlayerInput.QueuedAction.SetAction(this, action) @0x907DD8. Before maxQueuedActionTime was
+// authored, a tap fully registered offline (OnReleaseAttackInput -> SetAction(Attack) ran), but
+// SetAction stored TimeStamp = now + 0: the buffered-input window resolved to 0 because its
+// config had not loaded. HasAction() (TimeStamp > now) was NEVER true, so Simulate never
+// consumed the queued action and the FTE light-attack counter stayed 0/4. The root cause is now
+// fixed in server data: bcg-combat authors maxQueuedActionTime = 0.2. This hook remains only as
+// a safety net if that config has not arrived when combat starts. It keeps the original's usable
+// TimeStamp window and substitutes the matching 0.2s fallback only when the window is missing.
 static void* hook_11(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[11].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT( uintptr_t q = (uintptr_t)a0; float clk = game_clock();
+    PROTECT({
+        uintptr_t q = (uintptr_t)a0;
+        float clk = game_clock();
         if (PLAUSIBLE(q) && clk >= 0.f) {
-            *(float*)(q + OFF_QUEUEDACTION_TS) = clk + 0.5f;
-            static int n = 0; if (n < 3) { n++; flog("SETACTFIX clk=%.3f ts=%.3f", clk, clk + 0.5f); }
-        } else { static int m = 0; if (m < 3) { m++; flog("SETACTFIX clock unavailable (clk=%.3f)", clk); } } );
+            float ts = *(float*)(q + OFF_QUEUEDACTION_TS);
+            static int diagnostics = 0;
+            if (ts - clk > 0.01f) {
+                if (diagnostics < 4) { diagnostics++; flog("SETACTFIX config window=%.3f (kept)", ts - clk); }
+            } else {
+                *(float*)(q + OFF_QUEUEDACTION_TS) = clk + SETACT_FALLBACK_WINDOW;
+                if (diagnostics < 4) { diagnostics++; flog("SETACTFIX no config window, fallback=%.3f", (float)SETACT_FALLBACK_WINDOW); }
+            }
+        }
+    });
     return r;
 }
 

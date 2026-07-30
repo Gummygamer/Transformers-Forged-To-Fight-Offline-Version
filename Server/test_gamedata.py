@@ -176,10 +176,47 @@ class ModelMeshTests(unittest.TestCase):
         )
 
     def test_portrait_stays_short_art_base(self):
-        # The portrait id must remain the short base, not the model id, or portraits break.
+        # The portrait id is the short shipped art base: never the model id or naive prefix.
         blueprints = gamedata.build_blueprints()
-        self.assertEqual(blueprints["optimusprime_cin_tf"]["img"], "optimusprime_cin")
+        self.assertEqual(blueprints["optimusprime_cin_tf"]["img"], "optimus_c_tf")
         self.assertEqual(blueprints["optimusprime_cin_tf"]["mdl"], "optimusprime_cin_tf")
+
+    def test_all_roster_portraits_ship_both_sizes(self):
+        portraits_dir = (
+            Path(__file__).resolve().parent.parent
+            / "Transformers 9.2 extracted"
+            / "assets/assetpack/portraits_odr/portraits"
+        )
+        if not portraits_dir.is_dir():
+            self.skipTest("extracted APK portrait directory is not available")
+
+        blueprints = gamedata.build_blueprints()
+        characters = gamedata.build_characters()
+        for bid in gamedata.ROSTER:
+            base = gamedata.art_base(bid)
+            for size in ("large", "small"):
+                matches = list(portraits_dir.glob(f"portrait_{base}_{size}.*"))
+                self.assertTrue(
+                    matches,
+                    f"{bid} resolves to {base}, which has no {size} portrait",
+                )
+            self.assertEqual(blueprints[bid]["img"], base, bid)
+            self.assertEqual(characters[bid]["img"], base, bid)
+
+    def test_art_base_overrides_cover_only_irregular_roster_bots(self):
+        fallback_bots = {
+            "arcee_gs_deluxe2014", "cheetor_bw_transmetal", "jazz_gs_twm05",
+            "jetfire_gs_leader2014", "prowl_gs_deluxe2016", "dirge_gs_deluxe2008",
+            "galvatron_gs_voyager2016", "ramjet_gs_deluxe2008",
+            "scorponok_bw_kabam", "skywarp_gs_leader2015", "slipstream_gs",
+            "tantrum_gs_kabam",
+        }
+        self.assertEqual(len(gamedata._ART_BASE), 49)
+        self.assertTrue(set(gamedata._ART_BASE).issubset(gamedata.ROSTER))
+        for bid, base in gamedata._ART_BASE.items():
+            self.assertNotEqual(base, bid)
+            self.assertNotEqual(base, "_".join(bid.split("_")[:2]))
+        self.assertTrue(fallback_bots.isdisjoint(gamedata._ART_BASE))
 
     def test_player_lead_is_optimus_prime(self):
         # The bot the player controls on-screen (team lead, index 0) is Optimus Prime.
@@ -195,6 +232,7 @@ class ModelMeshTests(unittest.TestCase):
 
 class MissionsConfigTests(unittest.TestCase):
     def test_combat_armor_rating_constant_is_finite_and_positive(self):
+        """A zero input window makes HasAction false, so queued attacks never execute."""
         missions_config = gamedata.build_missions_config()
 
         self.assertEqual(missions_config["configsHash"], "offline-v1")
@@ -210,6 +248,13 @@ class MissionsConfigTests(unittest.TestCase):
         mana_per_special = missions_config["configs"]["bcg-combat"]["manaPerSpecial"]
         self.assertTrue(math.isfinite(mana_per_special))
         self.assertGreater(mana_per_special, 0)
+
+        combat_config = missions_config["configs"]["bcg-combat"]
+        self.assertIn("maxQueuedActionTime", combat_config)
+        max_queued_action_time = combat_config["maxQueuedActionTime"]
+        self.assertIsInstance(max_queued_action_time, float)
+        self.assertGreater(max_queued_action_time, 0)
+        self.assertLess(max_queued_action_time, 0.5)
 
     def test_account_response_contains_current_missions_config(self):
         response_path = Path(gamedata.RESP_DIR) / "GET__account_data.json"

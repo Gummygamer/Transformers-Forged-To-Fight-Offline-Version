@@ -25,6 +25,11 @@ original `max_special_attacks` rarity curve. The `bcg-combat` config also carrie
 `manaPerSpecial: 300.0`, deliberately mirroring the client's built-in default so the
 absolute unit of `m` is self-documenting.
 
+`bcg-combat`'s `maxQueuedActionTime = 0.2` is likewise an ORIGINAL authored value invented
+for this revival, not transcribed from recovered Kabam data. Only its wire-key name comes
+from the user's own client binary. It supplies the client's buffered-input window; when
+unset that window is zero, so queued attacks never fire.
+
 The hit-stun work likewise adds only newly authored original values, invented for this revival
 and never transcribed from recovered Kabam data. Its `statMods["gp_hit_stun"]` row uses
 `t="hit_stun"`, `ta="self"`, `mt="debuff"`, `c=1.0`, `m=1.0`, `d=0.5`, `pri=0`,
@@ -34,6 +39,11 @@ empty lists, or zeros. The identifier `gp_hit_stun` is a constant already presen
 own client (`PlayerController.DefaultStatMods.kHitStun`), not recovered Kabam server data; the
 27 wire key names were observed from that client's parser at runtime as an interoperability
 schema observation, not copied content.
+
+The `_ART_BASE` portrait mapping adds no new creative content. Every right-hand value is the
+file name of an asset that already ships inside the user's own copy of the app; the change only
+corrects which existing on-device asset the offline server points the client at. No artwork, no
+recovered server data, and no third-party text is introduced.
 
 ## Why this is copyright-compliant
 

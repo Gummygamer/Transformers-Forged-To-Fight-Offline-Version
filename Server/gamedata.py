@@ -278,10 +278,83 @@ def build_blueprints():
     return out
 
 
+# Shipped portrait names are abbreviated and irregular, unlike the full mesh bundle ids.
+# These values are the bases of assets/assetpack/portraits_odr/portraits/
+# portrait_<base>_{large,small}; each listed base has both portrait sizes in the user's APK.
+_ART_BASE = {
+    # --- Scripted intro fighters ---
+    "fte_optimus_gs_t3": "optimus_gs",
+    "fte_stars_gs_t3": "stars_gs",
+
+    # --- Autobots ---
+    "blaster_gs_leader2016": "blastr_gs",
+    "bumblebee_cin_dotm": "bumbl_c",
+    "bumblebee_gs_kabam": "bumbl_gs",
+    "cliffjumper_gs_kabam": "cliffjump_gs",
+    "dinobot_bw_kabam": "dinob_bw",
+    "drift_cin_aoe": "drift_c",
+    "grimlock_gs_mp08": "griml_gs",
+    "hotrod_cin_tlk": "hotrod_c",
+    "hound_cin_tlk": "hound_c",
+    "ironhide_cin_rotf": "ironh_c_rotf",
+    "ironhide_gs_kabam": "ironh_gs",
+    "mirage_gs_deluxe2016": "mirag_gs",
+    "optimusprimal_bw_mp32": "oprimal_bw",
+    "optimusprime_cin_tf": "optimus_c_tf",
+    "ratchet_gs_kabam": "ratch_gs",
+    "rhinox_gs_voyager2014": "rhino_bw",  # Only the Beast Wars-styled art ships.
+    "rodimusprime_gs_mp09": "rodimus_gs",
+    "sideswipe_gs": "sides_gs",
+    "sunstreaker_gs_deluxe2008": "sunstreak_gs",
+    "ultramagnus_gs_leader": "ultram_gs",
+    "wheeljack_gs_mp20": "wheelj_gs",
+    "windblade_gs": "windb_gs",
+
+    # --- Decepticons ---
+    "barricade_cin_dotm": "barri_c",
+    "bludgeon_gs_rd20": "bludge_gs",
+    "bonecrusher_cin_rotf": "bonec_c",
+    # The misspelled clyclon_gs is large-only; use the correctly spelled paired art.
+    "cyclonus_gs_uw06": "cyclon_gs",
+    "grindor_cin_rotf": "grind_c_rotf",
+    "kickback_gs_kabam": "kickb_gs",
+    "megatron_cin_rotf": "megat_c",
+    "megatron_gs_leader2015": "megat_gs",
+    "megatronus_gs_kabam": "megatro_gs",
+    "mixmaster_cin_rotf": "mixma_c_rotf",
+    "motormaster_gs_voyager2015": "motorm_gs",
+    "necrotronus_gs_kabam": "necrotro_gs",
+    "nemesisprime_gs_voyager2015": "nemesis_p",
+    "shockwave_gs": "shock_c",
+    "soundblaster_gs_mp13b": "soundblast_gs",
+    "soundwave_gs": "sound_gs",
+    "thundercracker_gs_leader2015": "thunder_gs",
+    "waspinator_gs_deluxe": "wasp_bw",  # Only the Beast Wars-styled art ships.
+
+    # --- Sharkticon NPC variants ---
+    # The generic bot has no unnamed art, so it borrows gold. brawl is large-only;
+    # the paired class portrait is the abbreviated npc_shark_braw instead.
+    "sharkticon_gs_kabam": "npc_shark_gold",
+    "sharkticon_gs_brawler": "npc_shark_braw",
+    "sharkticon_gs_demolition": "npc_shark_demo",
+    "sharkticon_gs_scout": "npc_shark_scou",
+    "sharkticon_gs_tactician": "npc_shark_tact",
+    "sharkticon_gs_tech": "npc_shark_tech",
+    "sharkticon_gs_warrior": "npc_shark_warr",
+}
+
+
 def art_base(bid):
-    """Short art base for a bot id, used for PORTRAIT asset names. The real portrait art
-    is keyed by a short base (e.g. bid 'arcee_gs_deluxe2014' -> art 'arcee_gs'); we
-    approximate it by taking the first two underscore tokens (name_faction)."""
+    """Short art base for a bot id, used for PORTRAIT asset names.
+
+    Shipped portrait names are abbreviated and irregular. Their authoritative bases come
+    from assets/assetpack/portraits_odr/portraits/portrait_<base>_{large,small}; a base
+    that does not ship makes the client render the reported blank/black portrait tile.
+    The two-token derivation below is only a fallback that happens to be right for 12
+    roster bots, so all irregular shipped names are explicitly recorded in _ART_BASE.
+    """
+    if bid in _ART_BASE:
+        return _ART_BASE[bid]
     parts = bid.split("_")
     return "_".join(parts[:2]) if len(parts) >= 2 else bid
 
@@ -405,6 +478,9 @@ def build_missions_config():
     GetArmorDR computes ``armor / (abs(armor) + constant)``, so the default 0/0
     becomes NaN and causes GetDamageReceived to clamp every hit to zero.
 
+    ``maxQueuedActionTime`` is the authored buffered-input window in seconds. If
+    omitted it defaults to zero, so queued combat actions can never execute.
+
     The ``user-base`` entry is the player base's CommonConfig. ActiveQuest's
     ConfigChangedCallback (@0x109F290) only builds a ``Quests.UserBaseConfig`` when a
     config named exactly ``user-base`` arrives AND the base's type is ``users``;
@@ -421,6 +497,12 @@ def build_missions_config():
                 # if unread, since TuningGameplay's MonoBehaviour bundle serialization
                 # sets 300 per segment either way.
                 "manaPerSpecial": 300.0,
+                # TuningGameplay.DeserializeData@0x1425540 reads maxQueuedActionTime
+                # into @0x80; QueuedAction.SetAction@0xD35130 stores TimeStamp = clock
+                # + that, and HasAction@0xD351F8 returns TimeStamp > clock. This ORIGINAL
+                # authored feel is the buffered-input window in seconds: leaving it unset
+                # makes it 0, so queued attacks never execute.
+                "maxQueuedActionTime": 0.2,
             },
             "user-base": {
                 "minClaimInterval": 60,
