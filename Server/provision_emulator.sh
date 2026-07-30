@@ -55,7 +55,7 @@ S 'cat /system/etc/hosts'
 
 echo "[*] install CA into system trust store (bind-mount): $(basename "$CAHASH")"
 CADIR="/data/local/tmp/cacerts"
-S "rm -rf $CADIR; mkdir -p $CADIR; cp /system/etc/security/cacerts/* $CADIR/ 2>/dev/null; chmod 644 $CADIR/*"
+S "rm -rf $CADIR; mkdir -p $CADIR; cp /system/etc/security/cacerts/* $CADIR/ 2>/dev/null; chmod 644 $CADIR/* 2>/dev/null || true"
 "$ADB" -s "$D" push "$CAHASH" "$CADIR/" >/dev/null && echo "  pushed CA"
 S "chmod 644 $CADIR/$(basename "$CAHASH"); chown root:root $CADIR/* 2>/dev/null"
 S "mountpoint -q /system/etc/security/cacerts && umount /system/etc/security/cacerts 2>/dev/null; mount -o bind $CADIR /system/etc/security/cacerts && echo CACERTS_BOUND"
