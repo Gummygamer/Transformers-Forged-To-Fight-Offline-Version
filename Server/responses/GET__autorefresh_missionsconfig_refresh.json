@@ -1,1 +1,1 @@
-{"error":null,"result":{"check":"offline-v1","refresh":0,"cache":false,"missionsconfig":{"configsHash":"offline-v1","configs":{"bcg-combat":{"armorRatingConstant":1000.0,"manaPerSpecial":300.0},"user-base":{"minClaimInterval":60,"minClaimPercentage":0.1}}}}}
+{"error":null,"result":{"check":"offline-v1","refresh":0,"cache":false,"missionsconfig":{"configsHash":"offline-v1","configs":{"bcg-combat":{"armorRatingConstant":1000.0,"manaPerSpecial":300.0,"maxQueuedActionTime":0.2},"user-base":{"minClaimInterval":60,"minClaimPercentage":0.1}}}}}
