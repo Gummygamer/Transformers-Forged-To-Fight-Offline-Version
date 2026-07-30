@@ -514,5 +514,58 @@ class StoryFightArenaTests(unittest.TestCase):
                 )
 
 
+class SquadPropagationTests(unittest.TestCase):
+    TEAM = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+
+    def test_quest_progression_uses_the_supplied_squad(self):
+        progression = gamedata.build_quest_progression(team=self.TEAM)
+        user = progression["users"][gamedata.LOCAL_UID]
+
+        self.assertEqual(list(user["team"]), self.TEAM)
+        self.assertEqual(user["strongestHero"], self.TEAM[0])
+
+    def test_quest_begin_threads_the_squad_into_its_instance_progression(self):
+        result = gamedata.build_quest_begin("1.1.1", "story_act1", self.TEAM)
+        progression = result["activeQuests"]["1.1.1"]["instances"][0]["progression"]
+
+        self.assertEqual(list(progression["users"][gamedata.LOCAL_UID]["team"]), self.TEAM)
+
+    def test_quest_movedir_preserves_the_squad_in_progression_and_team_data(self):
+        result = gamedata.build_quest_movedir(team=self.TEAM)
+
+        self.assertEqual(
+            list(result["progression"]["users"][gamedata.LOCAL_UID]["team"]), self.TEAM
+        )
+        self.assertEqual(list(result["teamData"]["heroes"]), self.TEAM)
+
+    def test_user_data_uses_the_supplied_saved_and_active_team(self):
+        result = gamedata.build_user_data(team=self.TEAM)
+        updates = result["updates"]
+
+        self.assertEqual([hero["bid"] for hero in updates["savedTeams"][0]["heroes"]], self.TEAM)
+        self.assertEqual(list(updates["activeTeams"][0]["heroes"]), self.TEAM)
+
+    def test_none_and_empty_team_preserve_default_json(self):
+        builders = (
+            gamedata.build_quest_progression,
+            gamedata.build_active_quest,
+            gamedata.build_quest_begin,
+            gamedata.build_quest_movedir,
+            gamedata.build_user_data,
+        )
+        for builder in builders:
+            with self.subTest(builder=builder.__name__):
+                default = json.dumps(builder(), separators=(",", ":"))
+                self.assertEqual(json.dumps(builder(team=None), separators=(",", ":")), default)
+                self.assertEqual(json.dumps(builder(team=[]), separators=(",", ":")), default)
+
+    def test_unknown_blueprint_falls_back_to_the_default_squad(self):
+        progression = gamedata.build_quest_progression(team=["not-a-blueprint"])
+        user = progression["users"][gamedata.LOCAL_UID]
+
+        self.assertEqual(list(user["team"]), gamedata.DEFAULT_TEAM[:2])
+        self.assertEqual(user["strongestHero"], gamedata.DEFAULT_TEAM[0])
+
+
 if __name__ == "__main__":
     unittest.main()
