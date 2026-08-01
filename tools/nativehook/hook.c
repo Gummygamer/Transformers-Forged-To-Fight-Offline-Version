@@ -398,6 +398,11 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0xF97B10, "TSBACK",     0, 0 }, // 130 TeamSelectPresentation.OnBackClicked -> restore TSHIDE objects
     { 0xF9D200, "TSPODD",     0, 0 }, // 131 TeamSelectPodium.Deactivate -> log-only marker (never fires on this build)
     { 0xF9CFE8, "TSPODC",     0, 0 }, // 132 TeamSelectPodium.Cleanup -> log-only marker (fires during squad-screen setup; must not restore)
+    // RSHIDE mirrors TSHIDE for the BOTS roster: HeroesScreen does not cause the cosmetic
+    // BLDGACT/BLDGSWAP objects to leave the base board.  RSENTER hides them on roster entry;
+    // RSEXIT restores exactly that recorded set on the measured HeroesScreen exit path.
+    { 0xC587B8, "RSENTER",    0, 0 }, // 133 HeroesScreen.WindowEnter -> hide residual base objects
+    { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> restore hidden base objects
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -2072,7 +2077,7 @@ void* hook_13(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 // so patch the ACTUAL fighters' blueprints here: fighterData.Blueprint (fd+0x40) and
 // opponentFighterData.Blueprint. This is the fix that lets the FTE intro fight start.
 void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
-    PROTECT(
+    PROTECT({
         ensure_empty_tags();
         uintptr_t fd = (uintptr_t)a3;
         uintptr_t ofd = (uintptr_t)a4;
@@ -2084,9 +2089,17 @@ void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         fix_blueprint_tags(bp2);
         void* t1b = (bp1 && ((uintptr_t)bp1>=0x100000) && !((uintptr_t)bp1&7)) ? *(void**)((uintptr_t)bp1+0xB8) : (void*)-1;
         void* t2b = (bp2 && ((uintptr_t)bp2>=0x100000) && !((uintptr_t)bp2&7)) ? *(void**)((uintptr_t)bp2+0xB8) : (void*)-1;
-        flog("FIXFIGHT empty=%p bp1=%p tags:%p->%p  bp2=%p tags:%p->%p", g_empty_tags, bp1, t1a, t1b, bp2, t2a, t2b);
-    );
-    return H[56].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+        char id1[80]; char id2[80]; id1[0]=id2[0]=0;
+        if(!read_str(fld_p(bp1,0x10),id1,sizeof id1)) strcpy(id1,"<null>");
+        if(!read_str(fld_p(bp2,0x10),id2,sizeof id2)) strcpy(id2,"<null>");
+        void* at1=fld_p((void*)fd,0x38); void* at2=fld_p((void*)ofd,0x38);
+        flog("FIXFIGHT player=%d bp1=%s msa=%d attr.specials=%d tags:%p->%p  bp2=%s msa=%d attr.specials=%d tags:%p->%p",
+             obj_ok(a1)?*(int32_t*)((uintptr_t)a1+0xF4):-1, id1, obj_ok(bp1)?*(int32_t*)((uintptr_t)bp1+0xAC):-1,
+             obj_ok(at1)?*(int32_t*)((uintptr_t)at1+0x28):-1, t1a,t1b, id2,
+             obj_ok(bp2)?*(int32_t*)((uintptr_t)bp2+0xAC):-1, obj_ok(at2)?*(int32_t*)((uintptr_t)at2+0x28):-1,t2a,t2b);
+    });
+    void* r = H[56].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    return r;
 }
 // slot 57 FIXHS: HashSet<T>..ctor(this=a0, collection=a1, comparer=a2). The (IEnumerable,
 // IEqualityComparer) ctor throws ArgumentNullException when collection is null. Offline, the
@@ -2709,6 +2722,20 @@ void* hook_132(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
          g_ts_screen_active,g_ts_hidden_count);
     return H[132].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+// RSHIDE (slots 133-134): HeroesScreen (BOTS roster) leaves the BLDGACT/BLDGSWAP cosmetic
+// base-building objects alive, so its 3D camera can render them over roster bots.  RSENTER is
+// the roster-entry hide pass and emits TSDIAG/TSBND evidence; RSEXIT is the symmetric measured
+// HeroesScreen exit trigger and restores only the objects that RSENTER switched off.
+void* hook_133(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    flog("RSENTER this=%p",a0);
+    g_ts_screen_active = 1;
+    tshide_hide(1);
+    return H[133].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_134(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    tshide_screen_exit("RSEXIT");
+    return H[134].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 // Card-state logger used only for RE.  @0x88 is true exactly when Init receives a
 // BaseNodeController provider; @0x48 selects the active-FX branch.  The remaining
 // fields are enough to tell whether the card has a tile and a collider component.
@@ -2835,7 +2862,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_97,hook_98,hook_99,hook_100,hook_101,hook_102,
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
-    hook_128,hook_129,hook_130,hook_131,hook_132 };
+    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

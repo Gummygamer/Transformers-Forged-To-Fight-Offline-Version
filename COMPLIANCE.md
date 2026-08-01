@@ -59,6 +59,14 @@ already-shipped local loopback server compute the same response bodies the Pytho
 produced, so the bundled build behaves like the host-server build. It adds no network
 interception, no new binary patch, and no new hook.
 
+The BOTS-roster navigation fix likewise introduces no authored game values: `Server/gamedata.py`
+is unchanged, so it adds no invented numbers, names, or content. Its arm64 `RSENTER`/`RSEXIT`
+hooks only call `GameObject.SetActive` on base-builder objects that the client's own base-board
+code already activated and then failed to deactivate when roster navigation bypassed
+`BaseBoard.LeaveBoard`. They add no network interception, no binary patch of shipped content,
+and no new capability. Temporary read-only diagnostic hooks used to establish the affected
+navigation path were removed before shipping.
+
 ## Why this is copyright-compliant
 
 - **Everything authored here is original.** Kabam's real balance data (the roster
