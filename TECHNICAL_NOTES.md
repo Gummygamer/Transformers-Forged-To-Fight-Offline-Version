@@ -134,6 +134,19 @@ path field inside that structure. The hook is the discovery loop. Seed a respons
 read which keys the client asked for, synthesize the next piece, verify, and repeat. Every
 screen in this build was brought up that way.
 
+### Roster-stage cleanup
+
+The cosmetic base-builder workarounds can leave their activated objects alive when a screen is
+opened without taking `BaseBoard.LeaveBoard`. The squad-screen cleanup uses slots 122–132
+(`TSHIDE`). The matching BOTS-roster cleanup is arm64 slots 133 `RSENTER`
+(`HeroesScreen.WindowEnter`, `0xC587B8`) and 134 `RSEXIT`
+(`HeroesScreen.WindowExit`, `0xC595AC`): entry hides the tracked residual objects and exit
+restores exactly that set. Tapping a roster tile opens `HeroActionPopup`, layered over
+`HeroesScreen`, so the roster hide set remains active in the action/detail modal and needs no
+second slot pair. The armv7 implementation is deliberately deferred; these slots are arm64-only.
+The temporary read-only special/transform and popup probes used to verify this were removed from
+the shipped hook.
+
 ## Decompile workflow
 
 Use a headless Ghidra project over the library. Import once with the function name labels

@@ -11,7 +11,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CC="$HOME/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
 LOGF=/data/data/$PKG/files/dotkeys.log
 echo "[*] build"
-"$CC" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o "$HERE/libdothook.so" "$HERE/hook.c" -llog
+"$CC" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o "$HERE/libdothook.so" \
+  "$HERE/hook.c" "$HERE/inapk_server.c" -llog
 LIBDIR=$(adb -s "$D" shell "find /data/app -type d -name arm64 2>/dev/null | grep bigrobot" | tr -d '\r')
 echo "[*] deploy -> $LIBDIR"
 adb -s "$D" shell am force-stop $PKG
