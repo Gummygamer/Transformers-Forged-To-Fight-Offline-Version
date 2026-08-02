@@ -67,6 +67,14 @@ code already activated and then failed to deactivate when roster navigation bypa
 and no new capability. Temporary read-only diagnostic hooks used to establish the affected
 navigation path were removed before shipping.
 
+The level-3 cinematic-special transform fix likewise leaves `Server/gamedata.py` unchanged, so
+it authors no invented numbers, names, or game content. Its arm64 `SP3XNEW`/`SP3XHOLD`/`SP3XIN`/
+`SP3XOUT` hooks only call the client's own `PlayerController.Transform` on the bot the client
+itself already placed in its cinematic special-attack state, restoring a transition omitted by
+the client's own authored move data. They add no network interception, no binary patch of
+shipped content, no new capability, and no game assets or binaries to the repository. Temporary
+read-only diagnostic hooks used to locate the missing transform were removed before shipping.
+
 ## Why this is copyright-compliant
 
 - **Everything authored here is original.** Kabam's real balance data (the roster
