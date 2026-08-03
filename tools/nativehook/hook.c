@@ -403,16 +403,6 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // RSEXIT restores exactly that recorded set on the measured HeroesScreen exit path.
     { 0xC587B8, "RSENTER",    0, 0 }, // 133 HeroesScreen.WindowEnter -> hide residual base objects
     { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> restore hidden base objects
-    // SP3XFIX (shipped): a 3-bar (level-3) cinematic special must visibly transform the bot.
-    // Measured on this build: the authored SP3 move sequence contains no TransformMoveEvent,
-    // so nothing ever calls PlayerController.Transform during the cinematic special state.
-    // These slots latch the controller for the duration of that state, apply the alt form
-    // after the state's own entry reset, hold it against the state's per-frame
-    // Transform(false) housekeeping, and restore robot form on exit.
-    { 0xDE7CF4, "SP3XNEW",   0, 0 }, // 135 Simulation.RegisterComponents -> clear the latch per combat
-    { 0x117A67C,"SP3XHOLD",  0, 0 }, // 136 PlayerController.Transform(bool) -> hold the alt form
-    { 0x1174038,"SP3XIN",    0, 0 }, // 137 PlayerCinematicSpecialAttackState.OnEnter -> apply alt form
-    { 0x1174484,"SP3XOUT",   0, 0 }, // 138 ...OnExit -> restore robot form
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -423,25 +413,6 @@ static volatile int g_inhb = 0;
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
 // are prefixed "QS " so the quest-list/details field keys can be grepped out.
 static volatile int g_inqs = 0;
-// SP3XFIX (shipped): tiny controller latch held only for a cinematic SP3.
-static void* g_sp3_xf[4];
-static int sp3_xf_has(void* pc) {
-    if (!pc) return 0;
-    for (int i = 0; i < 4; i++) if (g_sp3_xf[i] == pc) return 1;
-    return 0;
-}
-static void sp3_xf_add(void* pc) {
-    if (!pc) return;
-    if (sp3_xf_has(pc)) return;
-    for (int i = 0; i < 4; i++) if (!g_sp3_xf[i]) { g_sp3_xf[i] = pc; return; }
-}
-static void sp3_xf_remove(void* pc) {
-    if (!pc) return;
-    for (int i = 0; i < 4; i++) if (g_sp3_xf[i] == pc) g_sp3_xf[i] = NULL;
-}
-static void sp3_xf_clear(void) {
-    for (int i = 0; i < 4; i++) g_sp3_xf[i] = NULL;
-}
 // Runtime input fallback, not a data substitute: populated only after RelicCard.Init
 // has received a BaseNodeController and a tile with an actual building.
 static void* g_base_tap_card = NULL;
@@ -2878,42 +2849,6 @@ void* hook_94(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 #endif
     return H[94].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
-void* hook_135(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
-    sp3_xf_clear();
-    return H[135].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-}
-void* hook_136(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
-    PROTECT({
-        if (sp3_xf_has(a0) && !(uintptr_t)a1) { flog("SP3XHOLD pc=%p", a0); a1 = (void*)1; }
-    });
-    return H[136].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-}
-void* hook_137(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
-    void* r=H[137].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    // SP3XFIX (shipped): OnEnter resets the visual state, so apply after its original work.
-    PROTECT({
-        void* pc=fld_p(a0,0x18);
-        if (obj_ok(pc)) {
-            sp3_xf_add(pc);
-            flog("SP3XFIX enter pc=%p", pc);
-            ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,1,NULL);
-        }
-    });
-    return r;
-}
-// SP3XFIX (shipped): drop the hold before restoring robot form at cinematic exit.
-void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
-    void* pc=fld_p(a0,0x18);
-    sp3_xf_remove(pc);
-    void* r=H[138].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT({
-        if (obj_ok(pc)) {
-            flog("SP3XFIX exit pc=%p", pc);
-            ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,0,NULL);
-        }
-    });
-    return r;
-}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -2927,8 +2862,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_97,hook_98,hook_99,hook_100,hook_101,hook_102,
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
-    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,
-    hook_135,hook_136,hook_137,hook_138 };
+    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

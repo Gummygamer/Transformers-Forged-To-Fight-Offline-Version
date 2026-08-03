@@ -67,13 +67,14 @@ code already activated and then failed to deactivate when roster navigation bypa
 and no new capability. Temporary read-only diagnostic hooks used to establish the affected
 navigation path were removed before shipping.
 
-The level-3 cinematic-special transform fix likewise leaves `Server/gamedata.py` unchanged, so
-it authors no invented numbers, names, or game content. Its arm64 `SP3XNEW`/`SP3XHOLD`/`SP3XIN`/
-`SP3XOUT` hooks only call the client's own `PlayerController.Transform` on the bot the client
-itself already placed in its cinematic special-attack state, restoring a transition omitted by
-the client's own authored move data. They add no network interception, no binary patch of
-shipped content, no new capability, and no game assets or binaries to the repository. Temporary
-read-only diagnostic hooks used to locate the missing transform were removed before shipping.
+The level-3 cinematic-special transform investigation ended in a negative result and ships no
+fix. The four arm64 hooks it had previously added (`SP3XNEW`, `SP3XHOLD`, `SP3XIN`, `SP3XOUT`)
+were measured to have no visible effect and have been removed again, so the shipped hook set is
+smaller than before rather than larger. `Server/gamedata.py` is unchanged, so no invented
+numbers, names, or game content were authored. The temporary read-only diagnostic hooks used
+during the investigation only observed the client's own calls and were removed before shipping;
+they added no network interception, no binary patch of shipped content, no new capability, and
+no game assets or binaries to the repository.
 
 ## Why this is copyright-compliant
 
