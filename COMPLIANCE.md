@@ -123,3 +123,21 @@ Keep the same discipline: author original numbers and text, do not import or tra
 any recovered Kabam data if some ever surfaces, and never add game assets or binaries to
 this repository. Follow the loop the README describes — author in the shapes
 `re_notes/dump.cs` proves the client parses, verify against your own client, repeat.
+
+## Roster-scroll crash guard
+
+The roster-scroll crash guard authors no new game values whatsoever: no numbers, names,
+balance data, stats, or strings of game content. Nothing was transcribed from recovered Kabam
+server data. It is pure client-side crash-guard plumbing. `Server/gamedata.py` is unchanged;
+the change is confined to this revival's own native hook shim, which is original code written
+for the project.
+
+The only externally-derived facts used are observations of the user's own installed client
+binary: the three IL2CPP function addresses `0xB210CC`, `0x1E5F444`, and `0x1404E6C`, plus the
+runtime type name `HeroPortrait` used as a discriminant. Like the wire-key names and addresses
+already documented above, these are interoperability and diagnostic observations of the user's
+own binary, not redistributed game content.
+
+The guard adds no capability. It adds guarded early returns to three client functions to prevent
+a segfault; it adds no network interception, no certificate bypass, and no patching of shipped
+content bundles.

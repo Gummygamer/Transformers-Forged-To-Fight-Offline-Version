@@ -59,6 +59,36 @@ typedef void* (*fn8)(void*,void*,void*,void*,void*,void*,void*,void*);
 typedef void* (*fn1)(void*);
 typedef void* (*strnew_t)(const char*);   // il2cpp_string_new
 typedef void* (*arraynew_t)(void*, size_t); // il2cpp_array_new(elementClass, len)
+
+// Validate just enough of an Il2CppObject to make a dispatch decision: object -> klass ->
+// klass.name. All three reads are speculative when this is reached from a mismatched native
+// delegate, so keep them inside PROTECT rather than relying on a numeric pointer-range test.
+static int il2cpp_object_class(void* o, char* out, int cap){
+    int ok=0;
+    if(!out || cap<2) return 0;
+    out[0]=0;
+    PROTECT(
+        uintptr_t p=(uintptr_t)o;
+        if(p>=0x100000 && !(p&7)){
+            uintptr_t k=*(uintptr_t*)p;
+            if(k>=0x100000 && !(k&7)){
+                char* n=*(char**)(k+0x10); int i=0;
+                if((uintptr_t)n>=0x100000){
+                    for(;i<cap-1;i++){
+                        char c=n[i];
+                        if(!c) break;
+                        if(c<0x20 || c>=0x7f) { i=0; break; }
+                        out[i]=c;
+                    }
+                    out[i]=0;
+                    ok=(i>0);
+                }
+            }
+        }
+    );
+    if(!ok) out[0]=0;
+    return ok;
+}
 static uintptr_t g_base;            // libil2cpp base (set in installer)
 static strnew_t g_strnew = NULL;    // il2cpp_string_new (dlsym'd in installer)
 static arraynew_t g_arraynew = NULL; // il2cpp_array_new (dlsym'd in installer)
@@ -231,7 +261,7 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // falls into RefreshDisplay. Force the passed chapterData.unlocked(@0x30)=1 / completed(@0x31)=0
     // BEFORE the original runs, so the panel both renders unlocked and enters the mission on tap.
     { 0xD14470, "FORCECHAPSD", 2, 0 }, // 76 ChapterPanel.SetData -> force chapterData.unlocked=1
-    // FIXWRAPMI (session 10): make selecting a bot into the STORY squad not crash. Tapping any
+    // FIXWRAPMI (sessions 10/roster-scroll): make selecting a bot into the STORY squad not crash. Tapping any
     // bot in the EDIT SQUAD roster hard-SIGSEGVs at libil2cpp 0x152b5ec inside
     // SafeAction.<>c__DisplayClass1_0<object>.<Wrap>b__0(T obj) (entry 0x152B570). That method is
     // generic-shared, so its hidden last arg (x2) is the MethodInfo* it needs to resolve
@@ -239,9 +269,11 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // it through a void-signature delegate Invoke chain (OnDragNotification.Invoke -> EB.Action.Invoke
     // -> here) that does NOT thread the gshared MethodInfo through, so x2 arrives NULL -> null-deref.
     // Every legit invocation of this one <object> instantiation passes the SAME MethodInfo, so cache
-    // the first non-null x2 and substitute it whenever x2 is null. this(x0)/obj(x1) are intact; only
-    // the RGCTX pointer is missing, so restoring it lets cb.Invoke(obj) (the real add-to-squad
-    // callback) run. Same targeted-arg-fix approach as SETACTFIX (slot 58).
+    // the first non-null x2 and substitute it whenever x2 is null. The later BOTS-scroll crash at
+    // 0x152B5FC (+0x8C from this entry) proved the old a2<0x1000 guard was insufficient: a malformed
+    // dispatch can carry a non-null MethodInfo-looking value or bogus obj. The hook learns the exact
+    // wrapper `this` from its observed null-MethodInfo dispatch, then validates obj->klass->name under
+    // PROTECT only for that wrapper: other SafeAction<object> closures legitimately accept null obj.
     { 0x152B570, "FIXWRAPMI", 2, 0 }, // 77 SafeAction.<Wrap>b__0<object> -> restore null gshared MethodInfo
     // STORY encounter discovery: MapTile.Deserialize calls this factory once for every
     // entry in tile["entities"]. Log the two parsed type strings and the returned runtime
@@ -403,6 +435,22 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // RSEXIT restores exactly that recorded set on the measured HeroesScreen exit path.
     { 0xC587B8, "RSENTER",    0, 0 }, // 133 HeroesScreen.WindowEnter -> hide residual base objects
     { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> restore hidden base objects
+    // ROSTERDRAGFIX (roster-scroll): EditTeamScreenPresentation.OnGridItemClicked(this, gridItem)
+    // @0xB210CC is called directly from UIScrollView.OnDragNotification.Invoke (@0x1404E6C) while
+    // UIDragScrollView.OnDrag (@0x1BF37E0) / UIScrollView.Drag (@0x1E5F444) handles a swipe. The
+    // resulting first picker flick hard-SIGSEGVs at 0xB21178 (+0xAC): the no-argument delegate has
+    // supplied a register value rather than the IGridItem expected by this method. Real roster-card
+    // taps pass the concrete HeroPortrait IGridItem. Validate object->klass->name under PROTECT and
+    // suppress only non-HeroPortrait calls, preserving the normal add-to-squad callback.
+    { 0xB210CC, "ROSTERDRAGFIX", 2, 0 }, // 135 EditTeamScreenPresentation.OnGridItemClicked -> reject drag arg
+    // ROSTERDRAGCHOKE (roster-scroll fallback): the live BOTS retry proved that a second malformed
+    // delegate route reaches EB.Action.Invoke @0x151233c directly from OnDragNotification.Invoke,
+    // bypassing FIXWRAPMI @0x152B570. Bracket UIScrollView.Drag @0x1E5F444 and suppress only this
+    // notification's Invoke @0x1404E6C. The live retry showed the client invokes the same broken
+    // delegate after the Drag frame unwinds, so the choke must suppress this notification itself;
+    // the scroll function still runs and real picker card taps never use this no-arg delegate.
+    { 0x1E5F444, "ROSTERDRAGCTX",   2, 0 }, // 136 UIScrollView.Drag -> set dynamic drag extent
+    { 0x1404E6C, "ROSTERDRAGCHOKE", 2, 0 }, // 137 UIScrollView.OnDragNotification.Invoke -> skip in drag
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -413,6 +461,12 @@ static volatile int g_inhb = 0;
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
 // are prefixed "QS " so the quest-list/details field keys can be grepped out.
 static volatile int g_inqs = 0;
+// The one SafeAction<object> wrapper observed entering through the broken roster-drag delegate.
+// It is learned at runtime from its definitive null MethodInfo argument in hook_77.
+static void* g_fixwrapmi_bad_this = NULL;
+// Per-thread dynamic extent of UIScrollView.Drag. OnDragNotification.Invoke is legitimate in
+// other contexts, but the shipped client mis-wires its no-arg drag notification to roster clicks.
+static __thread int g_uiscrollview_drag_depth = 0;
 // Runtime input fallback, not a data substitute: populated only after RelicCard.Init
 // has received a BaseNodeController and a tile with an actual building.
 static void* g_base_tap_card = NULL;
@@ -768,10 +822,19 @@ void* hook_76(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 // A gshared invocation with a null MethodInfo can never be legitimate, so SKIP it entirely (return
 // without calling the body). The real bot-select add path (the grid item's own click handler) is a
 // separately-wired, correctly-signatured call that passes a non-null MethodInfo, so it is unaffected
-// -- only this spurious drag-notification callback is suppressed.
+// -- only this spurious drag-notification callback is suppressed. The BOTS crash at 0x152B5FC
+// (+0x8C) shows a2's old null-only guard was not enough. Learn that exact wrapper from the broken
+// null-a2 dispatch, then validate a1's managed-object class only for it; unrelated SafeAction<object>
+// closures empirically receive legitimate null payloads during startup and must still run.
 void* hook_77(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     if ((uintptr_t)a2 < 0x1000) {   // null / bogus MethodInfo -> broken gshared call, skip
+        g_fixwrapmi_bad_this=a0;
         static int n=0; if(n<8){ n++; flog("FIXWRAPMI skip null-MethodInfo call (this=%p obj=%p)", a0, a1); }
+        return NULL;
+    }
+    char cls[80];
+    if(a0==g_fixwrapmi_bad_this && !il2cpp_object_class(a1,cls,sizeof cls)){
+        static int n=0; if(n<8){ n++; flog("FIXWRAPMI skip invalid obj (this=%p obj=%p mi=%p)",a0,a1,a2); }
         return NULL;
     }
     return H[77].orig(a0,a1,a2,a3,a4,a5,a6,a7);
@@ -2736,6 +2799,44 @@ void* hook_134(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     tshide_screen_exit("RSEXIT");
     return H[134].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+// slot 135 ROSTERDRAGFIX: EditTeamScreenPresentation.OnGridItemClicked(this=a0, gridItem=a1)
+// @0xB210CC. The picker SIGSEGV is the body at 0xB21178 (+0xAC) running after the no-argument
+// UIScrollView.OnDragNotification.Invoke (@0x1404E6C) delegate dispatches this one-argument
+// callback during UIDragScrollView.OnDrag (@0x1BF37E0) / UIScrollView.Drag (@0x1E5F444). The
+// drag value in x1 is not an IGridItem. Genuine roster-card taps supply the concrete HeroPortrait
+// implementation, so read object->klass->name with the SIGSEGV guard and call the original only
+// for that exact type. The log records both shapes on device, proving this is an argument guard,
+// not a blanket suppression that would prevent selecting a bot into the squad.
+void* hook_135(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    char cls[80];
+    int valid=il2cpp_object_class(a1,cls,sizeof cls);
+    if(!valid || strcmp(cls,"HeroPortrait")){
+        static int n=0;
+        if(n<24){ n++; flog("ROSTERDRAGFIX skip this=%p arg=%p class='%s'",a0,a1,valid?cls:"<invalid>"); }
+        return NULL;
+    }
+    static int n=0;
+    if(n<8){ n++; flog("ROSTERDRAGFIX pass this=%p arg=%p class='%s'",a0,a1,cls); }
+    return H[135].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// slots 136-137 ROSTERDRAGCHOKE: The first post-fix BOTS retry crashed at 0x151233c in
+// EB.Action.Invoke, with 0x1405050 (OnDragNotification.Invoke) and 0x1E5F3F0 (UIScrollView.Drag)
+// immediately below it. That path does not enter SafeAction.<Wrap>b__0, so its impossible argument
+// cannot be repaired by slot 77. The first dynamic-extent retry logged one suppression but then
+// crashed in a second Invoke after the Drag frame had unwound; all calls to this dedicated no-arg
+// notification are therefore suppressed. Returning NULL is correct for the void delegate; the Drag
+// method continues to update scroll position, and genuine picker card taps use OnGridItemClicked.
+void* hook_136(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    g_uiscrollview_drag_depth++;
+    void* r=H[136].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    g_uiscrollview_drag_depth--;
+    return r;
+}
+void* hook_137(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    static int n=0;
+    if(n<32){ n++; flog("ROSTERDRAGCHOKE skip notification=%p dragDepth=%d",a0,g_uiscrollview_drag_depth); }
+    return NULL;
+}
 // Card-state logger used only for RE.  @0x88 is true exactly when Init receives a
 // BaseNodeController provider; @0x48 selects the active-FX branch.  The remaining
 // fields are enough to tell whether the card has a tile and a collider component.
@@ -2862,7 +2963,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_97,hook_98,hook_99,hook_100,hook_101,hook_102,
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
-    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134 };
+    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

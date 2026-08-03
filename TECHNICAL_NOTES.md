@@ -147,6 +147,52 @@ second slot pair. The armv7 implementation is deliberately deferred; these slots
 The temporary read-only special/transform and popup probes used to verify this were removed from
 the shipped hook.
 
+### Roster-scroll crash guard
+
+The reported symptom was: *"Upon scrolling down the roster list to edit the team, the game
+crashes."* Both affected roster lists were native process deaths, not managed exceptions: the
+main-menu BOTS grid survived nine downward flicks and died on the tenth, while STORY → EDIT
+SQUAD died on its first flick. The decisive arm64-v8a tombstones were SIGSEGVs (signal 11, fault
+addresses `0x0` / `0x150048`) and contained no authored server data, so this could not be a
+`Server/gamedata.py` fix.
+
+There are two bad delegate/ABI routes. The first invokes
+`EditTeamScreenPresentation.OnGridItemClicked` from the no-argument
+`UIScrollView.OnDragNotification` chain, leaving it with a bogus or absent grid-item argument
+(and on the generic-shared path an absent hidden `MethodInfo*`). The second invokes
+`EB.Action.Invoke` at `0x151233c` directly from `UIScrollView.OnDragNotification.Invoke` at
+`0x1405050`, bypassing slot 77 entirely.
+
+- Slot 135 `ROSTERDRAGFIX` (`EditTeamScreenPresentation.OnGridItemClicked`, `0xB210CC`) reads
+  `a1 -> klass -> klass.name` under `PROTECT` and enters the original only when the class is
+  exactly `HeroPortrait`. That is the correct discriminant because a real roster-card tap passes
+  that concrete `IGridItem`; the drag delegate does not.
+- Slot 136 `ROSTERDRAGCTX` (`UIScrollView.Drag`, `0x1E5F444`) brackets the original call with
+  the per-thread `g_uiscrollview_drag_depth` marker.
+- Slot 137 `ROSTERDRAGCHOKE` (`UIScrollView.OnDragNotification.Invoke`, `0x1404E6C`) suppresses
+  this dedicated no-argument notification delegate. The first dynamic-extent attempt proved a
+  second bad invoke can occur after the Drag frame unwinds, so the shipped predicate is the
+  notification itself rather than a broad UI-event filter. `UIScrollView.Drag` still performs
+  the scroll, and genuine picker-card taps take the distinct `OnGridItemClicked` route.
+
+The pre-existing slot 77 `FIXWRAPMI` (`0x152B570`) still rejects a null or low hidden
+`MethodInfo*`. It is hardened to reject an unreadable `a1` only when `a0` is the one wrapper
+`this` learned from the known broken null-MethodInfo dispatch. That qualification is
+load-bearing: legitimate startup `SafeAction<object>` wrappers can pass `a1 == NULL`, so a
+broader predicate regressed startup.
+
+Live verification on arm64-v8a was green: BOTS accepted 14 downward and four upward flicks with
+a stable pid, genuinely reaching Wheeljack, Scorponok, Prowl, Ironhide, Sunstreaker, and
+Sideswipe. EDIT SQUAD accepted eight downward and four upward flicks with a stable pid, reaching
+Hound, Grindor, and Bonecrusher. A post-scroll Hound tap remained selectable: it filled the
+empty third squad slot and changed TOTAL from 15,138 to 18,223 (+3,085, exactly Hound's rating),
+with `ROSTERDRAGFIX pass ... class='HeroPortrait'`, zero skip lines, and a surviving ACCEPT tap.
+The evidence capture is `media/roster-scroll-fix.mp4`; it is intentionally ignored and not
+committed.
+
+These slots are arm64-v8a only. The `armeabi-v7a` port is out of scope: its addresses must be
+re-derived against that binary, not translated from these arm64 values.
+
 ## Decompile workflow
 
 Use a headless Ghidra project over the library. Import once with the function name labels
