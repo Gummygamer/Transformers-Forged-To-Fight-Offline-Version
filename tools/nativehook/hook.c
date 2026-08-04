@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <link.h>
 #include <dlfcn.h>
+#include <time.h>
 #include "inapk_server.h"
 
 // forward decls (used by seg_handler below, defined later)
@@ -451,6 +452,23 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // the scroll function still runs and real picker card taps never use this no-arg delegate.
     { 0x1E5F444, "ROSTERDRAGCTX",   2, 0 }, // 136 UIScrollView.Drag -> set dynamic drag extent
     { 0x1404E6C, "ROSTERDRAGCHOKE", 2, 0 }, // 137 UIScrollView.OnDragNotification.Invoke -> skip in drag
+    // PROPGOACT (alternate-form rendering): PlayerController.Transform(bool) @0x117A67C activates
+    // the transformed prop and deactivates character_model; both end in PropData.SetActiveInternal
+    // @0xEA023C, which only calls Renderer.set_enabled on PropData._renderers. That flag has no
+    // visible effect in this build, leaving the robot drawn and the alternate body hidden. Mirror
+    // the requested state onto each renderer's GameObject (Component.get_gameObject ->
+    // GameObject.SetActive) so the swap occurs; the symmetric Transform(false) restores the robot.
+    { 0xEA023C, "PROPGOACT", 2, 0 }, // 138 PropData.SetActiveInternal -> mirror prop state onto renderer GameObjects
+    // SP3MOVE (level-3 alternate-form resolution): this build's animator enters SpecialAttack03,
+    // but its MoveSet has no matching MoveInfo, so no authored MoveEvent can run. The SP3 asset
+    // does not exist in the bundle; resolve only that absent state to this character's real
+    // alternate-form move. Prefer its authored special moves, then any TransformMoveEvent, so the
+    // normal MoveInfo event path performs the transformation rather than a direct state-side call.
+    { 0x100A76C, "SP3MOVE", 2, 0 }, // 139 MoveSet.GetMove(int hash) -> resolve the absent SP3 move
+    { 0xDE7CF4, "SP3XNEW", 2, 0 }, // 140 Simulation.RegisterComponents -> clear the cinematic transform latch at combat start
+    { 0x117A67C, "SP3XHOLD", 2, 0 }, // 141 PlayerController.Transform(bool) -> hold alternate form during a cinematic special
+    { 0x1174038, "SP3XIN", 2, 0 }, // 142 PlayerCinematicSpecialAttackState.OnEnter -> apply alternate form after entry reset
+    { 0x1174484, "SP3XOUT", 2, 0 }, // 143 PlayerCinematicSpecialAttackState.OnExit -> restore robot form after cinematic special
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -458,6 +476,68 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
 // key read is prefixed "HB " so the ctor's exact field keys can be grepped out of
 // the flood of general parse keys. Drives authoring login `heroes` BCGHeroBase JSON.
 static volatile int g_inhb = 0;
+// SP3XFIX (shipped): a 3-bar (level-3) cinematic special must visibly transform the bot.
+// Measured on this build: the character's authored SP3 move does not exist, and the transform
+// event of the move that does carry one is gated on a state name that the cinematic special is
+// never in, so nothing ever calls PlayerController.Transform during that state. These slots latch
+// the controller for the duration of the cinematic state, apply the alt form after the state's own
+// entry reset, hold it against the per-frame Transform(false) housekeeping, and restore robot form
+// on exit. The prop swap itself is rendered by slot 138.
+static void* g_sp3_xf[4];
+static void* g_sp3_xf_props[8];
+static int g_sp3_xf_capture_props = 0;
+static uint64_t g_sp3_xf_since_ms = 0;
+static int g_sp3_xf_timeout_logged = 0;
+static int g_propgoinv_lines = 0;
+static int g_sp3xhold_lines = 0;
+static uint64_t propgo_now_ms(void);
+static void sp3_xf_props_clear(void) {
+    for (int i = 0; i < 8; i++) g_sp3_xf_props[i] = NULL;
+}
+static int sp3_xf_props_has(void* prop) {
+    if (!prop) return 0;
+    for (int i = 0; i < 8; i++) if (g_sp3_xf_props[i] == prop) return 1;
+    return 0;
+}
+static void sp3_xf_props_add(void* prop) {
+    if (!prop || sp3_xf_props_has(prop)) return;
+    for (int i = 0; i < 8; i++) if (!g_sp3_xf_props[i]) { g_sp3_xf_props[i] = prop; return; }
+}
+static int sp3_xf_any(void) {
+    for (int i = 0; i < 4; i++) if (g_sp3_xf[i]) return 1;
+    return 0;
+}
+static int sp3_xf_has(void* pc) {
+    if (!pc) return 0;
+    for (int i = 0; i < 4; i++) if (g_sp3_xf[i] == pc) return 1;
+    return 0;
+}
+static void sp3_xf_add(void* pc) {
+    if (!pc) return;
+    if (sp3_xf_has(pc)) return;
+    for (int i = 0; i < 4; i++) if (!g_sp3_xf[i]) {
+        g_sp3_xf[i] = pc;
+        g_sp3_xf_since_ms = propgo_now_ms();
+        g_sp3_xf_timeout_logged = 0;
+        return;
+    }
+}
+static void sp3_xf_remove(void* pc) {
+    if (!pc) return;
+    for (int i = 0; i < 4; i++) if (g_sp3_xf[i] == pc) g_sp3_xf[i] = NULL;
+    if (!sp3_xf_any()) {
+        sp3_xf_props_clear();
+        g_sp3_xf_since_ms = 0;
+        g_sp3_xf_capture_props = 0;
+    }
+}
+static void sp3_xf_clear(void) {
+    for (int i = 0; i < 4; i++) g_sp3_xf[i] = NULL;
+    sp3_xf_props_clear();
+    g_sp3_xf_capture_props = 0;
+    g_sp3_xf_since_ms = 0;
+    g_sp3_xf_timeout_logged = 0;
+}
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
 // are prefixed "QS " so the quest-list/details field keys can be grepped out.
 static volatile int g_inqs = 0;
@@ -2950,6 +3030,243 @@ void* hook_94(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 #endif
     return H[94].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+typedef void (*propgo_set_bool_t)(void*,int,void*);
+static int g_propgoact_lines = 0;
+static int g_sp3move_lines = 0;
+static int g_sp3cand_dumped = 0;
+static int g_sp3cand_lines = 0;
+static uint64_t propgo_now_ms(void){ struct timespec ts; if(clock_gettime(CLOCK_MONOTONIC,&ts)) return 0;
+    return (uint64_t)ts.tv_sec*1000u + (uint64_t)ts.tv_nsec/1000000u; }
+void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    char name[64]; name[0]=0;
+    int propgo_special=0;
+    int req=(intptr_t)a1 ? 1 : 0;
+    PROTECT({
+        if(obj_ok(a0)) read_str(*(void**)((char*)a0+0x10), name, sizeof name);
+        if(!strcmp(name,"character_model") || !strcmp(name,"transformed")){
+            propgo_special=1;
+            if(g_sp3_xf_capture_props) sp3_xf_props_add(a0);
+            if(sp3_xf_props_has(a0) && g_sp3_xf_since_ms){
+                uint64_t now=propgo_now_ms();
+                if(now-g_sp3_xf_since_ms > 12000u){
+                    if(!g_sp3_xf_timeout_logged){
+                        g_sp3_xf_timeout_logged=1;
+                        flog("SP3XFIX timeout tms=%llu",(unsigned long long)now);
+                    }
+                    sp3_xf_clear();
+                }else{
+                    int forced=!strcmp(name,"transformed") ? 1 : 0;
+                    if(req!=forced){
+                        if(g_propgoinv_lines<200){ g_propgoinv_lines++;
+                            flog("PROPGOINV prop=%s req=%d forced=%d tms=%llu",name,req,forced,(unsigned long long)now); }
+                        a1=(void*)(intptr_t)forced;
+                    }
+                }
+            }
+        }
+    });
+    void* r = H[138].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({
+        if(propgo_special){
+            int on = (intptr_t)a1 ? 1 : 0;
+            int applied = 0;
+            void* arr=*(void**)((char*)a0+0x70);
+            if(obj_ok(arr)){
+                int n=*(int32_t*)((char*)arr+0x18);
+                if(n>0 && n<=256) for(int i=0;i<n;i++){
+                    void* rr=*(void**)((char*)arr+0x20+8*i);
+                    if(obj_ok(rr)){
+                        void* go=((fn8)(g_base+0x1B4BD28))(rr,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                        if(obj_ok(go)){ ((propgo_set_bool_t)(g_base+0x1B50CA8))(go,on,NULL); applied++; }
+                    }
+                }
+            }
+            if(g_propgoact_lines < 200){ g_propgoact_lines++;
+                flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
+        }
+    });
+    return r;
+}
+static int sp3move_events_xform(void* move, int* nev){
+    if(nev) *nev=-1;
+    if(!obj_ok(move)) return 0;
+    void* events=fld_p(move,0x28);
+    int n=list_count(events);
+    void* items=fld_p(events,0x10);
+    if(nev) *nev=n;
+    if(!obj_ok(items) || n<=0) return 0;
+    int alen=*(int32_t*)((char*)items+0x18);
+    if(alen<0 || alen>256 || n>alen || n>256) return 0;
+    for(int i=0;i<n;i++){
+        void* event=*(void**)((char*)items+0x20+8*i);
+        if(!obj_ok(event)) continue;
+        char cls[64]; obj_class(event,cls,sizeof cls);
+        if(!strcmp(cls,"TransformMoveEvent")) return 1;
+    }
+    return 0;
+}
+static int sp3_ci_has(const char* hay, const char* needle){
+    if(!hay || !needle) return 0;
+    if(!*needle) return 1;
+    for(;*hay;hay++){
+        const char* h=hay;
+        const char* n=needle;
+        while(*h && *n){
+            char hc=*h, nc=*n;
+            if(hc>='A' && hc<='Z') hc=(char)(hc-'A'+'a');
+            if(nc>='A' && nc<='Z') nc=(char)(nc-'A'+'a');
+            if(hc!=nc) break;
+            h++; n++;
+        }
+        if(!*n) return 1;
+    }
+    return 0;
+}
+static int sp3_is_excluded(const char* name, const char* anim){
+    static const char* words[]={"hitreaction","hit_reaction","flinch","stagger","knock","stun","dizzy",
+                                "getup","idle","block","parry","death","victory","entrance","taunt",
+                                "intro","outro","respawn"};
+    for(unsigned int i=0;i<sizeof(words)/sizeof(words[0]);i++)
+        if(sp3_ci_has(name,words[i]) || sp3_ci_has(anim,words[i])) return 1;
+    return 0;
+}
+void* hook_139(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[139].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    if(r) return r;
+    PROTECT({
+        int32_t hash=(int32_t)(intptr_t)a1;
+        if(hash == -1919714467 || hash == -2049617737){
+            void* moves=fld_p(a0,0x18);
+            void* items=fld_p(moves,0x10);
+            int n=list_count(moves);
+            if(obj_ok(items) && n>0){
+                int alen=*(int32_t*)((char*)items+0x18);
+                if(alen>=0 && alen<=256 && n<=alen && n<=256){
+                    void* chosen=NULL; int rank=0; int nev=-1; int xform=0;
+                    if(!g_sp3cand_dumped){
+                        g_sp3cand_dumped=1;
+                        for(int i=0;i<n;i++){
+                            void* move=*(void**)((char*)items+0x20+8*i);
+                            if(!obj_ok(move)) continue;
+                            char name[96]; char anim[96]; name[0]=anim[0]=0;
+                            read_str(fld_p(move,0x10),name,sizeof name);
+                            read_str(fld_p(move,0x18),anim,sizeof anim);
+                            int this_nev=-1;
+                            int this_xform=sp3move_events_xform(move,&this_nev);
+                            if((this_xform || !strncmp(anim,"Base.Special",12)) && g_sp3cand_lines<40){
+                                g_sp3cand_lines++;
+                                flog("SP3CAND i=%d name=%s anim=%s nev=%d xform=%d excl=%d tms=%llu", i, name, anim,
+                                     this_nev, this_xform, sp3_is_excluded(name,anim), (unsigned long long)propgo_now_ms());
+                            }
+                        }
+                    }
+                    for(int want=1;want<=5 && !chosen;want++){
+                        for(int i=0;i<n;i++){
+                            void* move=*(void**)((char*)items+0x20+8*i);
+                            if(!obj_ok(move)) continue;
+                            char name[96]; char anim[96]; name[0]=anim[0]=0;
+                            read_str(fld_p(move,0x10),name,sizeof name);
+                            read_str(fld_p(move,0x18),anim,sizeof anim);
+                            int this_nev=-1;
+                            if(!sp3move_events_xform(move,&this_nev)) continue;
+                            if(sp3_is_excluded(name,anim)) continue;
+                            int match=(want==1 && !strcmp(anim,"Base.SpecialAttack02")) ||
+                                      (want==2 && !strcmp(anim,"Base.SpecialAttack01")) ||
+                                      (want==3 && !strcmp(anim,"Base.HeavyAttack")) ||
+                                      (want==4 && !strncmp(anim,"Base.SpecialAttack",18)) ||
+                                      (want==5 && (sp3_ci_has(name,"heavy") || sp3_ci_has(anim,"heavy") ||
+                                                   sp3_ci_has(name,"medium") || sp3_ci_has(anim,"medium") ||
+                                                   sp3_ci_has(name,"light") || sp3_ci_has(anim,"light") ||
+                                                   sp3_ci_has(name,"combo") || sp3_ci_has(anim,"combo") ||
+                                                   sp3_ci_has(name,"attack") || sp3_ci_has(anim,"attack")));
+                            if(match){ chosen=move; rank=want; nev=this_nev; xform=1; break; }
+                        }
+                    }
+                    if(!chosen){
+                        int best_nev=-1;
+                        for(int i=0;i<n;i++){
+                            void* move=*(void**)((char*)items+0x20+8*i);
+                            if(!obj_ok(move)) continue;
+                            char name[96]; char anim[96]; name[0]=anim[0]=0;
+                            read_str(fld_p(move,0x10),name,sizeof name);
+                            read_str(fld_p(move,0x18),anim,sizeof anim);
+                            int this_nev=-1;
+                            if(!sp3move_events_xform(move,&this_nev) || sp3_is_excluded(name,anim)) continue;
+                            if(this_nev>best_nev){ chosen=move; rank=6; nev=this_nev; xform=1; best_nev=this_nev; }
+                        }
+                    }
+                    for(int want=7;want<=8 && !chosen;want++){
+                        const char* target=want==7 ? "Base.SpecialAttack02" : "Base.SpecialAttack01";
+                        for(int i=0;i<n;i++){
+                            void* move=*(void**)((char*)items+0x20+8*i);
+                            if(!obj_ok(move)) continue;
+                            char name[96]; char anim[96]; name[0]=anim[0]=0;
+                            read_str(fld_p(move,0x10),name,sizeof name);
+                            read_str(fld_p(move,0x18),anim,sizeof anim);
+                            if(!sp3_is_excluded(name,anim) && !strcmp(anim,target)){
+                                chosen=move; rank=want; nev=-1; xform=sp3move_events_xform(move,&nev); break;
+                            }
+                        }
+                    }
+                    char name[96]; char anim[96]; name[0]=anim[0]=0;
+                    if(chosen){
+                        read_str(fld_p(chosen,0x10),name,sizeof name);
+                        read_str(fld_p(chosen,0x18),anim,sizeof anim);
+                        r=chosen;
+                    }else{ strcpy(name,"none"); strcpy(anim,"none"); }
+                    if(g_sp3move_lines < 20){ g_sp3move_lines++;
+                        flog("SP3MOVE hash=%d rank=%d name=%s anim=%s nev=%d xform=%d tms=%llu", hash, rank,
+                             name, anim, nev, xform, (unsigned long long)propgo_now_ms());
+                    }
+                }
+            }
+        }
+    });
+    return r;
+}
+void* hook_140(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    sp3_xf_clear();
+    return H[140].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_141(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        if (sp3_xf_has(a0) && !(uintptr_t)a1) {
+            if (g_sp3xhold_lines < 200) { g_sp3xhold_lines++;
+                flog("SP3XHOLD pc=%p tms=%llu", a0, (unsigned long long)propgo_now_ms()); }
+            a1 = (void*)1;
+        }
+    });
+    return H[141].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_142(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r=H[142].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    // SP3XFIX (shipped): OnEnter resets the visual state, so apply after its original work.
+    PROTECT({
+        void* pc=fld_p(a0,0x18);
+        if (obj_ok(pc)) {
+            sp3_xf_add(pc);
+            flog("SP3XFIX enter pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
+            g_sp3_xf_capture_props=1;
+            ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,1,NULL);
+            g_sp3_xf_capture_props=0;
+        }
+    });
+    return r;
+}
+// SP3XFIX (shipped): drop the hold before restoring robot form at cinematic exit.
+void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* pc=fld_p(a0,0x18);
+    sp3_xf_remove(pc);
+    sp3_xf_props_clear();
+    void* r=H[143].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({
+        if (obj_ok(pc)) {
+            flog("SP3XFIX exit pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
+            ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,0,NULL);
+        }
+    });
+    return r;
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -2963,7 +3280,8 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_97,hook_98,hook_99,hook_100,hook_101,hook_102,
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
-    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137 };
+    hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
+    hook_138,hook_139,hook_140,hook_141,hook_142,hook_143 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

@@ -141,3 +141,23 @@ own binary, not redistributed game content.
 The guard adds no capability. It adds guarded early returns to three client functions to prevent
 a segfault; it adds no network interception, no certificate bypass, and no patching of shipped
 content bundles.
+
+## Alternate-form rendering on level-3 special attacks
+
+The alternate-form rendering change authors no new game values whatsoever: no numbers, names,
+balance data, stats, or strings of game content. Nothing was transcribed from recovered Kabam
+server data. It is confined to this revival's own native hook shim, which is original code written
+for the project. `Server/gamedata.py` is unchanged.
+
+No game asset is added, copied, or transcribed. The alternate-form model is the client's own
+already-shipped `transformed` prop; the change only makes the user's own client display a model it
+already contains and already instantiates. No content bundle is patched or repacked. The only
+externally-derived facts used are observations of the user's own installed client binary: the six
+IL2CPP function addresses `0xEA023C`, `0x100A76C`, `0xDE7CF4`, `0x117A67C`, `0x1174038`, and
+`0x1174484`, plus the prop-name discriminants `transformed` and `character_model`. Like the
+wire-key names and addresses already documented above, these are interoperability and diagnostic
+observations of the user's own binary, not redistributed game content.
+
+The change adds no capability. It adds no network interception, no certificate bypass, and no
+patching of shipped content bundles. No temporary diagnostic hooks remain in the shipped build,
+so the earlier statement about their removal remains accurate.
