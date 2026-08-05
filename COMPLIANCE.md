@@ -161,3 +161,24 @@ observations of the user's own binary, not redistributed game content.
 The change adds no capability. It adds no network interception, no certificate bypass, and no
 patching of shipped content bundles. No temporary diagnostic hooks remain in the shipped build,
 so the earlier statement about their removal remains accurate.
+
+## Alternate-form animation on level-3 special attacks
+
+The alternate-form animation change authors no new game values whatsoever: no numbers, names,
+balance data, stats, or strings of game content. Nothing was transcribed from recovered Kabam
+server data. It is confined to this revival's own native hook shim, which is original code written
+for the project. `Server/gamedata.py` is unchanged.
+
+No game asset is added, copied, or transcribed. The animation played is the client's own
+already-shipped clip on its own already-shipped alternate-form prop; the change only makes the
+user's own client play a clip it already contains. No content bundle is patched or repacked. The
+only externally-derived facts used are observations of the user's own installed client binary: the
+IL2CPP function addresses `0xEA023C` (`PropData.SetActiveInternal`) and `0xEA05B4`
+(`PropData.PlayAnimatorState`), the prop-name discriminant `transformed`, and the animator state
+name `SpecialAttack03`. Like the wire-key names and addresses already documented above, these are
+interoperability and diagnostic observations of the user's own binary, not redistributed game
+content.
+
+The change adds no capability. It adds no network interception, no certificate bypass, and no
+patching of shipped content bundles. No temporary diagnostic hooks remain in the shipped build,
+so the earlier statement about their removal remains accurate.
