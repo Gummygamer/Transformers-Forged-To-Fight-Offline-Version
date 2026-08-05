@@ -487,6 +487,7 @@ static void* g_sp3_xf[4];
 static void* g_sp3_xf_props[8];
 static int g_sp3_xf_capture_props = 0;
 static uint64_t g_sp3_xf_since_ms = 0;
+static int g_sp3_anim_played = 0;
 static int g_sp3_xf_timeout_logged = 0;
 static int g_propgoinv_lines = 0;
 static int g_sp3xhold_lines = 0;
@@ -528,6 +529,7 @@ static void sp3_xf_remove(void* pc) {
     if (!sp3_xf_any()) {
         sp3_xf_props_clear();
         g_sp3_xf_since_ms = 0;
+        g_sp3_anim_played = 0;
         g_sp3_xf_capture_props = 0;
     }
 }
@@ -536,6 +538,7 @@ static void sp3_xf_clear(void) {
     sp3_xf_props_clear();
     g_sp3_xf_capture_props = 0;
     g_sp3_xf_since_ms = 0;
+    g_sp3_anim_played = 0;
     g_sp3_xf_timeout_logged = 0;
 }
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
@@ -3083,6 +3086,19 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
             }
             if(g_propgoact_lines < 200){ g_propgoact_lines++;
                 flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
+            // SP3ANIM (shipped): the cinematic special never runs the move's event list on this build, so the
+            // alternate-form prop is never told to play its own SpecialAttack03 clip and renders in bind pose.
+            // Drive its Animator directly, once per cinematic, right after the prop is activated.
+            if (on && !g_sp3_anim_played && g_sp3_xf_since_ms && sp3_xf_props_has(a0)
+                    && !strcmp(name, "transformed") && g_strnew) {
+                void* st = g_strnew("SpecialAttack03");
+                if (st) {
+                    g_sp3_anim_played = 1;
+                    ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(a0, st, NULL);
+                    flog("SP3ANIM prop=%s state=SpecialAttack03 anim=%p tms=%llu",
+                         name, fld_p(a0,0x68), (unsigned long long)propgo_now_ms());
+                }
+            }
         }
     });
     return r;
