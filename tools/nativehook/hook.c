@@ -432,10 +432,13 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0xF9D200, "TSPODD",     0, 0 }, // 131 TeamSelectPodium.Deactivate -> log-only marker (never fires on this build)
     { 0xF9CFE8, "TSPODC",     0, 0 }, // 132 TeamSelectPodium.Cleanup -> log-only marker (fires during squad-screen setup; must not restore)
     // RSHIDE mirrors TSHIDE for the BOTS roster: HeroesScreen does not cause the cosmetic
-    // BLDGACT/BLDGSWAP objects to leave the base board.  RSENTER hides them on roster entry;
-    // RSEXIT restores exactly that recorded set on the measured HeroesScreen exit path.
+    // BLDGACT/BLDGSWAP objects to leave the base board.  RSENTER hides them on roster entry.
+    // On this build, opening a bot detail page calls HeroesScreen.WindowExit while the detail
+    // camera is live; restoring the recorded set there produces the measured blurred base wall.
+    // Leave it hidden through that overlay and restore only on actual home-screen entry; retain
+    // the active gate until then so the TSSHOWW fallback cannot restore it underneath the detail.
     { 0xC587B8, "RSENTER",    0, 0 }, // 133 HeroesScreen.WindowEnter -> hide residual base objects
-    { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> restore hidden base objects
+    { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> mark roster inactive; retain hidden objects
     // ROSTERDRAGFIX (roster-scroll): EditTeamScreenPresentation.OnGridItemClicked(this, gridItem)
     // @0xB210CC is called directly from UIScrollView.OnDragNotification.Invoke (@0x1404E6C) while
     // UIDragScrollView.OnDrag (@0x1BF37E0) / UIScrollView.Drag (@0x1E5F444) handles a swipe. The
@@ -469,6 +472,10 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x117A67C, "SP3XHOLD", 2, 0 }, // 141 PlayerController.Transform(bool) -> hold alternate form during a cinematic special
     { 0x1174038, "SP3XIN", 2, 0 }, // 142 PlayerCinematicSpecialAttackState.OnEnter -> apply alternate form after entry reset
     { 0x1174484, "SP3XOUT", 2, 0 }, // 143 PlayerCinematicSpecialAttackState.OnExit -> restore robot form after cinematic special
+    // Measured after BOTS -> detail: RSEXIT fires while the detail camera is still drawing, so
+    // it must not restore the base geometry.  TransformersHomeScreen.WindowEnter is the actual
+    // return-to-base path and is the first safe point to restore precisely the recorded objects.
+    { 0xE746B8, "RSHOME",  0, 0 }, // 144 TransformersHomeScreen.WindowEnter -> restore RSHIDE objects
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -2868,10 +2875,14 @@ void* hook_132(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
          g_ts_screen_active,g_ts_hidden_count);
     return H[132].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
-// RSHIDE (slots 133-134): HeroesScreen (BOTS roster) leaves the BLDGACT/BLDGSWAP cosmetic
+// RSHIDE (slots 133-134, 144): HeroesScreen (BOTS roster) leaves the BLDGACT/BLDGSWAP cosmetic
 // base-building objects alive, so its 3D camera can render them over roster bots.  RSENTER is
-// the roster-entry hide pass and emits TSDIAG/TSBND evidence; RSEXIT is the symmetric measured
-// HeroesScreen exit trigger and restores only the objects that RSENTER switched off.
+// the roster-entry hide pass and emits TSDIAG/TSBND evidence.  Device capture then measured
+// HeroesScreen.WindowExit during BOTS -> detail, with RSEXIT restoring all 15 recorded objects
+// while the detail camera was active and producing the blurred base-wall occluder.  Keep that
+// exact set hidden across the overlay; TransformersHomeScreen.WindowEnter is the measured
+// return-to-base restore point.  The shared active gate stays set until that point so TSSHOWW's
+// existing fallback cannot restore the objects on the detail transition.
 void* hook_133(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     flog("RSENTER this=%p",a0);
     g_ts_screen_active = 1;
@@ -2879,8 +2890,17 @@ void* hook_133(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     return H[133].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 void* hook_134(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
-    tshide_screen_exit("RSEXIT");
+    flog("RSEXIT screenExit wasActive=%d recorded=%d (restore and active clear deferred to RSHOME)",
+         g_ts_screen_active,g_ts_hidden_count);
     return H[134].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_144(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        flog("RSHOME this=%p",a0);
+        g_ts_screen_active=0;
+        tshide_restore("RSHOME");
+    });
+    return H[144].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 // slot 135 ROSTERDRAGFIX: EditTeamScreenPresentation.OnGridItemClicked(this=a0, gridItem=a1)
 // @0xB210CC. The picker SIGSEGV is the body at 0xB21178 (+0xAC) running after the no-argument
@@ -3297,7 +3317,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
     hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
-    hook_138,hook_139,hook_140,hook_141,hook_142,hook_143 };
+    hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
