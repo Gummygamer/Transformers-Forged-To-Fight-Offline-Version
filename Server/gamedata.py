@@ -853,7 +853,7 @@ def build_saved_team(team_id="0", heroes=None):
 # each BCGHeroDetails. Sending an array makes Dot.Object fall back to an empty dictionary, which
 # leaves TeamData with no lead character and prevents QuestPlayerController from loading an actor.
 def build_active_team(activity_id="1.1.1-0", heroes=None):
-    bids = resolve_team(heroes)[:2]
+    bids = resolve_team(heroes)
     hero_dicts = {b: build_hero_entry(b) for b in bids}
     return {
         "aid": activity_id,
@@ -1069,7 +1069,9 @@ def build_quest_progression(qid="1.1.1", start=(0, 1), team=None):
     sx, sy = start
     bids = resolve_team(team)
     quest_team = {}
-    for bid in bids[:2]:
+    # This quest-local dictionary is what the pre-fight bot selector enumerates.
+    # Truncating it silently drops chosen squad members from the mission.
+    for bid in bids:
         hp, atk = base_stats(bid, 1, 1)
         quest_team[bid] = {
             "hp": 1.0,
@@ -1234,7 +1236,7 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1), team=None):
         })
 
     # teamData -> QuestsManager.UpdateActiveTeam. Reuse the active-team shape; harmless if unread.
-    team_data = build_active_team("%s-0" % qid, heroes=resolve_team(team)[:2])
+    team_data = build_active_team("%s-0" % qid, heroes=resolve_team(team))
 
     return {
         # `results` is the AddActionResultsAndUpdateProgression Dot.Array key (live-confirmed);

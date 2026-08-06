@@ -190,13 +190,13 @@ static int resolve_team(Team *team) {
 static int render_qteam(Out *o, const Team *team) {
     int i; char key[96]; const unsigned char *v; size_t n;
     if(!out_add(o,"{",1))return 0;
-    for(i=0;i<team->count&&i<2;i++) { snprintf(key,sizeof key,"@questmember:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,v,n))return 0; }
+    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@questmember:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,v,n))return 0; }
     return out_add(o,"}",1);
 }
 static int render_ateam(Out *o, const Team *team) {
     int i; char key[96]; const unsigned char *v; size_t n;
     if(!out_add(o,"{",1))return 0;
-    for(i=0;i<team->count&&i<2;i++) { snprintf(key,sizeof key,"@savedteam:hero:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,"\"",1)||!out_add(o,team->bid[i],strlen(team->bid[i]))||!out_add(o,"\":",2)||!out_add(o,v,n))return 0; }
+    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@savedteam:hero:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,"\"",1)||!out_add(o,team->bid[i],strlen(team->bid[i]))||!out_add(o,"\":",2)||!out_add(o,v,n))return 0; }
     return out_add(o,"}",1);
 }
 static int render_steam(Out *o, const Team *team) {

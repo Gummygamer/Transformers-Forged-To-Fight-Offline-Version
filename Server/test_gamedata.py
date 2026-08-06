@@ -516,6 +516,7 @@ class StoryFightArenaTests(unittest.TestCase):
 
 class SquadPropagationTests(unittest.TestCase):
     TEAM = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+    THREE_MEMBER_TEAM = gamedata.DEFAULT_TEAM
 
     def test_quest_progression_uses_the_supplied_squad(self):
         progression = gamedata.build_quest_progression(team=self.TEAM)
@@ -529,6 +530,16 @@ class SquadPropagationTests(unittest.TestCase):
         progression = result["activeQuests"]["1.1.1"]["instances"][0]["progression"]
 
         self.assertEqual(list(progression["users"][gamedata.LOCAL_UID]["team"]), self.TEAM)
+
+    def test_three_member_quest_squad_reaches_quest_and_active_teams(self):
+        result = gamedata.build_quest_begin("1.1.1", "story_act1", self.THREE_MEMBER_TEAM)
+        progression = result["activeQuests"]["1.1.1"]["instances"][0]["progression"]
+        active_team = gamedata.build_active_team(heroes=self.THREE_MEMBER_TEAM)
+
+        self.assertEqual(
+            list(progression["users"][gamedata.LOCAL_UID]["team"]), self.THREE_MEMBER_TEAM
+        )
+        self.assertEqual(list(active_team["heroes"]), self.THREE_MEMBER_TEAM)
 
     def test_quest_movedir_preserves_the_squad_in_progression_and_team_data(self):
         result = gamedata.build_quest_movedir(team=self.TEAM)
@@ -563,7 +574,7 @@ class SquadPropagationTests(unittest.TestCase):
         progression = gamedata.build_quest_progression(team=["not-a-blueprint"])
         user = progression["users"][gamedata.LOCAL_UID]
 
-        self.assertEqual(list(user["team"]), gamedata.DEFAULT_TEAM[:2])
+        self.assertEqual(list(user["team"]), gamedata.DEFAULT_TEAM)
         self.assertEqual(user["strongestHero"], gamedata.DEFAULT_TEAM[0])
 
 

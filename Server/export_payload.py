@@ -150,7 +150,7 @@ def _team_values(team: list[str] | None = None) -> tuple[bytes, bytes, bytes]:
     """Return compact saved, active, and quest team JSON values from gamedata."""
     bids = gamedata.resolve_team(team)
     saved = json.dumps([gamedata.build_hero_entry(bid) for bid in bids], separators=(",", ":")).encode()
-    active = json.dumps({bid: gamedata.build_hero_entry(bid) for bid in bids[:2]}, separators=(",", ":")).encode()
+    active = json.dumps({bid: gamedata.build_hero_entry(bid) for bid in bids}, separators=(",", ":")).encode()
     quest = json.dumps(
         gamedata.build_quest_progression(team=bids)["users"][gamedata.LOCAL_UID]["team"],
         separators=(",", ":"),
@@ -263,8 +263,10 @@ def build_entries(listen_port: int = 8080) -> dict[str, bytes]:
 
     add("@roster", "\n".join(sorted(gamedata.ROSTER)).encode())
     add("@team:default", "\n".join(gamedata.DEFAULT_TEAM).encode())
-    for bid in sorted(gamedata.OWNED):
-        team = gamedata.build_quest_progression(team=[bid])["users"][gamedata.LOCAL_UID]["team"]
+    default_quest_team = gamedata.build_quest_progression()["users"][gamedata.LOCAL_UID]["team"]
+    for bid in sorted(set(gamedata.OWNED) | set(gamedata.DEFAULT_TEAM)):
+        team = ({bid: default_quest_team[bid]} if bid in default_quest_team else
+                gamedata.build_quest_progression(team=[bid])["users"][gamedata.LOCAL_UID]["team"])
         encoded = json.dumps(team, separators=(",", ":")).encode()
         if not (encoded.startswith(b"{") and encoded.endswith(b"}")):
             raise ValueError(f"quest member {bid} was not an object")
