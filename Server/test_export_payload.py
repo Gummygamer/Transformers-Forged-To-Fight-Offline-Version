@@ -14,9 +14,9 @@ import gamedata
 
 def expand_team_template(entries, body, bids=None, team_id="0"):
     bids = gamedata.resolve_team(bids)
-    qteam = b"{" + b",".join(entries[f"@questmember:{bid}"] for bid in bids[:2]) + b"}"
+    qteam = b"{" + b",".join(entries[f"@questmember:{bid}"] for bid in bids) + b"}"
     ateam = b"{" + b",".join(
-        b'"' + bid.encode() + b'":' + entries[f"@savedteam:hero:{bid}"] for bid in bids[:2]
+        b'"' + bid.encode() + b'":' + entries[f"@savedteam:hero:{bid}"] for bid in bids
     ) + b"}"
     steam = b"[" + b",".join(entries[f"@savedteam:hero:{bid}"] for bid in bids) + b"]"
     return (body.replace(b"%TID%", team_id.encode()).replace(b"%LEAD%", bids[0].encode())
