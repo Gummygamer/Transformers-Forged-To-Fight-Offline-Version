@@ -182,3 +182,28 @@ content.
 The change adds no capability. It adds no network interception, no certificate bypass, and no
 patching of shipped content bundles. No temporary diagnostic hooks remain in the shipped build,
 so the earlier statement about their removal remains accurate.
+
+## Player-feedback defect triage
+
+This change set triages six player-reported defects on this build. Two were reproduced and fixed:
+the mission presentation now retains all three squad members the player selected, and the bot
+detail view no longer has the base geometry restored beneath it. The other four reports were
+measured as not reproducible on this build and were deliberately left unchanged rather than given
+speculative fixes.
+
+The squad change authors no game values of any kind. It removes response and rendering truncations
+that discarded squad members already selected from the already-authored roster; it does not add
+numbers, names, balance data, or strings of game content. Nothing in this work was transcribed
+from recovered Kabam server data.
+
+The detail-view change is confined to this revival's original native hook shim. It contributes no
+game values, assets, or strings of game content, and it does not patch a shipped content bundle.
+It only prevents the client from re-showing its own cosmetic base-building objects while its own
+bot-detail camera is drawing. The one newly used externally-derived fact is the IL2CPP address
+`0xE746B8` for `TransformersHomeScreen.WindowEnter`, observed in the user's own installed client
+binary. Like the wire-key names and addresses recorded above, that is an interoperability and
+diagnostic observation of the user's own binary, not redistributed game content.
+
+The change adds no capability: it introduces no network interception, no certificate bypass, and
+no patching of shipped content bundles. Temporary diagnostic hooks have been removed from the
+shipped build, so the earlier statement about their removal remains accurate.
