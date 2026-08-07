@@ -207,3 +207,33 @@ diagnostic observation of the user's own binary, not redistributed game content.
 The change adds no capability: it introduces no network interception, no certificate bypass, and
 no patching of shipped content bundles. Temporary diagnostic hooks have been removed from the
 shipped build, so the earlier statement about their removal remains accurate.
+
+## Alternate-form rendering during level-3 special attacks
+
+During a level-3, three-energy-bar special attack, the fighter previously remained in its
+alternate vehicle form throughout the cinematic. It now alternates between the alternate form
+and robot form across the cinematic, so vehicle beats render as the vehicle and intervening beats
+render as the robot.
+
+This change authors no game values, names, balance data, or strings of game content. It contains
+no numbers, names, or text of game content. Its alternation period is not an invented hardcoded
+timing: it is read at runtime from the character's own already-shipped move data, using the
+duration of the client's own transform-move event. Anything this revival has ever authored
+elsewhere is original invention for this revival and was never transcribed from recovered Kabam
+server data.
+
+The identifiers used are wire-key, asset-id, and symbol names already present in the user's own
+installed client, observed for interoperability and diagnostic purposes, and are not
+redistributed game content. The newly used externally-derived fact is the IL2CPP address
+`0xDE8750` for `Simulation.FixedUpdate`, observed in the user's own installed client binary;
+the addresses for `PropData.SetActiveInternal`, `MoveSet.GetMove`,
+`PlayerCinematicSpecialAttackState.OnEnter`, and `PlayerCinematicSpecialAttackState.OnExit` were
+already recorded above.
+
+No game assets or binaries were added to the repository. Both the vehicle body and robot body
+are assets that already ship inside the user's own client; nothing was extracted, added, or
+redistributed. Screen recordings made as evidence are local-only captures and are not committed;
+the repository ignores `media/`. The change adds no capability: it introduces no network
+interception, no certificate bypass, and no patching of shipped content bundles. Temporary
+read-only diagnostic hooks added during investigation were removed before shipping, so the
+earlier statements about their removal remain accurate.

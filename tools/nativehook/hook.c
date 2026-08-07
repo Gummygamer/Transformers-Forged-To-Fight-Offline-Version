@@ -459,8 +459,8 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // the transformed prop and deactivates character_model; both end in PropData.SetActiveInternal
     // @0xEA023C, which only calls Renderer.set_enabled on PropData._renderers. That flag has no
     // visible effect in this build, leaving the robot drawn and the alternate body hidden. Mirror
-    // the requested state onto each renderer's GameObject (Component.get_gameObject ->
-    // GameObject.SetActive) so the swap occurs; the symmetric Transform(false) restores the robot.
+    // each requested state onto the renderer GameObjects and, during a level-3 cinematic, follow
+    // the authored transform-window beat schedule rather than holding either body permanently.
     { 0xEA023C, "PROPGOACT", 2, 0 }, // 138 PropData.SetActiveInternal -> mirror prop state onto renderer GameObjects
     // SP3MOVE (level-3 alternate-form resolution): this build's animator enters SpecialAttack03,
     // but its MoveSet has no matching MoveInfo, so no authored MoveEvent can run. The SP3 asset
@@ -469,13 +469,18 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // normal MoveInfo event path performs the transformation rather than a direct state-side call.
     { 0x100A76C, "SP3MOVE", 2, 0 }, // 139 MoveSet.GetMove(int hash) -> resolve the absent SP3 move
     { 0xDE7CF4, "SP3XNEW", 2, 0 }, // 140 Simulation.RegisterComponents -> clear the cinematic transform latch at combat start
-    { 0x117A67C, "SP3XHOLD", 2, 0 }, // 141 PlayerController.Transform(bool) -> hold alternate form during a cinematic special
+    { 0x117A67C, "SP3XHOLD", 2, 0 }, // 141 PlayerController.Transform(bool) -> retain cinematic latch for slot 138's schedule follower
     { 0x1174038, "SP3XIN", 2, 0 }, // 142 PlayerCinematicSpecialAttackState.OnEnter -> apply alternate form after entry reset
     { 0x1174484, "SP3XOUT", 2, 0 }, // 143 PlayerCinematicSpecialAttackState.OnExit -> restore robot form after cinematic special
     // Measured after BOTS -> detail: RSEXIT fires while the detail camera is still drawing, so
     // it must not restore the base geometry.  TransformersHomeScreen.WindowEnter is the actual
     // return-to-base path and is the first safe point to restore precisely the recorded objects.
     { 0xE746B8, "RSHOME",  0, 0 }, // 144 TransformersHomeScreen.WindowEnter -> restore RSHIDE objects
+    // SP3BEAT (shipped): the level-3 cinematic issues almost no prop traffic of its own (measured:
+    // two requests in 6192 ms, both asking for the robot body), so an interception-only hook cannot
+    // alternate the forms. Simulation.FixedUpdate is the combat simulation tick and is the pump
+    // that walks the alternation schedule while the cinematic latch is up.
+    { 0xDE8750, "SP3BEAT", 2, 0 }, // 145 Simulation.FixedUpdate -> drive the alt/robot beat schedule
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -483,19 +488,27 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
 // key read is prefixed "HB " so the ctor's exact field keys can be grepped out of
 // the flood of general parse keys. Drives authoring login `heroes` BCGHeroBase JSON.
 static volatile int g_inhb = 0;
-// SP3XFIX (shipped): a 3-bar (level-3) cinematic special must visibly transform the bot.
+// SP3XFIX (shipped): a 3-bar (level-3) cinematic special must visibly alternate the bot's forms.
 // Measured on this build: the character's authored SP3 move does not exist, and the transform
 // event of the move that does carry one is gated on a state name that the cinematic special is
 // never in, so nothing ever calls PlayerController.Transform during that state. These slots latch
-// the controller for the duration of the cinematic state, apply the alt form after the state's own
-// entry reset, hold it against the per-frame Transform(false) housekeeping, and restore robot form
-// on exit. The prop swap itself is rendered by slot 138.
+// the controller for the cinematic state, enter alt form after the state's own reset, and let the
+// simulation-tick beat schedule alternate alt and robot before restoring robot form on exit. The
+// prop swap itself is rendered by slot 138.
 static void* g_sp3_xf[4];
 static void* g_sp3_xf_props[8];
 static int g_sp3_xf_capture_props = 0;
 static uint64_t g_sp3_xf_since_ms = 0;
 static int g_sp3_anim_played = 0;
 static int g_sp3_xf_timeout_logged = 0;
+/* SP3BEAT (shipped): the level-3 cinematic alternates alt-mode and robot-mode on a beat whose
+   length is the character's own authored TransformMoveEvent duration, read live off the move that
+   slot 139 substitutes for the absent SpecialAttack03. Defaults match the measured authored
+   window (66 ms start, 800 ms duration) if the move cannot be read. */
+static int g_sp3_beat_du_ms = 800;
+static int g_sp3_beat_form = -1;      /* -1 unknown, 1 alt, 0 robot: what is applied right now */
+static int g_sp3_beat_ticks = 0;      /* pump ticks seen in the current cinematic */
+static int g_sp3_beat_lines = 0;      /* log budget */
 static int g_propgoinv_lines = 0;
 static int g_sp3xhold_lines = 0;
 static uint64_t propgo_now_ms(void);
@@ -538,6 +551,7 @@ static void sp3_xf_remove(void* pc) {
         g_sp3_xf_since_ms = 0;
         g_sp3_anim_played = 0;
         g_sp3_xf_capture_props = 0;
+        g_sp3_beat_form = -1;
     }
 }
 static void sp3_xf_clear(void) {
@@ -547,6 +561,7 @@ static void sp3_xf_clear(void) {
     g_sp3_xf_since_ms = 0;
     g_sp3_anim_played = 0;
     g_sp3_xf_timeout_logged = 0;
+    g_sp3_beat_form = -1;
 }
 // Set while inside any quest parser (slots 59-64 bracket them, jp=99). Keys read inside
 // are prefixed "QS " so the quest-list/details field keys can be grepped out.
@@ -3060,6 +3075,77 @@ static int g_sp3cand_dumped = 0;
 static int g_sp3cand_lines = 0;
 static uint64_t propgo_now_ms(void){ struct timespec ts; if(clock_gettime(CLOCK_MONOTONIC,&ts)) return 0;
     return (uint64_t)ts.tv_sec*1000u + (uint64_t)ts.tv_nsec/1000000u; }
+/* PROPGOACT (shipped): Renderer.set_enabled has no visible effect in this build, so mirror the
+   prop's requested state onto each renderer's own GameObject. a0 is a PropData*; its renderer
+   array is at +0x70 (length at +0x18, elements from +0x20). 0x1B4BD28 =
+   Component.get_gameObject, 0x1B50CA8 = GameObject.SetActive. */
+static int sp3_prop_mirror(void* prop, int on){
+    int applied=0;
+    void* arr=*(void**)((char*)prop+0x70);
+    if(obj_ok(arr)){
+        int n=*(int32_t*)((char*)arr+0x18);
+        if(n>0 && n<=256) for(int i=0;i<n;i++){
+            void* rr=*(void**)((char*)arr+0x20+8*i);
+            if(obj_ok(rr)){
+                void* go=((fn8)(g_base+0x1B4BD28))(rr,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
+                if(obj_ok(go)){ ((propgo_set_bool_t)(g_base+0x1B50CA8))(go,on,NULL); applied++; }
+            }
+        }
+    }
+    return applied;
+}
+
+/* SP3BEAT (shipped): the scheduled body at a given offset into the cinematic. 1 = alternate
+   (vehicle) form, 0 = robot form. Period is twice the authored transform-window length. */
+static int sp3_beat_form_at(uint64_t elapsed_ms){
+    int du=g_sp3_beat_du_ms;
+    if(du<400) du=400;
+    uint64_t period=(uint64_t)du*2u;
+    return (elapsed_ms % period) < (uint64_t)du;
+}
+
+/* SP3BEAT (shipped): push the scheduled body onto the captured props. Called only when the form
+   actually changes. Each captured entry is a PropData*; its name is the string at +0x10 and is
+   either "transformed" (the alternate body) or "character_model" (the robot body). */
+static void sp3_beat_apply(int alt){
+    for(int i=0;i<8;i++){
+        void* prop=g_sp3_xf_props[i];
+        if(!obj_ok(prop)) continue;
+        char name[64];
+        name[0]=0;
+        read_str(*(void**)((char*)prop+0x10), name, sizeof name);
+        int want;
+        if(!strcmp(name,"transformed")) want=alt;
+        else if(!strcmp(name,"character_model")) want=!alt;
+        else continue;
+        ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
+            (prop,want,NULL,NULL,NULL,NULL,NULL,NULL);
+        sp3_prop_mirror(prop,want);
+        /* SP3ANIM (shipped): the alternate body renders in bind pose unless its own Animator is
+           driven, so re-drive it each time the vehicle form comes back on. 0xEA05B4 =
+           PropData.PlayAnimatorState(string). */
+        if(alt && want && !strcmp(name,"transformed") && g_strnew){
+            void* st=g_strnew("SpecialAttack03");
+            if(st) ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,st,NULL);
+        }
+    }
+    if(g_sp3_beat_lines<40){ g_sp3_beat_lines++;
+        flog("SP3BEAT apply alt=%d du=%d tms=%llu", alt, g_sp3_beat_du_ms,
+             (unsigned long long)propgo_now_ms()); }
+}
+
+/* SP3BEAT (shipped): the pump body, called from Simulation.FixedUpdate. */
+static void sp3_beat_pump(void){
+    if(!g_sp3_xf_since_ms) return;
+    uint64_t now=propgo_now_ms();
+    uint64_t elapsed=now-g_sp3_xf_since_ms;
+    if(elapsed>12000u) return;               /* the 12 s safety bound used elsewhere */
+    g_sp3_beat_ticks++;
+    int want=sp3_beat_form_at(elapsed);
+    if(want==g_sp3_beat_form) return;
+    g_sp3_beat_form=want;
+    sp3_beat_apply(want);
+}
 void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     char name[64]; name[0]=0;
     int propgo_special=0;
@@ -3078,7 +3164,8 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
                     }
                     sp3_xf_clear();
                 }else{
-                    int forced=!strcmp(name,"transformed") ? 1 : 0;
+                    int alt=sp3_beat_form_at(now-g_sp3_xf_since_ms);
+                    int forced=!strcmp(name,"transformed") ? alt : !alt;
                     if(req!=forced){
                         if(g_propgoinv_lines<200){ g_propgoinv_lines++;
                             flog("PROPGOINV prop=%s req=%d forced=%d tms=%llu",name,req,forced,(unsigned long long)now); }
@@ -3092,18 +3179,7 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({
         if(propgo_special){
             int on = (intptr_t)a1 ? 1 : 0;
-            int applied = 0;
-            void* arr=*(void**)((char*)a0+0x70);
-            if(obj_ok(arr)){
-                int n=*(int32_t*)((char*)arr+0x18);
-                if(n>0 && n<=256) for(int i=0;i<n;i++){
-                    void* rr=*(void**)((char*)arr+0x20+8*i);
-                    if(obj_ok(rr)){
-                        void* go=((fn8)(g_base+0x1B4BD28))(rr,NULL,NULL,NULL,NULL,NULL,NULL,NULL);
-                        if(obj_ok(go)){ ((propgo_set_bool_t)(g_base+0x1B50CA8))(go,on,NULL); applied++; }
-                    }
-                }
-            }
+            int applied = sp3_prop_mirror(a0, on);
             if(g_propgoact_lines < 200){ g_propgoact_lines++;
                 flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
             // SP3ANIM (shipped): the cinematic special never runs the move's event list on this build, so the
@@ -3165,6 +3241,34 @@ static int sp3_is_excluded(const char* name, const char* anim){
     for(unsigned int i=0;i<sizeof(words)/sizeof(words[0]);i++)
         if(sp3_ci_has(name,words[i]) || sp3_ci_has(anim,words[i])) return 1;
     return 0;
+}
+/* SP3BEAT (shipped): scan the substituted move's authored event list for its TransformMoveEvent
+   and record that event's duration as the alternation beat length. MoveEvent layout on this build:
+   events list at move+0x28 (List<MoveEvent>, backing array at +0x10, count via list_count),
+   StartTime float at event+0x54, Duration float at event+0x58 (both seconds). */
+static void sp3_beat_capture(void* move){
+    void* events=fld_p(move,0x28);
+    int n=list_count(events);
+    void* items=fld_p(events,0x10);
+    if(!obj_ok(items) || n<=0) return;
+    int alen=*(int32_t*)((char*)items+0x18);
+    if(alen<0 || alen>256 || n>alen || n>256) return;
+    for(int i=0;i<n;i++){
+        void* event=*(void**)((char*)items+0x20+8*i);
+        if(!obj_ok(event)) continue;
+        char cls[64];
+        cls[0]=0;
+        obj_class(event,cls,sizeof cls);
+        if(strcmp(cls,"TransformMoveEvent")) continue;
+        float du=*(float*)((char*)event+0x58);
+        int du_ms=(int)(du*1000.0f);
+        if(du_ms<400) du_ms=400;
+        if(du_ms>3000) du_ms=3000;
+        g_sp3_beat_du_ms=du_ms;
+        if(g_sp3_beat_lines<40){ g_sp3_beat_lines++;
+            flog("SP3BEAT src du=%d tms=%llu", du_ms, (unsigned long long)propgo_now_ms()); }
+        return;
+    }
 }
 void* hook_139(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[139].orig(a0,a1,a2,a3,a4,a5,a6,a7);
@@ -3254,6 +3358,7 @@ void* hook_139(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
                         flog("SP3MOVE hash=%d rank=%d name=%s anim=%s nev=%d xform=%d tms=%llu", hash, rank,
                              name, anim, nev, xform, (unsigned long long)propgo_now_ms());
                     }
+                    if(chosen) sp3_beat_capture(chosen);
                 }
             }
         }
@@ -3281,6 +3386,8 @@ void* hook_142(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
         void* pc=fld_p(a0,0x18);
         if (obj_ok(pc)) {
             sp3_xf_add(pc);
+            g_sp3_beat_form = 1;
+            g_sp3_beat_ticks = 0;
             flog("SP3XFIX enter pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
             g_sp3_xf_capture_props=1;
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,1,NULL);
@@ -3294,13 +3401,22 @@ void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     void* pc=fld_p(a0,0x18);
     sp3_xf_remove(pc);
     sp3_xf_props_clear();
+    g_sp3_beat_form = -1;
     void* r=H[143].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("SP3XFIX exit pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
+            flog("SP3XFIX exit pc=%p pump=%d tms=%llu", pc, g_sp3_beat_ticks,
+                 (unsigned long long)propgo_now_ms());
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,0,NULL);
         }
     });
+    return r;
+}
+/* SP3BEAT (shipped): per simulation tick, walk the alternation schedule for an active cinematic
+   special and apply the scheduled body when it changes. */
+void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r=H[145].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({ sp3_beat_pump(); });
     return r;
 }
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
@@ -3317,7 +3433,8 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_103,hook_104,hook_105,hook_106,hook_107,hook_108,hook_109,hook_110,hook_111,hook_112,hook_113,hook_114,
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
     hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
-    hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144 };
+    hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
+    hook_145 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
