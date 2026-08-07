@@ -18,10 +18,11 @@ echo '[*] modes'; wait 7; tap 530 260           # STORY
 echo '[*] story'; wait 7; tap 1025 240          # Arrival
 echo '[*] squad'; wait 7; tap 1395 650          # START
 echo '[*] warning'; wait 7; tap 930 365         # CONTINUE with partial squad
-echo '[*] board'; wait 8; tap 840 395           # intermediate node (posts quest-movedir)
-wait 6; tap 860 315                             # Sharkticon node (opens Node Info)
-echo '[*] node info'; wait 4; tap 1358 660      # Node Info FIGHT!
-echo '[*] select'; wait 10
+echo '[*] board'; wait 28; tap 840 395          # intermediate node (posts quest-movedir); board render can take 8-14 s; 8 s fired into the LOADING splash
+wait 10; tap 860 315                            # Sharkticon node (opens Node Info)
+echo '[*] node info'; wait 6; tap 1358 660      # Node Info FIGHT!
+echo '[*] select'; wait 12
 tap 230 285                                     # Optimus Prime (msa=3 test bot)
-wait 3; tap 1280 660                            # combat FIGHT!
+wait 4; tap 1280 660                            # combat FIGHT!
+wait 20
 echo '[+] combat loading'
