@@ -60,7 +60,7 @@ There are four moving parts. Together they let the unmodified game think it is t
 Kabam.
 
 1. Native binary patches. The game is Unity IL2CPP, so the logic lives in a compiled ARM
-   library, `libil2cpp.so`, not in editable script files. `patches/patch_il2cpp.py` rewrites
+   library, `libil2cpp.so`, not in editable script files. `patches/patch_il2cpp.lbl` rewrites
    six functions in that library to get past the dead server checks: it defeats two
    certificate pinning paths so our own TLS cert is accepted, forces the manager
    registration block to run even though the live config is null, lets login succeed with
@@ -103,16 +103,11 @@ README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
-  patch_il2cpp.py             the six native patches plus the dependency re-injection
-  patch_il2cpp.lbl            Legible port of patch_il2cpp.py
-  abi_map.py                  translate arm64 addresses and field offsets to armeabi-v7a
-  abi_map.lbl                 Legible port of abi_map.py
-  disasm_fn.py                helper: disassemble a function at an offset
-  disasm_fn.lbl               Legible port of disasm_fn.py
-  find_callers.py             helper: find callers of a function
-  find_callers.lbl            Legible port of find_callers.py
-  find_str_ref.py             helper: find references to a string
-  find_str_ref.lbl            Legible port of find_str_ref.py
+  patch_il2cpp.lbl            the six native patches plus the dependency re-injection
+  abi_map.lbl                 translate arm64 addresses and field offsets to armeabi-v7a
+  disasm_fn.lbl               helper: disassemble a function at an offset
+  find_callers.lbl            helper: find callers of a function
+  find_str_ref.lbl            helper: find references to a string
 Server/
   fakeserver.py               the fake Sparx server
   gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
@@ -182,7 +177,7 @@ should generate your own.
   the APK, the library is under `lib/arm64-v8a/`, the assets are under `assets/`.
 - The TLS cert and CA. Do not ship private keys. Run `Server/gen_certs.sh` to make your own
   matching pair, then point the device trust store at the new CA.
-- The patched library. Regenerate it: run `patches/patch_il2cpp.py` against the original
+- The patched library. Regenerate it: run `patches/patch_il2cpp.lbl` against the original
   `libil2cpp.so` from the APK.
 - Frida server and Il2CppDumper. Both are public tools. Il2CppDumper is what produced
   `re_notes/dump.cs` from the APK's library and global metadata.
@@ -198,7 +193,7 @@ You need the APK installed on an ARM translation capable emulator (LDPlayer 9 wa
 root and writable system), Python on the PC, and the items from the section above.
 
 1. Generate certs once: `bash Server/gen_certs.sh`.
-2. Build the patched library once: `python3 patches/patch_il2cpp.py path/to/original/libil2cpp.so --apply`.
+2. Build the patched library once: `legible run patches/patch_il2cpp.lbl path/to/original/libil2cpp.so --apply`.
    That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
 3. Build the arm64 hook once if you want to rebuild it, otherwise use the prebuilt one:
    `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
@@ -298,7 +293,7 @@ offline.apk` ships an **already patched** `lib/arm64-v8a/libil2cpp.so` but a **p
 while `adb logcat -s TFTFHOOK` stays completely silent and nothing listens on 8080, because
 the hook is never loaded — which looks exactly like a broken server but is not one.
 
-1. `python3 patches/patch_il2cpp.py --abi armeabi-v7a --needed inplace --apply \
+1. `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a --needed inplace --apply \
    -o build/libil2cpp-armv7-patched.so "Transformers 9.2 extracted/lib/armeabi-v7a/libil2cpp.so"`
    (`--needed inplace` avoids `patchelf`, which is not always on PATH.)
 2. `python3 Server/build_phone_apk.py --abi armeabi-v7a --bundle-server --scheme http \
@@ -331,7 +326,7 @@ health, with no crash and all twelve hooks installed. Both of the fixes describe
 were verified firing during that run.
 
 1. Patch the 32-bit library:
-   `python3 patches/patch_il2cpp.py --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
+   `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
    The same six patches apply; only the addresses and encodings differ. Linux continues to
    use `patchelf` by default. Windows uses the strict in-place injector, which reuses a
    verified alias string and spare dynamic-table slot without moving code or changing any
@@ -367,27 +362,25 @@ is written out where the fix lives so it can be re-checked:
   call site is reachable only when the field is null, so overwriting it with a jump to the
   empty-list return is the same fix.
 
-`patches/abi_map.py` is what makes this tractable. Both libraries are generated from the
+`patches/abi_map.lbl` is what makes this tractable. Both libraries are generated from the
 same `global-metadata.dat`, so it can pair the two Il2CppDumper dumps and translate any
 arm64 address or field offset to its armv7 equivalent. Run its `verify` mode first: it
 cross-checks two independent pairings (method name, and metadata order) against each other.
 Do not translate addresses by hand, and do not trust a nearest-symbol guess for generic
 methods -- several reference-type instantiations share one body.
 
-`patches/abi_map.lbl` is the Legible port of that mapper. Its output is byte-for-byte
-compatible with the Python original on the same inputs; run it with `legible run
+Run it with `legible run
 patches/abi_map.lbl <a64_dir> <v7_dir> <verify|method|fields> [<address> ...|<type> ...]`, where
 `method` takes addresses and `fields` takes type names. This requires a `legible` interpreter
 built after the argument-passthrough change; earlier builds reject arguments after the file name.
 
-Five of the Python tools have Legible ports; the rest were examined and are not expressible in Legible. `find_callers.lbl`
-and `find_str_ref.lbl` are Legible ports whose output is byte-for-byte identical to their
-Python originals on the same inputs. Run them from the directory that holds `extracted/` and
+`find_callers.lbl` and `find_str_ref.lbl` find callers and string references, respectively.
+Run them from the directory that holds `extracted/` and
 `il2cpp_out/`, as `legible run patches/find_callers.lbl <0xADDR> [<0xADDR> ...]` and
 `legible run patches/find_str_ref.lbl <0xADDR>`. `patches/disasm_fn.lbl` is the annotated ARM64
 function disassembler; run it from that same directory as `legible run patches/disasm_fn.lbl
 <offset_hex> [num_bytes_hex]`. Its two script.json progress lines go to stdout because Legible
-has no stderr builtin. `patches/patch_il2cpp.lbl` is the Legible port of the native patcher; run it as
+has no stderr builtin. Run the native patcher as
 `legible run patches/patch_il2cpp.lbl <so> [--abi ...] [--apply] [--needed ...] [-o ...]`.
 It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The Ghidra scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
 `tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
