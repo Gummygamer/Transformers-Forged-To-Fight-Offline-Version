@@ -89,10 +89,11 @@ end
 
 function containing_name(starts: a list of integer, addresses: a list of integer, names: a list of text, offset: integer): text
   intent: find containing function name
-  let start: integer = containing_start(starts, offset)
-  if start == 0 then
+  let index: integer = preceding_start(starts, offset)
+  if index < 0 then
     "?"
   else
+    let start: integer = unwrap_or(get(starts, index), 0)
     let known: text = method_name(addresses, names, start)
     if known == "?" then "sub_" ++ to_hex_lower(start) else known end
   end
