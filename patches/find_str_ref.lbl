@@ -82,7 +82,7 @@ function method_name(addresses: a list of integer, names: a list of text, addres
 end
 
 function containing_start(starts: a list of integer, offset: integer): integer
-  intent: find containing function start
+  intent: return result
   let index: integer = preceding_start(starts, offset)
   if index < 0 then 0 else unwrap_or(get(starts, index), 0) end
 end
@@ -100,7 +100,7 @@ function containing_name(starts: a list of integer, addresses: a list of integer
 end
 
 function has_reference_after(buffer: integer, offset: integer, register: integer, low12: integer): boolean
-  intent: scan following instructions for reference
+  intent: return result
   mutable k: integer = 1
   mutable found: boolean = false
   while k <= 6 and not found and offset + 4 * k + 4 <= bytes_length(buffer) do
@@ -126,7 +126,7 @@ function has_reference_after(buffer: integer, offset: integer, register: integer
 end
 
 function reference_offsets(buffer: integer, candidates: a list of integer, page: integer, low12: integer): a list of integer
-  intent: collect ADRP references to page
+  intent: return result
   mutable hits: a list of integer = []
   for offset in candidates do
     let word: integer = bytes_read_u32_le(buffer, offset)
