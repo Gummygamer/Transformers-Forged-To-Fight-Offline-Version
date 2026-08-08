@@ -1,0 +1,162 @@
+-- Find arm64 BL callers using the same inputs and output as find_callers.py.
+
+function parse_hex(value: text): integer
+  intent: parse hexadecimal text
+  let body: text = if starts_with(value, "0x") or starts_with(value, "0X") then substring(value, 2, text_length(value) - 2) else value end
+  mutable result: integer = 0
+  mutable i: integer = 0
+  while i < text_length(body) do
+    let digit: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(body, i, 1))), -1)
+    if digit < 0 then
+      print("[!] invalid hexadecimal value " ++ value)
+      exit_process(1)
+    end
+    set result = result * 16 + digit
+    set i = i + 1
+  end
+  result
+end
+
+function to_hex_upper(number: integer): text
+  intent: format integer hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789ABCDEF", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function to_hex_lower(number: integer): text
+  intent: format integer hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789abcdef", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function preceding_start(starts: a list of integer, address: integer): integer
+  intent: find preceding start address
+  mutable low: integer = 0
+  mutable high: integer = length(starts)
+  while low < high do
+    let middle: integer = floor((low + high) / 2)
+    if unwrap_or(get(starts, middle), 0) <= address then
+      set low = middle + 1
+    else
+      set high = middle
+    end
+  end
+  low - 1
+end
+
+function tail(arguments: a list of text, start: integer): a list of text
+  intent: collect remaining arguments
+  mutable out: a list of text = []
+  mutable i: integer = start
+  while i < length(arguments) do
+    set out = append(out, unwrap_or(get(arguments, i), ""))
+    set i = i + 1
+  end
+  out
+end
+
+function method_name(addresses: a list of integer, names: a list of text, address: integer): text
+  intent: find last method name
+  let index: an optional integer = last_index_of(addresses, address)
+  if is_some(index) then unwrap_or(get(names, unwrap(index)), "?") else "?" end
+end
+
+function containing_name(starts: a list of integer, addresses: a list of integer, names: a list of text, offset: integer): text
+  intent: find containing function name
+  let index: integer = preceding_start(starts, offset)
+  if index < 0 then
+    "?"
+  else
+    let start: integer = unwrap_or(get(starts, index), 0)
+    let known: text = method_name(addresses, names, start)
+    if known == "?" then "sub_" ++ to_hex_lower(start) else known end
+  end
+end
+
+function caller_offsets(buffer: integer, branches: a list of integer, target: integer): a list of integer
+  intent: collect branch offsets for target
+  mutable callers: a list of integer = []
+  for offset in branches do
+    let word: integer = bytes_read_u32_le(buffer, offset)
+    mutable immediate: integer = bit_and(word, parse_hex("3FFFFFF"))
+    if immediate >= parse_hex("2000000") then
+      set immediate = immediate - parse_hex("4000000")
+    end
+    if offset + immediate * 4 == target then
+      set callers = append(callers, offset)
+    end
+  end
+  callers
+end
+
+function append_group(groups: a mapping from text to a list of integer, name: text, offset: integer): a mapping from text to a list of integer
+  intent: append offset to named group
+  let old: a list of integer = unwrap_or(get(groups, name), [])
+  put(groups, name, append(old, offset))
+end
+
+function first_three_hex(offsets: a list of integer): text
+  intent: format first three offsets
+  mutable out: a list of text = []
+  mutable i: integer = 0
+  while i < length(offsets) and i < 3 do
+    set out = append(out, "0x" ++ to_hex_lower(unwrap_or(get(offsets, i), 0)))
+    set i = i + 1
+  end
+  join(out, ", ")
+end
+
+function print_callers(target: integer, callers: a list of integer, starts: a list of integer, addresses: a list of integer, names: a list of text): nothing
+  intent: print caller groups
+  print("\n=== callers of 0x" ++ to_hex_upper(target) ++ " (" ++ method_name(addresses, names, target) ++ "): " ++ to_text(length(callers)) ++ " ===")
+  mutable seen: a mapping from text to a list of integer = {}
+  for offset in callers do
+    if preceding_start(starts, offset) >= 0 then
+      let name: text = containing_name(starts, addresses, names, offset)
+      set seen = append_group(seen, name, offset)
+    end
+  end
+  for name in sort_text(keys(seen)) do
+    let offsets: a list of integer = unwrap_or(get(seen, name), [])
+    let start: integer = unwrap_or(get(starts, preceding_start(starts, unwrap_or(get(offsets, 0), 0))), 0)
+    print("  0x" ++ to_hex_upper(start) ++ "  " ++ name ++ "   (call@ " ++ first_three_hex(offsets) ++ ")")
+  end
+end
+
+function main(): nothing
+  intent: scan binary branches and print callers
+  let arguments: a list of text = get_args()
+  let targets: a list of text = tail(arguments, 1)
+  let root: a mapping from text to text = json_parse(read_file("il2cpp_out/script.json"))
+  let methods: a list of a mapping from text to text = get(root, "ScriptMethod")
+  let addresses: a list of integer = field_values(methods, "Address")
+  let names: a list of text = field_values(methods, "Name")
+  let starts: a list of integer = sort_unique_integers(concat(addresses, get(root, "Addresses")))
+  let buffer: integer = read_file_bytes("extracted/lib/arm64-v8a/libil2cpp.so")
+  let branches: a list of integer = bytes_scan_words(buffer, 0, 4, parse_hex("FC000000"), parse_hex("94000000"))
+  for target_text in targets do
+    let target: integer = parse_hex(target_text)
+    print_callers(target, caller_offsets(buffer, branches, target), starts, addresses, names)
+  end
+  bytes_free(buffer)
+end
