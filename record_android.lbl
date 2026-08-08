@@ -1,0 +1,10 @@
+function main(): nothing
+  intent: Record Android phone screen using scrcpy for 60 seconds, targeting the physical device
+  print("Starting scrcpy recording from physical Android phone for 60 seconds...")
+  let command: text = "SCRCPY_SERVER_PATH=/home/darabat/.local/share/scrcpy/scrcpy-server timeout 60 scrcpy --record game_recording.mp4 -s RX8R30BF6SZ"
+  let result: a mapping from text to text = shell_exec(command)
+  print("scrcpy stdout: " ++ get(result, "stdout"))
+  print("scrcpy stderr: " ++ get(result, "stderr"))
+  print("scrcpy exit code: " ++ to_text(get(result, "exit_code")))
+  print("Recording finished. Check 'game_recording.mp4' in the current directory.")
+end
