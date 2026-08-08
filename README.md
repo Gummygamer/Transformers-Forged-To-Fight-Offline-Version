@@ -105,6 +105,7 @@ TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered
 patches/
   patch_il2cpp.py             the six native patches plus the dependency re-injection
   abi_map.py                  translate arm64 addresses and field offsets to armeabi-v7a
+  abi_map.lbl                 Legible port of abi_map.py
   disasm_fn.py                helper: disassemble a function at an offset
   find_callers.py             helper: find callers of a function
   find_str_ref.py             helper: find references to a string
@@ -368,6 +369,23 @@ arm64 address or field offset to its armv7 equivalent. Run its `verify` mode fir
 cross-checks two independent pairings (method name, and metadata order) against each other.
 Do not translate addresses by hand, and do not trust a nearest-symbol guess for generic
 methods -- several reference-type instantiations share one body.
+
+`patches/abi_map.lbl` is the Legible port of that mapper. Its output is byte-for-byte
+compatible with the Python original on the same inputs; run it with `legible run
+patches/abi_map.lbl <a64_dir> <v7_dir> <subcommand>`.
+
+The other Python tools were examined but are not expressible in Legible. The Ghidra
+scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
+`tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
+`currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
+need Frida's native Python bindings, while `patches/disasm_fn.py` needs Capstone. The
+remaining patch scanners (`patches/find_callers.py`, `patches/find_str_ref.py`, and
+`patches/patch_il2cpp.py`) process a 48 MB ELF byte by byte with bitwise arithmetic;
+Legible has neither binary file access nor bitwise operators. `Server/build_phone_apk.py`
+rewrites ZIP APK entries and packed binary metadata (`zipfile`, `struct`), and
+`Server/fakeserver.py` plus `Server/run_local.py` are threaded TLS socket servers.
+Finally, `Server/gamedata.py` and `Server/export_payload.py` are imported by the Server
+test suite, so converting them would break that Python-module test surface.
 
 ## The gotchas that will eat your time
 
