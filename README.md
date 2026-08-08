@@ -104,6 +104,7 @@ COMPLIANCE.md                 copyright, trademark, and security boundaries for 
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
   patch_il2cpp.py             the six native patches plus the dependency re-injection
+  patch_il2cpp.lbl            Legible port of patch_il2cpp.py
   abi_map.py                  translate arm64 addresses and field offsets to armeabi-v7a
   abi_map.lbl                 Legible port of abi_map.py
   disasm_fn.py                helper: disassemble a function at an offset
@@ -378,12 +379,13 @@ patches/abi_map.lbl <a64_dir> <v7_dir> <verify|method|fields> [<address> ...|<ty
 `method` takes addresses and `fields` takes type names. This requires a `legible` interpreter
 built after the argument-passthrough change; earlier builds reject arguments after the file name.
 
-Three of the Python tools have Legible ports; the rest were examined and are not expressible in Legible. `find_callers.lbl`
+Four of the Python tools have Legible ports; the rest were examined and are not expressible in Legible. `find_callers.lbl`
 and `find_str_ref.lbl` are Legible ports whose output is byte-for-byte identical to their
 Python originals on the same inputs. Run them from the directory that holds `extracted/` and
 `il2cpp_out/`, as `legible run patches/find_callers.lbl <0xADDR> [<0xADDR> ...]` and
-`legible run patches/find_str_ref.lbl <0xADDR>`. `patches/patch_il2cpp.py` has not been ported yet, though the interpreter now carries the
-disassembly and byte-editing builtins that port needs. The Ghidra scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
+`legible run patches/find_str_ref.lbl <0xADDR>`. `patches/patch_il2cpp.lbl` is the Legible port of the native patcher; run it as
+`legible run patches/patch_il2cpp.lbl <so> [--abi ...] [--apply] [--needed ...] [-o ...]`.
+It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The Ghidra scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
 `tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
 `currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
 need Frida's native Python bindings, while `patches/disasm_fn.py` needs Capstone.

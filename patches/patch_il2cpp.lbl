@@ -1,0 +1,582 @@
+-- Patch libil2cpp.so to get past the dead-server checks, for either shipped ABI.
+-- This is the Legible equivalent of patch_il2cpp.py.
+
+record Site
+  offset: integer
+  patch: integer
+  name: text
+end
+
+record Section
+  index: integer
+  kind: integer
+  offset: integer
+  size: integer
+  link: integer
+  entsize: integer
+end
+
+record Symbol
+  index: integer
+  entry_offset: integer
+  name_offset: integer
+  value: integer
+  size: integer
+  kind: integer
+  section: integer
+end
+
+record SectionsResult
+  error: text
+  sections: a list of Section
+end
+
+record StringResult
+  error: text
+  value: text
+end
+
+record InplaceResult
+  error: text
+  changed: boolean
+end
+
+record ContextResult
+  error: text
+  dynsym: Section
+  dynamic: Section
+  dynstr: Section
+  str_start: integer
+  str_limit: integer
+  dynamic_end: integer
+end
+
+record BoolResult
+  error: text
+  value: boolean
+end
+
+record SymbolsResult
+  error: text
+  donor: Symbol
+  alias: Symbol
+  has_donor: boolean
+  has_alias: boolean
+end
+
+record ErrorResult
+  error: text
+end
+
+record OffsetResult
+  error: text
+  offset: integer
+end
+
+record ParsedArguments
+  valid: boolean
+  so: text
+  abi: text
+  apply: boolean
+  needed: text
+  out: text
+  has_out: boolean
+end
+
+function to_hex_upper(number: integer): text
+  intent: format hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      let ch: text = substring("0123456789ABCDEF", digit, 1)
+      set out = ch ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function pad_right(value: text, width: integer): text
+  intent: pad text right
+  mutable out: text = value
+  while text_length(out) < width do
+    set out = out ++ " "
+  end
+  out
+end
+
+function print_disassembly(instructions: a list of a mapping from text to text): nothing
+  intent: print disassembly address mnemonic operand
+  for instruction in instructions do
+    let address: integer = unwrap_or(get(instruction, "address"), 0)
+    let mnemonic: text = unwrap_or(get(instruction, "mnemonic"), "")
+    let operand: text = unwrap_or(get(instruction, "op_str"), "")
+    print("    0x" ++ to_hex_upper(address) ++ ": " ++ pad_right(mnemonic, 8) ++ " " ++ operand)
+  end
+end
+
+function print_before_arm64(blob: integer, offset: integer): nothing
+  intent: return result
+  let instructions: a list of a mapping from text to text = disasm_arm64(blob, offset, 20, offset)
+  for instruction in instructions do
+    let address: integer = unwrap_or(get(instruction, "address"), 0)
+    let mnemonic: text = unwrap_or(get(instruction, "mnemonic"), "")
+    let operand: text = unwrap_or(get(instruction, "op_str"), "")
+    print("    0x" ++ to_hex_upper(address) ++ ": " ++ pad_right(mnemonic, 8) ++ " " ++ operand)
+    if address >= offset + 16 then
+      return
+    end
+  end
+end
+
+function print_before_arm32(blob: integer, offset: integer): nothing
+  intent: return result
+  let instructions: a list of a mapping from text to text = disasm_arm32(blob, offset, 20, offset)
+  for instruction in instructions do
+    let address: integer = unwrap_or(get(instruction, "address"), 0)
+    let mnemonic: text = unwrap_or(get(instruction, "mnemonic"), "")
+    let operand: text = unwrap_or(get(instruction, "op_str"), "")
+    print("    0x" ++ to_hex_upper(address) ++ ": " ++ pad_right(mnemonic, 8) ++ " " ++ operand)
+    if address >= offset + 16 then
+      return
+    end
+  end
+end
+
+function arm64_sites(): a list of Site
+  intent: return arm64 patch sites
+  [
+    Site { offset: 19113788, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "TcpClientSSL.CertificateValidation -> true" }, -- 0x123A73C
+    Site { offset: 21940544, patch: bytes_from_hex("c0035fd6"), name: "TcpClientBouncy.NotifyServerCertificate -> noop" }, -- 0x14EC940
+    Site { offset: 16523700, patch: bytes_from_hex("09000014"), name: "Hub.InitializeComponents -> register managers past OTAConfig gate" }, -- 0xFC21B4
+    Site { offset: 23246480, patch: bytes_from_hex("1f2003d5"), name: "LoginManager._PostInit -> skip 'no valid authenticators' fail on Count==0" }, -- 0x162B690
+    Site { offset: 16529176, patch: bytes_from_hex("1f2003d5"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xFC3718
+    Site { offset: 19056256, patch: bytes_from_hex("c0035fd6"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" } -- 0x122C680
+  ]
+end
+
+function armv7_sites(): a list of Site
+  intent: return armv7 patch sites
+  [
+    Site { offset: 15919104, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "TcpClientSSL.CertificateValidation -> true" }, -- 0xF2E800
+    Site { offset: 19285720, patch: bytes_from_hex("1eff2fe1"), name: "TcpClientBouncy.NotifyServerCertificate -> noop" }, -- 0x12646D8
+    Site { offset: 12752884, patch: bytes_from_hex("0a0000ea"), name: "Hub.InitializeComponents -> register managers past OTAConfig gate" }, -- 0xC297F4
+    Site { offset: 20867576, patch: bytes_from_hex("00f020e3"), name: "LoginManager._PostInit -> skip 'no valid authenticators' fail on Count==0" }, -- 0x13E69F8
+    Site { offset: 12759716, patch: bytes_from_hex("00f020e3"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xC2B2A4
+    Site { offset: 15845172, patch: bytes_from_hex("1eff2fe1"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" } -- 0xF1C734
+  ]
+end
+
+function print_sites(blob: integer, sites: a list of Site, abi: text, apply: boolean): nothing
+  intent: print patch sites and optionally apply bytes
+  for site in sites do
+    print("=== 0x" ++ to_hex_upper(site.offset) ++ "  " ++ site.name)
+    print("  BEFORE:")
+    if abi == "arm64-v8a" then
+      print_before_arm64(blob, site.offset)
+    else
+      print_before_arm32(blob, site.offset)
+    end
+    if apply then
+      bytes_write_bytes(blob, site.offset, site.patch)
+      print("  AFTER:")
+      if abi == "arm64-v8a" then
+        print_disassembly(disasm_arm64(blob, site.offset, bytes_length(site.patch), site.offset))
+      else
+        print_disassembly(disasm_arm32(blob, site.offset, bytes_length(site.patch), site.offset))
+      end
+    end
+    print("")
+  end
+end
+
+function inject_needed_bytes(blob: integer): nothing
+  intent: return result
+  bytes_write_bytes(blob, 8204340, bytes_from_text("libdothook.so")) -- 0x7D3034
+  bytes_set(blob, 45781592, 1) -- 0x2BA9258
+  bytes_write_bytes(blob, 45781600, bytes_from_hex("5cfe7b")) -- 0x2BA9260
+end
+
+function elf32_sections(blob: integer): SectionsResult
+  intent: read elf32 section headers
+  if bytes_length(blob) < 52 or bytes_get(blob, 0) != 127 or bytes_get(blob, 1) != 69 or bytes_get(blob, 2) != 76 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 1 or bytes_get(blob, 5) != 1 then
+    SectionsResult { error: "in-place dependency injection needs a little-endian ELF32 library", sections: [] }
+  else
+    let shoff: integer = bytes_read_u32_le(blob, 32)
+    let shentsize: integer = bytes_read_u16_le(blob, 46)
+    let shnum: integer = bytes_read_u16_le(blob, 48)
+    if shentsize < 40 or shoff == 0 or shnum == 0 then
+      SectionsResult { error: "ELF32 section headers are missing", sections: [] }
+    else if shoff + shentsize * shnum > bytes_length(blob) then
+      SectionsResult { error: "ELF32 section header table is outside the file", sections: [] }
+    else
+      mutable sections: a list of Section = []
+      mutable index: integer = 0
+      while index < shnum do
+        let offset: integer = shoff + index * shentsize
+        set sections = append(sections, Section { index: index, kind: bytes_read_u32_le(blob, offset + 4), offset: bytes_read_u32_le(blob, offset + 16), size: bytes_read_u32_le(blob, offset + 20), link: bytes_read_u32_le(blob, offset + 24), entsize: bytes_read_u32_le(blob, offset + 36) })
+        set index = index + 1
+      end
+      SectionsResult { error: "", sections: sections }
+    end
+  end
+end
+
+function elf_cstring(blob: integer, start: integer, limit: integer): StringResult
+  intent: read a null terminated elf string
+  if start < 0 or start >= limit or limit > bytes_length(blob) then
+    StringResult { error: "ELF string offset is outside the file", value: "" }
+  else
+    mutable end_at: integer = start
+    while end_at < limit and bytes_get(blob, end_at) != 0 do
+      set end_at = end_at + 1
+    end
+    if end_at >= limit then
+      StringResult { error: "unterminated ELF string", value: "" }
+    else
+      StringResult { error: "", value: bytes_to_text(bytes_slice(blob, start, end_at - start)) }
+    end
+  end
+end
+
+function empty_section(): Section
+  intent: return an empty section
+  Section { index: 0, kind: 0, offset: 0, size: 0, link: 0, entsize: 0 }
+end
+
+function empty_symbol(): Symbol
+  intent: return an empty symbol
+  Symbol { index: 0, entry_offset: 0, name_offset: 0, value: 0, size: 0, kind: 0, section: 0 }
+end
+
+function elf_context(blob: integer): ContextResult
+  intent: validate elf dynamic sections
+  let result: SectionsResult = elf32_sections(blob)
+  mutable dynsym: Section = empty_section()
+  mutable dynamic: Section = empty_section()
+  mutable dynsym_count: integer = 0
+  mutable dynamic_count: integer = 0
+  for section in result.sections do
+    if section.kind == 11 then
+      set dynsym = section
+      set dynsym_count = dynsym_count + 1
+    else if section.kind == 6 then
+      set dynamic = section
+      set dynamic_count = dynamic_count + 1
+    end
+  end
+  if result.error != "" then
+    ContextResult { error: result.error, dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+  else if dynsym_count != 1 or dynamic_count != 1 then
+    ContextResult { error: "expected exactly one ELF32 .dynsym and .dynamic section", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+  else if dynsym.entsize != 16 or dynamic.entsize != 8 then
+    ContextResult { error: "unexpected ELF32 dynamic table entry size", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+  else if dynsym.link < 0 or dynsym.link >= length(result.sections) then
+    ContextResult { error: "ELF32 .dynsym has an invalid string-table link", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+  else
+    let dynstr: Section = unwrap_or(get(result.sections, dynsym.link), empty_section())
+    let limit: integer = dynstr.offset + dynstr.size
+    if limit > bytes_length(blob) then ContextResult { error: "ELF32 dynamic string table is outside the file", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 } else ContextResult { error: "", dynsym: dynsym, dynamic: dynamic, dynstr: dynstr, str_start: dynstr.offset, str_limit: limit, dynamic_end: dynamic.offset + dynamic.size } end
+  end
+end
+
+function needed_present(blob: integer, context: ContextResult): BoolResult
+  intent: find existing needed dependency
+  mutable offset: integer = context.dynamic.offset
+  mutable error: text = ""
+  mutable found: boolean = false
+  while offset < context.dynamic_end and error == "" and not found do
+    if offset + 8 > bytes_length(blob) then
+      set error = "ELF32 dynamic table is outside the file"
+    else
+      let tag: integer = bytes_read_u32_le(blob, offset)
+      let value: integer = bytes_read_u32_le(blob, offset + 4)
+      if tag == 0 then
+        set offset = context.dynamic_end
+      else if tag == 1 and value >= context.dynstr.size then
+        set error = "ELF32 DT_NEEDED string is outside .dynstr"
+      else if tag == 1 then
+        let text_result: StringResult = elf_cstring(blob, context.str_start + value, context.str_limit)
+        if text_result.error != "" then
+          set error = text_result.error
+        else if text_result.value == "libdothook.so" then
+          set found = true
+        end
+      end
+    end
+    set offset = offset + context.dynamic.entsize
+  end
+  BoolResult { error: error, value: found }
+end
+
+function symbol_at(blob: integer, offset: integer, index: integer): Symbol
+  intent: read a dynamic symbol
+  Symbol { index: index, entry_offset: offset, name_offset: bytes_read_u32_le(blob, offset), value: bytes_read_u32_le(blob, offset + 4), size: bytes_read_u32_le(blob, offset + 8), kind: bit_and(bytes_get(blob, offset + 12), 15), section: bytes_read_u16_le(blob, offset + 14) }
+end
+
+function find_alias_symbols(blob: integer, context: ContextResult): SymbolsResult
+  intent: find armv7 alias symbols
+  mutable donor: Symbol = empty_symbol()
+  mutable alias: Symbol = empty_symbol()
+  mutable has_donor: boolean = false
+  mutable has_alias: boolean = false
+  mutable error: text = ""
+  mutable index: integer = 0
+  while index < floor(context.dynsym.size / context.dynsym.entsize) and error == "" do
+    let offset: integer = context.dynsym.offset + index * context.dynsym.entsize
+    if offset + 16 > bytes_length(blob) then
+      set error = "ELF32 dynamic symbol table is outside the file"
+    else
+      let symbol: Symbol = symbol_at(blob, offset, index)
+      if symbol.name_offset >= context.dynstr.size then
+        set error = "ELF32 dynamic symbol name is outside .dynstr"
+      else
+        let text_result: StringResult = elf_cstring(blob, context.str_start + symbol.name_offset, context.str_limit)
+        if text_result.error != "" then
+          set error = text_result.error
+        else if text_result.value == "__floatundidf" then
+          set donor = symbol
+          set has_donor = true
+        else if text_result.value == "__aeabi_ul2d" then
+          set alias = symbol
+          set has_alias = true
+        end
+      end
+    end
+    set index = index + 1
+  end
+  SymbolsResult { error: error, donor: donor, alias: alias, has_donor: has_donor, has_alias: has_alias }
+end
+
+function relocation_error(blob: integer, sections: a list of Section, donor: Symbol): ErrorResult
+  intent: validate donor relocations
+  mutable error: text = ""
+  for relocation in sections do
+    if (relocation.kind == 4 or relocation.kind == 9) and error == "" then
+      let expected: integer = if relocation.kind == 4 then 12 else 8 end
+      let entry_size: integer = if relocation.entsize == 0 then expected else relocation.entsize end
+      if entry_size != expected then
+        set error = "unexpected ELF32 relocation entry size"
+      else
+        mutable offset: integer = relocation.offset
+        while offset < relocation.offset + relocation.size and error == "" do
+          if offset + entry_size > bytes_length(blob) then
+            set error = "ELF32 relocation table is outside the file"
+          else if shift_right_unsigned(bytes_read_u32_le(blob, offset + 4), 8) == donor.index then
+            set error = "the ARMv7 donor alias is referenced by a relocation"
+          end
+          set offset = offset + entry_size
+        end
+      end
+    end
+  end
+  ErrorResult { error: error }
+end
+
+function first_null_entry(blob: integer, context: ContextResult): OffsetResult
+  intent: find spare dynamic null entry
+  mutable offset: integer = context.dynamic.offset
+  mutable first_null: integer = -1
+  mutable error: text = ""
+  while offset < context.dynamic_end and first_null < 0 and error == "" do
+    if offset + 8 > bytes_length(blob) then
+      set error = "ELF32 dynamic table is outside the file"
+    else if bytes_read_u32_le(blob, offset) == 0 then
+      set first_null = offset
+    end
+    set offset = offset + context.dynamic.entsize
+  end
+  if error != "" then OffsetResult { error: error, offset: -1 } else if first_null < 0 or first_null + 16 > context.dynamic_end then OffsetResult { error: "ELF32 .dynamic has no spare entry for DT_NEEDED", offset: -1 } else if bytes_read_u32_le(blob, first_null + 8) != 0 or bytes_read_u32_le(blob, first_null + 12) != 0 then OffsetResult { error: "ELF32 .dynamic has no terminating DT_NULL after the spare entry", offset: -1 } else OffsetResult { error: "", offset: first_null } end
+end
+
+function finish_inplace(blob: integer, context: ContextResult, donor: Symbol, alias: Symbol): InplaceResult
+  intent: validate and write inplace dependency
+  let old_slot: integer = context.str_start + donor.name_offset
+  let old_name: StringResult = elf_cstring(blob, old_slot, context.str_limit)
+  if old_name.error != "" then
+    InplaceResult { error: old_name.error, changed: false }
+  else if old_name.value != "__floatundidf" then
+    InplaceResult { error: "ARMv7 donor string changed unexpectedly", changed: false }
+  else if text_length("libdothook.so") > text_length("__floatundidf") then
+    InplaceResult { error: "ARMv7 donor string slot is too short", changed: false }
+  else
+    let first_null: OffsetResult = first_null_entry(blob, context)
+    if first_null.error != "" then
+      InplaceResult { error: first_null.error, changed: false }
+    else
+      bytes_write_u32_le(blob, donor.entry_offset, alias.name_offset)
+      bytes_write_bytes(blob, old_slot, bytes_from_text("libdothook.so"))
+      bytes_set(blob, old_slot + text_length("libdothook.so"), 0)
+      bytes_write_u32_le(blob, first_null.offset, 1)
+      bytes_write_u32_le(blob, first_null.offset + 4, donor.name_offset)
+      InplaceResult { error: "", changed: true }
+    end
+  end
+end
+
+function inject_needed_armv7_inplace(blob: integer): InplaceResult
+  intent: inject armv7 dependency without layout change
+  let context: ContextResult = elf_context(blob)
+  if context.error != "" then
+    InplaceResult { error: context.error, changed: false }
+  else
+    let existing: BoolResult = needed_present(blob, context)
+    if existing.error != "" then
+      InplaceResult { error: existing.error, changed: false }
+    else if existing.value then
+      InplaceResult { error: "", changed: false }
+    else
+      let symbols: SymbolsResult = find_alias_symbols(blob, context)
+      if symbols.error != "" then
+        InplaceResult { error: symbols.error, changed: false }
+      else if not symbols.has_donor or not symbols.has_alias then
+        InplaceResult { error: "expected ARMv7 alias symbols were not found; is this the 9.2.0 library?", changed: false }
+      else if symbols.donor.value != symbols.alias.value or symbols.donor.size != symbols.alias.size or symbols.donor.kind != symbols.alias.kind or symbols.donor.section != symbols.alias.section or symbols.donor.section == 0 then
+        InplaceResult { error: "ARMv7 alias symbols no longer describe the same defined function", changed: false }
+      else
+        let relocation: ErrorResult = relocation_error(blob, elf32_sections(blob).sections, symbols.donor)
+        if relocation.error != "" then InplaceResult { error: relocation.error, changed: false } else finish_inplace(blob, context, symbols.donor, symbols.alias) end
+      end
+    end
+  end
+end
+
+function usage(): nothing
+  intent: print patcher usage
+  print("[!] usage: legible run patches/patch_il2cpp.lbl [so] [--abi arm64-v8a|armeabi-v7a] [--apply] [--needed byte|inplace|patchelf|none] [-o path]")
+  exit_process(1)
+end
+
+function shell_quote(value: text): text
+  intent: return result
+  "'" ++ replace(value, "'", "'\"'\"'") ++ "'"
+end
+
+function parse_arguments(arguments: a list of text): ParsedArguments
+  intent: parse patcher arguments
+  mutable so: text = "extracted/lib/arm64-v8a/libil2cpp.so"
+  mutable abi: text = "arm64-v8a"
+  mutable apply: boolean = false
+  mutable needed: text = ""
+  mutable out: text = ""
+  mutable has_out: boolean = false
+  mutable has_so: boolean = false
+  mutable valid: boolean = true
+  mutable index: integer = 1
+  while index < length(arguments) do
+    let argument: text = unwrap_or(get(arguments, index), "")
+    if argument == "--abi" then
+      set abi = unwrap_or(get(arguments, index + 1), "")
+      set index = index + 1
+    else if argument == "--apply" then
+      set apply = true
+    else if argument == "--needed" then
+      set needed = unwrap_or(get(arguments, index + 1), "")
+      set index = index + 1
+    else if argument == "-o" or argument == "--out" then
+      set out = unwrap_or(get(arguments, index + 1), "")
+      set has_out = true
+      set index = index + 1
+    else if starts_with(argument, "-") or has_so then
+      set valid = false
+    else
+      set so = argument
+      set has_so = true
+    end
+    set index = index + 1
+  end
+  let abi_valid: boolean = abi == "arm64-v8a" or abi == "armeabi-v7a"
+  let needed_valid: boolean = needed == "" or needed == "byte" or needed == "inplace" or needed == "patchelf" or needed == "none"
+  ParsedArguments { valid: valid and abi_valid and needed_valid, so: so, abi: abi, apply: apply, needed: needed, out: out, has_out: has_out }
+end
+
+function normalized_arguments(arguments: ParsedArguments): ParsedArguments
+  intent: return result
+  if arguments.needed != "" then
+    arguments
+  else if arguments.abi == "arm64-v8a" then
+    ParsedArguments { valid: arguments.valid, so: arguments.so, abi: arguments.abi, apply: arguments.apply, needed: "byte", out: arguments.out, has_out: arguments.has_out }
+  else
+    -- Python selects inplace only on Windows; this Legible port runs on POSIX here.
+    ParsedArguments { valid: arguments.valid, so: arguments.so, abi: arguments.abi, apply: arguments.apply, needed: "patchelf", out: arguments.out, has_out: arguments.has_out }
+  end
+end
+
+function output_path(arguments: ParsedArguments): text
+  intent: select patched output path
+  if arguments.has_out then arguments.out else if contains_text(arguments.so, ".patched") then arguments.so else replace(arguments.so, ".so", ".patched.so") end
+end
+
+function add_needed(blob: integer, needed: text): InplaceResult
+  intent: add selected needed entry
+  if needed == "byte" then
+    inject_needed_bytes(blob)
+    print("[+] re-injected DT_NEEDED libdothook.so (byte cave)")
+    InplaceResult { error: "", changed: true }
+  else if needed == "inplace" then
+    let result: InplaceResult = inject_needed_armv7_inplace(blob)
+    if result.error != "" then
+      print("[!] ARMv7 in-place DT_NEEDED injection failed: " ++ result.error)
+      exit_process(1)
+    else if result.changed then
+      print("[+] added DT_NEEDED libdothook.so (ARMv7 in-place, no layout shift)")
+    else
+      print("[i] DT_NEEDED libdothook.so already present")
+    end
+    result
+  else
+    InplaceResult { error: "", changed: false }
+  end
+end
+
+function finish_output(blob: integer, path: text, needed: text): nothing
+  intent: return result
+  write_file_bytes(path, blob)
+  if needed == "patchelf" then
+    if get(shell_exec("command -v patchelf"), "exit_code") != 0 then
+      print("[!] patchelf not found on PATH; install it or, for the pristine 9.2.0 ARMv7 library, pass --needed inplace")
+      exit_process(1)
+    else if get(shell_exec("patchelf --add-needed libdothook.so " ++ shell_quote(path)), "exit_code") != 0 then
+      print("[!] patchelf failed")
+      exit_process(1)
+    else
+      print("[+] added DT_NEEDED libdothook.so (patchelf)")
+    end
+  else if needed == "none" then
+    print("[!] no DT_NEEDED entry added; the runtime hook will NOT load")
+  end
+  print("[+] wrote " ++ path)
+end
+
+function main(): nothing
+  intent: patch il2cpp library bytes and dependencies
+  let parsed: ParsedArguments = normalized_arguments(parse_arguments(get_args()))
+  if not parsed.valid then
+    usage()
+  else if parsed.needed == "byte" and parsed.abi != "arm64-v8a" then
+    print("[!] --needed byte is arm64-only (the cave offsets are specific to that binary)")
+    exit_process(1)
+  else if parsed.needed == "inplace" and parsed.abi != "armeabi-v7a" then
+    print("[!] --needed inplace is armeabi-v7a-only")
+    exit_process(1)
+  else
+    let blob: integer = read_file_bytes(parsed.so)
+    let apply_text: text = if parsed.apply then "True" else "False" end
+    print("[*] " ++ parsed.so ++ " (" ++ to_text(bytes_length(blob)) ++ " bytes)  abi=" ++ parsed.abi ++ "  apply=" ++ apply_text ++ "\n")
+    if parsed.abi == "arm64-v8a" then
+      print_sites(blob, arm64_sites(), parsed.abi, parsed.apply)
+    else
+      print_sites(blob, armv7_sites(), parsed.abi, parsed.apply)
+    end
+    if not parsed.apply then
+      print("[i] verify-only (pass --apply to write patched copy)")
+    else
+      add_needed(blob, parsed.needed)
+      finish_output(blob, output_path(parsed), parsed.needed)
+    end
+  end
+end
