@@ -1,0 +1,158 @@
+-- Annotated ARM64 disassembly using Il2CppDumper script.json addresses.
+
+record AnnotationResult
+  pages: a mapping from text to integer
+  note: text
+end
+
+function parse_hex(value: text): integer
+  intent: parse hexadecimal text
+  let body: text = if starts_with(value, "0x") or starts_with(value, "0X") then substring(value, 2, text_length(value) - 2) else value end
+  mutable result: integer = 0
+  mutable i: integer = 0
+  while i < text_length(body) do
+    let digit: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(body, i, 1))), -1)
+    if digit < 0 then
+      print("[!] invalid hexadecimal value " ++ value)
+      exit_process(1)
+    end
+    set result = result * 16 + digit
+    set i = i + 1
+  end
+  result
+end
+
+function to_hex_upper(number: integer): text
+  intent: format hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789ABCDEF", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function pad_right(value: text, width: integer): text
+  intent: pad text right
+  mutable out: text = value
+  while text_length(out) < width do
+    set out = out ++ " "
+  end
+  out
+end
+
+function method_map(entries: a list of a mapping from text to text): a mapping from integer to text
+  intent: return result
+  mutable out: a mapping from integer to text = {}
+  for entry in entries do
+    set out = put(out, unwrap_or(get(entry, "Address"), 0), unwrap_or(get(entry, "Name"), ""))
+  end
+  out
+end
+
+function string_map(entries: a list of a mapping from text to text): a mapping from integer to text
+  intent: return result
+  mutable out: a mapping from integer to text = {}
+  for entry in entries do
+    set out = put(out, unwrap_or(get(entry, "Address"), 0), unwrap_or(get(entry, "Value"), ""))
+  end
+  out
+end
+
+function annotation(address: integer, strings: a mapping from integer to text, metadata: a mapping from integer to text, methods: a mapping from integer to text): text
+  intent: annotate resolved address
+  if has_key(strings, address) then
+    "  ; STR \"" ++ unwrap_or(get(strings, address), "") ++ "\""
+  else if has_key(metadata, address) then
+    "  ; META " ++ unwrap_or(get(metadata, address), "")
+  else if has_key(methods, address) then
+    "  ; &" ++ unwrap_or(get(methods, address), "")
+  else
+    ""
+  end
+end
+
+function address_annotation(mnemonic: text, operands: a list of a mapping from text to text, pages: a mapping from text to integer, strings: a mapping from integer to text, metadata: a mapping from integer to text, methods: a mapping from integer to text): AnnotationResult
+  intent: resolve address instruction operands
+  if mnemonic == "adrp" and length(operands) == 2 then
+    let destination: a mapping from text to text = unwrap_or(get(operands, 0), {})
+    let immediate: a mapping from text to text = unwrap_or(get(operands, 1), {})
+    AnnotationResult { pages: put(pages, unwrap_or(get(destination, "reg"), ""), unwrap_or(get(immediate, "imm"), 0)), note: "" }
+  else if (mnemonic == "add" or mnemonic == "ldr") and length(operands) >= 2 then
+    let destination: a mapping from text to text = unwrap_or(get(operands, 0), {})
+    let source_operand: a mapping from text to text = unwrap_or(get(operands, 1), {})
+    let source: text = if unwrap_or(get(source_operand, "type"), "") == "reg" then unwrap_or(get(source_operand, "reg"), "") else "" end
+    if has_key(pages, source) then
+      let base: integer = unwrap_or(get(pages, source), 0)
+      mutable immediate: integer = 0
+      if mnemonic == "add" and length(operands) > 2 then
+        let addend: a mapping from text to text = unwrap_or(get(operands, 2), {})
+        if unwrap_or(get(addend, "type"), "") == "imm" then
+          set immediate = unwrap_or(get(addend, "imm"), 0)
+        end
+      else if mnemonic == "ldr" and unwrap_or(get(source_operand, "type"), "") == "mem" then
+        set immediate = unwrap_or(get(source_operand, "mem_disp"), 0)
+      end
+      let address: integer = base + immediate
+      let next_pages: a mapping from text to integer = if mnemonic == "add" then put(pages, unwrap_or(get(destination, "reg"), ""), address) else pages end
+      AnnotationResult { pages: next_pages, note: annotation(address, strings, metadata, methods) }
+    else
+      AnnotationResult { pages: pages, note: "" }
+    end
+  else
+    AnnotationResult { pages: pages, note: "" }
+  end
+end
+
+function branch_annotation(mnemonic: text, operands: a list of a mapping from text to text, methods: a mapping from integer to text): text
+  intent: annotate branch target operands
+  if (mnemonic == "bl" or mnemonic == "b") and length(operands) > 0 then
+    let target_operand: a mapping from text to text = unwrap_or(get(operands, 0), {})
+    let target: integer = unwrap_or(get(target_operand, "imm"), 0)
+    if unwrap_or(get(target_operand, "type"), "") == "imm" and has_key(methods, target) then "  ; -> " ++ unwrap_or(get(methods, target), "") else "" end
+  else
+    ""
+  end
+end
+
+function print_instructions(instructions: a list of a mapping from text to text, strings: a mapping from integer to text, metadata: a mapping from integer to text, methods: a mapping from integer to text): nothing
+  intent: print annotated disassembly instructions
+  mutable pages: a mapping from text to integer = {}
+  for instruction in instructions do
+    let mnemonic: text = unwrap_or(get(instruction, "mnemonic"), "")
+    let operands: a list of a mapping from text to text = unwrap_or(get(instruction, "operands"), [])
+    let resolved: AnnotationResult = address_annotation(mnemonic, operands, pages, strings, metadata, methods)
+    set pages = resolved.pages
+    let note: text = if resolved.note != "" then resolved.note else branch_annotation(mnemonic, operands, methods) end
+    print("0x" ++ to_hex_upper(unwrap_or(get(instruction, "address"), 0)) ++ ": " ++ pad_right(mnemonic, 7) ++ " " ++ unwrap_or(get(instruction, "op_str"), "") ++ note)
+    if mnemonic == "ret" then
+      return
+    end
+  end
+end
+
+function main(): nothing
+  intent: disassemble function bytes and annotate il2cpp addresses
+  let arguments: a list of text = get_args()
+  let offset: integer = parse_hex(unwrap_or(get(arguments, 1), ""))
+  let count: integer = if length(arguments) > 2 then parse_hex(unwrap_or(get(arguments, 2), "")) else 1280 end
+  print("[*] loading script.json ...")
+  let root: a mapping from text to text = json_parse(read_file("il2cpp_out/script.json"))
+  let method_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMethod"), [])
+  let string_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptString"), [])
+  let metadata_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMetadata"), [])
+  let methods: a mapping from integer to text = method_map(method_entries)
+  let strings: a mapping from integer to text = string_map(string_entries)
+  let metadata: a mapping from integer to text = method_map(metadata_entries)
+  print("[*] " ++ to_text(length(method_entries)) ++ " methods, " ++ to_text(length(string_entries)) ++ " strings")
+  let buffer: integer = read_file_bytes("extracted/lib/arm64-v8a/libil2cpp.so")
+  let instructions: a list of a mapping from text to text = disasm_arm64(buffer, offset, count, offset)
+  print_instructions(instructions, strings, metadata, methods)
+  bytes_free(buffer)
+end
