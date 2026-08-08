@@ -501,11 +501,17 @@ static int g_sp3_xf_capture_props = 0;
 static uint64_t g_sp3_xf_since_ms = 0;
 static int g_sp3_anim_played = 0;
 static int g_sp3_xf_timeout_logged = 0;
-/* SP3BEAT (shipped): the level-3 cinematic alternates alt-mode and robot-mode on a beat whose
-   length is the character's own authored TransformMoveEvent duration, read live off the move that
-   slot 139 substitutes for the absent SpecialAttack03. Defaults match the measured authored
-   window (66 ms start, 800 ms duration) if the move cannot be read. */
+/* SP3BEAT (shipped): the captured authored TransformMoveEvent duration is retained for
+   diagnostics only - it is logged by sp3_beat_capture() but no longer drives the schedule. */
 static int g_sp3_beat_du_ms = 800;
+/* SP3BEAT (shipped): the level-3 cinematic shows ONE contiguous alternate-form block, not an
+   alternation. Boundaries are measured off reference recordings of the original game: the
+   character is visibly a robot for the first ~1.0 s of the cinematic, holds the alternate
+   (vehicle) body for ~1.5 s, and finishes the cinematic in robot form. These are original
+   authored constants: this build ships no real SpecialAttack03 move, so the substituted
+   move's own event data (66 ms start / 800 ms duration) is not authentic beat data for it. */
+static int g_sp3_alt_on_ms  = 1000;   /* alternate form appears at this offset */
+static int g_sp3_alt_off_ms = 2500;   /* alternate form is gone from this offset onward */
 static int g_sp3_beat_form = -1;      /* -1 unknown, 1 alt, 0 robot: what is applied right now */
 static int g_sp3_beat_ticks = 0;      /* pump ticks seen in the current cinematic */
 static int g_sp3_beat_lines = 0;      /* log budget */
@@ -3096,12 +3102,11 @@ static int sp3_prop_mirror(void* prop, int on){
 }
 
 /* SP3BEAT (shipped): the scheduled body at a given offset into the cinematic. 1 = alternate
-   (vehicle) form, 0 = robot form. Period is twice the authored transform-window length. */
+   (vehicle) form, 0 = robot form. One contiguous alternate block only - see the reference
+   measurements recorded next to g_sp3_alt_on_ms. */
 static int sp3_beat_form_at(uint64_t elapsed_ms){
-    int du=g_sp3_beat_du_ms;
-    if(du<400) du=400;
-    uint64_t period=(uint64_t)du*2u;
-    return (elapsed_ms % period) < (uint64_t)du;
+    return elapsed_ms >= (uint64_t)g_sp3_alt_on_ms
+        && elapsed_ms <  (uint64_t)g_sp3_alt_off_ms;
 }
 
 /* SP3BEAT (shipped): push the scheduled body onto the captured props. Called only when the form
@@ -3130,8 +3135,8 @@ static void sp3_beat_apply(int alt){
         }
     }
     if(g_sp3_beat_lines<40){ g_sp3_beat_lines++;
-        flog("SP3BEAT apply alt=%d du=%d tms=%llu", alt, g_sp3_beat_du_ms,
-             (unsigned long long)propgo_now_ms()); }
+        flog("SP3BEAT apply alt=%d on=%d off=%d tms=%llu", alt, g_sp3_alt_on_ms,
+             g_sp3_alt_off_ms, (unsigned long long)propgo_now_ms()); }
 }
 
 /* SP3BEAT (shipped): the pump body, called from Simulation.FixedUpdate. */
@@ -3386,12 +3391,19 @@ void* hook_142(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
         void* pc=fld_p(a0,0x18);
         if (obj_ok(pc)) {
             sp3_xf_add(pc);
-            g_sp3_beat_form = 1;
+            g_sp3_beat_form = 0;
             g_sp3_beat_ticks = 0;
             flog("SP3XFIX enter pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
+            flog("SP3SCHED on=%d off=%d tms=%llu", g_sp3_alt_on_ms, g_sp3_alt_off_ms,
+                 (unsigned long long)propgo_now_ms());
             g_sp3_xf_capture_props=1;
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,1,NULL);
             g_sp3_xf_capture_props=0;
+            /* SP3BEAT (shipped): the cinematic opens on the ROBOT wind-up. The Transform(true)
+               call above only exists to route the props through slot 138 so they can be
+               captured; push the robot body back on straight away so the alternate form does
+               not flash at t=0. */
+            sp3_beat_apply(0);
         }
     });
     return r;

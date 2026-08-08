@@ -51,8 +51,8 @@ or strings of game content. It is pure plumbing: the squad the user's own client
 quest-progression, active-quest, movedir, and user-data responses instead of those responses
 hardcoding a default squad. The only identifiers involved — `setSavedTeam`, `activeTeams`,
 `savedTeams`, the `aid` key of the form `"<qid>-<teamID>"`, and the blueprint ids the client
-itself sends — are wire-key and asset-id names that already exist inside the user's own copy of
-the app. Observing which key the client sends and answering in the same shape is an
+itself sends — are wire-key and asset-id names that already exist inside the user's own copy
+of the app. Observing which key the client sends and answering in the same shape is an
 interoperability schema observation, the same established precedent recorded above for the
 hit-stun wire keys. The in-APK C server change introduces no new capability: it makes the
 already-shipped local loopback server compute the same response bodies the Python server already
@@ -237,3 +237,43 @@ the repository ignores `media/`. The change adds no capability: it introduces no
 interception, no certificate bypass, and no patching of shipped content bundles. Temporary
 read-only diagnostic hooks added during investigation were removed before shipping, so the
 earlier statements about their removal remain accurate.
+
+## Level-3 special-attack transform timing
+
+During a level-3, three-energy-bar special attack the fighter previously switched repeatedly
+between its alternate form and its robot form across the cinematic, alternating on a beat read
+from shipped move data, which produced roughly seven form changes in one sequence. It now shows
+a single alternate-form block: the fighter holds its robot body for a short wind-up, changes once
+into the alternate form, holds that form, changes once back to the robot, and finishes the
+cinematic as a robot. For the player this means one clean transformation out and one clean
+transformation back where there used to be a rapid flutter.
+
+The two boundary values that define the block are original authored constants for this revival:
+the alternate form turns on at 1.0 seconds into the cinematic and turns off at 2.5 seconds into the
+cinematic, the thresholds measured to reproduce the observed shape of the sequence. A constant was
+authored here rather than read from shipped data for a direct reason: this build ships no real
+level-3 special move for any character, so the substituted move's own transform-event duration is
+not authentic beat data for the level-3 cinematic. The previous section's statement that the
+alternation period is read at runtime from the character's own already-shipped move data is
+therefore superseded for this schedule, and the shipped duration that informed it is now retained
+only as a diagnostic value that is logged but drives nothing.
+
+Two publicly posted recordings of the original game were consulted as an observational timing
+reference only. They were downloaded to a local, version-ignored working directory, decomposed to
+frames locally, and measured. Nothing derived from them is redistributed with this package: no
+video, no frames, no contact sheets, no audio, no on-screen text, and no artwork was copied into
+this repository or into any build output. The only thing carried forward is the reviving author's
+own measurements of elapsed durations in seconds and the author's own behavioural description of
+what the footage shows. Elapsed-time measurements are facts about observed timing, not expression.
+The recordings themselves are not committed, not redistributed, and not required to build or run
+anything here.
+
+This change authors no game values, names, balance data, or strings of game content, adds no game
+assets or binaries to the repository, and patches no shipped content bundle, matching the
+assurances the existing sections make. Both the alternate-form body and the robot body are assets
+that already ship inside the user's own installed client; nothing was extracted, added, or
+redistributed. Screen recordings made as evidence are local-only captures and are not committed;
+the repository ignores `media/`. The change adds no capability: it introduces no network
+interception, no certificate bypass, and no patching of shipped content bundles. No new externally
+derived IL2CPP addresses were needed for this change; it reuses the entry points already recorded
+in the previous section.
