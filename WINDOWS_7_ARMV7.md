@@ -123,7 +123,7 @@ Apply the six ARMv7 code patches and the native, layout-preserving dependency
 injection:
 
 ```cmd
-python patches\patch_il2cpp.py --abi armeabi-v7a --needed inplace --apply -o work\libil2cpp-armv7-patched.so work\original32\lib\armeabi-v7a\libil2cpp.so
+legible run patches\patch_il2cpp.lbl --abi armeabi-v7a --needed inplace --apply -o work\libil2cpp-armv7-patched.so work\original32\lib\armeabi-v7a\libil2cpp.so
 ```
 
 The last lines must include:

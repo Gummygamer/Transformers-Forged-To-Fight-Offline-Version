@@ -1,5 +1,5 @@
 -- Translate arm64 Il2CppDumper addresses and field offsets to armeabi-v7a.
--- This is the Legible equivalent of abi_map.py; it deliberately uses no regexes.
+-- Address and field-offset mapper; it deliberately uses no regexes.
 
 record Method
   rva: integer

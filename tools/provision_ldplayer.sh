@@ -5,7 +5,7 @@
 # and PC_IP must be this PC's LAN address that the emulator can reach.
 #
 # Prereqs (one-time): build the patched lib + hook:
-#   python patches/patch_il2cpp.py extracted/lib/arm64-v8a/libil2cpp.so --apply
+#   legible run patches/patch_il2cpp.lbl extracted/lib/arm64-v8a/libil2cpp.so --apply
 #   (cd tools/nativehook && aarch64-linux-android28-clang.cmd -shared -O2 -fPIC \
 #        -Wl,-soname,libdothook.so -o libdothook.so hook.c -llog)
 set -e

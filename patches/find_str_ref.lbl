@@ -1,4 +1,4 @@
--- Find arm64 ADRP references using the same inputs and output as find_str_ref.py.
+-- Find arm64 ADRP references.
 
 function parse_hex(value: text): integer
   intent: parse hexadecimal text
