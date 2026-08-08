@@ -108,7 +108,9 @@ patches/
   abi_map.lbl                 Legible port of abi_map.py
   disasm_fn.py                helper: disassemble a function at an offset
   find_callers.py             helper: find callers of a function
+  find_callers.lbl            Legible port of find_callers.py
   find_str_ref.py             helper: find references to a string
+  find_str_ref.lbl            Legible port of find_str_ref.py
 Server/
   fakeserver.py               the fake Sparx server
   gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
@@ -376,14 +378,16 @@ patches/abi_map.lbl <a64_dir> <v7_dir> <verify|method|fields> [<address> ...|<ty
 `method` takes addresses and `fields` takes type names. This requires a `legible` interpreter
 built after the argument-passthrough change; earlier builds reject arguments after the file name.
 
-The other Python tools were examined but are not expressible in Legible. The Ghidra
-scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
+The remaining Python tools were examined but are not expressible in Legible. `find_callers.lbl`
+and `find_str_ref.lbl` are Legible ports whose output is byte-for-byte identical to their
+Python originals on the same inputs. Run them from the directory that holds `extracted/` and
+`il2cpp_out/`, as `legible run patches/find_callers.lbl <0xADDR> [<0xADDR> ...]` and
+`legible run patches/find_str_ref.lbl <0xADDR>`. `patches/patch_il2cpp.py` has not been ported
+yet. The Ghidra scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
 `tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
 `currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
-need Frida's native Python bindings, while `patches/disasm_fn.py` needs Capstone. The
-remaining patch scanners (`patches/find_callers.py`, `patches/find_str_ref.py`, and
-`patches/patch_il2cpp.py`) process a 48 MB ELF byte by byte with bitwise arithmetic;
-Legible has neither binary file access nor bitwise operators. `Server/build_phone_apk.py`
+need Frida's native Python bindings, while `patches/disasm_fn.py` needs Capstone.
+`Server/build_phone_apk.py`
 rewrites ZIP APK entries and packed binary metadata (`zipfile`, `struct`), and
 `Server/fakeserver.py` plus `Server/run_local.py` are threaded TLS socket servers.
 Finally, `Server/gamedata.py` and `Server/export_payload.py` are imported by the Server
