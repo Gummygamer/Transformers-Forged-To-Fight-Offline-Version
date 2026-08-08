@@ -31,7 +31,7 @@ body.
 
 ## The native patches
 
-All six are in `patches/patch_il2cpp.py`, applied by file offset, and the script prints a
+All six are in `patches/patch_il2cpp.lbl`, applied by file offset, and the script prints a
 before and after disassembly of each so you can confirm them. In short:
 
 1 and 2. Certificate validation. Two TLS code paths are forced to accept any certificate, so
@@ -419,13 +419,13 @@ by `HitStunStatModifierTests` in `Server/test_gamedata.py`.
 
 This is data-only: the login response is served to whichever ABI is installed, so the fix applies
 to armeabi-v7a automatically and needs neither an armv7 RVA nor a change to
-`patches/abi_map.py`. The paired hook logs objectively verify the effect. The full-speed emulator
+`patches/abi_map.lbl`. The paired hook logs objectively verify the effect. The full-speed emulator
 captures do not, by eye, show an obviously distinct freeze: with placeholder actors the extra
 stun blends into the normal strike/stagger animation.
 
 ## The armeabi-v7a port
 
-`patches/abi_map.py` translates arm64 method addresses and field offsets to the 32-bit
+`patches/abi_map.lbl` translates arm64 method addresses and field offsets to the 32-bit
 build by pairing the two Il2CppDumper dumps, which both come from the same
 `global-metadata.dat`. That covers the six native patches and ten of the twelve hook sites.
 It does not cover anything that is not a method address, and two fixes are exactly that.

@@ -14,13 +14,13 @@
 // Two things differ from the arm64 hook, and both bite silently if forgotten:
 //
 //   1. ADDRESSES. Every RVA below is the armv7 address of the same method, taken
-//      from `patches/abi_map.py method <arm64 rva>`. Do not copy an address from
+//      from `patches/abi_map.lbl method <arm64 rva>`. Do not copy an address from
 //      hook.c. The arm64 comment for each fix explains WHY it exists; that
 //      reasoning is unchanged, so it is not repeated here -- read hook.c for it.
 //
 //   2. FIELD OFFSETS. A managed object's header is 8 bytes here instead of 16, and
 //      every reference field is 4 bytes instead of 8, so every offset shifts.
-//      They come from `patches/abi_map.py fields <Type>`; the arm64 value is kept
+//      They come from `patches/abi_map.lbl fields <Type>`; the arm64 value is kept
 //      in a comment next to each one so the pair can be re-checked.
 //
 // PORT STATUS vs hook.c (arm64) -- READ BEFORE PORTING ANYTHING:
@@ -44,8 +44,8 @@
 //      pre-battle squad screen.
 //
 //      A porter must translate every arm64 RVA with
-//      `patches/abi_map.py method <arm64 rva>` and every field offset with
-//      `patches/abi_map.py fields <Type>`, then re-verify live. The firing
+//      `patches/abi_map.lbl method <arm64 rva>` and every field offset with
+//      `patches/abi_map.lbl fields <Type>`, then re-verify live. The firing
 //      behaviour below was measured empirically on arm64; do not assume these
 //      lifecycle methods fire the same way on armv7, or at the same entry/exit
 //      point:
@@ -134,7 +134,7 @@ static void* g_empty_tags = NULL;   // shared empty string[] (see hook.c slot 57
 
 // ---------------------------------------------------------------------------
 // Hook table. `rva` is the armv7 address; the arm64 address is kept alongside so
-// `patches/abi_map.py method <a64>` can re-derive it after any rebuild.
+// `patches/abi_map.lbl method <a64>` can re-derive it after any rebuild.
 // ---------------------------------------------------------------------------
 static struct { uint32_t rva; const char* tag; fn8 orig; } H[] = {
     { 0x132EF40, "fixXlate",    0 },  // 0  a64 0x1593888  EB.Sparx.XlateManager.Connect
@@ -152,7 +152,7 @@ static struct { uint32_t rva; const char* tag; fn8 orig; } H[] = {
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
-// ---- field offsets (arm64 value in the comment; see patches/abi_map.py fields) ----
+// ---- field offsets (arm64 value in the comment; see patches/abi_map.lbl fields) ----
 #define OFF_SUBSYSTEM_STATE   0x0C   // a64 0x18  SubSystem.State
 #define OFF_ACT_UNLOCKED      0x18   // a64 0x30  Act.unlocked   (Chapter.unlocked too)
 #define OFF_ACT_COMPLETED     0x19   // a64 0x31  Act.completed  (Chapter.completed too)
@@ -268,7 +268,7 @@ static void* hook_10(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void*
     return H[10].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 
-// The combat game clock. `abi_map.py method` cannot help here: the clock is reached
+// The combat game clock. `abi_map.lbl method` cannot help here: the clock is reached
 // through a GOT slot, i.e. a DATA address, and the two builds place those differently.
 // It was instead re-derived from this binary, which is more robust than translating an
 // address anyway -- QueuedAction.HasAction (armv7 0x907EC0) has to read the very clock

@@ -1,5 +1,5 @@
 -- Patch libil2cpp.so to get past the dead-server checks, for either shipped ABI.
--- This is the Legible equivalent of patch_il2cpp.py.
+-- Native patcher implementation.
 
 record Site
   offset: integer

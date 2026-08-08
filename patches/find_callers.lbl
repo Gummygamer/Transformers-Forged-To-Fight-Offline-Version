@@ -1,4 +1,4 @@
--- Find arm64 BL callers using the same inputs and output as find_callers.py.
+-- Find arm64 BL callers.
 
 function parse_hex(value: text): integer
   intent: parse hexadecimal text
