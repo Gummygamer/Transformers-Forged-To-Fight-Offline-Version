@@ -372,7 +372,9 @@ methods -- several reference-type instantiations share one body.
 
 `patches/abi_map.lbl` is the Legible port of that mapper. Its output is byte-for-byte
 compatible with the Python original on the same inputs; run it with `legible run
-patches/abi_map.lbl <a64_dir> <v7_dir> <subcommand>`.
+patches/abi_map.lbl <a64_dir> <v7_dir> <verify|method|fields> [<address> ...|<type> ...]`, where
+`method` takes addresses and `fields` takes type names. This requires a `legible` interpreter
+built after the argument-passthrough change; earlier builds reject arguments after the file name.
 
 The other Python tools were examined but are not expressible in Legible. The Ghidra
 scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
