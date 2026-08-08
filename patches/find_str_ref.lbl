@@ -1,0 +1,203 @@
+-- Find arm64 ADRP references using the same inputs and output as find_str_ref.py.
+
+function parse_hex(value: text): integer
+  intent: parse hexadecimal text
+  let body: text = if starts_with(value, "0x") or starts_with(value, "0X") then substring(value, 2, text_length(value) - 2) else value end
+  mutable result: integer = 0
+  mutable i: integer = 0
+  while i < text_length(body) do
+    let digit: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(body, i, 1))), -1)
+    if digit < 0 then
+      print("[!] invalid hexadecimal value " ++ value)
+      exit_process(1)
+    end
+    set result = result * 16 + digit
+    set i = i + 1
+  end
+  result
+end
+
+function to_hex_upper(number: integer): text
+  intent: format integer hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789ABCDEF", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function to_hex_lower(number: integer): text
+  intent: format integer hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789abcdef", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function preceding_start(starts: a list of integer, address: integer): integer
+  intent: find preceding start address
+  mutable low: integer = 0
+  mutable high: integer = length(starts)
+  while low < high do
+    let middle: integer = floor((low + high) / 2)
+    if unwrap_or(get(starts, middle), 0) <= address then
+      set low = middle + 1
+    else
+      set high = middle
+    end
+  end
+  low - 1
+end
+
+function tail(arguments: a list of text, start: integer): a list of text
+  intent: collect remaining arguments
+  mutable out: a list of text = []
+  mutable i: integer = start
+  while i < length(arguments) do
+    set out = append(out, unwrap_or(get(arguments, i), ""))
+    set i = i + 1
+  end
+  out
+end
+
+function method_name(addresses: a list of integer, names: a list of text, address: integer): text
+  intent: find last method name
+  let index: an optional integer = last_index_of(addresses, address)
+  if is_some(index) then unwrap_or(get(names, unwrap(index)), "?") else "?" end
+end
+
+function containing_start(starts: a list of integer, offset: integer): integer
+  intent: find containing function start
+  let index: integer = preceding_start(starts, offset)
+  if index < 0 then 0 else unwrap_or(get(starts, index), 0) end
+end
+
+function containing_name(starts: a list of integer, addresses: a list of integer, names: a list of text, offset: integer): text
+  intent: find containing function name
+  let start: integer = containing_start(starts, offset)
+  if start == 0 then
+    "?"
+  else
+    let known: text = method_name(addresses, names, start)
+    if known == "?" then "sub_" ++ to_hex_lower(start) else known end
+  end
+end
+
+function has_reference_after(buffer: integer, offset: integer, register: integer, low12: integer): boolean
+  intent: scan following instructions for reference
+  mutable k: integer = 1
+  mutable found: boolean = false
+  while k <= 6 and not found and offset + 4 * k + 4 <= bytes_length(buffer) do
+    let word: integer = bytes_read_u32_le(buffer, offset + 4 * k)
+    let base: integer = bit_and(shift_right(word, 5), parse_hex("1F"))
+    if base == register then
+      if bit_and(word, parse_hex("FF800000")) == parse_hex("91000000") then
+        if bit_and(shift_right(word, 10), parse_hex("FFF")) == low12 then
+          set found = true
+        end
+      end
+      let kind: integer = bit_and(word, parse_hex("FFC00000"))
+      if kind == parse_hex("F9400000") or kind == parse_hex("B9400000") then
+        let shift: integer = if kind == parse_hex("F9400000") then 3 else 2 end
+        if shift_left(bit_and(shift_right(word, 10), parse_hex("FFF")), shift) == low12 then
+          set found = true
+        end
+      end
+    end
+    set k = k + 1
+  end
+  found
+end
+
+function reference_offsets(buffer: integer, candidates: a list of integer, page: integer, low12: integer): a list of integer
+  intent: collect ADRP references to page
+  mutable hits: a list of integer = []
+  for offset in candidates do
+    let word: integer = bytes_read_u32_le(buffer, offset)
+    let low: integer = bit_and(shift_right(word, 29), 3)
+    let high: integer = bit_and(shift_right(word, 5), parse_hex("7FFFF"))
+    mutable immediate: integer = bit_or(shift_left(high, 2), low)
+    if bit_and(immediate, shift_left(1, 20)) != 0 then
+      set immediate = immediate - shift_left(1, 21)
+    end
+    let target_page: integer = floor(offset / 4096) * 4096 + shift_left(immediate, 12)
+    let register: integer = bit_and(word, parse_hex("1F"))
+    if target_page == page and has_reference_after(buffer, offset, register, low12) then
+      set hits = append(hits, offset)
+    end
+  end
+  hits
+end
+
+function append_group(groups: a mapping from text to a list of integer, key: text, offset: integer): a mapping from text to a list of integer
+  intent: append offset to reference group
+  put(groups, key, append(unwrap_or(get(groups, key), []), offset))
+end
+
+function first_three_hex(offsets: a list of integer): text
+  intent: format first three offsets
+  mutable out: a list of text = []
+  mutable i: integer = 0
+  while i < length(offsets) and i < 3 do
+    set out = append(out, "0x" ++ to_hex_lower(unwrap_or(get(offsets, i), 0)))
+    set i = i + 1
+  end
+  join(out, ", ")
+end
+
+function print_references(hits: a list of integer, starts: a list of integer, addresses: a list of integer, names: a list of text): nothing
+  intent: print reference groups
+  mutable groups: a mapping from text to a list of integer = {}
+  mutable group_keys: a list of text = []
+  mutable previous: text = ""
+  for offset in hits do
+    let start: integer = containing_start(starts, offset)
+    let name: text = containing_name(starts, addresses, names, offset)
+    let key: text = to_text(start) ++ "\u0001" ++ name
+    if key != previous then
+      set group_keys = append(group_keys, key)
+      set previous = key
+    end
+    set groups = append_group(groups, key, offset)
+  end
+  -- Hits are ascending and containing starts are monotone, so insertion is tuple-sort order.
+  for key in group_keys do
+    let offsets: a list of integer = unwrap_or(get(groups, key), [])
+    let start: integer = containing_start(starts, unwrap_or(get(offsets, 0), 0))
+    print("  0x" ++ to_hex_upper(start) ++ "  " ++ containing_name(starts, addresses, names, start) ++ "   (ref@ " ++ first_three_hex(offsets) ++ ")")
+  end
+end
+
+function main(): nothing
+  intent: scan binary references and print groups
+  let arguments: a list of text = get_args()
+  let target: integer = parse_hex(unwrap_or(get(tail(arguments, 1), 0), ""))
+  let page: integer = floor(target / 4096) * 4096
+  let low12: integer = target % 4096
+  let root: a mapping from text to text = json_parse(read_file("il2cpp_out/script.json"))
+  let methods: a list of a mapping from text to text = get(root, "ScriptMethod")
+  let addresses: a list of integer = field_values(methods, "Address")
+  let names: a list of text = field_values(methods, "Name")
+  let starts: a list of integer = sort_unique_integers(concat(addresses, get(root, "Addresses")))
+  let buffer: integer = read_file_bytes("extracted/lib/arm64-v8a/libil2cpp.so")
+  let candidates: a list of integer = bytes_scan_words(buffer, 0, 4, parse_hex("9F000000"), parse_hex("90000000"))
+  let hits: a list of integer = reference_offsets(buffer, candidates, page, low12)
+  print("=== references to 0x" ++ to_hex_upper(target) ++ ": " ++ to_text(length(hits)) ++ " ===")
+  print_references(hits, starts, addresses, names)
+  bytes_free(buffer)
+end
