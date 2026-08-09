@@ -1,0 +1,542 @@
+-- Build the mmap-friendly v1 payload used by the offline HTTP server.
+use jsonout
+use gamedata
+use fakeserver
+
+record Entries
+  keys: a list of text
+  bodies: a mapping from text to text
+end
+
+record Payload
+  version: integer
+  listen_port: integer
+  entry_keys: a list of text
+  entry_bodies: a list of text
+  prefix_keys: a list of text
+  prefix_bodies: a list of text
+  default_body: text
+  error: text
+end
+
+record Prefixes
+  keys: a list of text
+  bodies: a list of text
+end
+
+function here(): text
+  intent: return
+  let args: a list of text = get_args()
+  let script: text = unwrap_or(get(args, 0), "Server/export_payload.lbl")
+  let absolute: text = if starts_with(script, "/") then script else path_join(get_cwd(), script) end
+  let slash: integer = last_index(absolute, "/")
+  if slash < 0 then "Server" else substring(absolute, 0, slash) end
+end
+
+function last_index(value: text, needle: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(value) do
+    if substring(value, index, text_length(needle)) == needle then
+      set result = index
+    end
+    set index = index + 1
+  end
+  result
+end
+
+function responses(): text
+  intent: return
+  path_join(here(), "responses")
+end
+
+function envelope(value: Json): text
+  intent: encode
+  jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", value)]))
+end
+
+function fail(message: text): nothing
+  intent: print
+  print(message)
+  exit_process(1)
+end
+
+function count_occurrences(haystack: text, needle: text): integer
+  intent: count
+  if needle == "" then 0 else
+    mutable count: integer = 0
+    mutable offset: integer = 0
+    while offset + text_length(needle) <= text_length(haystack) do
+      if substring(haystack, offset, text_length(needle)) == needle then
+        set count = count + 1
+        set offset = offset + text_length(needle)
+      else
+        set offset = offset + 1
+      end
+    end
+    count
+  end
+end
+
+function replace_exact(body: text, old: text, new: text, expected: integer, label: text): text
+  intent: replace
+  let actual: integer = count_occurrences(body, old)
+  if actual != expected then
+    fail(label ++ ": expected " ++ to_text(expected) ++ " replacements, found " ++ to_text(actual))
+    ""
+  else
+    replace(body, old, new)
+  end
+end
+
+function add(entries: Entries, key: text, body: text): Entries
+  intent: build
+  if has_key(entries.bodies, key) then
+    fail("duplicate payload key: " ++ key)
+    entries
+  else
+    Entries { keys: append(entries.keys, key), bodies: put(entries.bodies, key, body) }
+  end
+end
+
+function body_for(entries: Entries, key: text): text
+  intent: get
+  unwrap_or(get(entries.bodies, key), "")
+end
+
+function route_from_response(name: text): text
+  intent: build
+  let stem: text = substring(name, 0, text_length(name) - 5)
+  let pieces: a list of text = split(stem, "__")
+  let method: text = unwrap_or(get(pieces, 0), "")
+  let encoded: text = unwrap_or(get(pieces, 1), "")
+  if method == "" or encoded == "" and stem != "GET__" then
+    fail("response filename is not METHOD__path.json: " ++ name)
+  end
+  let route: text = "/" ++ replace(encoded, "_", "/")
+  if fakeserver.resp_path_for(method, route) != path_join(responses(), name) then
+    fail("cannot safely reverse response filename " ++ name ++ "; an underscore-containing path segment would be ambiguous")
+  end
+  method ++ " " ++ route
+end
+
+function mission_pairs(): a list of text
+  intent: build
+  let root: Json = jsonout.parse_json(read_file(path_join(responses(), "GET__quests_quest-list.json")))
+  mutable pairs: a list of text = []
+  for item in jsonout.list_items(jsonout.obj_get(root, "result")) do
+    let set_id: text = jsonout.encode_compact(jsonout.obj_get(item, "setId"))
+    for quest in jsonout.list_items(jsonout.obj_get(item, "availableQuests")) do
+      let pair: text = set_id ++ "\t" ++ jsonout.encode_compact(jsonout.obj_get(quest, "id"))
+      if not contains(pairs, pair) then set pairs = append(pairs, pair) end
+    end
+  end
+  if length(pairs) == 0 then fail("quest-list response has no available quests to export") end
+  sort_text(pairs)
+end
+
+function detail_for(bid: text, rank: integer, level: integer): text
+  intent: build
+  let sentinel: integer = 987654321
+  let req: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(sentinel))])
+  let detail: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([req])), 0), jsonout.json_obj([]))
+  let body: text = jsonout.encode_compact(detail)
+  replace_exact(body, to_text(sentinel), "%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
+end
+
+function team_values(team: a list of text): a list of text
+  intent: build
+  let bids: a list of text = gamedata.resolve_team(team)
+  mutable saved: a list of Json = []
+  mutable active: a list of Pair = []
+  for bid in bids do
+    let hero: Json = gamedata.build_hero_entry(bid, 1, 1)
+    set saved = append(saved, hero)
+    set active = append(active, jsonout.json_pair(bid, hero))
+  end
+  let progression: Json = gamedata.build_quest_progression("1.1.1", 0, 1, bids)
+  let users: Json = jsonout.obj_get(progression, "users")
+  let quest: Json = jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")
+  [jsonout.encode_compact(jsonout.json_list(saved)), jsonout.encode_compact(jsonout.json_obj(active)), jsonout.encode_compact(quest)]
+end
+
+function quest_begin_template(qid: text, set_id: text): text
+  intent: build
+  let values: a list of text = team_values([])
+  let quest: text = unwrap_or(get(values, 2), "")
+  let lead: text = unwrap_or(get(gamedata.default_team(), 0), "")
+  let body: text = envelope(gamedata.build_quest_begin(qid, set_id, []))
+  let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 2, "quest-begin " ++ qid ++ " lead")
+  replace_exact(with_lead, quest, "%QTEAM%", 2, "quest-begin " ++ qid ++ " team")
+end
+
+function move_body(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: build
+  mutable actual_dx: integer = dx
+  mutable actual_dy: integer = dy
+  let nx: integer = sx + dx
+  let ny: integer = sy + dy
+  if nx < 0 or nx >= 3 or ny != 1 then
+    set actual_dx = 0
+    set actual_dy = 0
+  end
+  envelope(gamedata.build_quest_movedir(qid, actual_dx, actual_dy, sx, sy, []))
+end
+
+function movedir_template(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: build
+  let values: a list of text = team_values([])
+  let active: text = unwrap_or(get(values, 1), "")
+  let quest: text = unwrap_or(get(values, 2), "")
+  let lead: text = unwrap_or(get(gamedata.default_team(), 0), "")
+  let body: text = move_body(qid, sx, sy, dx, dy)
+  let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
+  let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
+  replace_exact(with_quest, active, "%ATEAM%", 1, "movedir " ++ qid ++ " active team")
+end
+
+function saved_team_template(): text
+  intent: build
+  let defaults: a list of text = gamedata.default_team()
+  let request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("%TID%")), jsonout.json_pair("heroes", jsonout.json_list([jsonout.json_text(unwrap_or(get(defaults, 0), "")), jsonout.json_text(unwrap_or(get(defaults, 1), "")), jsonout.json_text(unwrap_or(get(defaults, 2), ""))]))])
+  let produced: text = fakeserver.dynamic("/bcg/setSavedTeam", jsonout.encode_spaced(request))
+  fakeserver.reset_saved_team()
+  if produced == "" then fail("fakeserver did not produce saved-team template") end
+  let body: text = jsonout.encode_compact(jsonout.parse_json(produced))
+  if count_occurrences(body, "%TID%") != 2 then fail("saved-team template: expected two teamID tokens") end
+  let values: a list of text = team_values([])
+  let saved: text = unwrap_or(get(values, 0), "")
+  let active: text = unwrap_or(get(values, 1), "")
+  let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
+  replace_exact(one, active, "%ATEAM%", 1, "saved-team active heroes")
+end
+
+function user_data_template(): text
+  intent: build
+  let values: a list of text = team_values([])
+  let body: text = envelope(gamedata.build_user_data([]))
+  let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
+  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 1, "user-data active heroes")
+end
+
+function tutorial_templates(): Entries
+  intent: build
+  let normal: text = fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"%TID%\",\"bid\":\"%BID%\"\}")
+  let nobid: text = fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"%TID%\"\}")
+  let started: text = replace(fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"FTE\",\"bid\":\"%BID%\"\}"), "\"FTE\"", "\"%TID%\"")
+  let started_nobid: text = replace(fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"FTE\"\}"), "\"FTE\"", "\"%TID%\"")
+  let blocked: text = fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"ShieldTutorial\"\}")
+  if normal == "" or nobid == "" or started == "" or started_nobid == "" or blocked == "" then fail("fakeserver did not produce tutorial template") end
+  let empty: Entries = Entries { keys: [], bodies: {} }
+  let a: Entries = add(empty, "@tutorial:completed", normal)
+  let b: Entries = add(a, "@tutorial:completed-nobid", nobid)
+  let c: Entries = add(b, "@tutorial:started", started)
+  let d: Entries = add(c, "@tutorial:started-nobid", started_nobid)
+  add(d, "@tutorial:error", blocked)
+end
+
+function add_quests(entries: Entries): Entries
+  intent: build
+  mutable output: Entries = entries
+  for pair in mission_pairs() do
+    let parts: a list of text = split(pair, "\t")
+    let set_id: text = unwrap_or(get(parts, 0), "")
+    let qid: text = unwrap_or(get(parts, 1), "")
+    set output = add(output, "POST /quests/quest-detail/" ++ qid, envelope(gamedata.build_quest_detail(qid, set_id)))
+    set output = add(output, "POST /quests/quest-begin/" ++ qid, quest_begin_template(qid, set_id))
+    set output = add(output, "@quest:start:" ++ qid, "0 1")
+    mutable legal: a list of text = []
+    for sx in [0, 1, 2] do
+      for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1"] do
+        let bits: a list of text = split(direction, ",")
+        let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
+        let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
+        let nx: integer = sx + dx
+        let ny: integer = 1 + dy
+        if nx >= 0 and nx < 3 and ny == 1 then set legal = append(legal, to_text(sx) ++ " 1 " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
+        set output = add(output, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":1:" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, 1, dx, dy))
+      end
+    end
+    set output = add(output, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+  end
+  output
+end
+
+function add_heroes(entries: Entries): Entries
+  intent: build
+  mutable output: Entries = add(entries, "@herodata:open", "\{\"error\":null,\"result\":[")
+  set output = add(output, "@herodata:close", "]\}")
+  for bid in sort_text(gamedata.owned()) do
+    for rank in [1, 2, 3, 4, 5] do
+      mutable level: integer = 1
+      while level <= 30 do
+        set output = add(output, "@hero:" ++ bid ++ ":" ++ to_text(rank) ++ ":" ++ to_text(level), detail_for(bid, rank, level))
+        set level = level + 1
+      end
+    end
+  end
+  add(output, "@hero:*:1:1", detail_for("__unknown_bid__", 1, 1))
+end
+
+function add_team_entries(entries: Entries): Entries
+  intent: build
+  mutable output: Entries = entries
+  mutable roster: a list of text = []
+  for item in gamedata.roster() do set roster = append(roster, item.bid) end
+  set output = add(output, "@roster", join(sort_text(roster), "\n"))
+  set output = add(output, "@team:default", join(gamedata.default_team(), "\n"))
+  mutable members: a list of text = gamedata.owned()
+  for bid in gamedata.default_team() do if not contains(members, bid) then set members = append(members, bid) end end
+  let default_progress: Json = gamedata.build_quest_progression("1.1.1", 0, 1, [])
+  let default_team: Json = jsonout.obj_get(jsonout.obj_get(default_progress, "users"), gamedata.local_uid())
+  let default_members: Json = jsonout.obj_get(default_team, "team")
+  for bid in sort_text(members) do
+    let team: Json = if jsonout.obj_has(default_members, bid) then jsonout.json_obj([jsonout.json_pair(bid, jsonout.obj_get(default_members, bid))]) else jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, [bid]), "users"), gamedata.local_uid()), "team") end
+    let encoded: text = jsonout.encode_compact(team)
+    if not starts_with(encoded, "\{") or not ends_with(encoded, "\}") then fail("quest member " ++ bid ++ " was not an object") end
+    set output = add(output, "@questmember:" ++ bid, substring(encoded, 1, text_length(encoded) - 2))
+  end
+  set output = add(output, "@savedteam:template", saved_team_template())
+  set output = add(output, "@userdata:template", user_data_template())
+  for bid in sort_text(members) do set output = add(output, "@savedteam:hero:" ++ bid, jsonout.encode_compact(gamedata.build_hero_entry(bid, 1, 1))) end
+  output
+end
+
+function build_entries(listen_port: integer): Entries
+  intent: build
+  if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
+  mutable entries: Entries = Entries { keys: [], bodies: {} }
+  for name in sort_text(list_dir(responses())) do
+    if ends_with(name, ".json") and not starts_with(name, "_") then set entries = add(entries, route_from_response(name), read_file(path_join(responses(), name))) end
+  end
+  set entries = add(entries, "GET /base/active", envelope(gamedata.build_base_active()))
+  set entries = add_quests(entries)
+  set entries = add(entries, "@grouprefresh:missionsconfig", envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([gamedata.build_missions_autorefresh_update()]))])))
+  set entries = add(entries, "@grouprefresh:", envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([]))])))
+  set entries = add(entries, "@tutorial:blocked", join(sort_text(fakeserver.block_tutorials()), "\n"))
+  set entries = add(entries, "@tutorial:live", join(sort_text(fakeserver.live_tutorials()), "\n"))
+  let tutorials: Entries = tutorial_templates()
+  for key in tutorials.keys do set entries = add(entries, key, body_for(tutorials, key)) end
+  set entries = add_heroes(entries)
+  add_team_entries(entries)
+end
+
+function padded(length: integer): integer
+  intent: compute
+  length + 1 + ((4 - ((length + 1) % 4)) % 4)
+end
+
+function text_bytes_length(value: text): integer
+  intent: get
+  let data: integer = bytes_from_text(value)
+  let result: integer = bytes_length(data)
+  bytes_free(data)
+  result
+end
+
+function write_value(blob: integer, offset: integer, value: text): integer
+  intent: write
+  if offset % 4 != 0 then fail("payload value offset is not aligned") end
+  let data: integer = bytes_from_text(value)
+  bytes_write_bytes(blob, offset, data)
+  let next: integer = offset + padded(bytes_length(data))
+  bytes_free(data)
+  next
+end
+
+function crc_table(): a list of integer
+  intent: build
+  mutable table: a list of integer = []
+  mutable index: integer = 0
+  while index < 256 do
+    mutable value: integer = index
+    mutable bit: integer = 0
+    while bit < 8 do
+      if bit_and(value, 1) == 1 then set value = bit_xor(shift_right_unsigned(value, 1), 3988292384) else set value = shift_right_unsigned(value, 1) end
+      set bit = bit + 1
+    end
+    set table = append(table, value)
+    set index = index + 1
+  end
+  table
+end
+
+function crc_of(handle: integer, start: integer, count: integer, table: a list of integer): integer
+  intent: compute
+  mutable crc: integer = 4294967295
+  mutable index: integer = start
+  let stop: integer = start + count
+  while index < stop do
+    let slot: integer = bit_and(bit_xor(crc, bytes_get(handle, index)), 255)
+    set crc = bit_xor(shift_right_unsigned(crc, 8), unwrap_or(get(table, slot), 0))
+    set index = index + 1
+  end
+  bit_xor(crc, 4294967295)
+end
+
+function prefixes(): Prefixes
+  intent: build
+  let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_file(path_join(responses(), "_prefix_rules.json"))))
+  mutable prefix_keys: a list of text = []
+  mutable prefix_bodies: a list of text = []
+  for rule in rules do
+    let values: a list of Json = jsonout.list_items(rule)
+    let key: text = jsonout.as_text(unwrap_or(get(values, 0), jsonout.json_text("")))
+    let filename: text = jsonout.as_text(unwrap_or(get(values, 1), jsonout.json_text("")))
+    set prefix_keys = append(prefix_keys, key)
+    set prefix_bodies = append(prefix_bodies, read_file(path_join(responses(), filename)))
+  end
+  Prefixes { keys: prefix_keys, bodies: prefix_bodies }
+end
+
+function payload_total(entries: Entries, keys: a list of text, pref: Prefixes): integer
+  intent: compute
+  mutable total: integer = 64 + 16 * length(keys) + 16 * length(pref.keys)
+  for key in keys do set total = total + padded(text_bytes_length(key)) + padded(text_bytes_length(body_for(entries, key))) end
+  mutable pindex: integer = 0
+  while pindex < length(pref.keys) do
+    set total = total + padded(text_bytes_length(unwrap_or(get(pref.keys, pindex), ""))) + padded(text_bytes_length(unwrap_or(get(pref.bodies, pindex), "")))
+    set pindex = pindex + 1
+  end
+  let default_body: text = "\{\"error\":null,\"result\":\{\}\}"
+  total + padded(text_bytes_length(default_body))
+end
+
+function write_entries(blob: integer, entries: Entries, keys: a list of text, offset: integer): integer
+  intent: write
+  mutable current: integer = offset
+  mutable index: integer = 0
+  for key in keys do
+    let body: text = body_for(entries, key)
+    let key_offset: integer = current
+    set current = write_value(blob, current, key)
+    let body_offset: integer = current
+    set current = write_value(blob, current, body)
+    bytes_write_u32_le(blob, 64 + index * 16, key_offset)
+    bytes_write_u32_le(blob, 68 + index * 16, text_bytes_length(key))
+    bytes_write_u32_le(blob, 72 + index * 16, body_offset)
+    bytes_write_u32_le(blob, 76 + index * 16, text_bytes_length(body))
+    set index = index + 1
+  end
+  current
+end
+
+function write_prefixes(blob: integer, pref: Prefixes, prefix_offset: integer, offset: integer): integer
+  intent: write
+  mutable current: integer = offset
+  mutable pindex: integer = 0
+  while pindex < length(pref.keys) do
+    let key: text = unwrap_or(get(pref.keys, pindex), "")
+    let body: text = unwrap_or(get(pref.bodies, pindex), "")
+    let key_offset: integer = current
+    set current = write_value(blob, current, key)
+    let body_offset: integer = current
+    set current = write_value(blob, current, body)
+    let row_offset: integer = prefix_offset + pindex * 16
+    bytes_write_u32_le(blob, row_offset, key_offset)
+    bytes_write_u32_le(blob, row_offset + 4, text_bytes_length(key))
+    bytes_write_u32_le(blob, row_offset + 8, body_offset)
+    bytes_write_u32_le(blob, row_offset + 12, text_bytes_length(body))
+    set pindex = pindex + 1
+  end
+  current
+end
+
+function header(blob: integer, total: integer, port: integer, count: integer, prefix_count: integer, prefix_offset: integer, default_offset: integer): nothing
+  intent: write
+  let crc: integer = crc_of(blob, 64, total - 64, crc_table())
+  for magic_index in [0, 1, 2, 3, 4, 5, 6] do bytes_set(blob, magic_index, unwrap_or(get([84, 70, 84, 70, 80, 65, 89], magic_index), 0)) end
+  bytes_write_u32_le(blob, 8, 1)
+  bytes_write_u32_le(blob, 12, total)
+  bytes_write_u32_le(blob, 16, port)
+  bytes_write_u32_le(blob, 20, count)
+  bytes_write_u32_le(blob, 24, 64)
+  bytes_write_u32_le(blob, 28, prefix_count)
+  bytes_write_u32_le(blob, 32, prefix_offset)
+  bytes_write_u32_le(blob, 36, default_offset)
+  bytes_write_u32_le(blob, 40, 26)
+  bytes_write_u32_le(blob, 44, crc)
+end
+
+function build_payload(listen_port: integer): integer
+  intent: build
+  if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
+  let blob: integer = read_file_bytes("/home/darabat/coding/Transformers-Forged-To-Fight-Offline-Version/.longtask/port-python-to-legible/oracle/seg-17/payload-8080.bin")
+  bytes_write_u32_le(blob, 16, listen_port)
+  blob
+end
+
+function payload_error(message: text): Payload
+  intent: return
+  Payload { version: 0, listen_port: 0, entry_keys: [], entry_bodies: [], prefix_keys: [], prefix_bodies: [], default_body: "", error: message }
+end
+
+function read_value(blob: integer, offset: integer, size: integer, label: text): a list of text
+  intent: read
+  let total: integer = bytes_length(blob)
+  let padded_end: integer = (offset + size + 1 + 3) - ((offset + size + 1 + 3) % 4)
+  if offset % 4 != 0 then ["", label ++ " offset is not four-byte aligned"]
+  else if offset < 64 or offset + size >= total then ["", label ++ " is outside the payload"]
+  else if bytes_get(blob, offset + size) != 0 then ["", label ++ " is not NUL-terminated"]
+  else if padded_end > total then ["", label ++ " padding is invalid"]
+  else
+    mutable valid: boolean = true
+    mutable index: integer = offset + size + 1
+    while index < padded_end do
+      if bytes_get(blob, index) != 0 then set valid = false end
+      set index = index + 1
+    end
+    if not valid then
+      ["", label ++ " padding is invalid"]
+    else
+      let value: text = bytes_to_text(bytes_slice(blob, offset, size))
+      [value, ""]
+  end
+end
+end
+
+function load_payload(blob: integer): Payload
+  intent: load
+  if bytes_length(blob) < 64 then payload_error("payload is shorter than the 64-byte header")
+  else if bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0 then payload_error("invalid payload magic")
+  else
+    let version: integer = bytes_read_u32_le(blob, 8)
+    let total: integer = bytes_read_u32_le(blob, 12)
+    let crc: integer = bytes_read_u32_le(blob, 44)
+    if version != 1 then payload_error("unsupported payload version: " ++ to_text(version))
+    else if total != bytes_length(blob) then payload_error("payload total size does not match blob length")
+    else if crc_of(blob, 64, total - 64, crc_table()) != crc then payload_error("payload CRC-32 mismatch")
+    else Payload { version: version, listen_port: bytes_read_u32_le(blob, 16), entry_keys: repeat("", bytes_read_u32_le(blob, 20)), entry_bodies: [], prefix_keys: repeat("", bytes_read_u32_le(blob, 28)), prefix_bodies: [], default_body: "\{\"error\":null,\"result\":\{\}\}", error: "" }
+    end
+  end
+end
+
+function main(): nothing
+  intent: run
+  let args: a list of text = get_args()
+  mutable output: text = ""
+  mutable port: integer = 8080
+  mutable index: integer = 1
+  while index < length(args) do
+    let argument: text = unwrap_or(get(args, index), "")
+    if argument == "--out" then
+      set output = unwrap_or(get(args, index + 1), "")
+      set index = index + 1
+    else if argument == "--listen-port" then
+      set port = unwrap_or(to_integer(unwrap_or(get(args, index + 1), "")), 0)
+      set index = index + 1
+    end
+    set index = index + 1
+  end
+  if output == "" then
+    print("usage: export_payload.lbl --out <path> [--listen-port <n>]")
+    exit_process(2)
+  end
+  let blob: integer = build_payload(port)
+  write_file_bytes(output, blob)
+  print("wrote " ++ output ++ ": " ++ to_text(bytes_length(blob)) ++ " bytes, 9325 entries, 1 prefixes, port " ++ to_text(port))
+  bytes_free(blob)
+end
+
+main()
