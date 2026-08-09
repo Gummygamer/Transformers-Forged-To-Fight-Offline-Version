@@ -562,9 +562,302 @@ else if mode == "--dump-slice2" then
   dump_slice2()
 else if mode == "--dump-teams" then
   dump_teams()
+else if mode == "--dump-slice3" then
+  dump_slice3()
+else if mode == "--dump-arena" then
+  dump_arena()
 else
-  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams")
+  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams|--dump-slice3|--dump-arena")
 end
+end
+
+function is_digits(value: text): boolean
+  intent: check
+  mutable index: integer = 0
+  mutable valid: boolean = text_length(value) > 0
+  while index < text_length(value) do
+    if not contains_text("0123456789", substring(value, index, 1)) then
+  set valid = false
+end
+    set index = index + 1
+  end
+  valid
+end
+
+function arena_levels_json(): Json
+  intent: build
+  let indices: Json = jsonout.json_list([jsonout.json_int(0), jsonout.json_int(1), jsonout.json_int(2)])
+  jsonout.json_obj([jsonout.json_pair("chicago", indices), jsonout.json_pair("hongkong", indices), jsonout.json_pair("karnak", indices), jsonout.json_pair("mine", indices), jsonout.json_pair("rust", indices)])
+end
+
+function is_arena_level(level: text): boolean
+  intent: check
+  level == "chicago" or level == "hongkong" or level == "karnak" or level == "mine" or level == "rust"
+end
+
+public function arena_level(): text
+  intent: get
+  let level: text = unwrap_or(env_get("TFTF_ARENA_LEVEL"), "chicago")
+  if is_arena_level(level) then
+  level
+else
+  print("[!] gamedata: Invalid TFTF_ARENA_LEVEL '" ++ level ++ "'; valid levels: chicago, hongkong, karnak, mine, rust")
+  exit_process(1)
+  ""
+end
+end
+
+public function arena_tod_index(): integer
+  intent: get
+  let level: text = arena_level()
+  let raw: text = unwrap_or(env_get("TFTF_ARENA_TOD"), "0")
+  let index: integer = to_integer(raw)
+  if is_digits(raw) and index >= 0 and index <= 2 then
+  index
+else
+  print("[!] gamedata: Invalid TFTF_ARENA_TOD " ++ raw ++ " for level '" ++ level ++ "'; valid indices: 0, 1, 2")
+  exit_process(1)
+  0
+end
+end
+
+function vec2(x: integer, y: integer): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(x)), jsonout.json_pair("y", jsonout.json_int(y))])
+end
+
+function json_hero_entries(bids: a list of text): a list of Json
+  intent: build
+  mutable entries: a list of Json = []
+  for bid in bids do
+    set entries = append(entries, build_hero_entry(bid, 1, 1))
+  end
+  entries
+end
+
+function json_hero_object(bids: a list of text): Json
+  intent: build
+  mutable entries: a list of Pair = []
+  for bid in bids do
+    set entries = append(entries, jsonout.json_pair(bid, build_hero_entry(bid, 1, 1)))
+  end
+  jsonout.json_obj(entries)
+end
+
+public function build_saved_team(team_id: text, heroes: a list of text): Json
+  intent: build
+  let bids: a list of text = resolve_team(heroes)
+  jsonout.json_obj([jsonout.json_pair("sid", jsonout.json_text(team_id)), jsonout.json_pair("heroes", jsonout.json_list(json_hero_entries(bids)))])
+end
+
+public function build_active_team(activity_id: text, heroes: a list of text): Json
+  intent: build
+  let bids: a list of text = resolve_team(heroes)
+  jsonout.json_obj([jsonout.json_pair("aid", jsonout.json_text(activity_id)), jsonout.json_pair("type", jsonout.json_text("PvE")), jsonout.json_pair("modes", jsonout.json_list([jsonout.json_text("PvE")])), jsonout.json_pair("heroes", json_hero_object(bids)), jsonout.json_pair("expire", jsonout.json_int(0))])
+end
+
+public function build_user_data(team: a list of text): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("blueprintsMax", jsonout.json_int(500)), jsonout.json_pair("teamSizeMax", jsonout.json_int(3)), jsonout.json_pair("teamCountMax", jsonout.json_int(5))])), jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("heroes", jsonout.json_list(json_hero_entries(owned()))), jsonout.json_pair("savedTeams", jsonout.json_list([build_saved_team("0", team)])), jsonout.json_pair("activeTeams", jsonout.json_list([build_active_team("1.1.1-0", team)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))])
+end
+
+function mission_part(parts: a list of text, index: integer): integer
+  intent: get
+  let part: text = unwrap_or(get(parts, index), "")
+  if is_digits(part) then
+  to_integer(part)
+else
+  1
+end
+end
+
+public function build_quest_summary(mission_id: text, set_id: text): Json
+  intent: build
+  let parts: a list of text = split(mission_id, ".")
+  let act: integer = mission_part(parts, 0)
+  let chapter: integer = mission_part(parts, 1)
+  let mission: integer = mission_part(parts, 2)
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0))])
+end
+
+public function build_quest_detail(mission_id: text, set_id: text): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("data", build_quest_summary(mission_id, set_id)), jsonout.json_pair("progression", jsonout.json_obj([]))])
+end
+
+function links_for(row: integer, col: integer): Json
+  intent: build
+  mutable links: a list of Json = []
+  if col == 1 then
+  if row - 1 >= 0 then
+  set links = append(links, vec2(row - 1, 1))
+end
+  if row + 1 < 3 then
+  set links = append(links, vec2(row + 1, 1))
+end
+end
+  jsonout.json_list(links)
+end
+
+function filler_tile(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(false)), jsonout.json_pair("hidden", jsonout.json_bool(true))])
+end
+
+function start_tile(links: Json): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("start", jsonout.json_bool(true)), jsonout.json_pair("lab", jsonout.json_text("Start")), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links)])
+end
+
+function middle_tile(row: integer, links: Json): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("lab", jsonout.json_text("Node " ++ to_text(row))), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links)])
+end
+
+function final_tile(links: Json, boss: Json): Json
+  intent: build
+  let bid: text = boss_blueprint()
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(true)), jsonout.json_pair("lab", jsonout.json_text("Boss")), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(bid)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(bid, boss)]))])
+end
+
+public function build_quest_map(qid: text): Json
+  intent: build
+  let boss: Json = build_quest_enemy("", -1)
+  mutable grid: a list of Json = []
+  for row in [0, 1, 2] do
+    mutable tiles: a list of Json = []
+    for col in [0, 1, 2] do
+      if col != 1 then
+  set tiles = append(tiles, filler_tile())
+else
+  let links: Json = links_for(row, col)
+  if row == 0 then
+  set tiles = append(tiles, start_tile(links))
+else if row == 2 then
+  set tiles = append(tiles, final_tile(links, boss))
+else
+  set tiles = append(tiles, middle_tile(row, links))
+end
+end
+    end
+    set grid = append(grid, jsonout.json_list(tiles))
+  end
+  let path: Json = jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
+  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(3)), jsonout.json_pair("grid", jsonout.json_list(grid)), jsonout.json_pair("walkableCount", jsonout.json_int(3)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(3)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
+end
+
+public function build_quest_enemy(map_override: text, tod_index: integer): Json
+  intent: build
+  let selected_map: text = if map_override == "" then
+  arena_level()
+else
+  map_override
+end
+  let selected_tod: integer = if tod_index < 0 then
+  arena_tod_index()
+else
+  tod_index
+end
+  let bid: text = boss_blueprint()
+  jsonout.json_obj([jsonout.json_pair("key", jsonout.json_text(bid)), jsonout.json_pair("entityType", jsonout.json_text("boss")), jsonout.json_pair("parentEntityType", jsonout.json_text("boss")), jsonout.json_pair("isFinalBoss", jsonout.json_bool(true)), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(bid)])), jsonout.json_pair("rank", jsonout.json_int(1)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("sig_lvl", jsonout.json_int(0)), jsonout.json_pair("flvl", jsonout.json_int(0)), jsonout.json_pair("aiType", jsonout.json_int(0)), jsonout.json_pair("aiString", jsonout.json_text("default")), jsonout.json_pair("aiPer", jsonout.json_text("default")), jsonout.json_pair("mapOverride", jsonout.json_text(selected_map)), jsonout.json_pair("todIndex", jsonout.json_int(selected_tod))])
+end
+
+public function local_uid(): text
+  intent: return
+  "1000000000001"
+end
+
+function quest_team(bids: a list of text): Json
+  intent: build
+  mutable entries: a list of Pair = []
+  for bid in bids do
+    let stats: Stats = base_stats(bid, 1, 1)
+    let pi: integer = to_integer(to_decimal(stats.hp + stats.atk) / 20)
+    let hero: Json = jsonout.json_obj([jsonout.json_pair("hp", jsonout.json_dec(1)), jsonout.json_pair("pi", jsonout.json_int(pi)), jsonout.json_pair("sig_lvl", jsonout.json_int(0)), jsonout.json_pair("stat_mods", jsonout.json_list([])), jsonout.json_pair("sig_mods", jsonout.json_list([]))])
+    set entries = append(entries, jsonout.json_pair(bid, hero))
+  end
+  jsonout.json_obj(entries)
+end
+
+function revealed_tiles(): Json
+  intent: build
+  jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
+end
+
+public function build_quest_progression(qid: text, start_x: integer, start_y: integer, team: a list of text): Json
+  intent: build
+  let bids: a list of text = resolve_team(team)
+  let user: Json = jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("Commander")), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("strongestHero", jsonout.json_text(unwrap_or(get(bids, 0), ""))), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("team", quest_team(bids)), jsonout.json_pair("points", jsonout.json_int(0))])
+  jsonout.json_obj([jsonout.json_pair("version", jsonout.json_int(1)), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("cleared", jsonout.json_list([])), jsonout.json_pair("previouslyCleared", jsonout.json_list([])), jsonout.json_pair("revealed", revealed_tiles()), jsonout.json_pair("users", jsonout.json_obj([jsonout.json_pair(local_uid(), user)]))])
+end
+
+public function build_active_quest(qid: text, set_id: text, team: a list of text): Json
+  intent: build
+  let qmap: Json = build_quest_map(qid)
+  let progression: Json = build_quest_progression(qid, 0, 1, team)
+  let base_instance: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("index", jsonout.json_int(0)), jsonout.json_pair("instanceIndex", jsonout.json_int(0)), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("startTime", jsonout.json_int(0)), jsonout.json_pair("expiryTime", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap)])
+  let nested_instance: Json = jsonout.obj_set(base_instance, "progression", progression)
+  let instance: Json = jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(nested_instance, "version", jsonout.obj_get(progression, "version")), "currentPos", jsonout.obj_get(progression, "currentPos")), "cleared", jsonout.obj_get(progression, "cleared")), "previouslyCleared", jsonout.obj_get(progression, "previouslyCleared")), "revealed", jsonout.obj_get(progression, "revealed")), "users", jsonout.obj_get(progression, "users"))
+  jsonout.json_obj([jsonout.json_pair("uniqueId", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("category", jsonout.json_text("PvE")), jsonout.json_pair("mode", jsonout.json_text("PvE")), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap), jsonout.json_pair("progression", jsonout.json_obj([])), jsonout.json_pair("instances", jsonout.json_list([instance]))])
+end
+
+public function build_quest_begin(qid: text, set_id: text, team: a list of text): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("activeQuests", jsonout.json_obj([jsonout.json_pair(qid, build_active_quest(qid, set_id, team))]))])
+end
+
+function battle_user(user: Json, x: integer, y: integer): Json
+  intent: build
+  let with_id: Json = jsonout.obj_set(user, "currentBattleId", jsonout.json_text(boss_blueprint()))
+  let with_pos: Json = jsonout.obj_set(with_id, "currentBattlePos", vec2(x, y))
+  jsonout.obj_set(with_pos, "currentBattleState", jsonout.json_text("activated"))
+end
+
+public function build_quest_movedir(qid: text, offx: integer, offy: integer, start_x: integer, start_y: integer, team: a list of text): Json
+  intent: build
+  let next_x: integer = start_x + offx
+  let next_y: integer = start_y + offy
+  mutable results: a list of Json = [jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("moveto", vec2(next_x, next_y))]))])]
+  if next_x == 2 and next_y == 1 then
+  let battle: Json = jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(next_x)), jsonout.json_pair("y", jsonout.json_int(next_y)), jsonout.json_pair("isFinalBoss", jsonout.json_bool(true)), jsonout.json_pair("battleEnemy", build_quest_enemy("", -1))])
+  set results = append(results, jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("battle", battle)]))]))
+end
+  let initial: Json = build_quest_progression(qid, next_x, next_y, team)
+  let with_cleared: Json = jsonout.obj_set(initial, "cleared", jsonout.json_list([vec2(start_x, start_y)]))
+  let progression: Json = jsonout.obj_set(with_cleared, "revealed", revealed_tiles())
+  let final_progression: Json = if next_x == 2 and next_y == 1 then
+  let with_id: Json = jsonout.obj_set(progression, "currentBattleId", jsonout.json_text(boss_blueprint()))
+  let with_pos: Json = jsonout.obj_set(with_id, "currentBattlePos", vec2(next_x, next_y))
+  let with_enemy: Json = jsonout.obj_set(with_pos, "currentBattleEnemy", jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(boss_blueprint()))]))
+  let with_health: Json = jsonout.obj_set(with_enemy, "currentBattleEnemyHealth", jsonout.json_dec(1))
+  let users: Json = jsonout.obj_get(with_health, "users")
+  jsonout.obj_set(with_health, "users", jsonout.obj_set(users, local_uid(), battle_user(jsonout.obj_get(users, local_uid()), next_x, next_y)))
+else
+  progression
+end
+  let team_data: Json = build_active_team(qid ++ "-0", resolve_team(team))
+  jsonout.json_obj([jsonout.json_pair("results", jsonout.json_list(results)), jsonout.json_pair("progression", final_progression), jsonout.json_pair("teamData", team_data)])
+end
+
+function dump_slice3(): nothing
+  intent: print
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  print(jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("saved_team_default", build_saved_team("0", [])), jsonout.json_pair("saved_team_custom", build_saved_team("7", team)), jsonout.json_pair("active_team_default", build_active_team("1.1.1-0", [])), jsonout.json_pair("active_team_custom", build_active_team("1.1.1-0", team)), jsonout.json_pair("user_data_default", build_user_data([])), jsonout.json_pair("user_data_custom", build_user_data(team)), jsonout.json_pair("quest_summary_default", build_quest_summary("1.1.1", "story_act1")), jsonout.json_pair("quest_summary_alt", build_quest_summary("2.3.4", "story_act2")), jsonout.json_pair("quest_detail_default", build_quest_detail("1.1.1", "story_act1")), jsonout.json_pair("quest_detail_alt", build_quest_detail("2.3.4", "story_act2")), jsonout.json_pair("quest_map_default", build_quest_map("1.1.1")), jsonout.json_pair("quest_map_alt", build_quest_map("2.3.4")), jsonout.json_pair("quest_enemy_default", build_quest_enemy("", -1)), jsonout.json_pair("quest_enemy_override", build_quest_enemy("mine", 2)), jsonout.json_pair("quest_progression_default", build_quest_progression("1.1.1", 0, 1, [])), jsonout.json_pair("quest_progression_start21", build_quest_progression("1.1.1", 2, 1, [])), jsonout.json_pair("quest_progression_custom", build_quest_progression("1.1.1", 0, 1, team)), jsonout.json_pair("quest_progression_unknown", build_quest_progression("1.1.1", 0, 1, ["not-a-blueprint"])), jsonout.json_pair("active_quest_default", build_active_quest("1.1.1", "story_act1", [])), jsonout.json_pair("active_quest_custom", build_active_quest("1.1.1", "story_act1", team)), jsonout.json_pair("quest_begin_default", build_quest_begin("1.1.1", "story_act1", [])), jsonout.json_pair("quest_begin_custom", build_quest_begin("1.1.1", "story_act1", team)), jsonout.json_pair("quest_movedir_default", build_quest_movedir("1.1.1", 1, 0, 0, 1, [])), jsonout.json_pair("quest_movedir_to_boss", build_quest_movedir("1.1.1", 1, 0, 1, 1, [])), jsonout.json_pair("quest_movedir_to_boss_custom", build_quest_movedir("1.1.1", 1, 0, 1, 1, team)), jsonout.json_pair("quest_movedir_west", build_quest_movedir("1.1.1", -1, 0, 1, 1, [])), jsonout.json_pair("local_uid", jsonout.json_text(local_uid())), jsonout.json_pair("arena_level", jsonout.json_text(arena_level())), jsonout.json_pair("arena_tod", jsonout.json_int(arena_tod_index())), jsonout.json_pair("arena_levels", arena_levels_json())])))
+end
+
+function dump_arena(): nothing
+  intent: print
+  let enemy: Json = build_quest_enemy("", -1)
+  let map: Json = build_quest_map("1.1.1")
+  let row: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(map, "grid")), 2), jsonout.json_list([]))
+  let tile: Json = unwrap_or(get(jsonout.list_items(row), 1), jsonout.json_obj([]))
+  let boss: Json = jsonout.obj_get(jsonout.obj_get(tile, "entities"), boss_blueprint())
+  print("ARENA_LEVEL " ++ arena_level())
+  print("ARENA_TOD " ++ to_text(arena_tod_index()))
+  print("ENEMY_MAPOVERRIDE " ++ jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")))
+  print("ENEMY_TOD " ++ to_text(jsonout.as_int(jsonout.obj_get(enemy, "todIndex"))))
+  print("BOSSTILE_MAPOVERRIDE " ++ jsonout.as_text(jsonout.obj_get(boss, "mapOverride")))
+  print("BOSSTILE_TOD " ++ to_text(jsonout.as_int(jsonout.obj_get(boss, "todIndex"))))
 end
 
 main()
