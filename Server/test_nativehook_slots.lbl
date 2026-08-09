@@ -1,0 +1,439 @@
+-- Regression checks for the arm64 native-hook slot and handler ordering.
+
+record Slot
+  address: integer
+  tag: text
+end
+
+record TestResult
+  passed: boolean
+  detail: text
+end
+
+function last_slash(path: text): integer
+  intent: find last slash path
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then
+      set result = index
+    end
+    set index = index + 1
+  end
+  result
+end
+
+function directory_name(path: text): text
+  intent: get directory path slash
+  let slash: integer = last_slash(path)
+  if slash < 0 then "." else substring(path, 0, slash) end
+end
+
+function absolute_script_path(arguments: a list of text): text
+  intent: resolve script path cwd arguments
+  let path: text = unwrap_or(get(arguments, 0), "")
+  if starts_with(path, "/") then path else path_join(get_cwd(), path) end
+end
+
+function hook_source_path(arguments: a list of text): text
+  intent: choose hook source argument script directory
+  if length(arguments) > 1 then
+    unwrap_or(get(arguments, 1), "")
+  else
+    let script: text = absolute_script_path(arguments)
+    let root: text = directory_name(directory_name(script))
+    path_join(root, "tools/nativehook/hook.c")
+  end
+end
+
+function is_word_char(character: text): boolean
+  intent: identify word character text
+  contains_text("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", character)
+end
+
+function is_space(character: text): boolean
+  intent: return result
+  character == " " or character == "\t" or character == "\n" or character == "\r"
+end
+
+function strip_line_comment(line: text): text
+  intent: remove line comment text
+  let comment: integer = unwrap_or(index_of(line, "//"), -1)
+  if comment < 0 then line else substring(line, 0, comment) end
+end
+
+function parse_hex(value: text): integer
+  intent: parse hexadecimal value text
+  let body: text = substring(value, 2, text_length(value) - 2)
+  mutable result: integer = 0
+  mutable index: integer = 0
+  while index < text_length(body) do
+    let digit: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(body, index, 1))), -1)
+    if digit < 0 then
+      print("[!] invalid hexadecimal value " ++ value)
+      exit_process(1)
+    end
+    set result = result * 16 + digit
+    set index = index + 1
+  end
+  result
+end
+
+function is_hex(value: text): boolean
+  intent: check hexadecimal value text
+  mutable valid: boolean = starts_with(value, "0x") and text_length(value) > 2
+  mutable index: integer = 2
+  while index < text_length(value) do
+    if unwrap_or(index_of("0123456789abcdef", lowercase(substring(value, index, 1))), -1) < 0 then
+      set valid = false
+    end
+    set index = index + 1
+  end
+  valid
+end
+
+function parse_slot_line(line: text): an optional Slot
+  intent: parse slot entry line
+  let cleaned: text = trim(strip_line_comment(line))
+  let left_brace: text = "\{"
+  let right_brace: text = "\}"
+  let quote: text = "\""
+  mutable body: text = cleaned
+  if ends_with(body, ",") then
+    set body = trim(substring(body, 0, text_length(body) - 1))
+  end
+  if not starts_with(body, left_brace) or not ends_with(body, right_brace) or text_length(body) < 3 then
+    none
+  else
+    let content: text = substring(body, 1, text_length(body) - 2)
+    let parts: a list of text = split(content, ",")
+    if length(parts) < 3 then
+      none
+    else
+      let address_text: text = trim(unwrap_or(get(parts, 0), ""))
+      let quoted_tag: text = trim(unwrap_or(get(parts, 1), ""))
+      let rest_start: integer = unwrap_or(index_of(content, ","), -1) + 1
+      let rest: text = substring(content, rest_start, text_length(content) - rest_start)
+      if not is_hex(address_text) or not starts_with(quoted_tag, quote) or not ends_with(quoted_tag, quote) or text_length(quoted_tag) < 2 or contains_text(rest, left_brace) or contains_text(rest, right_brace) then
+        none
+      else
+        Slot { address: parse_hex(address_text), tag: substring(quoted_tag, 1, text_length(quoted_tag) - 2) }
+      end
+    end
+  end
+end
+
+function next_non_empty_is_nh(lines: a list of text, start: integer): boolean
+  intent: find next nonempty define line
+  mutable index: integer = start
+  while index < length(lines) do
+    let candidate: text = trim(unwrap_or(get(lines, index), ""))
+    if text_length(candidate) > 0 then
+      return starts_with(candidate, "#define NH")
+    end
+    set index = index + 1
+  end
+  false
+end
+
+function parse_slots(source: text): a list of Slot
+  intent: locate parse H slot table
+  let lines: a list of text = split(source, "\n")
+  let table_tail: text = "\} H[] = " ++ "\{"
+  let table_end: text = "\}" ++ ";"
+  mutable slots: a list of Slot = []
+  mutable collecting: boolean = false
+  mutable found: boolean = false
+  mutable index: integer = 0
+  while index < length(lines) do
+    let line: text = unwrap_or(get(lines, index), "")
+    if not collecting then
+      if contains_text(line, "static struct") and contains_text(line, table_tail) then
+        set collecting = true
+      end
+    else if trim(line) == table_end and next_non_empty_is_nh(lines, index + 1) then
+      set found = true
+      set collecting = false
+    else if collecting then
+      let slot: an optional Slot = parse_slot_line(line)
+      if is_some(slot) then
+        set slots = append(slots, unwrap(slot))
+      end
+    end
+    set index = index + 1
+  end
+  if not found then
+    print("[!] could not locate H slot table")
+    exit_process(1)
+  end
+  if length(slots) == 0 then
+    print("[!] could not parse any H slot-table entries")
+    exit_process(1)
+  end
+  slots
+end
+
+function remove_whitespace(value: text): text
+  intent: return result
+  replace(replace(replace(replace(value, " ", ""), "\t", ""), "\n", ""), "\r", "")
+end
+
+function handler_header(line: text): boolean
+  intent: detect static handlers array line
+  contains_text(remove_whitespace(line), "staticvoid*handlers[]=\{")
+end
+
+function handler_numbers(content: text): a list of integer
+  intent: return numbers
+  mutable numbers: a list of integer = []
+  for piece in split(content, ",") do
+    let found: integer = unwrap_or(index_of(piece, "hook_"), -1)
+    if found >= 0 then
+      let before_ok: boolean = if found == 0 then true else not is_word_char(substring(piece, found - 1, 1)) end
+      mutable finish: integer = found + 5
+      mutable scanning: boolean = true
+      while scanning do
+        if finish >= text_length(piece) then
+          set scanning = false
+        else if unwrap_or(index_of("0123456789", substring(piece, finish, 1)), -1) >= 0 then
+          set finish = finish + 1
+        else
+          set scanning = false
+        end
+      end
+      let after_ok: boolean = if finish == text_length(piece) then true else not is_word_char(substring(piece, finish, 1)) end
+      if before_ok and finish > found + 5 and after_ok then
+        set numbers = append(numbers, unwrap_or(to_integer(substring(piece, found + 5, finish - found - 5)), 0))
+      end
+    end
+  end
+  numbers
+end
+
+function append_numbers(old: a list of integer, more: a list of integer): a list of integer
+  intent: return result
+  mutable result: a list of integer = old
+  for number in more do
+    set result = append(result, number)
+  end
+  result
+end
+
+function text_before(value: text, end_at: integer): text
+  intent: return text before end
+  if end_at <= 0 then "" else substring(value, 0, end_at) end
+end
+
+function text_after(value: text, start: integer): text
+  intent: return text after start
+  if start >= text_length(value) then "" else substring(value, start, text_length(value) - start) end
+end
+
+function parse_handlers(source: text): a list of integer
+  intent: locate parse handlers dispatch array
+  let lines: a list of text = split(source, "\n")
+  let array_end: text = "\}" ++ ";"
+  mutable numbers: a list of integer = []
+  mutable collecting: boolean = false
+  mutable found: boolean = false
+  mutable index: integer = 0
+  while index < length(lines) do
+    let raw_line: text = unwrap_or(get(lines, index), "")
+    mutable line: text = ""
+    if collecting or contains_text(raw_line, "handlers") then
+      set line = strip_line_comment(raw_line)
+    end
+    if not collecting and handler_header(line) then
+      let opening: integer = unwrap_or(index_of(line, "\{"), -1)
+      if opening >= 0 then
+        set collecting = true
+        set found = true
+        set numbers = append_numbers(numbers, handler_numbers(text_after(line, opening + 1)))
+      end
+    else if collecting then
+      let closing: integer = unwrap_or(index_of(line, array_end), -1)
+      if closing >= 0 then
+        set numbers = append_numbers(numbers, handler_numbers(text_before(line, closing)))
+        set collecting = false
+      else
+        set numbers = append_numbers(numbers, handler_numbers(line))
+      end
+    end
+    set index = index + 1
+  end
+  if not found then
+    print("[!] could not locate handlers dispatch array")
+    exit_process(1)
+  end
+  numbers
+end
+
+function tag_comment_matches(source: text, tag: text, wanted: integer): boolean
+  intent: find tag line comment index
+  let quoted: text = "\"" ++ tag ++ "\""
+  let wanted_text: text = to_text(wanted)
+  for line in split(source, "\n") do
+    let tag_at: integer = unwrap_or(index_of(line, quoted), -1)
+    if tag_at >= 0 then
+      let after_tag: text = substring(line, tag_at + text_length(quoted), text_length(line) - tag_at - text_length(quoted))
+      let comment_at: integer = unwrap_or(index_of(after_tag, "//"), -1)
+      if comment_at >= 0 then
+        let comment: text = substring(after_tag, comment_at + 2, text_length(after_tag) - comment_at - 2)
+        mutable index: integer = 0
+        mutable skipping: boolean = true
+        while skipping do
+          if index >= text_length(comment) then
+            set skipping = false
+          else if substring(comment, index, 1) == " " or substring(comment, index, 1) == "\t" then
+            set index = index + 1
+          else
+            set skipping = false
+          end
+        end
+        let remainder: text = substring(comment, index, text_length(comment) - index)
+        if starts_with(remainder, wanted_text) then
+          let boundary: integer = text_length(wanted_text)
+          if text_length(remainder) == boundary or not is_word_char(substring(remainder, boundary, 1)) then
+            return true
+          end
+        end
+      end
+    end
+  end
+  false
+end
+
+function handler_definition_matches(compact: text, wanted: integer): boolean
+  intent: find handler definition compact text
+  let pattern: text = "void*hook_" ++ to_text(wanted) ++ "("
+  mutable cursor: integer = 0
+  mutable searching: boolean = true
+  while searching do
+    let remaining: text = text_after(compact, cursor)
+    let relative: integer = unwrap_or(index_of(remaining, pattern), -1)
+    if relative < 0 then
+      set searching = false
+    else
+      let found: integer = cursor + relative
+      if found == 0 or not is_word_char(substring(compact, found - 1, 1)) then
+        return true
+      end
+      set cursor = found + text_length(pattern)
+    end
+  end
+  false
+end
+
+function test_roster_slots(slots: a list of Slot, source: text): TestResult
+  intent: test roster slots expected addresses comments
+  let tags: a list of text = ["ROSTERDRAGFIX", "ROSTERDRAGCTX", "ROSTERDRAGCHOKE"]
+  let indices: a list of integer = [135, 136, 137]
+  let addresses: a list of integer = [parse_hex("0xB210CC"), parse_hex("0x1E5F444"), parse_hex("0x1404E6C")]
+  mutable passed: boolean = true
+  mutable detail: text = ""
+  mutable wanted_index: integer = 0
+  while wanted_index < length(tags) do
+    let tag: text = unwrap_or(get(tags, wanted_index), "")
+    let expected_index: integer = unwrap_or(get(indices, wanted_index), -1)
+    let expected_address: integer = unwrap_or(get(addresses, wanted_index), -1)
+    mutable found_index: integer = -1
+    mutable found_address: integer = -1
+    mutable slot_index: integer = 0
+    while slot_index < length(slots) do
+      let slot: Slot = unwrap_or(get(slots, slot_index), Slot { address: -1, tag: "" })
+      if slot.tag == tag then
+        set found_index = slot_index
+        set found_address = slot.address
+      end
+      set slot_index = slot_index + 1
+    end
+    if found_index < 0 then
+      set passed = false
+      set detail = detail ++ tag ++ " missing; "
+    else if found_index != expected_index or found_address != expected_address then
+      set passed = false
+      set detail = detail ++ tag ++ " expected index " ++ to_text(expected_index) ++ " address " ++ to_text(expected_address) ++ ", got index " ++ to_text(found_index) ++ " address " ++ to_text(found_address) ++ "; "
+    end
+    if not tag_comment_matches(source, tag, expected_index) then
+      set passed = false
+      set detail = detail ++ tag ++ " missing comment index " ++ to_text(expected_index) ++ "; "
+    end
+    set wanted_index = wanted_index + 1
+  end
+  TestResult { passed: passed, detail: detail }
+end
+
+function test_roster_handlers(handlers: a list of integer, source: text): TestResult
+  intent: return result
+  let wanted: a list of integer = [135, 136, 137]
+  let compact: text = remove_whitespace(source)
+  mutable passed: boolean = true
+  mutable detail: text = ""
+  for number in wanted do
+    if not handler_definition_matches(compact, number) then
+      set passed = false
+      set detail = detail ++ "hook_" ++ to_text(number) ++ " definition missing; "
+    end
+    if length(handlers) <= number then
+      set passed = false
+      set detail = detail ++ "handlers length " ++ to_text(length(handlers)) ++ " does not reach " ++ to_text(number) ++ "; "
+    else
+      let actual: integer = unwrap_or(get(handlers, number), -1)
+      if actual != number then
+        set passed = false
+        set detail = detail ++ "handlers[" ++ to_text(number) ++ "] expected " ++ to_text(number) ++ ", got " ++ to_text(actual) ++ "; "
+      end
+    end
+  end
+  TestResult { passed: passed, detail: detail }
+end
+
+function test_safe_action(slots: a list of Slot): TestResult
+  intent: return result
+  if length(slots) <= 77 then
+    TestResult { passed: false, detail: "slots length " ++ to_text(length(slots)) ++ " does not reach 77" }
+  else
+    let actual: Slot = unwrap_or(get(slots, 77), Slot { address: -1, tag: "" })
+    let expected: integer = parse_hex("0x152B570")
+    if actual.address == expected and actual.tag == "FIXWRAPMI" then
+      TestResult { passed: true, detail: "" }
+    else
+      TestResult { passed: false, detail: "slots[77] expected address " ++ to_text(expected) ++ " tag FIXWRAPMI, got address " ++ to_text(actual.address) ++ " tag " ++ actual.tag }
+    end
+  end
+end
+
+function report(name: text, result: TestResult): integer
+  intent: report test result status detail
+  if result.passed then
+    print("[ok] " ++ name)
+    0
+  else
+    print("[!] " ++ name ++ ": " ++ result.detail)
+    1
+  end
+end
+
+function main(): nothing
+  intent: run nativehook slots tests report
+  let arguments: a list of text = get_args()
+  let path: text = hook_source_path(arguments)
+  if not file_exists(path) then
+    print("[!] hook source not found: " ++ path)
+    exit_process(1)
+  end
+  let source: text = read_file(path)
+  let slots: a list of Slot = parse_slots(source)
+  let handlers: a list of integer = parse_handlers(source)
+  let first: TestResult = test_roster_slots(slots, source)
+  let second: TestResult = test_roster_handlers(handlers, source)
+  let third: TestResult = test_safe_action(slots)
+  let failed: integer = report("roster drag slots have expected order and addresses", first) + report("roster drag handlers match their slot indices", second) + report("hardened safe action slot is retained", third)
+  let passed: integer = 3 - failed
+  print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then
+    exit_process(1)
+  end
+end
+
+main()
