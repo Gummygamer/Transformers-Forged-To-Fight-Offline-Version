@@ -344,10 +344,202 @@ function main(): nothing
   set failed = failed + report("test_account_response_contains_current_missions_config", test_account_response_contains_current_missions_config(), "account missions config differed")
   set failed = failed + report("test_direct_autorefresh_repeats_current_missions_config", test_direct_autorefresh_repeats_current_missions_config(), "direct autorefresh differed")
   set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
-  print(to_text(22 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  set failed = failed + run_slice3_tests()
+  print(to_text(37 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
+end
+
+function arena_level_known(level: text): boolean
+  intent: check
+  level == "chicago" or level == "hongkong" or level == "karnak" or level == "mine" or level == "rust"
+end
+
+function run_slice3_tests(): integer
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + report("test_default_arena_is_not_the_black_karnak_fallback", test_default_arena_is_not_the_black_karnak_fallback(), "default arena was invalid")
+  set failed = failed + report("test_quest_enemy_assigns_a_nonempty_shipped_arena_level", test_quest_enemy_assigns_a_nonempty_shipped_arena_level(), "enemy arena assignment was invalid")
+  set failed = failed + report("test_quest_enemy_tod_is_valid_for_its_arena_level", test_quest_enemy_tod_is_valid_for_its_arena_level(), "enemy time of day was invalid")
+  set failed = failed + report("test_arena_environment_overrides_are_applied_on_reload", test_arena_environment_overrides_are_applied_on_reload(), "arena environment override failed")
+  set failed = failed + report("test_invalid_arena_level_raises_on_reload", test_invalid_arena_level_raises_on_reload(), "invalid arena level did not fail")
+  set failed = failed + report("test_invalid_arena_tod_raises_on_reload", test_invalid_arena_tod_raises_on_reload(), "invalid arena time of day did not fail")
+  set failed = failed + report("test_final_map_tile_carries_the_authored_arena_assignment", test_final_map_tile_carries_the_authored_arena_assignment(), "final tile arena assignment was wrong")
+  set failed = failed + report("test_arena_inventory_matches_shipped_level_prefabs_when_available", test_arena_inventory_matches_shipped_level_prefabs_when_available(), "arena asset inventory was wrong")
+  set failed = failed + report("test_quest_progression_uses_the_supplied_squad", test_quest_progression_uses_the_supplied_squad(), "quest squad was lost")
+  set failed = failed + report("test_quest_begin_threads_the_squad_into_its_instance_progression", test_quest_begin_threads_the_squad_into_its_instance_progression(), "quest begin squad was lost")
+  set failed = failed + report("test_three_member_quest_squad_reaches_quest_and_active_teams", test_three_member_quest_squad_reaches_quest_and_active_teams(), "three member squad was lost")
+  set failed = failed + report("test_quest_movedir_preserves_the_squad_in_progression_and_team_data", test_quest_movedir_preserves_the_squad_in_progression_and_team_data(), "move squad was lost")
+  set failed = failed + report("test_user_data_uses_the_supplied_saved_and_active_team", test_user_data_uses_the_supplied_saved_and_active_team(), "user data squad was lost")
+  set failed = failed + report("test_none_and_empty_team_preserve_default_json", test_none_and_empty_team_preserve_default_json(), "empty team builder was not deterministic")
+  set failed = failed + report("test_unknown_blueprint_falls_back_to_the_default_squad", test_unknown_blueprint_falls_back_to_the_default_squad(), "unknown squad did not fall back")
+  failed
+end
+
+function team_object_matches(node: Json, team: a list of text): boolean
+  intent: check
+  mutable expected: a list of Pair = []
+  for bid in team do
+    set expected = append(expected, jsonout.json_pair(bid, jsonout.obj_get(node, bid)))
+  end
+  jsonout.encode_compact(node) == jsonout.encode_compact(jsonout.json_obj(expected))
+end
+
+function test_default_arena_is_not_the_black_karnak_fallback(): boolean
+  intent: test
+  gamedata.arena_level() != "karnak" and arena_level_known(gamedata.arena_level())
+end
+
+function test_quest_enemy_assigns_a_nonempty_shipped_arena_level(): boolean
+  intent: test
+  let enemy: Json = gamedata.build_quest_enemy("", -1)
+  let level: text = jsonout.as_text(jsonout.obj_get(enemy, "mapOverride"))
+  text_length(level) > 0 and level == gamedata.arena_level() and arena_level_known(level)
+end
+
+function test_quest_enemy_tod_is_valid_for_its_arena_level(): boolean
+  intent: test
+  let enemy: Json = gamedata.build_quest_enemy("", -1)
+  let tod: integer = jsonout.as_int(jsonout.obj_get(enemy, "todIndex"))
+  tod >= 0 and tod <= 2 and arena_level_known(jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")))
+end
+
+function arena_command(environment: text): a mapping from text to text
+  intent: run
+  shell_exec(environment ++ " legible run " ++ path_join(gamedata.here(), "gamedata.lbl") ++ " --dump-arena")
+end
+
+function command_code(result: a mapping from text to text): integer
+  intent: get
+  to_integer(unwrap_or(get(result, "exit_code"), "1"))
+end
+
+function command_stdout(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stdout"), "")
+end
+
+function test_arena_environment_overrides_are_applied_on_reload(): boolean
+  intent: test
+  let result: a mapping from text to text = arena_command("TFTF_ARENA_LEVEL=mine TFTF_ARENA_TOD=2")
+  command_code(result) == 0 and contains_text(command_stdout(result), "ENEMY_MAPOVERRIDE mine") and contains_text(command_stdout(result), "ENEMY_TOD 2")
+end
+
+function test_invalid_arena_level_raises_on_reload(): boolean
+  intent: test
+  command_code(arena_command("TFTF_ARENA_LEVEL=not-a-level")) == 1
+end
+
+function test_invalid_arena_tod_raises_on_reload(): boolean
+  intent: test
+  command_code(arena_command("TFTF_ARENA_LEVEL=mine TFTF_ARENA_TOD=3")) == 1
+end
+
+function test_final_map_tile_carries_the_authored_arena_assignment(): boolean
+  intent: test
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map("1.1.1"), "grid"))
+  mutable finals: integer = 0
+  mutable correct: boolean = false
+  for row in grid do
+    for tile in jsonout.list_items(row) do
+      if jsonout.obj_has(tile, "final") then
+  if jsonout.as_bool(jsonout.obj_get(tile, "final")) then
+  let boss: Json = jsonout.obj_get(jsonout.obj_get(tile, "entities"), gamedata.boss_blueprint())
+  set finals = finals + 1
+  set correct = jsonout.as_text(jsonout.obj_get(boss, "mapOverride")) == gamedata.arena_level() and jsonout.as_int(jsonout.obj_get(boss, "todIndex")) == gamedata.arena_tod_index()
+end
+end
+    end
+  end
+  finals == 1 and correct
+end
+
+function test_arena_inventory_matches_shipped_level_prefabs_when_available(): boolean
+  intent: test
+  let assets: text = path_join(path_join(directory_name(gamedata.here()), "Transformers 9.2 extracted"), "assets")
+  if not is_dir(assets) then
+  print("[skip] arena inventory: user-owned extracted game assets are not available")
+  true
+else
+  mutable passed: boolean = true
+  for level in ["chicago", "hongkong", "karnak", "mine", "rust"] do
+    let toc_path: text = path_join(path_join(assets, level), "toc.txt")
+    set passed = passed and file_exists(toc_path)
+    if file_exists(toc_path) then
+  let toc: Json = jsonout.parse_json(read_file(toc_path))
+  let paths: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(toc, "bundles"), level ++ "_merged"), "paths")
+  set passed = passed and jsonout.obj_has(paths, level ++ "_merged/" ++ level ++ "_merged") and jsonout.obj_has(paths, level ++ "_merged/" ++ level ++ "_timeofday_0_forward") and jsonout.obj_has(paths, level ++ "_merged/" ++ level ++ "_timeofday_1_forward") and jsonout.obj_has(paths, level ++ "_merged/" ++ level ++ "_timeofday_2_forward")
+end
+  end
+  passed
+end
+end
+
+function test_quest_progression_uses_the_supplied_squad(): boolean
+  intent: test
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  let user: Json = jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, team), "users"), gamedata.local_uid())
+  team_object_matches(jsonout.obj_get(user, "team"), team) and jsonout.as_text(jsonout.obj_get(user, "strongestHero")) == "grimlock_gs_mp08"
+end
+
+function test_quest_begin_threads_the_squad_into_its_instance_progression(): boolean
+  intent: test
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  let active: Json = jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_begin("1.1.1", "story_act1", team), "activeQuests"), "1.1.1")
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
+  let user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
+  team_object_matches(jsonout.obj_get(user, "team"), team)
+end
+
+function test_three_member_quest_squad_reaches_quest_and_active_teams(): boolean
+  intent: test
+  let team: a list of text = gamedata.default_team()
+  let active: Json = jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_begin("1.1.1", "story_act1", team), "activeQuests"), "1.1.1")
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
+  let user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
+  team_object_matches(jsonout.obj_get(user, "team"), team) and team_object_matches(jsonout.obj_get(gamedata.build_active_team("1.1.1-0", team), "heroes"), team)
+end
+
+function test_quest_movedir_preserves_the_squad_in_progression_and_team_data(): boolean
+  intent: test
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  let result: Json = gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, team)
+  let user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(result, "progression"), "users"), gamedata.local_uid())
+  team_object_matches(jsonout.obj_get(user, "team"), team) and team_object_matches(jsonout.obj_get(jsonout.obj_get(result, "teamData"), "heroes"), team)
+end
+
+function saved_team_bids_match(saved: Json, team: a list of text): boolean
+  intent: check
+  let heroes: a list of Json = jsonout.list_items(jsonout.obj_get(saved, "heroes"))
+  mutable passed: boolean = length(heroes) == length(team)
+  mutable index: integer = 0
+  while index < length(team) do
+    let hero: Json = unwrap_or(get(heroes, index), jsonout.json_obj([]))
+    set passed = passed and jsonout.as_text(jsonout.obj_get(hero, "bid")) == unwrap_or(get(team, index), "")
+    set index = index + 1
+  end
+  passed
+end
+
+function test_user_data_uses_the_supplied_saved_and_active_team(): boolean
+  intent: test
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  let updates: Json = jsonout.obj_get(gamedata.build_user_data(team), "updates")
+  let saved: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
+  let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
+  saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team)
+end
+
+function test_none_and_empty_team_preserve_default_json(): boolean
+  intent: test
+  jsonout.encode_compact(gamedata.build_quest_progression("1.1.1", 0, 1, [])) == jsonout.encode_compact(gamedata.build_quest_progression("1.1.1", 0, 1, [])) and jsonout.encode_compact(gamedata.build_active_quest("1.1.1", "story_act1", [])) == jsonout.encode_compact(gamedata.build_active_quest("1.1.1", "story_act1", [])) and jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) == jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) and jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) == jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) and jsonout.encode_compact(gamedata.build_user_data([])) == jsonout.encode_compact(gamedata.build_user_data([]))
+end
+
+function test_unknown_blueprint_falls_back_to_the_default_squad(): boolean
+  intent: test
+  let user: Json = jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, ["not-a-blueprint"]), "users"), gamedata.local_uid())
+  team_object_matches(jsonout.obj_get(user, "team"), gamedata.default_team()) and jsonout.as_text(jsonout.obj_get(user, "strongestHero")) == unwrap_or(get(gamedata.default_team(), 0), "")
 end
 
 main()
