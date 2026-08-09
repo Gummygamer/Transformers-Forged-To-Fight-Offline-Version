@@ -110,10 +110,12 @@ patches/
   find_str_ref.lbl            helper: find references to a string
 Server/
   fakeserver.py               the fake Sparx server
+  fakeserver.lbl              Legible request synthesis and plain-HTTP listener
   gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
   test_gamedata.py            verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
   run_local.py                run the server on unprivileged phone-friendly ports
+  run_local.lbl               run the Legible plain-HTTP server on an unprivileged port
   build_phone_apk.py          create an unsigned local-server APK for a stock phone
   provision_phone.sh          install, launch, and configure USB or Wi-Fi phone use
   setup_device.sh             device side network and trust setup reference
@@ -388,7 +390,12 @@ It accepts the same flags, but its error messages go to stdout because Legible h
 need Frida's native Python bindings.
 `Server/build_phone_apk.py`
 rewrites ZIP APK entries and packed binary metadata (`zipfile`, `struct`), and
-`Server/fakeserver.py` plus `Server/run_local.py` are threaded TLS socket servers.
+The request-synthesis layer and plain-HTTP listener are also ported as
+`Server/fakeserver.lbl` and `Server/run_local.lbl`: run them with
+`legible run Server/fakeserver.lbl --http 8080` or `legible run Server/run_local.lbl`.
+Only the HTTPS:443 listener is not ported: Legible's `tiny_http` backend is built without
+TLS, a Legible process can hold only one listener, and it has no threads, so
+`Server/fakeserver.py` remains the way to serve HTTPS.
 Finally, `Server/gamedata.py` and `Server/export_payload.py` are imported by the Server
 test suite, so converting them would break that Python-module test surface.
 
