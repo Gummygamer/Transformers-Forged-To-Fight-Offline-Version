@@ -1,0 +1,18 @@
+use fakeserver
+
+function port_from_env(): integer
+  intent: get
+  unwrap_or(to_integer(unwrap_or(env_get("HTTP_PORT"), "8080")), 8080)
+end
+
+function main(): nothing
+  intent: serve
+  create_dir(fakeserver.log_dir())
+  write_file(fakeserver.logfile(), "")
+  let port: integer = port_from_env()
+  print("[*] Running the fake Sparx server on unprivileged host ports for adb reverse.")
+  print("[!] HTTPS_PORT is unavailable in the Legible port; use Server/run_local.py for that listener.")
+  fakeserver.serve_http(port)
+end
+
+main()

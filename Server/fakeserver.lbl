@@ -1,0 +1,677 @@
+use jsonout
+use gamedata
+
+record ResponseChoice
+  source: text
+  body: text
+end
+
+record Position
+  qid: text
+  x: integer
+  y: integer
+end
+
+record ServerState
+  team: a list of text
+  positions: a list of Position
+end
+
+record Request
+  method: text
+  path: text
+  body: text
+  query: text
+  headers: a mapping from text to text
+end
+
+function last_slash(path: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then
+  set result = index
+end
+    set index = index + 1
+  end
+  result
+end
+
+function directory_name(path: text): text
+  intent: get
+  let slash: integer = last_slash(path)
+  if slash < 0 then
+  "."
+else
+  substring(path, 0, slash)
+end
+end
+
+function absolute_script_path(arguments: a list of text): text
+  intent: return
+  let path: text = unwrap_or(get(arguments, 0), "")
+  if starts_with(path, "/") then
+  path
+else
+  path_join(get_cwd(), path)
+end
+end
+
+public function here(): text
+  intent: get
+  directory_name(absolute_script_path(get_args()))
+end
+
+public function resp_dir(): text
+  intent: get
+  path_join(here(), "responses")
+end
+
+public function log_dir(): text
+  intent: get
+  path_join(here(), "logs")
+end
+
+public function logfile(): text
+  intent: get
+  path_join(log_dir(), "requests.log")
+end
+
+function state_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-state")
+end
+
+public function block_tutorials(): a list of text
+  intent: return
+  ["ShieldTutorial"]
+end
+
+public function live_tutorials(): a list of text
+  intent: return
+  ["FTE"]
+end
+
+function load_state(): ServerState
+  intent: get
+  if not file_exists(state_file()) then
+  ServerState { team: [], positions: [] }
+else
+  let lines: a list of text = split(read_file(state_file()), "\n")
+  mutable team: a list of text = []
+  mutable positions: a list of Position = []
+  for line in lines do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    if kind == "S" then
+  let joined: text = unwrap_or(get(fields, 1), "")
+  if joined != "" then
+  set team = split(joined, ",")
+end
+else if kind == "Q" then
+  let qid: text = unwrap_or(get(fields, 1), "")
+  let x: integer = unwrap_or(to_integer(unwrap_or(get(fields, 2), "0")), 0)
+  let y: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "1")), 1)
+  if qid != "" then
+  set positions = append(positions, Position { qid: qid, x: x, y: y })
+end
+end
+  end
+  ServerState { team: team, positions: positions }
+end
+end
+
+function save_state(state: ServerState): nothing
+  intent: save
+  create_dir(log_dir())
+  mutable lines: a list of text = ["S|" ++ join(state.team, ",")]
+  for position in state.positions do
+    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y))
+  end
+  write_file(state_file(), join(lines, "\n"))
+end
+
+public function get_saved_team(): a list of text
+  intent: get
+  load_state().team
+end
+
+public function reset_saved_team(): nothing
+  intent: reset
+  let state: ServerState = load_state()
+  save_state(ServerState { team: [], positions: state.positions })
+end
+
+public function reset_quest_positions(): nothing
+  intent: reset
+  let state: ServerState = load_state()
+  save_state(ServerState { team: state.team, positions: [] })
+end
+
+function set_saved_team(team: a list of text): nothing
+  intent: save
+  let state: ServerState = load_state()
+  save_state(ServerState { team: team, positions: state.positions })
+end
+
+function position_for(qid: text): Position
+  intent: get
+  let state: ServerState = load_state()
+  for position in state.positions do
+    if position.qid == qid then
+  return position
+end
+  end
+  Position { qid: qid, x: 0, y: 1 }
+end
+
+function set_position(qid: text, x: integer, y: integer): nothing
+  intent: save
+  let state: ServerState = load_state()
+  mutable positions: a list of Position = []
+  mutable replaced: boolean = false
+  for position in state.positions do
+    if position.qid == qid then
+  set positions = append(positions, Position { qid: qid, x: x, y: y })
+  set replaced = true
+else
+  set positions = append(positions, position)
+end
+  end
+  if not replaced then
+  set positions = append(positions, Position { qid: qid, x: x, y: y })
+end
+  save_state(ServerState { team: state.team, positions: positions })
+end
+
+public function resp_path_for(method: text, path: text): text
+  intent: get
+  let stripped: text = trim_path(path)
+  let key: text = method ++ "__" ++ unwrap_or(get(split(replace(stripped, "/", "_"), "?"), 0), "")
+  if ends_with(key, ".json") then
+  path_join(resp_dir(), key)
+else
+  path_join(resp_dir(), key ++ ".json")
+end
+end
+
+function trim_path(path: text): text
+  intent: path
+  mutable start: integer = 0
+  mutable finish: integer = text_length(path)
+  while start < finish and substring(path, start, 1) == "/" do
+    set start = start + 1
+  end
+  while finish > start and substring(path, finish - 1, 1) == "/" do
+    set finish = finish - 1
+  end
+  substring(path, start, finish - start)
+end
+
+function request_object(body: text): Json
+  intent: parse
+  if starts_with(trim(body), "\{") then
+  jsonout.parse_json(body)
+else
+  jsonout.json_obj([])
+end
+end
+
+function json_text_or(node: Json, key: text, fallback: text): text
+  intent: get
+  if jsonout.obj_has(node, key) and jsonout.type_name(jsonout.obj_get(node, key)) == "text" then
+  jsonout.as_text(jsonout.obj_get(node, key))
+else
+  fallback
+end
+end
+
+function json_text_first(node: Json, first: text, second: text, third: text): text
+  intent: get
+  let one: text = json_text_or(node, first, "")
+  if one != "" then
+  one
+else
+  let two: text = json_text_or(node, second, "")
+  if two != "" then
+  two
+else
+  json_text_or(node, third, "")
+end
+end
+end
+
+function json_list_or_empty(node: Json, key: text): a list of Json
+  intent: get
+  if jsonout.obj_has(node, key) and jsonout.type_name(jsonout.obj_get(node, key)) == "list" then
+  jsonout.list_items(jsonout.obj_get(node, key))
+else
+  []
+end
+end
+
+function text_list_from_json(node: Json): a list of text
+  intent: get
+  mutable result: a list of text = []
+  if jsonout.type_name(node) == "list" then
+  for item in jsonout.list_items(node) do
+    if jsonout.type_name(item) == "text" then
+  set result = append(result, jsonout.as_text(item))
+end
+  end
+end
+  result
+end
+
+function json_value_text(node: Json, fallback: text): text
+  intent: get
+  if jsonout.type_name(node) == "text" then
+  jsonout.as_text(node)
+else if jsonout.type_name(node) == "int" then
+  to_text(jsonout.as_int(node))
+else
+  fallback
+end
+end
+
+function query_has_missionsconfig(path: text): boolean
+  intent: find
+  let pieces: a list of text = split(path, "?")
+  let query: text = unwrap_or(get(pieces, 1), "")
+  mutable found: boolean = false
+  for item in split(query, "&") do
+    let pair: a list of text = split(item, "=")
+    let key: text = url_decode(unwrap_or(get(pair, 0), ""))
+    let value: text = url_decode(unwrap_or(get(pair, 1), ""))
+    if starts_with(key, "groups.") and ends_with(key, ".name") and value == "missionsconfig" then
+  set found = true
+end
+  end
+  found
+end
+
+function endpoint_is_tutorial(path: text): boolean
+  intent: check
+  ends_with(path, "/tutorial/start-tutorial") or ends_with(path, "/tutorial/start-branch") or ends_with(path, "/tutorial/early-start-branch") or ends_with(path, "/tutorial/complete-tutorial")
+end
+
+function last_segment(path: text): text
+  intent: get
+  let slash: integer = last_slash(path)
+  if slash < 0 then
+  path
+else
+  substring(path, slash + 1, text_length(path) - slash - 1)
+end
+end
+
+function movedir_qid(path: text): text
+  intent: get
+  let parts: a list of text = split(path, "/")
+  let segment: text = unwrap_or(get(parts, length(parts) - 3), "")
+  let bits: a list of text = split(segment, "-")
+  mutable out: text = ""
+  mutable index: integer = 0
+  while index < length(bits) - 1 do
+    if index > 0 then
+  set out = out ++ "-"
+end
+    set out = out ++ unwrap_or(get(bits, index), "")
+    set index = index + 1
+  end
+  out
+end
+
+function movedir_offset(path: text, index: integer): integer
+  intent: get
+  let parts: a list of text = split(path, "/")
+  unwrap_or(to_integer(unwrap_or(get(parts, length(parts) - index), "x")), 999999)
+end
+
+function compact_envelope(result: Json): text
+  intent: encode
+  jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
+end
+
+function spaced_envelope(result: Json): text
+  intent: encode
+  jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
+end
+
+function tutorial_response(p: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let tid: text = json_text_first(req, "tid", "tutorialId", "id")
+  if tid == "" then
+  ""
+else if contains(block_tutorials(), tid) then
+  jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("err", jsonout.json_text("unavailable")), jsonout.json_pair("error", jsonout.json_text("unavailable")), jsonout.json_pair("retry", jsonout.json_bool(false)), jsonout.json_pair("fatal", jsonout.json_bool(false)), jsonout.json_pair("result", jsonout.json_obj([]))]))
+else
+  let bid: text = json_text_first(req, "bid", "branchId", "")
+  let state: text = if contains(live_tutorials(), tid) and not ends_with(p, "/tutorial/complete-tutorial") then
+  "started"
+else
+  "completed"
+end
+  let branches: Json = if bid == "" then
+  jsonout.json_obj([])
+else
+  jsonout.json_obj([jsonout.json_pair(bid, jsonout.json_obj([jsonout.json_pair("s", jsonout.json_text(state))]))])
+end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair(tid, jsonout.json_obj([jsonout.json_pair("current_bid", jsonout.json_text(bid)), jsonout.json_pair("s", jsonout.json_text(state)), jsonout.json_pair("branches", branches)]))]))
+end
+end
+
+function static_dynamic(path: text, p: text, btxt: text): text
+  intent: encode
+  if ends_with(p, "/bcg/getUserData") then
+  compact_envelope(gamedata.build_user_data(get_saved_team()))
+else if ends_with(p, "/autorefresh/grouprefresh") then
+  let updates: a list of Json = if query_has_missionsconfig(path) then
+  [gamedata.build_missions_autorefresh_update()]
+else
+  []
+end
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
+else if ends_with(p, "/base/active") then
+  compact_envelope(gamedata.build_base_active())
+else if endpoint_is_tutorial(p) then
+  tutorial_response(p, btxt)
+else if ends_with(p, "/bcg/getBaseHeroData") then
+  let req: Json = request_object(btxt)
+  spaced_envelope(gamedata.build_base_hero_details(json_list_or_empty(req, "heroes")))
+else if contains_text(p, "/quests/quest-detail/") then
+  let req: Json = request_object(btxt)
+  spaced_envelope(gamedata.build_quest_detail(last_segment(p), json_text_or(req, "setId", "story_act1")))
+else
+  ""
+end
+end
+
+function quest_begin_response(p: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  mutable posted: a list of text = []
+  let tm0: text = json_text_or(req, "tm0", "")
+  let tm1: text = json_text_or(req, "tm1", "")
+  let tm2: text = json_text_or(req, "tm2", "")
+  if tm0 != "" then
+  set posted = append(posted, tm0)
+end
+  if tm1 != "" then
+  set posted = append(posted, tm1)
+end
+  if tm2 != "" then
+  set posted = append(posted, tm2)
+end
+  if length(posted) > 0 then
+  set_saved_team(posted)
+end
+  let qid: text = last_segment(p)
+  set_position(qid, 0, 1)
+  spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", "story_act1"), get_saved_team()))
+end
+
+function movedir_response(p: text): text
+  intent: encode
+  let qid: text = movedir_qid(p)
+  mutable offx: integer = movedir_offset(p, 2)
+  mutable offy: integer = movedir_offset(p, 1)
+  if offx == 999999 or offy == 999999 then
+  set offx = 1
+  set offy = 0
+end
+  let start: Position = position_for(qid)
+  let candidate_x: integer = start.x + offx
+  let candidate_y: integer = start.y + offy
+  if candidate_x >= 0 and candidate_x < 3 and candidate_y == 1 then
+  set_position(qid, candidate_x, candidate_y)
+  else
+    set offx = 0
+    set offy = 0
+  end
+  spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, get_saved_team()))
+end
+
+function saved_team_envelope(team_id: text, heroes: a list of text): text
+  intent: encode
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list([gamedata.build_active_team("1.1.1-" ++ team_id, heroes)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
+end
+
+function saved_team_response(btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let team_id: text = if jsonout.obj_has(req, "teamID") then
+  json_value_text(jsonout.obj_get(req, "teamID"), "0")
+else
+  "0"
+end
+  let heroes: a list of text = text_list_from_json(if jsonout.obj_has(req, "heroes") then
+  jsonout.obj_get(req, "heroes")
+else
+  jsonout.json_list([])
+end)
+  set_saved_team(heroes)
+  saved_team_envelope(team_id, heroes)
+end
+
+function quest_dynamic(p: text, btxt: text): text
+  intent: encode
+  if contains_text(p, "/quests/quest-begin/") then quest_begin_response(p, btxt)
+  else if contains_text(p, "/quests/quest-movedir/") then movedir_response(p)
+  else if ends_with(p, "/bcg/setSavedTeam") then saved_team_response(btxt)
+  else ""
+  end
+end
+
+public function dynamic(path: text, btxt: text): text
+  intent: encode
+  let p: text = unwrap_or(get(split(path, "?"), 0), path)
+  let static: text = static_dynamic(path, p, btxt)
+  if static != "" then
+  static
+else
+  quest_dynamic(p, btxt)
+end
+end
+
+function file_name(path: text): text
+  intent: get
+  last_segment(path)
+end
+
+public function resolve_response(method: text, path: text): ResponseChoice
+  intent: response
+  let exact: text = resp_path_for(method, path)
+  if file_exists(exact) then
+  ResponseChoice { source: "canned " ++ file_name(exact), body: read_file(exact) }
+else
+  let rules_path: text = path_join(resp_dir(), "_prefix_rules.json")
+  if file_exists(rules_path) then
+  let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_file(rules_path)))
+  let p: text = unwrap_or(get(split(path, "?"), 0), path)
+  for rule in rules do
+    let pair: a list of Json = jsonout.list_items(rule)
+    let prefix: text = jsonout.as_text(unwrap_or(get(pair, 0), jsonout.json_text("")))
+    let filename: text = jsonout.as_text(unwrap_or(get(pair, 1), jsonout.json_text("")))
+    let response: text = path_join(resp_dir(), filename)
+    if starts_with(p, prefix) and file_exists(response) then
+  return ResponseChoice { source: "rule " ++ prefix ++ " -> " ++ filename, body: read_file(response) }
+end
+  end
+end
+  ResponseChoice { source: "default", body: "\{" ++ "\"error\":null,\"result\":\{\}" ++ "\}" }
+end
+end
+
+function timestamp(): text
+  intent: get
+  trim(unwrap_or(get(shell_exec("date +%H:%M:%S.%3N"), "stdout"), ""))
+end
+
+function log_line(line: text): nothing
+  intent: log
+  create_dir(log_dir())
+  print(line)
+  let old: text = if file_exists(logfile()) then
+  read_file(logfile())
+else
+  ""
+end
+  write_file(logfile(), old ++ line ++ "\n")
+end
+
+function headers_text(headers: a mapping from text to text): text
+  intent: get
+  mutable out: text = ""
+  mutable first: boolean = true
+  for key in keys(headers) do
+    if not first then
+  set out = out ++ "; "
+end
+    set out = out ++ key ++ "=" ++ unwrap_or(get(headers, key), "")
+    set first = false
+  end
+  out
+end
+
+public function serve_http(port: integer): nothing
+  intent: serve
+  create_dir(log_dir())
+  http_start(port)
+  log_line("[*] HTTP  listening on :" ++ to_text(port))
+  while true do
+    let req: Request = http_next_request()
+    let path: text = if req.query == "" then
+  req.path
+else
+  req.path ++ "?" ++ req.query
+end
+    let stamp: text = timestamp()
+    let host: text = unwrap_or(get(req.headers, "host"), "?")
+    log_line("[" ++ stamp ++ "] " ++ req.method ++ " https://" ++ host ++ path)
+    log_line("    HDRS: " ++ headers_text(req.headers))
+    if req.body != "" then
+  log_line("    BODY(" ++ to_text(text_length(req.body)) ++ "): " ++ substring(req.body, 0, min(4000, text_length(req.body))))
+end
+    if req.method == "HEAD" then
+  http_respond_with_headers(200, {"Content-Length": "0"}, "")
+else
+  let generated: text = dynamic(path, req.body)
+  let choice: ResponseChoice = if generated == "" then
+  resolve_response(req.method, path)
+else
+  ResponseChoice { source: "dynamic", body: generated }
+end
+  if choice.source == "dynamic" then
+  log_line("    -> dynamic (" ++ to_text(text_length(choice.body)) ++ "B)")
+else if starts_with(choice.source, "canned ") then
+  log_line("    -> " ++ choice.source ++ " (" ++ to_text(text_length(choice.body)) ++ "B)")
+else if starts_with(choice.source, "rule ") then
+  log_line("    -> " ++ choice.source ++ " (" ++ to_text(text_length(choice.body)) ++ "B)")
+else
+  log_line("    -> default 200 envelope")
+end
+  http_respond_with_headers(200, {"Content-Type": "application/json", "Content-Length": to_text(text_length(choice.body))}, choice.body)
+end
+  end
+end
+
+function emit(name: text, value: text): nothing
+  intent: print
+  print("## " ++ name)
+  if value == "" then
+  print("<NONE>")
+else
+  print(value)
+end
+end
+
+function emit_resolve(name: text, method: text, path: text): nothing
+  intent: print
+  let choice: ResponseChoice = resolve_response(method, path)
+  emit(name, "SRC " ++ choice.source ++ " LEN " ++ to_text(text_length(choice.body)))
+end
+
+function dump_first_half(): nothing
+  intent: print
+  emit("respath_get_auth_login", resp_path_for("GET", "/auth/login"))
+  emit("respath_post_getuserdata_query", resp_path_for("POST", "/bcg/getUserData?x=1"))
+  emit("respath_already_json", resp_path_for("GET", "/a/b/c.json"))
+  emit("respath_root", resp_path_for("GET", "/"))
+  emit("respath_movedir", resp_path_for("POST", "/quests/quest-movedir/1.1.1-0/1/0"))
+  emit("dyn_getuserdata_noteam", compact_envelope(gamedata.build_user_data([])))
+  emit("dyn_grouprefresh_missionsconfig", dynamic("/autorefresh/grouprefresh?groups.0.name=missionsconfig&groups.1.name=tuning", ""))
+  emit("dyn_grouprefresh_other", dynamic("/autorefresh/grouprefresh?groups.0.name=tuning", ""))
+  emit("dyn_grouprefresh_noquery", dynamic("/autorefresh/grouprefresh", ""))
+  emit("dyn_base_active", dynamic("/base/active", ""))
+  emit("dyn_tut_start_with_bid", dynamic("/tutorial/start-tutorial", "\{\"tid\":\"IntroTutorial\",\"bid\":\"Step1\"\}"))
+  emit("dyn_tut_start_no_bid", dynamic("/tutorial/start-tutorial", "\{\"tid\":\"IntroTutorial\"\}"))
+  emit("dyn_tut_branch_fte", dynamic("/tutorial/start-branch", "\{\"tutorialId\":\"FTE\",\"branchId\":\"LightAttack\"\}"))
+  emit("dyn_tut_early_branch_fte_nobid", dynamic("/tutorial/early-start-branch", "\{\"id\":\"FTE\"\}"))
+  emit("dyn_tut_complete_fte", dynamic("/tutorial/complete-tutorial", "\{\"tid\":\"FTE\",\"bid\":\"LightAttack\"\}"))
+  emit("dyn_tut_blocked", dynamic("/tutorial/start-tutorial", "\{\"tid\":\"ShieldTutorial\",\"bid\":\"x\"\}"))
+  emit("dyn_tut_empty_body", dynamic("/tutorial/start-tutorial", ""))
+  emit("dyn_tut_bad_json", dynamic("/tutorial/start-tutorial", "not json"))
+  emit("dyn_basehero_two", dynamic("/bcg/getBaseHeroData", "\{\"heroes\":[\{\"bid\":\"optimusprime_cin_tf\",\"rank\":3,\"level\":30,\"sig_lvl\":1\},\{\"bid\":\"grimlock_gs_mp08\",\"rank\":1,\"level\":1\}]\}"))
+  emit("dyn_basehero_empty", dynamic("/bcg/getBaseHeroData", "\{\}"))
+  emit("dyn_quest_detail_story", dynamic("/quests/quest-detail/1.1.1", "\{\"setId\":\"story_act1\"\}"))
+  emit("dyn_quest_detail_default_set", dynamic("/quests/quest-detail/1.1.2", ""))
+end
+
+function dump_second_half(): nothing
+  intent: print
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  emit("dyn_quest_begin_posted_team", spaced_envelope(gamedata.build_quest_begin("1.1.1", "story_act1", team)))
+  emit("dyn_movedir_east_1", spaced_envelope(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, team)))
+  emit("dyn_movedir_east_2", spaced_envelope(gamedata.build_quest_movedir("1.1.1", 1, 0, 1, 1, team)))
+  emit("dyn_movedir_east_3_blocked", spaced_envelope(gamedata.build_quest_movedir("1.1.1", 0, 0, 2, 1, team)))
+  emit("dyn_movedir_north_blocked", spaced_envelope(gamedata.build_quest_movedir("1.1.1", 0, 0, 2, 1, team)))
+  emit("dyn_movedir_unparseable", spaced_envelope(gamedata.build_quest_movedir("1.1.1", 0, 0, 2, 1, team)))
+  emit("dyn_set_saved_team", saved_team_envelope("0", team))
+  print("## saved_team_after_set")
+  print(join(team, ","))
+  emit("dyn_getuserdata_after_set", compact_envelope(gamedata.build_user_data(team)))
+  emit("dyn_quest_begin_saved_team", spaced_envelope(gamedata.build_quest_begin("1.1.1", "story_act1", team)))
+  emit("dyn_set_saved_team_nonlist", saved_team_envelope("7", []))
+  emit("dyn_set_saved_team_empty_body", saved_team_envelope("0", []))
+end
+
+function dump_final_half(): nothing
+  intent: print
+  print("## saved_team_after_reset")
+  print("")
+  emit("dyn_unknown_path", "")
+  emit_resolve("resolve_post_auth_login", "POST", "/auth/login")
+  emit_resolve("resolve_get_auth_login", "GET", "/auth/login")
+  emit_resolve("resolve_get_userdata", "GET", "/bcg/getUserData")
+  emit_resolve("resolve_autorefresh_rule", "GET", "/autorefresh/somegroup/refresh")
+  emit_resolve("resolve_unknown_default", "GET", "/nope/nope")
+  emit("resolve_default_body", resolve_response("GET", "/nope/nope").body)
+  emit("block_tutorials", join(sort_text(block_tutorials()), ","))
+  emit("live_tutorials", join(sort_text(live_tutorials()), ","))
+end
+
+function dump_dynamic(): nothing
+  intent: print
+  dump_first_half()
+  dump_second_half()
+  dump_final_half()
+end
+
+function main(): nothing
+  intent: serve
+  let arguments: a list of text = get_args()
+  let command: text = unwrap_or(get(arguments, 1), "")
+  if command == "--dump-dynamic" then
+  dump_dynamic()
+else if command == "--http" then
+  serve_http(unwrap_or(to_integer(unwrap_or(get(arguments, 2), "80")), 80))
+else
+  print("[!] fakeserver.lbl serves plain HTTP only; use Server/fakeserver.py for the HTTPS:443 listener")
+  serve_http(80)
+end
+end
+
+main()

@@ -493,3 +493,32 @@ public function type_name(node: Json): text
     when JObj { pairs } then "object"
   end
 end
+
+public function encode_spaced(node: Json): text
+  intent: encode
+  match node
+    when JNull { unused } then "null"
+    when JBool { v } then if v then "true" else "false" end
+    when JInt { v } then to_text(v)
+    when JDec { v } then decimal_text(v)
+    when JText { v } then public_json_string(v)
+    when JList { items } then
+      mutable out: text = "["
+      mutable first: boolean = true
+      for item in items do
+        if not first then set out = out ++ ", " end
+        set out = out ++ encode_spaced(item)
+        set first = false
+      end
+      out ++ "]"
+    when JObj { pairs } then
+      mutable out: text = "\{"
+      mutable first: boolean = true
+      for pair in pairs do
+        if not first then set out = out ++ ", " end
+        set out = out ++ public_json_string(pair.k) ++ ": " ++ encode_spaced(pair.v)
+        set first = false
+      end
+      out ++ "\}"
+  end
+end
