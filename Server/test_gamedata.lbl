@@ -69,6 +69,20 @@ else
 end
 end
 
+function special_damage_percent(node: Json, key: text): integer
+  intent: get
+  let value: text = jsonout.encode_compact(jsonout.obj_get(node, key))
+  if value == "1.75" then
+  175
+else if value == "2.5" then
+  250
+else if value == "3.5" then
+  350
+else
+  0
+end
+end
+
 function test_specials_escalate_by_index(): boolean
   intent: test
   mutable passed: boolean = true
@@ -195,6 +209,116 @@ function test_max_special_attacks_honours_override(): boolean
   gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 1 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 1 and gamedata.max_special_attacks("grimlock_gs_mp08", 5) == 3
 end
 
+function encoded_field(node: Json, key: text): text
+  intent: get
+  jsonout.encode_compact(jsonout.obj_get(node, key))
+end
+
+function test_default_mana_start_is_zero(): boolean
+  intent: test
+  encoded_field(gamedata.build_hero_base(unwrap_or(get(gamedata.default_team(), 0), ""), 1), "mana_start") == "0"
+end
+
+function test_combat_attribute_builders_carry_authored_mana_fields(): boolean
+  intent: test
+  let entry: Json = gamedata.build_hero_entry(unwrap_or(get(gamedata.default_team(), 0), ""), 1, 1)
+  encoded_field(entry, "mana_gain") == "1.0" and encoded_field(entry, "mana_start") == "0"
+end
+
+function test_generated_user_data_has_mana_gain_for_every_owned_bot(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getUserData.json")))
+  let updates: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "updates")
+  let heroes: a list of Json = jsonout.list_items(jsonout.obj_get(updates, "heroes"))
+  mutable passed: boolean = length(heroes) > 0
+  for hero in heroes do
+    if encoded_field(hero, "entity_type") == "\"bot\"" then
+  set passed = passed and encoded_field(hero, "mana_gain") == "1.0" and encoded_field(hero, "mana_start") == "0"
+end
+  end
+  passed
+end
+
+function test_normal_attack_levels_have_nonzero_damage_rows(): boolean
+  intent: test
+  let rows: Json = gamedata.build_attack_values()
+  let config: Json = gamedata.build_missions_config()
+  let light: Json = jsonout.obj_get(rows, "Light")
+  let medium: Json = jsonout.obj_get(rows, "Medium")
+  let heavy: Json = jsonout.obj_get(rows, "Heavy")
+  let ranged: Json = jsonout.obj_get(rows, "Ranged")
+  field_text(light, "id") == "Light" and field_text(medium, "id") == "Medium" and field_text(heavy, "id") == "Heavy" and field_text(ranged, "id") == "Ranged" and encoded_field(light, "a") == "0.35" and encoded_field(light, "m") == "50.0" and encoded_field(medium, "a") == "0.6" and encoded_field(medium, "m") == "75.0" and encoded_field(heavy, "a") == "1.0" and encoded_field(heavy, "m") == "120.0" and encoded_field(ranged, "a") == "0.4" and encoded_field(ranged, "m") == "55.0" and encoded_field(jsonout.obj_get(jsonout.obj_get(config, "configs"), "bcg-combat"), "manaPerSpecial") == "300.0"
+end
+
+function test_generated_login_response_contains_current_attack_rows(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getLoginData.json")))
+  jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(response, "result"), "attackValues")) == jsonout.encode_compact(gamedata.build_attack_values())
+end
+
+function test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row(): boolean
+  intent: test
+  let rows: Json = gamedata.build_stat_modifiers()
+  let row: Json = jsonout.obj_get(rows, "gp_hit_stun")
+  jsonout.obj_has(rows, "gp_hit_stun") and encoded_field(row, "id") == "\"gp_hit_stun\"" and encoded_field(row, "t") == "\"hit_stun\"" and encoded_field(row, "ta") == "\"self\"" and encoded_field(row, "mt") == "\"debuff\"" and encoded_field(row, "tr") == "[]" and encoded_field(row, "uit") == "[]" and jsonout.encode_compact(jsonout.obj_get(gamedata.build_login_data(), "statMods")) == jsonout.encode_compact(rows)
+end
+
+function test_every_special_out_damages_every_normal_attack(): boolean
+  intent: test
+  let blueprints: Json = gamedata.build_blueprints()
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let bp: Json = jsonout.obj_get(blueprints, entry.bid)
+    set passed = passed and special_damage_percent(bp, "s1") > 100 and special_damage_percent(bp, "s2") > 100 and special_damage_percent(bp, "s3") > 100
+  end
+  passed
+end
+
+function test_character_model_id_matches_model_id_helper(): boolean
+  intent: test
+  let characters: Json = gamedata.build_characters()
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let character: Json = jsonout.obj_get(characters, entry.bid)
+    set passed = passed and field_text(character, "m") == gamedata.model_id(entry.bid) and field_text(character, "mdl") == gamedata.model_id(entry.bid)
+  end
+  passed
+end
+
+function test_player_lead_is_optimus_prime(): boolean
+  intent: test
+  unwrap_or(get(gamedata.default_team(), 0), "") == "optimusprime_cin_tf"
+end
+
+function test_combat_armor_rating_constant_is_finite_and_positive(): boolean
+  intent: test
+  let config: Json = gamedata.build_missions_config()
+  let configs: Json = jsonout.obj_get(config, "configs")
+  let combat: Json = jsonout.obj_get(configs, "bcg-combat")
+  encoded_field(config, "configsHash") == "\"offline-v1\"" and jsonout.obj_has(configs, "bcg-combat") and jsonout.obj_has(configs, "user-base") and encoded_field(combat, "armorRatingConstant") == "1000.0" and encoded_field(combat, "manaPerSpecial") == "300.0" and encoded_field(combat, "maxQueuedActionTime") == "0.2"
+end
+
+function test_account_response_contains_current_missions_config(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__account_data.json")))
+  let data: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "missionsconfig")
+  jsonout.encode_compact(data) == jsonout.encode_compact(gamedata.build_missions_account_data()) and jsonout.encode_compact(jsonout.obj_get(data, "missionsconfig")) == jsonout.encode_compact(gamedata.build_missions_config())
+end
+
+function test_direct_autorefresh_repeats_current_missions_config(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__autorefresh_missionsconfig_refresh.json")))
+  let result: Json = jsonout.obj_get(response, "result")
+  jsonout.encode_compact(result) == jsonout.encode_compact(gamedata.build_missions_autorefresh_result()) and encoded_field(result, "refresh") == "0"
+end
+
+function test_group_autorefresh_update_has_exact_client_fields(): boolean
+  intent: test
+  let update: Json = gamedata.build_missions_autorefresh_update()
+  let expected: Json = jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("missionsconfig")), jsonout.json_pair("error", jsonout.json_text("")), jsonout.json_pair("check", jsonout.json_text("offline-v1")), jsonout.json_pair("locHash", jsonout.json_text("")), jsonout.json_pair("refresh", jsonout.json_int(0)), jsonout.json_pair("data", gamedata.build_missions_config()), jsonout.json_pair("cache", jsonout.json_bool(false))])
+  jsonout.encode_compact(update) == jsonout.encode_compact(expected)
+end
+
 function main(): nothing
   intent: test
   mutable failed: integer = 0
@@ -207,7 +331,20 @@ function main(): nothing
   set failed = failed + report("test_art_base_overrides_cover_only_irregular_roster_bots", test_art_base_overrides_cover_only_irregular_roster_bots(), "override coverage was wrong")
   set failed = failed + report("base_stats spot checks", test_base_stats_spot_checks(), "stat arithmetic differed")
   set failed = failed + report("max_special_attacks honours override", test_max_special_attacks_honours_override(), "override did not win")
-  print(to_text(9 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  set failed = failed + report("test_default_mana_start_is_zero", test_default_mana_start_is_zero(), "default mana start was not zero")
+  set failed = failed + report("test_combat_attribute_builders_carry_authored_mana_fields", test_combat_attribute_builders_carry_authored_mana_fields(), "hero entry mana fields were wrong")
+  set failed = failed + report("test_generated_user_data_has_mana_gain_for_every_owned_bot", test_generated_user_data_has_mana_gain_for_every_owned_bot(), "generated user data mana fields were wrong")
+  set failed = failed + report("test_normal_attack_levels_have_nonzero_damage_rows", test_normal_attack_levels_have_nonzero_damage_rows(), "attack values were wrong")
+  set failed = failed + report("test_generated_login_response_contains_current_attack_rows", test_generated_login_response_contains_current_attack_rows(), "login attack values differed")
+  set failed = failed + report("test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row", test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row(), "hit stun row was wrong")
+  set failed = failed + report("test_every_special_out_damages_every_normal_attack", test_every_special_out_damages_every_normal_attack(), "special damage was too low")
+  set failed = failed + report("test_character_model_id_matches_model_id_helper", test_character_model_id_matches_model_id_helper(), "character model id differed")
+  set failed = failed + report("test_player_lead_is_optimus_prime", test_player_lead_is_optimus_prime(), "team lead was wrong")
+  set failed = failed + report("test_combat_armor_rating_constant_is_finite_and_positive", test_combat_armor_rating_constant_is_finite_and_positive(), "combat config was wrong")
+  set failed = failed + report("test_account_response_contains_current_missions_config", test_account_response_contains_current_missions_config(), "account missions config differed")
+  set failed = failed + report("test_direct_autorefresh_repeats_current_missions_config", test_direct_autorefresh_repeats_current_missions_config(), "direct autorefresh differed")
+  set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
+  print(to_text(22 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
