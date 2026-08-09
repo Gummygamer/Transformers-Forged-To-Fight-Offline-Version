@@ -584,8 +584,10 @@ else if mode == "--dump-arena" then
   dump_arena()
 else if mode == "--dump-slice4" then
   dump_slice4()
+else if mode == "--dump-mana-start" then
+  dump_mana_start()
 else
-  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams|--dump-slice3|--dump-arena|--dump-slice4")
+  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams|--dump-slice3|--dump-arena|--dump-slice4|--dump-mana-start")
 end
 end
 
@@ -1145,6 +1147,12 @@ function dump_slice4(): nothing
   let zero_details: Json = build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text("megatron_g1_mp10")), jsonout.json_pair("rank", jsonout.json_int(0)), jsonout.json_pair("level", jsonout.json_int(0)), jsonout.json_pair("sig_lvl", jsonout.json_int(0))])])
   let unknown_details: Json = build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text("not_a_bot_xyz"))])])
   print(jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("base_id", jsonout.json_text(base_id())), jsonout.json_pair("base_theme", jsonout.json_text(base_theme())), jsonout.json_pair("base_dim", jsonout.json_int(base_dim())), jsonout.json_pair("base_socket_type", jsonout.json_text(base_socket_type())), jsonout.json_pair("base_socket_ids", base_socket_ids_json()), jsonout.json_pair("base_walkable", base_walkable_json()), jsonout.json_pair("base_summary", build_base_summary()), jsonout.json_pair("base_map", build_base_map()), jsonout.json_pair("base_mission", build_base_mission()), jsonout.json_pair("base_available_buildings", build_base_available_buildings()), jsonout.json_pair("base_active", build_base_active()), jsonout.json_pair("base_hero_details_empty", build_base_hero_details([])), jsonout.json_pair("base_hero_details_default", default_details), jsonout.json_pair("base_hero_details_full", full_details), jsonout.json_pair("base_hero_details_zero_fallbacks", zero_details), jsonout.json_pair("base_hero_details_unknown", unknown_details), jsonout.json_pair("login_data_envelope_len", jsonout.json_int(text_length(response_envelope(build_login_data())))), jsonout.json_pair("roster_count", jsonout.json_int(length(roster()))), jsonout.json_pair("owned_count", jsonout.json_int(length(owned())))])))
+end
+
+function dump_mana_start(): nothing
+  intent: print
+  let base: Json = build_hero_base(unwrap_or(get(default_team(), 0), ""), 1)
+  print("MANA_START " ++ jsonout.encode_compact(jsonout.obj_get(base, "mana_start")))
 end
 
 main()

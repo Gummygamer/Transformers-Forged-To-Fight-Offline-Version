@@ -337,10 +337,13 @@ function main(): nothing
   set failed = failed + report("base_stats spot checks", test_base_stats_spot_checks(), "stat arithmetic differed")
   set failed = failed + report("max_special_attacks honours override", test_max_special_attacks_honours_override(), "override did not win")
   set failed = failed + report("test_default_mana_start_is_zero", test_default_mana_start_is_zero(), "default mana start was not zero")
+  set failed = failed + report("test_mana_start_diagnostic_can_be_enabled", test_mana_start_diagnostic_can_be_enabled(), "mana start diagnostic did not reload")
   set failed = failed + report("test_combat_attribute_builders_carry_authored_mana_fields", test_combat_attribute_builders_carry_authored_mana_fields(), "hero entry mana fields were wrong")
   set failed = failed + report("test_generated_user_data_has_mana_gain_for_every_owned_bot", test_generated_user_data_has_mana_gain_for_every_owned_bot(), "generated user data mana fields were wrong")
   set failed = failed + report("test_normal_attack_levels_have_nonzero_damage_rows", test_normal_attack_levels_have_nonzero_damage_rows(), "attack values were wrong")
   set failed = failed + report("test_generated_login_response_contains_current_attack_rows", test_generated_login_response_contains_current_attack_rows(), "login attack values differed")
+  set failed = failed + report("test_generated_login_response_uses_current_special_ratios", test_generated_login_response_uses_current_special_ratios(), "login special ratios differed")
+  set failed = failed + report("test_login_response_carries_model_ids", test_login_response_carries_model_ids(), "login model ids differed")
   set failed = failed + report("test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row", test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row(), "hit stun row was wrong")
   set failed = failed + report("test_every_special_out_damages_every_normal_attack", test_every_special_out_damages_every_normal_attack(), "special damage was too low")
   set failed = failed + report("test_character_model_id_matches_model_id_helper", test_character_model_id_matches_model_id_helper(), "character model id differed")
@@ -351,7 +354,7 @@ function main(): nothing
   set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
   set failed = failed + run_slice3_tests()
   set failed = failed + run_slice4_tests()
-  print(to_text(47 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(50 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -718,6 +721,43 @@ function run_slice4_tests(): integer
   set failed = failed + report("test_available_buildings_use_shipped_model_ids", test_available_buildings_use_shipped_model_ids(), "building models were wrong")
   set failed = failed + report("test_links_only_point_at_walkable_neighbours", test_links_only_point_at_walkable_neighbours(), "base links were wrong")
   failed
+end
+
+function mana_command(environment: text): a mapping from text to text
+  intent: run
+  shell_exec(environment ++ " legible run " ++ path_join(gamedata.here(), "gamedata.lbl") ++ " --dump-mana-start")
+end
+
+function test_mana_start_diagnostic_can_be_enabled(): boolean
+  intent: test
+  let enabled: a mapping from text to text = mana_command("TFTF_DIAG_MANA_START=1")
+  let default: a mapping from text to text = mana_command("")
+  command_code(enabled) == 0 and contains_text(command_stdout(enabled), "MANA_START 1") and command_code(default) == 0 and contains_text(command_stdout(default), "MANA_START 0")
+end
+
+function test_generated_login_response_uses_current_special_ratios(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getLoginData.json")))
+  let blueprints: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "blueprints")
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let response_blueprint: Json = jsonout.obj_get(blueprints, entry.bid)
+    let built_blueprint: Json = blueprint(entry.bid)
+    set passed = passed and jsonout.obj_has(blueprints, entry.bid) and encoded_field(response_blueprint, "s1") == encoded_field(built_blueprint, "s1") and encoded_field(response_blueprint, "s2") == encoded_field(built_blueprint, "s2") and encoded_field(response_blueprint, "s3") == encoded_field(built_blueprint, "s3")
+  end
+  passed
+end
+
+function test_login_response_carries_model_ids(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getLoginData.json")))
+  let blueprints: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "blueprints")
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let response_blueprint: Json = jsonout.obj_get(blueprints, entry.bid)
+    set passed = passed and jsonout.obj_has(blueprints, entry.bid) and field_text(response_blueprint, "mdl") == gamedata.model_id(entry.bid)
+  end
+  passed
 end
 
 main()
