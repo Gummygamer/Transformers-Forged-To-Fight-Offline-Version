@@ -22,6 +22,19 @@ record Stats
   atk: integer
 end
 
+record BuildingSpec
+  bid: text
+  name: text
+  desc: text
+  model: text
+end
+
+record BasePlacement
+  row: integer
+  col: integer
+  bid: text
+end
+
 function last_slash(path: text): integer
   intent: find
   mutable result: integer = -1
@@ -554,7 +567,10 @@ function main(): nothing
   intent: run
   let arguments: a list of text = get_args()
   let mode: text = unwrap_or(get(arguments, 1), "")
-  if mode == "--dump-blueprints" then
+  if mode == "" then
+  build_responses()
+  print("roster: " ++ to_text(length(roster())) ++ " bots, " ++ to_text(length(owned())) ++ " owned")
+else if mode == "--dump-blueprints" then
   print(jsonout.encode_compact(build_blueprints()))
 else if mode == "--dump-helpers" then
   dump_helpers()
@@ -566,8 +582,10 @@ else if mode == "--dump-slice3" then
   dump_slice3()
 else if mode == "--dump-arena" then
   dump_arena()
+else if mode == "--dump-slice4" then
+  dump_slice4()
 else
-  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams|--dump-slice3|--dump-arena")
+  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams|--dump-slice3|--dump-arena|--dump-slice4")
 end
 end
 
@@ -858,6 +876,275 @@ function dump_arena(): nothing
   print("ENEMY_TOD " ++ to_text(jsonout.as_int(jsonout.obj_get(enemy, "todIndex"))))
   print("BOSSTILE_MAPOVERRIDE " ++ jsonout.as_text(jsonout.obj_get(boss, "mapOverride")))
   print("BOSSTILE_TOD " ++ to_text(jsonout.as_int(jsonout.obj_get(boss, "todIndex"))))
+end
+
+public function base_id(): text
+  intent: return
+  "user_base_1"
+end
+
+public function base_theme(): text
+  intent: return
+  "primordial"
+end
+
+public function base_dim(): integer
+  intent: return
+  5
+end
+
+public function base_socket_type(): text
+  intent: return
+  "building"
+end
+
+function base_buildings(): a list of BuildingSpec
+  intent: build
+  [BuildingSpec { bid: "bldg_battle_centre", name: "Battle Centre", desc: "Coordinate your Autobots' battles from here.", model: "z_bldg_battle_centre_01" }, BuildingSpec { bid: "bldg_away_team", name: "Away Team", desc: "Send bots on away missions across Cybertron.", model: "z_bldg_away_team_01" }, BuildingSpec { bid: "bldg_alliance_help", name: "Alliance Beacon", desc: "Call in help from allied Autobots.", model: "z_bldg_alliance_help_01" }, BuildingSpec { bid: "bldg_crystal_free", name: "Crystal Chamber", desc: "Synthesizes a free crystal now and then.", model: "z_bldg_gacha_free_01" }, BuildingSpec { bid: "bldg_crystal_daily", name: "Daily Crystal Vault", desc: "Produces one crystal every day.", model: "z_bldg_gacha_daily_01" }, BuildingSpec { bid: "bldg_crystal_premium", name: "Premium Crystal Vault", desc: "Stores premium crystals.", model: "z_bldg_gacha_other_01" }]
+end
+
+function base_placements(): a list of BasePlacement
+  intent: build
+  [BasePlacement { row: 2, col: 2, bid: "bldg_battle_centre" }, BasePlacement { row: 2, col: 1, bid: "bldg_away_team" }, BasePlacement { row: 2, col: 3, bid: "bldg_alliance_help" }, BasePlacement { row: 1, col: 2, bid: "bldg_crystal_free" }, BasePlacement { row: 3, col: 2, bid: "bldg_crystal_daily" }]
+end
+
+public function build_base_summary(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(base_id())), jsonout.json_pair("setId", jsonout.json_text("")), jsonout.json_pair("hash", jsonout.json_text("b1")), jsonout.json_pair("category", jsonout.json_text("base")), jsonout.json_pair("friendlyName", jsonout.json_text("Base")), jsonout.json_pair("description", jsonout.json_text("Your base.")), jsonout.json_pair("energyPerTile", jsonout.json_int(0)), jsonout.json_pair("minXpPerTile", jsonout.json_int(0)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(0)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(0)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(0)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text(base_theme())), jsonout.json_pair("todIndex", jsonout.json_int(0))])
+end
+
+public function base_is_walkable(row: integer, col: integer): boolean
+  intent: check
+  let centre: integer = to_integer(to_decimal(base_dim()) / 2)
+  row == centre or col == centre
+end
+
+public function base_socket_id(row: integer, col: integer): text
+  intent: build
+  "sock_" ++ to_text(row) ++ "_" ++ to_text(col)
+end
+
+function base_links_for(row: integer, col: integer): Json
+  intent: build
+  let dim: integer = base_dim()
+  mutable links: a list of Json = []
+  if row - 1 >= 0 and base_is_walkable(row - 1, col) then
+  set links = append(links, vec2(row - 1, col))
+end
+  if row + 1 < dim and base_is_walkable(row + 1, col) then
+  set links = append(links, vec2(row + 1, col))
+end
+  if col - 1 >= 0 and base_is_walkable(row, col - 1) then
+  set links = append(links, vec2(row, col - 1))
+end
+  if col + 1 < dim and base_is_walkable(row, col + 1) then
+  set links = append(links, vec2(row, col + 1))
+end
+  jsonout.json_list(links)
+end
+
+function base_tile(row: integer, col: integer, centre: integer): Json
+  intent: build
+  if not base_is_walkable(row, col) then
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(false)), jsonout.json_pair("hidden", jsonout.json_bool(true))])
+else
+  let links: Json = base_links_for(row, col)
+  let sockets: Json = jsonout.json_obj([jsonout.json_pair(base_socket_id(row, col), jsonout.json_obj([jsonout.json_pair("entityType", jsonout.json_text(base_socket_type())), jsonout.json_pair("locked", jsonout.json_bool(false))]))])
+  let tile: Json = jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("lab", jsonout.json_text("Plot " ++ to_text(row) ++ "-" ++ to_text(col))), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("sockets", sockets)])
+  if row == centre and col == centre then
+  jsonout.obj_set(jsonout.obj_set(tile, "start", jsonout.json_bool(true)), "lab", jsonout.json_text("Command Centre"))
+else
+  tile
+end
+end
+end
+
+public function build_base_map(): Json
+  intent: build
+  let dim: integer = base_dim()
+  let centre: integer = to_integer(to_decimal(dim) / 2)
+  mutable grid: a list of Json = []
+  mutable row: integer = 0
+  while row < dim do
+    mutable tiles: a list of Json = []
+    mutable col: integer = 0
+    while col < dim do
+      set tiles = append(tiles, base_tile(row, col, centre))
+      set col = col + 1
+    end
+    set grid = append(grid, jsonout.json_list(tiles))
+    set row = row + 1
+  end
+  mutable walkable: integer = 0
+  set row = 0
+  while row < dim do
+    mutable col: integer = 0
+    while col < dim do
+      if base_is_walkable(row, col) then
+  set walkable = walkable + 1
+end
+      set col = col + 1
+    end
+    set row = row + 1
+  end
+  mutable horizontal: a list of Json = []
+  mutable vertical: a list of Json = []
+  mutable index: integer = 0
+  while index < dim do
+    set horizontal = append(horizontal, vec2(centre, index))
+    set vertical = append(vertical, vec2(index, centre))
+    set index = index + 1
+  end
+  let map_hash: text = "bm_" ++ base_id()
+  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text(map_hash)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text(map_hash)), jsonout.json_pair("gridDimension", jsonout.json_int(dim)), jsonout.json_pair("grid", jsonout.json_list(grid)), jsonout.json_pair("walkableCount", jsonout.json_int(walkable)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(walkable)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", jsonout.json_list(horizontal))]), jsonout.json_obj([jsonout.json_pair("path", jsonout.json_list(vertical))])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
+end
+
+public function build_base_mission(): Json
+  intent: build
+  mutable placements: a list of Pair = []
+  for placement in base_placements() do
+    let value: Json = jsonout.json_obj([jsonout.json_pair("entityType", jsonout.json_text("building")), jsonout.json_pair("parentEntityType", jsonout.json_text("building")), jsonout.json_pair("key", jsonout.json_text(placement.bid)), jsonout.json_pair("position", vec2(placement.row, placement.col))])
+    set placements = append(placements, jsonout.json_pair(base_socket_id(placement.row, placement.col), value))
+  end
+  jsonout.json_obj([jsonout.json_pair("mode", jsonout.json_text("base")), jsonout.json_pair("category", jsonout.json_text("base")), jsonout.json_pair("id", jsonout.json_text(base_id())), jsonout.json_pair("hash", jsonout.json_text("b1")), jsonout.json_pair("setName", jsonout.json_text("")), jsonout.json_pair("setId", jsonout.json_text("")), jsonout.json_pair("uid", jsonout.json_text(local_uid())), jsonout.json_pair("aid", jsonout.json_text("")), jsonout.json_pair("modes", jsonout.json_list([jsonout.json_text("base")])), jsonout.json_pair("data", build_base_summary()), jsonout.json_pair("map", build_base_map()), jsonout.json_pair("placements", jsonout.json_obj(placements))])
+end
+
+public function build_base_available_buildings(): Json
+  intent: build
+  mutable buildings: a list of Json = []
+  for spec in base_buildings() do
+    let funds: Json = jsonout.json_obj([jsonout.json_pair("upgrade", jsonout.json_list([])), jsonout.json_pair("repair", jsonout.json_list([]))])
+    let building: Json = jsonout.json_obj([jsonout.json_pair("entityType", jsonout.json_text("building")), jsonout.json_pair("id", jsonout.json_text(spec.bid)), jsonout.json_pair("name", jsonout.json_text(spec.name)), jsonout.json_pair("description", jsonout.json_text(spec.desc)), jsonout.json_pair("img", jsonout.json_text("")), jsonout.json_pair("modelId", jsonout.json_text(spec.model)), jsonout.json_pair("maxDamage", jsonout.json_int(100)), jsonout.json_pair("cost", jsonout.json_list([])), jsonout.json_pair("comingSoon", jsonout.json_bool(false)), jsonout.json_pair("levels", jsonout.json_list([])), jsonout.json_pair("rank", jsonout.json_int(1)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("damage", jsonout.json_int(0)), jsonout.json_pair("funds", funds)])
+    set buildings = append(buildings, building)
+  end
+  jsonout.json_list(buildings)
+end
+
+public function build_base_active(): Json
+  intent: build
+  mutable buildings: a list of Json = []
+  for placement in base_placements() do
+    set buildings = append(buildings, jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(placement.bid)), jsonout.json_pair("key", jsonout.json_text(base_socket_id(placement.row, placement.col)))]))
+  end
+  let dim: integer = base_dim()
+  mutable sockets: a list of Pair = []
+  mutable row: integer = 0
+  while row < dim do
+    mutable col: integer = 0
+    while col < dim do
+      if base_is_walkable(row, col) then
+  set sockets = append(sockets, jsonout.json_pair(base_socket_id(row, col), jsonout.json_bool(true)))
+end
+      set col = col + 1
+    end
+    set row = row + 1
+  end
+  jsonout.json_obj([jsonout.json_pair("userBase", build_base_mission()), jsonout.json_pair("userAvailableBuildings", build_base_available_buildings()), jsonout.json_pair("userBuildings", jsonout.json_list(buildings)), jsonout.json_pair("userSockets", jsonout.json_obj(sockets))])
+end
+
+function hero_bid(hero: Json): text
+  intent: get
+  if jsonout.obj_has(hero, "bid") and not jsonout.is_null(jsonout.obj_get(hero, "bid")) then
+  jsonout.as_text(jsonout.obj_get(hero, "bid"))
+else
+  ""
+end
+end
+
+function hero_int(hero: Json, key: text, fallback: integer): integer
+  intent: get
+  if jsonout.obj_has(hero, key) and not jsonout.is_null(jsonout.obj_get(hero, key)) then
+  let value: integer = jsonout.as_int(jsonout.obj_get(hero, key))
+  if value == 0 then
+  fallback
+else
+  value
+end
+else
+  fallback
+end
+end
+
+public function build_base_hero_details(req_heroes: a list of Json): Json
+  intent: build
+  mutable details: a list of Json = []
+  for hero in req_heroes do
+    let bid: text = hero_bid(hero)
+    let rank: integer = hero_int(hero, "rank", 1)
+    let level: integer = hero_int(hero, "level", 1)
+    let sig_lvl: integer = hero_int(hero, "sig_lvl", 0)
+    let entry: RosterEntry = roster_entry(bid)
+    let stats: Stats = base_stats(bid, rank, level)
+    let detail: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(sig_lvl)), jsonout.json_pair("rating_hp", jsonout.json_int(stats.hp)), jsonout.json_pair("max_hp", jsonout.json_int(stats.hp)), jsonout.json_pair("rating_attack", jsonout.json_int(stats.atk)), jsonout.json_pair("attack", jsonout.json_int(stats.atk)), jsonout.json_pair("health", jsonout.json_int(stats.hp)), jsonout.json_pair("armor", jsonout.json_int(0)), jsonout.json_pair("crit_rate", jsonout.json_int(0)), jsonout.json_pair("crit_dmg", jsonout.json_int(0)), jsonout.json_pair("block_prof", jsonout.json_int(0)), jsonout.json_pair("perfect_block", jsonout.json_int(0)), jsonout.json_pair("sig_ability", jsonout.json_int(0)), jsonout.json_pair("special_attacks", jsonout.json_int(max_special_attacks(bid, entry.star))), jsonout.json_pair("user_owned", jsonout.json_bool(true)), jsonout.json_pair("mana_gain", jsonout.json_dec(mana_gain_rate())), jsonout.json_pair("mana_start", jsonout.json_int(diag_mana_start())), jsonout.json_pair("synergyBonuses", jsonout.json_list([])), jsonout.json_pair("pvpb", jsonout.json_obj([]))])
+    set details = append(details, detail)
+  end
+  jsonout.json_list(details)
+end
+
+function response_envelope(result: Json): text
+  intent: build
+  jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
+end
+
+public function build_responses(): nothing
+  intent: write
+  let login_name: text = "GET__bcg_getLoginData.json"
+  write_file(path_join(resp_dir(), login_name), response_envelope(build_login_data()))
+  print("wrote " ++ login_name ++ "  (" ++ to_text(length(roster())) ++ " entries)")
+  let user_name: text = "GET__bcg_getUserData.json"
+  write_file(path_join(resp_dir(), user_name), response_envelope(build_user_data([])))
+  print("wrote " ++ user_name ++ "  (" ++ to_text(length(owned())) ++ " entries)")
+  let account_path: text = path_join(resp_dir(), "GET__account_data.json")
+  let account: Json = jsonout.parse_json(read_file(account_path))
+  let result: Json = jsonout.obj_get(account, "result")
+  let updated_result: Json = jsonout.obj_set(result, "missionsconfig", build_missions_account_data())
+  write_file(account_path, jsonout.encode_compact(jsonout.obj_set(account, "result", updated_result)))
+  print("updated GET__account_data.json missionsconfig")
+  let refresh_name: text = "GET__autorefresh_missionsconfig_refresh.json"
+  write_file(path_join(resp_dir(), refresh_name), response_envelope(build_missions_autorefresh_result()))
+  print("wrote " ++ refresh_name)
+end
+
+function base_socket_ids_json(): Json
+  intent: build
+  mutable ids: a list of Json = []
+  mutable row: integer = 0
+  while row < base_dim() do
+    mutable col: integer = 0
+    while col < base_dim() do
+      set ids = append(ids, jsonout.json_text(base_socket_id(row, col)))
+      set col = col + 1
+    end
+    set row = row + 1
+  end
+  jsonout.json_list(ids)
+end
+
+function base_walkable_json(): Json
+  intent: build
+  mutable rows: a list of Json = []
+  mutable row: integer = 0
+  while row < base_dim() do
+    mutable values: a list of Json = []
+    mutable col: integer = 0
+    while col < base_dim() do
+      set values = append(values, jsonout.json_bool(base_is_walkable(row, col)))
+      set col = col + 1
+    end
+    set rows = append(rows, jsonout.json_list(values))
+    set row = row + 1
+  end
+  jsonout.json_list(rows)
+end
+
+function dump_slice4(): nothing
+  intent: print
+  let team: a list of text = default_team()
+  let default_details: Json = build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(unwrap_or(get(team, 0), "")))]), jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(unwrap_or(get(team, 1), "")))])])
+  let full_details: Json = build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text("fte_optimus_gs_t3")), jsonout.json_pair("rank", jsonout.json_int(3)), jsonout.json_pair("level", jsonout.json_int(30)), jsonout.json_pair("sig_lvl", jsonout.json_int(5))]), jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text("sharkticon_gs_brawler")), jsonout.json_pair("rank", jsonout.json_int(1)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("sig_lvl", jsonout.json_int(0))])])
+  let zero_details: Json = build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text("megatron_g1_mp10")), jsonout.json_pair("rank", jsonout.json_int(0)), jsonout.json_pair("level", jsonout.json_int(0)), jsonout.json_pair("sig_lvl", jsonout.json_int(0))])])
+  let unknown_details: Json = build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text("not_a_bot_xyz"))])])
+  print(jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("base_id", jsonout.json_text(base_id())), jsonout.json_pair("base_theme", jsonout.json_text(base_theme())), jsonout.json_pair("base_dim", jsonout.json_int(base_dim())), jsonout.json_pair("base_socket_type", jsonout.json_text(base_socket_type())), jsonout.json_pair("base_socket_ids", base_socket_ids_json()), jsonout.json_pair("base_walkable", base_walkable_json()), jsonout.json_pair("base_summary", build_base_summary()), jsonout.json_pair("base_map", build_base_map()), jsonout.json_pair("base_mission", build_base_mission()), jsonout.json_pair("base_available_buildings", build_base_available_buildings()), jsonout.json_pair("base_active", build_base_active()), jsonout.json_pair("base_hero_details_empty", build_base_hero_details([])), jsonout.json_pair("base_hero_details_default", default_details), jsonout.json_pair("base_hero_details_full", full_details), jsonout.json_pair("base_hero_details_zero_fallbacks", zero_details), jsonout.json_pair("base_hero_details_unknown", unknown_details), jsonout.json_pair("login_data_envelope_len", jsonout.json_int(text_length(response_envelope(build_login_data())))), jsonout.json_pair("roster_count", jsonout.json_int(length(roster()))), jsonout.json_pair("owned_count", jsonout.json_int(length(owned())))])))
 end
 
 main()

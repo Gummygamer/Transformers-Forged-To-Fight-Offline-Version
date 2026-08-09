@@ -222,7 +222,12 @@ end
 function test_combat_attribute_builders_carry_authored_mana_fields(): boolean
   intent: test
   let entry: Json = gamedata.build_hero_entry(unwrap_or(get(gamedata.default_team(), 0), ""), 1, 1)
-  encoded_field(entry, "mana_gain") == "1.0" and encoded_field(entry, "mana_start") == "0"
+  let details: a list of Json = jsonout.list_items(gamedata.build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(unwrap_or(get(gamedata.default_team(), 0), "")))]), jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(unwrap_or(get(gamedata.default_team(), 1), "")))])]))
+  mutable passed: boolean = encoded_field(entry, "mana_gain") == "1.0" and jsonout.as_int(jsonout.obj_get(entry, "mana_start")) == gamedata.diag_mana_start() and length(details) == 2
+  for detail in details do
+    set passed = passed and encoded_field(detail, "mana_gain") == "1.0" and jsonout.as_int(jsonout.obj_get(detail, "mana_start")) == gamedata.diag_mana_start()
+  end
+  passed
 end
 
 function test_generated_user_data_has_mana_gain_for_every_owned_bot(): boolean
@@ -345,7 +350,8 @@ function main(): nothing
   set failed = failed + report("test_direct_autorefresh_repeats_current_missions_config", test_direct_autorefresh_repeats_current_missions_config(), "direct autorefresh differed")
   set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
   set failed = failed + run_slice3_tests()
-  print(to_text(37 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  set failed = failed + run_slice4_tests()
+  print(to_text(47 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -540,6 +546,178 @@ function test_unknown_blueprint_falls_back_to_the_default_squad(): boolean
   intent: test
   let user: Json = jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, ["not-a-blueprint"]), "users"), gamedata.local_uid())
   team_object_matches(jsonout.obj_get(user, "team"), gamedata.default_team()) and jsonout.as_text(jsonout.obj_get(user, "strongestHero")) == unwrap_or(get(gamedata.default_team(), 0), "")
+end
+
+function base_active(): Json
+  intent: build
+  gamedata.build_base_active()
+end
+
+function test_keys_use_the_concatenated_user_prefix(): boolean
+  intent: test
+  let result: Json = base_active()
+  let expected: Json = jsonout.json_obj([jsonout.json_pair("userBase", jsonout.obj_get(result, "userBase")), jsonout.json_pair("userAvailableBuildings", jsonout.obj_get(result, "userAvailableBuildings")), jsonout.json_pair("userBuildings", jsonout.obj_get(result, "userBuildings")), jsonout.json_pair("userSockets", jsonout.obj_get(result, "userSockets"))])
+  jsonout.obj_has(result, "userBase") and jsonout.obj_has(result, "userAvailableBuildings") and jsonout.obj_has(result, "userBuildings") and jsonout.obj_has(result, "userSockets") and jsonout.encode_compact(result) == jsonout.encode_compact(expected)
+end
+
+function test_mission_identity_fields_are_all_non_empty(): boolean
+  intent: test
+  let mission: Json = jsonout.obj_get(base_active(), "userBase")
+  text_length(jsonout.as_text(jsonout.obj_get(mission, "mode"))) > 0 and text_length(jsonout.as_text(jsonout.obj_get(mission, "category"))) > 0 and text_length(jsonout.as_text(jsonout.obj_get(mission, "id"))) > 0 and jsonout.as_text(jsonout.obj_get(mission, "uid")) == gamedata.local_uid()
+end
+
+function test_summary_theme_resolves_to_a_bundled_base_library(): boolean
+  intent: test
+  let mission: Json = jsonout.obj_get(base_active(), "userBase")
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(mission, "data"), "theme")) == "primordial"
+end
+
+function test_map_grid_is_square_and_has_exactly_one_start_tile(): boolean
+  intent: test
+  let mission: Json = jsonout.obj_get(base_active(), "userBase")
+  let map: Json = jsonout.obj_get(mission, "map")
+  let dim: integer = jsonout.as_int(jsonout.obj_get(map, "gridDimension"))
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  mutable passed: boolean = length(grid) == dim
+  mutable starts: integer = 0
+  for row in grid do
+    set passed = passed and length(jsonout.list_items(row)) == dim
+    for tile in jsonout.list_items(row) do
+      if jsonout.obj_has(tile, "start") then
+  if jsonout.as_bool(jsonout.obj_get(tile, "start")) then
+  set starts = starts + 1
+end
+end
+    end
+  end
+  passed and starts == 1
+end
+
+function test_map_has_path_data_so_the_path_analyzer_cannot_null_deref(): boolean
+  intent: test
+  let mission: Json = jsonout.obj_get(base_active(), "userBase")
+  let paths: a list of Json = jsonout.list_items(jsonout.obj_get(jsonout.obj_get(mission, "map"), "pathData"))
+  mutable passed: boolean = length(paths) >= 1
+  for path in paths do
+    set passed = passed and length(jsonout.list_items(jsonout.obj_get(path, "path"))) >= 1
+  end
+  passed
+end
+
+function test_every_walkable_tile_offers_an_unlocked_building_socket(): boolean
+  intent: test
+  let result: Json = base_active()
+  let map: Json = jsonout.obj_get(jsonout.obj_get(result, "userBase"), "map")
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  let user_sockets: Json = jsonout.obj_get(result, "userSockets")
+  mutable passed: boolean = true
+  mutable walkable: integer = 0
+  mutable row_index: integer = 0
+  for row in grid do
+    mutable col_index: integer = 0
+    for tile in jsonout.list_items(row) do
+      if jsonout.as_bool(jsonout.obj_get(tile, "walkable")) then
+  set walkable = walkable + 1
+  let socket_id: text = gamedata.base_socket_id(row_index, col_index)
+  let sockets: Json = jsonout.obj_get(tile, "sockets")
+  let socket: Json = jsonout.obj_get(sockets, socket_id)
+  let expected: Json = jsonout.json_obj([jsonout.json_pair(socket_id, socket)])
+  set passed = passed and jsonout.obj_has(sockets, socket_id) and jsonout.encode_compact(sockets) == jsonout.encode_compact(expected) and jsonout.as_text(jsonout.obj_get(socket, "entityType")) == "building" and jsonout.obj_has(user_sockets, socket_id) and jsonout.as_bool(jsonout.obj_get(user_sockets, socket_id))
+end
+      set col_index = col_index + 1
+    end
+    set row_index = row_index + 1
+  end
+  passed and walkable == jsonout.as_int(jsonout.obj_get(map, "walkableCount"))
+end
+
+function available_has(available: a list of Json, bid: text): boolean
+  intent: find
+  mutable found: boolean = false
+  for building in available do
+    if jsonout.as_text(jsonout.obj_get(building, "id")) == bid then
+  set found = true
+end
+  end
+  found
+end
+
+function test_placements_reference_authored_sockets_and_buildings(): boolean
+  intent: test
+  let result: Json = base_active()
+  let mission: Json = jsonout.obj_get(result, "userBase")
+  let placements: Json = jsonout.obj_get(mission, "placements")
+  let available: a list of Json = jsonout.list_items(jsonout.obj_get(result, "userAvailableBuildings"))
+  let expected: Json = jsonout.json_obj([jsonout.json_pair(gamedata.base_socket_id(2, 2), jsonout.obj_get(placements, gamedata.base_socket_id(2, 2))), jsonout.json_pair(gamedata.base_socket_id(2, 1), jsonout.obj_get(placements, gamedata.base_socket_id(2, 1))), jsonout.json_pair(gamedata.base_socket_id(2, 3), jsonout.obj_get(placements, gamedata.base_socket_id(2, 3))), jsonout.json_pair(gamedata.base_socket_id(1, 2), jsonout.obj_get(placements, gamedata.base_socket_id(1, 2))), jsonout.json_pair(gamedata.base_socket_id(3, 2), jsonout.obj_get(placements, gamedata.base_socket_id(3, 2)))])
+  mutable passed: boolean = jsonout.encode_compact(placements) == jsonout.encode_compact(expected)
+  for socket_id in [gamedata.base_socket_id(2, 2), gamedata.base_socket_id(2, 1), gamedata.base_socket_id(2, 3), gamedata.base_socket_id(1, 2), gamedata.base_socket_id(3, 2)] do
+    let placement: Json = jsonout.obj_get(placements, socket_id)
+    set passed = passed and jsonout.obj_has(placements, socket_id) and gamedata.base_is_walkable(jsonout.as_int(jsonout.obj_get(jsonout.obj_get(placement, "position"), "x")), jsonout.as_int(jsonout.obj_get(jsonout.obj_get(placement, "position"), "y"))) and jsonout.as_text(jsonout.obj_get(placement, "entityType")) == "building" and available_has(available, jsonout.as_text(jsonout.obj_get(placement, "key")))
+  end
+  passed
+end
+
+function test_owned_buildings_come_from_the_available_catalogue(): boolean
+  intent: test
+  let result: Json = base_active()
+  let available: a list of Json = jsonout.list_items(jsonout.obj_get(result, "userAvailableBuildings"))
+  let owned: a list of Json = jsonout.list_items(jsonout.obj_get(result, "userBuildings"))
+  let sockets: Json = jsonout.obj_get(result, "userSockets")
+  mutable passed: boolean = length(owned) > 0
+  for building in owned do
+    set passed = passed and available_has(available, jsonout.as_text(jsonout.obj_get(building, "id"))) and jsonout.obj_has(sockets, jsonout.as_text(jsonout.obj_get(building, "key")))
+  end
+  passed
+end
+
+function shipped_model(model: text): boolean
+  intent: check
+  contains(["z_bldg_alliance_help_00", "z_bldg_alliance_help_01", "z_bldg_alliance_help_02", "z_bldg_alliance_help_03", "z_bldg_away_team_00", "z_bldg_away_team_01", "z_bldg_away_team_02", "z_bldg_away_team_03", "z_bldg_battle_centre_00", "z_bldg_battle_centre_01", "z_bldg_battle_centre_02", "z_bldg_battle_centre_03", "z_bldg_gacha_daily_01", "z_bldg_gacha_free_01", "z_bldg_gacha_other_01"], model)
+end
+
+function test_available_buildings_use_shipped_model_ids(): boolean
+  intent: test
+  let buildings: a list of Json = jsonout.list_items(jsonout.obj_get(base_active(), "userAvailableBuildings"))
+  mutable passed: boolean = length(buildings) > 0
+  for building in buildings do
+    set passed = passed and jsonout.as_text(jsonout.obj_get(building, "entityType")) == "building" and shipped_model(jsonout.as_text(jsonout.obj_get(building, "modelId"))) and text_length(jsonout.as_text(jsonout.obj_get(building, "id"))) > 0 and text_length(jsonout.as_text(jsonout.obj_get(building, "name"))) > 0
+  end
+  passed
+end
+
+function test_links_only_point_at_walkable_neighbours(): boolean
+  intent: test
+  let map: Json = jsonout.obj_get(jsonout.obj_get(base_active(), "userBase"), "map")
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  mutable passed: boolean = true
+  for row in grid do
+    for tile in jsonout.list_items(row) do
+      if jsonout.obj_has(tile, "links") then
+  for link in jsonout.list_items(jsonout.obj_get(tile, "links")) do
+    let target_row: Json = unwrap_or(get(grid, jsonout.as_int(jsonout.obj_get(link, "x"))), jsonout.json_list([]))
+    let target: Json = unwrap_or(get(jsonout.list_items(target_row), jsonout.as_int(jsonout.obj_get(link, "y"))), jsonout.json_obj([]))
+    set passed = passed and jsonout.as_bool(jsonout.obj_get(target, "walkable"))
+  end
+end
+    end
+  end
+  passed
+end
+
+function run_slice4_tests(): integer
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + report("test_keys_use_the_concatenated_user_prefix", test_keys_use_the_concatenated_user_prefix(), "base active keys were wrong")
+  set failed = failed + report("test_mission_identity_fields_are_all_non_empty", test_mission_identity_fields_are_all_non_empty(), "mission identity was wrong")
+  set failed = failed + report("test_summary_theme_resolves_to_a_bundled_base_library", test_summary_theme_resolves_to_a_bundled_base_library(), "base theme was wrong")
+  set failed = failed + report("test_map_grid_is_square_and_has_exactly_one_start_tile", test_map_grid_is_square_and_has_exactly_one_start_tile(), "base map shape was wrong")
+  set failed = failed + report("test_map_has_path_data_so_the_path_analyzer_cannot_null_deref", test_map_has_path_data_so_the_path_analyzer_cannot_null_deref(), "base paths were missing")
+  set failed = failed + report("test_every_walkable_tile_offers_an_unlocked_building_socket", test_every_walkable_tile_offers_an_unlocked_building_socket(), "base sockets were wrong")
+  set failed = failed + report("test_placements_reference_authored_sockets_and_buildings", test_placements_reference_authored_sockets_and_buildings(), "base placements were wrong")
+  set failed = failed + report("test_owned_buildings_come_from_the_available_catalogue", test_owned_buildings_come_from_the_available_catalogue(), "owned buildings were wrong")
+  set failed = failed + report("test_available_buildings_use_shipped_model_ids", test_available_buildings_use_shipped_model_ids(), "building models were wrong")
+  set failed = failed + report("test_links_only_point_at_walkable_neighbours", test_links_only_point_at_walkable_neighbours(), "base links were wrong")
+  failed
 end
 
 main()
