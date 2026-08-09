@@ -1,0 +1,123 @@
+use fakeserver
+use jsonout
+use gamedata
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+  print("[ok] " ++ name)
+  0
+else
+  print("[!] " ++ name)
+  1
+end
+end
+
+function response(body: text): Json
+  intent: parse
+  jsonout.parse_json(body)
+end
+
+function result(body: text): Json
+  intent: get
+  jsonout.obj_get(response(body), "result")
+end
+
+function object_keys(node: Json): a list of text
+  intent: get
+  match node
+  when JObj { pairs } then 
+    mutable keys: a list of text = []
+    for pair in pairs do
+      set keys = append(keys, pair.k)
+    end
+    keys
+  otherwise then
+    []
+end
+end
+
+function hero_bids(node: Json): a list of text
+  intent: get
+  mutable bids: a list of text = []
+  for hero in jsonout.list_items(node) do
+    set bids = append(bids, jsonout.as_text(jsonout.obj_get(hero, "bid")))
+  end
+  bids
+end
+
+function test_set_saved_team_updates_active_team_and_remembered_quest_squad(): boolean
+  intent: test
+  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  let saved: Json = result(fakeserver.dynamic("/bcg/setSavedTeam", "\{\"teamID\":\"0\",\"heroes\":[\"grimlock_gs_mp08\",\"megatron_cin_rotf\"]\}"))
+  let updates: Json = jsonout.obj_get(saved, "updates")
+  let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
+  let refreshed: Json = result(fakeserver.dynamic("/bcg/getUserData", ""))
+  let refresh_updates: Json = jsonout.obj_get(refreshed, "updates")
+  let saved_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(refresh_updates, "savedTeams")), 0), jsonout.json_obj([]))
+  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}"))
+  let active_quest: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "1.1.1")
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active_quest, "instances")), 0), jsonout.json_obj([]))
+  let users: Json = jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users")
+  fakeserver.get_saved_team() == team and length(object_keys(jsonout.obj_get(active, "heroes"))) == 2 and hero_bids(jsonout.obj_get(saved_team, "heroes")) == team and object_keys(jsonout.obj_get(active, "heroes")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")) == team
+end
+
+function test_resp_path_for_maps_routes_to_response_files(): boolean
+  intent: test
+  fakeserver.resp_path_for("GET", "/auth/login") == fakeserver.resp_dir() ++ "/GET__auth_login.json" and fakeserver.resp_path_for("POST", "/bcg/getUserData?x=1") == fakeserver.resp_dir() ++ "/POST__bcg_getUserData.json" and fakeserver.resp_path_for("GET", "/a/b/c.json") == fakeserver.resp_dir() ++ "/GET__a_b_c.json" and fakeserver.resp_path_for("GET", "/") == fakeserver.resp_dir() ++ "/GET__.json" and fakeserver.resp_path_for("POST", "/quests/quest-movedir/1.1.1-0/1/0") == fakeserver.resp_dir() ++ "/POST__quests_quest-movedir_1.1.1-0_1_0.json"
+end
+
+function test_dynamic_returns_empty_for_unhandled_path(): boolean
+  intent: test
+  fakeserver.dynamic("/some/unknown/path", "") == ""
+end
+
+function test_tutorial_branches_block_live_and_complete(): boolean
+  intent: test
+  let blocked: text = fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"ShieldTutorial\"\}")
+  let live: text = fakeserver.dynamic("/tutorial/start-branch", "\{\"tid\":\"FTE\",\"bid\":\"x\"\}")
+  let complete: text = fakeserver.dynamic("/tutorial/complete-tutorial", "\{\"tid\":\"FTE\"\}")
+  blocked == "\{\"err\": \"unavailable\", \"error\": \"unavailable\", \"retry\": false, \"fatal\": false, \"result\": \{\}\}" and contains_text(live, "\"s\": \"started\"") and contains_text(complete, "\"s\": \"completed\"") and fakeserver.dynamic("/tutorial/start-tutorial", "") == ""
+end
+
+function test_movedir_advances_then_refuses_off_map(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  let one: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  let two: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  let three: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  contains_text(one, "\"x\": 1") and contains_text(two, "\"x\": 2") and contains_text(three, "\"x\": 2")
+end
+
+function test_resolve_response_prefers_canned_then_rule_then_default(): boolean
+  intent: test
+  fakeserver.resolve_response("POST", "/auth/login").source == "canned POST__auth_login.json" and fakeserver.resolve_response("GET", "/auth/login").source == "default" and fakeserver.resolve_response("GET", "/bcg/getUserData").source == "canned GET__bcg_getUserData.json" and fakeserver.resolve_response("GET", "/autorefresh/somegroup/refresh").source == "rule /autorefresh/ -> _autorefresh.json" and fakeserver.resolve_response("GET", "/nope/nope").body == "\{\"error\":null,\"result\":\{\}\}"
+end
+
+function test_encode_spacing_matches_python(): boolean
+  intent: test
+  let value: Json = jsonout.json_obj([jsonout.json_pair("a", jsonout.json_list([jsonout.json_int(1), jsonout.json_int(2)])), jsonout.json_pair("b", jsonout.json_obj([jsonout.json_pair("c", jsonout.json_bool(true))]))])
+  jsonout.encode_compact(value) == "\{\"a\":[1,2],\"b\":\{\"c\":true\}\}" and jsonout.encode_spaced(value) == "\{\"a\": [1, 2], \"b\": \{\"c\": true\}\}"
+end
+
+function main(): nothing
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("test_set_saved_team_updates_active_team_and_remembered_quest_squad", test_set_saved_team_updates_active_team_and_remembered_quest_squad())
+  set failed = failed + report("test_resp_path_for_maps_routes_to_response_files", test_resp_path_for_maps_routes_to_response_files())
+  set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
+  set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
+  set failed = failed + report("test_movedir_advances_then_refuses_off_map", test_movedir_advances_then_refuses_off_map())
+  set failed = failed + report("test_resolve_response_prefers_canned_then_rule_then_default", test_resolve_response_prefers_canned_then_rule_then_default())
+  set failed = failed + report("test_encode_spacing_matches_python", test_encode_spacing_matches_python())
+  print(to_text(7 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then
+  exit_process(1)
+end
+end
+
+main()

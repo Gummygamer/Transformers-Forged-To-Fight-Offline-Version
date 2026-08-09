@@ -80,7 +80,9 @@ function main(): nothing
   set failed = failed + report("obj_set order", jsonout.encode_compact(appended) == "\{\"b\":1,\"a\":3,\"c\":4\}", "replacement or append position changed")
   let nested: text = "\{\"x\":[[],\{\},[null,true,false,-2,1e3]]\}"
   set failed = failed + report("nesting and empties", compact(nested) == "\{\"x\":[[],\{\},[null,true,false,-2,1000.0]]\}", "nested values did not compact correctly")
-  let total: integer = 22
+  let spaced: Json = jsonout.json_obj([jsonout.json_pair("a", jsonout.json_list([jsonout.json_int(1), jsonout.json_int(2)])), jsonout.json_pair("b", jsonout.json_bool(true))])
+  set failed = failed + report("spaced encoding", jsonout.encode_spaced(spaced) == "\{\"a\": [1, 2], \"b\": true\}", "spaced separators changed")
+  let total: integer = 23
   let passed: integer = total - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then exit_process(1) end
