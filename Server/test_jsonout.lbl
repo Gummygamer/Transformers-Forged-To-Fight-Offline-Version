@@ -1,0 +1,89 @@
+-- Regression tests for ordered compact JSON used by the Server port.
+
+use jsonout
+
+function last_slash(path: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then set result = index end
+    set index = index + 1
+  end
+  result
+end
+
+function directory_name(path: text): text
+  intent: get
+  let slash: integer = last_slash(path)
+  if slash < 0 then "." else substring(path, 0, slash) end
+end
+
+function absolute_script_path(arguments: a list of text): text
+  intent: return
+  let path: text = unwrap_or(get(arguments, 0), "")
+  if starts_with(path, "/") then path else path_join(get_cwd(), path) end
+end
+
+function report(name: text, passed: boolean, detail: text): integer
+  intent: print
+  if passed then
+    print("[ok] " ++ name)
+    0
+  else
+    print("[!] " ++ name ++ ": " ++ detail)
+    1
+  end
+end
+
+function compact(source: text): text
+  intent: encode
+  jsonout.encode_compact(jsonout.parse_json(source))
+end
+
+function corpus_tests(response_dir: text): integer
+  intent: test
+  mutable failed: integer = 0
+  for name in list_dir(response_dir) do
+    if ends_with(name, ".json") then
+      let raw: text = read_file(path_join(response_dir, name))
+      let encoded: text = compact(raw)
+      if encoded == raw then
+        set failed = failed + report("corpus exact " ++ name, true, "")
+      else
+        set failed = failed + report("corpus idempotent " ++ name, compact(encoded) == encoded, "second encoding changed")
+      end
+    end
+  end
+  failed
+end
+
+function main(): nothing
+  intent: run
+  let arguments: a list of text = get_args()
+  let script: text = absolute_script_path(arguments)
+  let responses: text = path_join(directory_name(script), "responses")
+  if not file_exists(responses) then
+    print("[!] responses directory not found: " ++ responses)
+    exit_process(1)
+  end
+  mutable failed: integer = corpus_tests(responses)
+  let order_source: text = "\{" ++ "\"b\":1,\"a\":2" ++ "\}"
+  set failed = failed + report("key order", compact(order_source) == order_source, "object keys were reordered")
+  let decimal_ok: boolean = jsonout.encode_compact(jsonout.json_dec(1.0)) == "1.0" and jsonout.encode_compact(jsonout.json_dec(100.0)) == "100.0" and jsonout.encode_compact(jsonout.json_dec(1.75)) == "1.75" and jsonout.encode_compact(jsonout.json_int(1)) == "1"
+  set failed = failed + report("decimal formatting", decimal_ok, "whole decimals lost .0 or integer changed")
+  let escaped: text = "\{\"s\":\"\\\"\\\\\\n\\t\\u0001\"\}"
+  set failed = failed + report("string escaping", compact(escaped) == escaped, "escaped characters changed")
+  let object: Json = jsonout.parse_json(order_source)
+  let replaced: Json = jsonout.obj_set(object, "a", jsonout.json_int(3))
+  let appended: Json = jsonout.obj_set(replaced, "c", jsonout.json_int(4))
+  set failed = failed + report("obj_set order", jsonout.encode_compact(appended) == "\{\"b\":1,\"a\":3,\"c\":4\}", "replacement or append position changed")
+  let nested: text = "\{\"x\":[[],\{\},[null,true,false,-2,1e3]]\}"
+  set failed = failed + report("nesting and empties", compact(nested) == "\{\"x\":[[],\{\},[null,true,false,-2,1000.0]]\}", "nested values did not compact correctly")
+  let total: integer = 22
+  let passed: integer = total - failed
+  print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then exit_process(1) end
+end
+
+main()
