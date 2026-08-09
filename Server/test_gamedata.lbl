@@ -1,0 +1,216 @@
+use jsonout
+use gamedata
+
+function last_slash(path: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then
+  set result = index
+end
+    set index = index + 1
+  end
+  result
+end
+
+function directory_name(path: text): text
+  intent: get
+  let slash: integer = last_slash(path)
+  if slash < 0 then
+  "."
+else
+  substring(path, 0, slash)
+end
+end
+
+function absolute_script_path(arguments: a list of text): text
+  intent: return
+  let path: text = unwrap_or(get(arguments, 0), "")
+  if starts_with(path, "/") then
+  path
+else
+  path_join(get_cwd(), path)
+end
+end
+
+function report(name: text, passed: boolean, detail: text): integer
+  intent: print
+  if passed then
+  print("[ok] " ++ name)
+  0
+else
+  print("[!] " ++ name ++ ": " ++ detail)
+  1
+end
+end
+
+function blueprint(bid: text): Json
+  intent: get
+  jsonout.obj_get(gamedata.build_blueprints(), bid)
+end
+
+function field_text(node: Json, key: text): text
+  intent: get
+  jsonout.as_text(jsonout.obj_get(node, key))
+end
+
+function special_index(node: Json, key: text): integer
+  intent: get
+  let value: text = jsonout.encode_compact(jsonout.obj_get(node, key))
+  if value == "1.75" then
+  1
+else if value == "2.5" then
+  2
+else if value == "3.5" then
+  3
+else
+  0
+end
+end
+
+function test_specials_escalate_by_index(): boolean
+  intent: test
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let bp: Json = blueprint(entry.bid)
+    set passed = passed and special_index(bp, "s1") < special_index(bp, "s2") and special_index(bp, "s2") < special_index(bp, "s3")
+  end
+  passed
+end
+
+function test_blueprint_model_id_matches_model_id_helper(): boolean
+  intent: test
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let bp: Json = blueprint(entry.bid)
+    set passed = passed and field_text(bp, "m") == gamedata.model_id(entry.bid) and field_text(bp, "mdl") == gamedata.model_id(entry.bid)
+  end
+  passed
+end
+
+function is_model_override(bid: text): boolean
+  intent: find
+  mutable found: boolean = false
+  for entry in gamedata.model_overrides() do
+    if entry.key == bid then
+  set found = true
+end
+  end
+  found
+end
+
+function test_non_override_model_id_is_the_full_bid(): boolean
+  intent: test
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    if not is_model_override(entry.bid) then
+  set passed = passed and gamedata.model_id(entry.bid) == entry.bid
+end
+  end
+  passed
+end
+
+function test_fte_optimus_uses_real_optimus_prime_mesh(): boolean
+  intent: test
+  gamedata.model_id("fte_optimus_gs_t3") == "optimusprime_cin_tf" and field_text(blueprint("fte_optimus_gs_t3"), "mdl") == "optimusprime_cin_tf"
+end
+
+function test_portrait_stays_short_art_base(): boolean
+  intent: test
+  let bp: Json = blueprint("optimusprime_cin_tf")
+  field_text(bp, "img") == "optimus_c_tf" and field_text(bp, "mdl") == "optimusprime_cin_tf"
+end
+
+function has_prefix(names: a list of text, prefix: text): boolean
+  intent: find
+  mutable found: boolean = false
+  for name in names do
+    if starts_with(name, prefix) then
+  set found = true
+end
+  end
+  found
+end
+
+function test_all_roster_portraits_ship_both_sizes(): boolean
+  intent: test
+  let server: text = directory_name(absolute_script_path(get_args()))
+  let root: text = directory_name(server)
+  let portraits: text = path_join(root, "Transformers 9.2 extracted/assets/assetpack/portraits_odr/portraits")
+  if not is_dir(portraits) then
+  true
+else
+  let names: a list of text = list_dir(portraits)
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let base: text = gamedata.art_base(entry.bid)
+    set passed = passed and has_prefix(names, "portrait_" ++ base ++ "_large.") and has_prefix(names, "portrait_" ++ base ++ "_small.") and field_text(blueprint(entry.bid), "img") == base
+  end
+  passed
+end
+end
+
+function roster_has(bid: text): boolean
+  intent: find
+  mutable found: boolean = false
+  for entry in gamedata.roster() do
+    if entry.bid == bid then
+  set found = true
+end
+  end
+  found
+end
+
+function is_fallback_bot(bid: text): boolean
+  intent: find
+  contains(["arcee_gs_deluxe2014", "cheetor_bw_transmetal", "jazz_gs_twm05", "jetfire_gs_leader2014", "prowl_gs_deluxe2016", "dirge_gs_deluxe2008", "galvatron_gs_voyager2016", "ramjet_gs_deluxe2008", "scorponok_bw_kabam", "skywarp_gs_leader2015", "slipstream_gs", "tantrum_gs_kabam"], bid)
+end
+
+function fallback_base(bid: text): text
+  intent: build
+  let parts: a list of text = split(bid, "_")
+  unwrap_or(get(parts, 0), "") ++ "_" ++ unwrap_or(get(parts, 1), "")
+end
+
+function test_art_base_overrides_cover_only_irregular_roster_bots(): boolean
+  intent: test
+  let overrides: a list of TextEntry = gamedata.art_overrides()
+  mutable passed: boolean = length(overrides) == 49
+  for entry in overrides do
+    set passed = passed and roster_has(entry.key) and entry.value != entry.key and entry.value != fallback_base(entry.key) and not is_fallback_bot(entry.key)
+  end
+  passed
+end
+
+function test_base_stats_spot_checks(): boolean
+  intent: test
+  let optimus: Stats = gamedata.base_stats("fte_optimus_gs_t3", 1, 1)
+  let unknown: Stats = gamedata.base_stats("no_such_bot_xyz", 1, 1)
+  optimus.hp == 5200 and optimus.atk == 430 and unknown.hp == 2200 and unknown.atk == 210
+end
+
+function test_max_special_attacks_honours_override(): boolean
+  intent: test
+  gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 1 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 1 and gamedata.max_special_attacks("grimlock_gs_mp08", 5) == 3
+end
+
+function main(): nothing
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + report("test_specials_escalate_by_index", test_specials_escalate_by_index(), "special ratios did not escalate")
+  set failed = failed + report("test_blueprint_model_id_matches_model_id_helper", test_blueprint_model_id_matches_model_id_helper(), "blueprint model id differed")
+  set failed = failed + report("test_non_override_model_id_is_the_full_bid", test_non_override_model_id_is_the_full_bid(), "non-override model id changed")
+  set failed = failed + report("test_fte_optimus_uses_real_optimus_prime_mesh", test_fte_optimus_uses_real_optimus_prime_mesh(), "FTE Optimus mesh was wrong")
+  set failed = failed + report("test_portrait_stays_short_art_base", test_portrait_stays_short_art_base(), "portrait base was wrong")
+  set failed = failed + report("test_all_roster_portraits_ship_both_sizes", test_all_roster_portraits_ship_both_sizes(), "a portrait size was missing")
+  set failed = failed + report("test_art_base_overrides_cover_only_irregular_roster_bots", test_art_base_overrides_cover_only_irregular_roster_bots(), "override coverage was wrong")
+  set failed = failed + report("base_stats spot checks", test_base_stats_spot_checks(), "stat arithmetic differed")
+  set failed = failed + report("max_special_attacks honours override", test_max_special_attacks_honours_override(), "override did not win")
+  print(to_text(9 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then
+  exit_process(1)
+end
+end
+
+main()
