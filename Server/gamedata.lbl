@@ -328,6 +328,228 @@ function dump_helpers(): nothing
   print("DIAG " ++ to_text(diag_mana_start()))
 end
 
+public function build_characters(): Json
+  intent: build
+  mutable output: a list of Pair = []
+  for entry in roster() do
+    let base: text = art_base(entry.bid)
+    let name: text = display_name(entry.bid)
+    let model: text = model_id(entry.bid)
+    let character: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(entry.bid)), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("name_s", jsonout.json_text(name)), jsonout.json_pair("sg", jsonout.json_text("")), jsonout.json_pair("gen", jsonout.json_text(entry.faction)), jsonout.json_pair("aip", jsonout.json_text("")), jsonout.json_pair("sps", jsonout.json_text("")), jsonout.json_pair("i", jsonout.json_text(base)), jsonout.json_pair("img", jsonout.json_text(base)), jsonout.json_pair("m", jsonout.json_text(model)), jsonout.json_pair("mdl", jsonout.json_text(model)), jsonout.json_pair("ma", jsonout.json_text(model)), jsonout.json_pair("map_asset", jsonout.json_text(model)), jsonout.json_pair("hc", jsonout.json_text(entry.faction)), jsonout.json_pair("hero_colour", jsonout.json_text(entry.faction))])
+    set output = append(output, jsonout.json_pair(entry.bid, character))
+  end
+  jsonout.json_obj(output)
+end
+
+function attack_value(attack_id: text, percent: decimal, mana: decimal, chance: decimal, damage: decimal, pierce: decimal): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(attack_id)), jsonout.json_pair("a", jsonout.json_dec(percent)), jsonout.json_pair("m", jsonout.json_dec(mana)), jsonout.json_pair("c", jsonout.json_dec(chance)), jsonout.json_pair("d", jsonout.json_dec(damage)), jsonout.json_pair("p", jsonout.json_dec(pierce))])
+end
+
+public function build_attack_values(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("Light", attack_value("Light", 0.35, 50, 0.05, 1.5, 0)), jsonout.json_pair("Medium", attack_value("Medium", 0.6, 75, 0.05, 1.5, 0)), jsonout.json_pair("Heavy", attack_value("Heavy", 1, 120, 0.05, 1.5, 0.05)), jsonout.json_pair("Ranged", attack_value("Ranged", 0.4, 55, 0.05, 1.5, 0))])
+end
+
+public function build_missions_config(): Json
+  intent: build
+  let combat: Json = jsonout.json_obj([jsonout.json_pair("armorRatingConstant", jsonout.json_dec(1000)), jsonout.json_pair("manaPerSpecial", jsonout.json_dec(300)), jsonout.json_pair("maxQueuedActionTime", jsonout.json_dec(0.2))])
+  let user_base: Json = jsonout.json_obj([jsonout.json_pair("minClaimInterval", jsonout.json_int(60)), jsonout.json_pair("minClaimPercentage", jsonout.json_dec(0.1))])
+  jsonout.json_obj([jsonout.json_pair("configsHash", jsonout.json_text("offline-v1")), jsonout.json_pair("configs", jsonout.json_obj([jsonout.json_pair("bcg-combat", combat), jsonout.json_pair("user-base", user_base)]))])
+end
+
+public function build_missions_autorefresh_result(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("check", jsonout.json_text("offline-v1")), jsonout.json_pair("refresh", jsonout.json_int(0)), jsonout.json_pair("cache", jsonout.json_bool(false)), jsonout.json_pair("missionsconfig", build_missions_config())])
+end
+
+public function build_missions_autorefresh_update(): Json
+  intent: build
+  let result: Json = build_missions_autorefresh_result()
+  jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("missionsconfig")), jsonout.json_pair("error", jsonout.json_text("")), jsonout.json_pair("check", jsonout.obj_get(result, "check")), jsonout.json_pair("locHash", jsonout.json_text("")), jsonout.json_pair("refresh", jsonout.obj_get(result, "refresh")), jsonout.json_pair("data", jsonout.obj_get(result, "missionsconfig")), jsonout.json_pair("cache", jsonout.obj_get(result, "cache"))])
+end
+
+public function build_missions_account_data(): Json
+  intent: build
+  let config: Json = build_missions_config()
+  let result: Json = build_missions_autorefresh_result()
+  mutable account: Json = config
+  set account = jsonout.obj_set(account, "check", jsonout.obj_get(result, "check"))
+  set account = jsonout.obj_set(account, "refresh", jsonout.obj_get(result, "refresh"))
+  set account = jsonout.obj_set(account, "cache", jsonout.obj_get(result, "cache"))
+  set account = jsonout.obj_set(account, "missionsconfig", jsonout.obj_get(result, "missionsconfig"))
+  account
+end
+
+function class_names(): a list of TextEntry
+  intent: return
+  [TextEntry { key: "braw", value: "Brawler" }, TextEntry { key: "tact", value: "Tactician" }, TextEntry { key: "scou", value: "Scout" }, TextEntry { key: "demo", value: "Demolitions" }, TextEntry { key: "warr", value: "Warrior" }, TextEntry { key: "tech", value: "Tech" }]
+end
+
+function class_ring(): a list of text
+  intent: return
+  ["braw", "tact", "scou", "demo", "warr", "tech"]
+end
+
+function class_name(cid: text): text
+  intent: find
+  mutable result: text = ""
+  for entry in class_names() do
+    if entry.key == cid then
+  set result = entry.value
+end
+  end
+  result
+end
+
+function next_class(ring: a list of text, index: integer): text
+  intent: find
+  if index == length(ring) - 1 then
+  unwrap_or(get(ring, 0), "")
+else
+  unwrap_or(get(ring, index + 1), "")
+end
+end
+
+public function build_hero_classes(): Json
+  intent: build
+  let ring: a list of text = class_ring()
+  mutable output: a list of Pair = []
+  mutable index: integer = 0
+  for cid in ring do
+    let beats: text = next_class(ring, index)
+    let name: text = class_name(cid)
+    let row: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(cid)), jsonout.json_pair("cid", jsonout.json_text(cid)), jsonout.json_pair("class_id", jsonout.json_text(cid)), jsonout.json_pair("n", jsonout.json_text(name)), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("class_name", jsonout.json_text(name)), jsonout.json_pair("ab", jsonout.json_dec(1.1)), jsonout.json_pair("atkb", jsonout.json_dec(1.1)), jsonout.json_pair("attack_bonus", jsonout.json_dec(1.1)), jsonout.json_pair("atkp", jsonout.json_dec(0.9)), jsonout.json_pair("attack_penalty", jsonout.json_dec(0.9)), jsonout.json_pair("ic", jsonout.json_list([jsonout.json_text(beats)])), jsonout.json_pair("ideal_contender", jsonout.json_list([jsonout.json_text(beats)]))])
+    set output = append(output, jsonout.json_pair(cid, row))
+    set index = index + 1
+  end
+  jsonout.json_obj(output)
+end
+
+public function build_rarity_properties(): Json
+  intent: build
+  mutable output: a list of Pair = []
+  for star in [1, 2, 3, 4, 5] do
+    let key: text = to_text(star)
+    let name: text = key ++ " Star"
+    let row: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(key)), jsonout.json_pair("n", jsonout.json_text(name)), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("mv", jsonout.json_int(star)), jsonout.json_pair("map_value", jsonout.json_int(star)), jsonout.json_pair("sp3qt", jsonout.json_dec(0.5)), jsonout.json_pair("sp3_quicktime", jsonout.json_dec(0.5)), jsonout.json_pair("ms", jsonout.json_int(99)), jsonout.json_pair("max_sig", jsonout.json_int(99))])
+    set output = append(output, jsonout.json_pair(key, row))
+  end
+  jsonout.json_obj(output)
+end
+
+function rating_for(hp: integer, atk: integer): integer
+  intent: build
+  let total: integer = hp + atk
+  total / 20
+end
+
+public function build_hero_base(bid: text, rank: integer): Json
+  intent: build
+  let entry: RosterEntry = roster_entry(bid)
+  let stats: Stats = base_stats(bid, rank, 1)
+  let rating: integer = rating_for(stats.hp, stats.atk)
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(bid)), jsonout.json_pair("r", jsonout.json_int(rank)), jsonout.json_pair("m", jsonout.json_int(entry.star)), jsonout.json_pair("s", jsonout.json_int(entry.star)), jsonout.json_pair("max_hp", jsonout.json_int(stats.hp)), jsonout.json_pair("mhpb", jsonout.json_int(stats.hp)), jsonout.json_pair("attack", jsonout.json_int(stats.atk)), jsonout.json_pair("attb", jsonout.json_int(stats.atk)), jsonout.json_pair("mana_start", jsonout.json_int(diag_mana_start())), jsonout.json_pair("stun_time", jsonout.json_int(0)), jsonout.json_pair("special_attacks", jsonout.json_int(max_special_attacks(bid, entry.star))), jsonout.json_pair("rating", jsonout.json_int(rating)), jsonout.json_pair("rating_hp", jsonout.json_int(stats.hp / 2)), jsonout.json_pair("rating_attack", jsonout.json_int(stats.atk / 2)), jsonout.json_pair("rating_hp_base", jsonout.json_int(stats.hp / 2)), jsonout.json_pair("rating_attack_base", jsonout.json_int(stats.atk / 2)), jsonout.json_pair("ab", jsonout.json_int(0)), jsonout.json_pair("hp", jsonout.json_dec(to_decimal(stats.hp))), jsonout.json_pair("armor", jsonout.json_dec(0)), jsonout.json_pair("crit_chance", jsonout.json_dec(0.05)), jsonout.json_pair("crit_damage", jsonout.json_dec(1.5)), jsonout.json_pair("perfect_block_chance", jsonout.json_dec(0.1)), jsonout.json_pair("block_proficiency", jsonout.json_dec(0.75)), jsonout.json_pair("mana_gain", jsonout.json_dec(mana_gain_rate())), jsonout.json_pair("resist_magic", jsonout.json_dec(0)), jsonout.json_pair("resist_physical", jsonout.json_dec(0)), jsonout.json_pair("stun_chance", jsonout.json_dec(0.05)), jsonout.json_pair("cr", jsonout.json_dec(0)), jsonout.json_pair("rcr", jsonout.json_dec(0)), jsonout.json_pair("rcd", jsonout.json_dec(0)), jsonout.json_pair("spb", jsonout.json_dec(0)), jsonout.json_pair("pjb", jsonout.json_dec(0)), jsonout.json_pair("cpw", jsonout.json_dec(0)), jsonout.json_pair("ap", jsonout.json_dec(0)), jsonout.json_pair("bp", jsonout.json_dec(0)), jsonout.json_pair("il", jsonout.json_dec(0)), jsonout.json_pair("il2", jsonout.json_dec(0)), jsonout.json_pair("il3", jsonout.json_dec(0)), jsonout.json_pair("is4", jsonout.json_dec(0)), jsonout.json_pair("eg", jsonout.json_dec(0)), jsonout.json_pair("fg", jsonout.json_dec(0)), jsonout.json_pair("ar", jsonout.json_dec(0)), jsonout.json_pair("hr", jsonout.json_dec(0)), jsonout.json_pair("hm", jsonout.json_dec(0)), jsonout.json_pair("am", jsonout.json_dec(0)), jsonout.json_pair("hrhp", jsonout.json_dec(0)), jsonout.json_pair("hra", jsonout.json_dec(0)), jsonout.json_pair("stat_mods", jsonout.json_list([])), jsonout.json_pair("sig_mods", jsonout.json_list([])), jsonout.json_pair("buff_mods", jsonout.json_list([])), jsonout.json_pair("i", jsonout.json_list([])), jsonout.json_pair("i2", jsonout.json_list([])), jsonout.json_pair("i3", jsonout.json_list([])), jsonout.json_pair("i4", jsonout.json_list([]))])
+end
+
+public function build_heroes(): Json
+  intent: build
+  mutable output: a list of Pair = []
+  for bid in owned() do
+    set output = append(output, jsonout.json_pair(bid, jsonout.json_obj([jsonout.json_pair("1", build_hero_base(bid, 1))])))
+  end
+  jsonout.json_obj(output)
+end
+
+public function build_stat_modifiers(): Json
+  intent: build
+  let row: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text("gp_hit_stun")), jsonout.json_pair("t", jsonout.json_text("hit_stun")), jsonout.json_pair("tm", jsonout.json_text("")), jsonout.json_pair("tr", jsonout.json_list([])), jsonout.json_pair("uit", jsonout.json_list([])), jsonout.json_pair("pri", jsonout.json_int(0)), jsonout.json_pair("trm", jsonout.json_dec(0)), jsonout.json_pair("trs", jsonout.json_text("")), jsonout.json_pair("trr", jsonout.json_text("none")), jsonout.json_pair("c", jsonout.json_dec(1)), jsonout.json_pair("m", jsonout.json_dec(1)), jsonout.json_pair("d", jsonout.json_dec(0.5)), jsonout.json_pair("s", jsonout.json_text("none")), jsonout.json_pair("ta", jsonout.json_text("self")), jsonout.json_pair("mt", jsonout.json_text("debuff")), jsonout.json_pair("v", jsonout.json_text("")), jsonout.json_pair("ms", jsonout.json_text("")), jsonout.json_pair("st", jsonout.json_int(0)), jsonout.json_pair("g", jsonout.json_text("")), jsonout.json_pair("gc", jsonout.json_dec(0)), jsonout.json_pair("gcv", jsonout.json_text("")), jsonout.json_pair("rcv", jsonout.json_text("")), jsonout.json_pair("ti", jsonout.json_int(0)), jsonout.json_pair("a", jsonout.json_list([])), jsonout.json_pair("au", jsonout.json_list([])), jsonout.json_pair("rh", jsonout.json_dec(0)), jsonout.json_pair("ra", jsonout.json_dec(0))])
+  jsonout.json_obj([jsonout.json_pair("gp_hit_stun", row)])
+end
+
+public function build_login_data(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("cdn", jsonout.json_text(cdn())), jsonout.json_pair("sigLvlMax", jsonout.json_int(99)), jsonout.json_pair("ratingPrecision", jsonout.json_int(4)), jsonout.json_pair("heroRatingAttackWeight", jsonout.json_dec(1)), jsonout.json_pair("heroRatingMaxHPWeight", jsonout.json_dec(1)), jsonout.json_pair("attributeGrowthDefs", jsonout.json_list([])), jsonout.json_pair("statMods", build_stat_modifiers()), jsonout.json_pair("statModAppears", jsonout.json_obj([])), jsonout.json_pair("heroes", build_heroes()), jsonout.json_pair("blueprints", build_blueprints()), jsonout.json_pair("evoBlueprints", jsonout.json_obj([])), jsonout.json_pair("characters", build_characters()), jsonout.json_pair("synergyBonuses", jsonout.json_obj([])), jsonout.json_pair("attackValues", build_attack_values()), jsonout.json_pair("blueprintBonuses", jsonout.json_obj([])), jsonout.json_pair("heroClasses", build_hero_classes()), jsonout.json_pair("staminaRegen", jsonout.json_obj([])), jsonout.json_pair("rarityProperties", build_rarity_properties()), jsonout.json_pair("evoCosts", jsonout.json_obj([])), jsonout.json_pair("curves", jsonout.json_obj([]))])
+end
+
+public function build_hero_entry(bid: text, rank: integer, level: integer): Json
+  intent: build
+  let entry: RosterEntry = roster_entry(bid)
+  let stats: Stats = base_stats(bid, rank, level)
+  let rating: integer = rating_for(stats.hp, stats.atk)
+  jsonout.json_obj([jsonout.json_pair("entity_type", jsonout.json_text("bot")), jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(0)), jsonout.json_pair("required_xp", jsonout.json_int(0)), jsonout.json_pair("max_xp", jsonout.json_int(100)), jsonout.json_pair("stamina", jsonout.json_int(100)), jsonout.json_pair("stamina_ts", jsonout.json_int(0)), jsonout.json_pair("stamina_full_ts", jsonout.json_int(0)), jsonout.json_pair("stt", jsonout.json_text("")), jsonout.json_pair("max_hp", jsonout.json_int(stats.hp)), jsonout.json_pair("attack", jsonout.json_int(stats.atk)), jsonout.json_pair("rating", jsonout.json_int(rating)), jsonout.json_pair("rating_attack", jsonout.json_int(stats.atk / 2)), jsonout.json_pair("rating_hp", jsonout.json_int(stats.hp / 2)), jsonout.json_pair("rating_attack_base", jsonout.json_int(stats.atk / 2)), jsonout.json_pair("rating_hp_base", jsonout.json_int(stats.hp / 2)), jsonout.json_pair("special_attacks", jsonout.json_int(max_special_attacks(bid, entry.star))), jsonout.json_pair("pvpb", jsonout.json_obj([])), jsonout.json_pair("exc", jsonout.json_obj([])), jsonout.json_pair("mana_gain", jsonout.json_dec(mana_gain_rate())), jsonout.json_pair("mana_start", jsonout.json_int(diag_mana_start())), jsonout.json_pair("flvl", jsonout.json_int(0)), jsonout.json_pair("req_fxp", jsonout.json_int(0)), jsonout.json_pair("max_fxp", jsonout.json_int(0)), jsonout.json_pair("mfl", jsonout.json_int(0))])
+end
+
+public function default_team(): a list of text
+  intent: return
+  ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_g1_mp10"]
+end
+
+public function boss_blueprint(): text
+  intent: return
+  "sharkticon_gs_brawler"
+end
+
+function roster_has_bid(bid: text): boolean
+  intent: find
+  mutable found: boolean = false
+  for entry in roster() do
+    if entry.bid == bid then
+  set found = true
+end
+  end
+  found
+end
+
+public function resolve_team(team: a list of text): a list of text
+  intent: return
+  if length(team) == 0 then
+  default_team()
+else
+  mutable valid: boolean = true
+  for bid in team do
+    if not roster_has_bid(bid) then
+  set valid = false
+end
+  end
+  if valid then
+  team
+else
+  default_team()
+end
+end
+end
+
+function dump_slice2(): nothing
+  intent: print
+  mutable bases: a list of Pair = []
+  mutable entries: a list of Pair = []
+  for bid in ["optimusprime_cin_tf", "sharkticon_gs_brawler", "fte_optimus_gs_t3", "megatron_g1_mp10"] do
+    for rank in [1, 2, 3, 5] do
+      set bases = append(bases, jsonout.json_pair(bid ++ "/" ++ to_text(rank), build_hero_base(bid, rank)))
+    end
+    for rank in [1, 3] do
+      for level in [1, 7, 30] do
+        set entries = append(entries, jsonout.json_pair(bid ++ "/" ++ to_text(rank) ++ "/" ++ to_text(level), build_hero_entry(bid, rank, level)))
+      end
+    end
+  end
+  print(jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("characters", build_characters()), jsonout.json_pair("attack_values", build_attack_values()), jsonout.json_pair("missions_config", build_missions_config()), jsonout.json_pair("missions_autorefresh_result", build_missions_autorefresh_result()), jsonout.json_pair("missions_autorefresh_update", build_missions_autorefresh_update()), jsonout.json_pair("missions_account_data", build_missions_account_data()), jsonout.json_pair("hero_classes", build_hero_classes()), jsonout.json_pair("rarity_properties", build_rarity_properties()), jsonout.json_pair("stat_modifiers", build_stat_modifiers()), jsonout.json_pair("heroes", build_heroes()), jsonout.json_pair("login_data", build_login_data()), jsonout.json_pair("hero_base", jsonout.json_obj(bases)), jsonout.json_pair("hero_entry", jsonout.json_obj(entries))])))
+end
+
+function dump_teams(): nothing
+  intent: print
+  print("DEFAULT_TEAM " ++ join(default_team(), ","))
+  print("BOSS_BLUEPRINT " ++ boss_blueprint())
+  print("TEAM NONE -> " ++ join(resolve_team([]), ","))
+  print("TEAM EMPTY -> " ++ join(resolve_team([]), ","))
+  print("TEAM optimusprime_cin_tf -> " ++ join(resolve_team(["optimusprime_cin_tf"]), ","))
+  print("TEAM megatron_g1_mp10,optimusprime_cin_tf -> " ++ join(resolve_team(["megatron_g1_mp10", "optimusprime_cin_tf"]), ","))
+  print("TEAM no_such_bot_xyz -> " ++ join(resolve_team(["no_such_bot_xyz"]), ","))
+  print("TEAM optimusprime_cin_tf,no_such_bot_xyz -> " ++ join(resolve_team(["optimusprime_cin_tf", "no_such_bot_xyz"]), ","))
+  print("TEAM optimusprime_cin_tf,megatron_g1_mp10,optimusprimal_bw_mp32 -> " ++ join(resolve_team(["optimusprime_cin_tf", "megatron_g1_mp10", "optimusprimal_bw_mp32"]), ","))
+end
+
 function main(): nothing
   intent: run
   let arguments: a list of text = get_args()
@@ -336,8 +558,12 @@ function main(): nothing
   print(jsonout.encode_compact(build_blueprints()))
 else if mode == "--dump-helpers" then
   dump_helpers()
+else if mode == "--dump-slice2" then
+  dump_slice2()
+else if mode == "--dump-teams" then
+  dump_teams()
 else
-  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers")
+  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers|--dump-slice2|--dump-teams")
 end
 end
 
