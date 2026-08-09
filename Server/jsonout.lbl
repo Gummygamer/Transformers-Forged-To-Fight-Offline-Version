@@ -1,0 +1,495 @@
+-- Ordered compact JSON for Server tooling. Non-ASCII text is deliberately rejected because
+-- Legible cannot obtain Unicode code points needed to match Python ensure_ascii=True output.
+
+record Pair
+  k: text
+  v: Json
+end
+
+union Json
+  JNull { unused: integer }
+  JBool { v: boolean }
+  JInt { v: integer }
+  JDec { v: decimal }
+  JText { v: text }
+  JList { items: a list of Json }
+  JObj { pairs: a list of Pair }
+end
+
+record ParseResult
+  node: Json
+  next: integer
+end
+
+function fail(message: text): nothing
+  intent: print
+  print("[!] jsonout: " ++ message)
+  exit_process(1)
+end
+
+function require_ascii(value: text, context: text): nothing
+  intent: check
+  let buffer: integer = bytes_from_text(value)
+  mutable index: integer = 0
+  while index < bytes_length(buffer) do
+    if bytes_get(buffer, index) >= 128 then
+      print("[!] jsonout: non-ASCII text is not supported: " ++ context)
+      exit_process(1)
+    end
+    set index = index + 1
+  end
+  bytes_free(buffer)
+end
+
+function hex_digit(value: integer): text
+  intent: return
+  substring("0123456789abcdef", value, 1)
+end
+
+function byte_text(value: integer): text
+  intent: return
+  let buffer: integer = bytes_new(1)
+  bytes_set(buffer, 0, value)
+  let result: text = bytes_to_text(buffer)
+  bytes_free(buffer)
+  result
+end
+
+function public_json_string(value: text): text
+  intent: encode
+  require_ascii(value, "string")
+  let buffer: integer = bytes_from_text(value)
+  mutable out: text = "\""
+  mutable index: integer = 0
+  while index < bytes_length(buffer) do
+    let byte: integer = bytes_get(buffer, index)
+    if byte == 34 then
+      set out = out ++ "\\\""
+    else if byte == 92 then
+      set out = out ++ "\\\\"
+    else if byte == 10 then
+      set out = out ++ "\\n"
+    else if byte == 13 then
+      set out = out ++ "\\r"
+    else if byte == 9 then
+      set out = out ++ "\\t"
+    else if byte == 8 then
+      set out = out ++ "\\b"
+    else if byte == 12 then
+      set out = out ++ "\\f"
+    else if byte < 32 then
+      set out = out ++ "\\u00" ++ hex_digit(floor(byte / 16)) ++ hex_digit(byte % 16)
+    else
+      set out = out ++ byte_text(byte)
+    end
+    set index = index + 1
+  end
+  bytes_free(buffer)
+  out ++ "\""
+end
+
+function decimal_text(value: decimal): text
+  intent: format
+  let result: text = to_text(value)
+  if contains_text(result, ".") or contains_text(result, "e") or contains_text(result, "E") then result else result ++ ".0" end
+end
+
+public function json_null(): Json
+  intent: return
+  Json.JNull { unused: 0 }
+end
+
+public function json_bool(value: boolean): Json
+  intent: return
+  Json.JBool { v: value }
+end
+
+public function json_int(value: integer): Json
+  intent: return
+  Json.JInt { v: value }
+end
+
+public function json_dec(value: decimal): Json
+  intent: return
+  Json.JDec { v: value }
+end
+
+public function json_text(value: text): Json
+  intent: return
+  require_ascii(value, "json_text")
+  Json.JText { v: value }
+end
+
+public function json_list(items: a list of Json): Json
+  intent: return
+  Json.JList { items: items }
+end
+
+public function json_obj(pairs: a list of Pair): Json
+  intent: return
+  Json.JObj { pairs: pairs }
+end
+
+public function json_pair(key: text, value: Json): Pair
+  intent: return
+  require_ascii(key, "object key")
+  Pair { k: key, v: value }
+end
+
+public function encode_compact(node: Json): text
+  intent: encode
+  match node
+    when JNull { unused } then "null"
+    when JBool { v } then if v then "true" else "false" end
+    when JInt { v } then to_text(v)
+    when JDec { v } then decimal_text(v)
+    when JText { v } then public_json_string(v)
+    when JList { items } then
+      mutable out: text = "["
+      mutable first: boolean = true
+      for item in items do
+        if not first then set out = out ++ "," end
+        set out = out ++ encode_compact(item)
+        set first = false
+      end
+      out ++ "]"
+    when JObj { pairs } then
+      mutable out: text = "\{"
+      mutable first: boolean = true
+      for pair in pairs do
+        if not first then set out = out ++ "," end
+        set out = out ++ public_json_string(pair.k) ++ ":" ++ encode_compact(pair.v)
+        set first = false
+      end
+      out ++ "\}"
+  end
+end
+
+function is_digit(character: text): boolean
+  intent: check
+  contains_text("0123456789", character)
+end
+
+function skip_space(source: text, start: integer): integer
+  intent: return
+  mutable index: integer = start
+  mutable skipping: boolean = true
+  while skipping and index < text_length(source) do
+    let character: text = substring(source, index, 1)
+    if character == " " or character == "\n" or character == "\r" or character == "\t" then
+      set index = index + 1
+    else
+      set skipping = false
+    end
+  end
+  index
+end
+
+function has_at(source: text, start: integer, wanted: text): boolean
+  intent: check
+  start >= 0 and start + text_length(wanted) <= text_length(source) and substring(source, start, text_length(wanted)) == wanted
+end
+
+function unicode_byte(hex: text): text
+  intent: decode
+  let high: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 0, 1))), -1)
+  let next: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 1, 1))), -1)
+  let third: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 2, 1))), -1)
+  let low: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 3, 1))), -1)
+  if high < 0 or next < 0 or third < 0 or low < 0 then
+    fail("malformed JSON unicode escape")
+    byte_text(0)
+  else
+    let decoded: integer = high * 4096 + next * 256 + third * 16 + low
+    if decoded >= 128 then
+      print("[!] jsonout: non-ASCII text is not supported: unicode escape")
+      exit_process(1)
+    end
+    byte_text(decoded)
+  end
+end
+
+function parse_escape(source: text, start: integer): ParseResult
+  intent: parse
+  if start + 1 >= text_length(source) then fail("malformed JSON string escape") end
+  let escaped: text = substring(source, start + 1, 1)
+  if escaped == "\"" or escaped == "\\" or escaped == "/" then
+    ParseResult { node: json_text(escaped), next: start + 2 }
+  else if escaped == "b" then
+    ParseResult { node: json_text(byte_text(8)), next: start + 2 }
+  else if escaped == "f" then
+    ParseResult { node: json_text(byte_text(12)), next: start + 2 }
+  else if escaped == "n" then
+    ParseResult { node: json_text("\n"), next: start + 2 }
+  else if escaped == "r" then
+    ParseResult { node: json_text("\r"), next: start + 2 }
+  else if escaped == "t" then
+    ParseResult { node: json_text("\t"), next: start + 2 }
+  else if escaped == "u" and start + 5 < text_length(source) then
+    ParseResult { node: json_text(unicode_byte(substring(source, start + 2, 4))), next: start + 6 }
+  else
+    fail("malformed JSON string escape")
+    ParseResult { node: json_text(""), next: start }
+  end
+end
+
+function parse_string(source: text, start: integer): ParseResult
+  intent: parse
+  mutable index: integer = start + 1
+  mutable out: text = ""
+  mutable closed: boolean = false
+  while index < text_length(source) and not closed do
+    let character: text = substring(source, index, 1)
+    if character == "\"" then
+      set index = index + 1
+      set closed = true
+    else if character == "\\" then
+      let escaped: ParseResult = parse_escape(source, index)
+      set out = out ++ as_text(escaped.node)
+      set index = escaped.next
+    else
+      let buffer: integer = bytes_from_text(character)
+      if bytes_get(buffer, 0) < 32 then fail("unescaped control character in JSON string") end
+      bytes_free(buffer)
+      set out = out ++ character
+      set index = index + 1
+    end
+  end
+  if not closed then fail("unterminated JSON string") end
+  ParseResult { node: json_text(out), next: index }
+end
+
+function parse_number(source: text, start: integer): ParseResult
+  intent: parse
+  mutable index: integer = start
+  mutable decimal_token: boolean = false
+  if has_at(source, index, "-") then set index = index + 1 end
+  if has_at(source, index, "0") then
+    set index = index + 1
+    if index < text_length(source) and is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+  else if index < text_length(source) and contains_text("123456789", substring(source, index, 1)) then
+    set index = index + 1
+    while index < text_length(source) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+  else
+    fail("malformed JSON number")
+  end
+  if has_at(source, index, ".") then
+    set decimal_token = true
+    set index = index + 1
+    if index >= text_length(source) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+    while index < text_length(source) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+  end
+  if has_at(source, index, "e") or has_at(source, index, "E") then
+    set decimal_token = true
+    set index = index + 1
+    if has_at(source, index, "+") or has_at(source, index, "-") then set index = index + 1 end
+    if index >= text_length(source) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+    while index < text_length(source) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+  end
+  let token: text = substring(source, start, index - start)
+  if decimal_token then
+    let value: decimal = unwrap_or(to_decimal(token), 0.0)
+    ParseResult { node: json_dec(value), next: index }
+  else
+    let value: integer = unwrap_or(to_integer(token), 0)
+    ParseResult { node: json_int(value), next: index }
+  end
+end
+
+function parse_list(source: text, start: integer): ParseResult
+  intent: parse
+  mutable index: integer = skip_space(source, start + 1)
+  mutable items: a list of Json = []
+  if has_at(source, index, "]") then
+    ParseResult { node: json_list(items), next: index + 1 }
+  else
+    mutable done: boolean = false
+    while not done do
+      let parsed: ParseResult = parse_value(source, index)
+      set items = append(items, parsed.node)
+      set index = skip_space(source, parsed.next)
+      if has_at(source, index, ",") then
+        set index = skip_space(source, index + 1)
+        if has_at(source, index, "]") then fail("trailing comma in JSON list") end
+      else if has_at(source, index, "]") then
+        set index = index + 1
+        set done = true
+      else
+        fail("expected comma or closing bracket in JSON list")
+      end
+    end
+    ParseResult { node: json_list(items), next: index }
+  end
+end
+
+function parse_object(source: text, start: integer): ParseResult
+  intent: parse
+  mutable index: integer = skip_space(source, start + 1)
+  mutable pairs: a list of Pair = []
+  if has_at(source, index, "\}") then
+    ParseResult { node: json_obj(pairs), next: index + 1 }
+  else
+    mutable done: boolean = false
+    while not done do
+      if not has_at(source, index, "\"") then fail("expected JSON object key") end
+      let key_result: ParseResult = parse_string(source, index)
+      let key: text = as_text(key_result.node)
+      set index = skip_space(source, key_result.next)
+      if not has_at(source, index, ":") then fail("expected colon after JSON object key") end
+      let value_result: ParseResult = parse_value(source, skip_space(source, index + 1))
+      set pairs = append(pairs, json_pair(key, value_result.node))
+      set index = skip_space(source, value_result.next)
+      if has_at(source, index, ",") then
+        set index = skip_space(source, index + 1)
+        if has_at(source, index, "\}") then fail("trailing comma in JSON object") end
+      else if has_at(source, index, "\}") then
+        set index = index + 1
+        set done = true
+      else
+        fail("expected comma or closing brace in JSON object")
+      end
+    end
+    ParseResult { node: json_obj(pairs), next: index }
+  end
+end
+
+function parse_value(source: text, start: integer): ParseResult
+  intent: parse
+  let index: integer = skip_space(source, start)
+  if has_at(source, index, "null") then
+    ParseResult { node: json_null(), next: index + 4 }
+  else if has_at(source, index, "true") then
+    ParseResult { node: json_bool(true), next: index + 4 }
+  else if has_at(source, index, "false") then
+    ParseResult { node: json_bool(false), next: index + 5 }
+  else if has_at(source, index, "\"") then
+    parse_string(source, index)
+  else if has_at(source, index, "[") then
+    parse_list(source, index)
+  else if has_at(source, index, "\{") then
+    parse_object(source, index)
+  else
+    parse_number(source, index)
+  end
+end
+
+public function parse_json(source: text): Json
+  intent: parse
+  require_ascii(source, "input")
+  let parsed: ParseResult = parse_value(source, 0)
+  if skip_space(source, parsed.next) != text_length(source) then
+    fail("unexpected trailing JSON content")
+  end
+  parsed.node
+end
+
+public function obj_has(node: Json, key: text): boolean
+  intent: check
+  match node
+    when JObj { pairs } then
+      for pair in pairs do
+        if pair.k == key then return true end
+      end
+      false
+    otherwise then
+      fail("obj_has expected object")
+      false
+  end
+end
+
+public function obj_get(node: Json, key: text): Json
+  intent: get
+  match node
+    when JObj { pairs } then
+      for pair in pairs do
+        if pair.k == key then return pair.v end
+      end
+      json_null()
+    otherwise then
+      fail("obj_get expected object")
+      json_null()
+  end
+end
+
+public function obj_set(node: Json, key: text, value: Json): Json
+  intent: set
+  match node
+    when JObj { pairs } then
+      mutable result: a list of Pair = []
+      mutable replaced: boolean = false
+      for pair in pairs do
+        if pair.k == key then
+          set result = append(result, json_pair(key, value))
+          set replaced = true
+        else
+          set result = append(result, pair)
+        end
+      end
+      if not replaced then set result = append(result, json_pair(key, value)) end
+      json_obj(result)
+    otherwise then
+      fail("obj_set expected object")
+      json_null()
+  end
+end
+
+public function list_items(node: Json): a list of Json
+  intent: get
+  match node
+    when JList { items } then items
+    otherwise then
+      fail("list_items expected list")
+      []
+  end
+end
+
+public function as_text(node: Json): text
+  intent: get
+  match node
+    when JText { v } then v
+    otherwise then
+      fail("as_text expected text")
+      ""
+  end
+end
+
+public function as_int(node: Json): integer
+  intent: get
+  match node
+    when JInt { v } then v
+    otherwise then
+      fail("as_int expected integer")
+      0
+  end
+end
+
+public function as_bool(node: Json): boolean
+  intent: get
+  match node
+    when JBool { v } then v
+    otherwise then
+      fail("as_bool expected boolean")
+      false
+  end
+end
+
+public function is_null(node: Json): boolean
+  intent: check
+  match node
+    when JNull { unused } then true
+    otherwise then false
+  end
+end
+
+public function type_name(node: Json): text
+  intent: get
+  match node
+    when JNull { unused } then "null"
+    when JBool { v } then "bool"
+    when JInt { v } then "int"
+    when JDec { v } then "decimal"
+    when JText { v } then "text"
+    when JList { items } then "list"
+    when JObj { pairs } then "object"
+  end
+end
