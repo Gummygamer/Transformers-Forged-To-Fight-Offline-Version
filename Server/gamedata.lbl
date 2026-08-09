@@ -1,0 +1,344 @@
+use jsonout
+
+record RosterEntry
+  bid: text
+  faction: text
+  klass: text
+  star: integer
+end
+
+record TextEntry
+  key: text
+  value: text
+end
+
+record IntEntry
+  key: text
+  value: integer
+end
+
+record Stats
+  hp: integer
+  atk: integer
+end
+
+function last_slash(path: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then
+  set result = index
+end
+    set index = index + 1
+  end
+  result
+end
+
+function directory_name(path: text): text
+  intent: get
+  let slash: integer = last_slash(path)
+  if slash < 0 then
+  "."
+else
+  substring(path, 0, slash)
+end
+end
+
+function absolute_script_path(arguments: a list of text): text
+  intent: return
+  let path: text = unwrap_or(get(arguments, 0), "")
+  if starts_with(path, "/") then
+  path
+else
+  path_join(get_cwd(), path)
+end
+end
+
+public function here(): text
+  intent: get
+  directory_name(absolute_script_path(get_args()))
+end
+
+public function resp_dir(): text
+  intent: get
+  path_join(here(), "responses")
+end
+
+public function diag_mana_start(): integer
+  intent: get
+  max(0, min(1, to_integer(unwrap_or(env_get("TFTF_DIAG_MANA_START"), "0"))))
+end
+
+public function mana_gain_rate(): decimal
+  intent: return
+  1
+end
+
+public function classes(): a list of text
+  intent: return
+  ["braw", "tact", "scou", "demo", "warr", "tech"]
+end
+
+public function cdn(): text
+  intent: return
+  "https://tform-0901-hzlhiniyfcwf.tf-cdn.net"
+end
+
+function roster_part_1(): a list of RosterEntry
+  intent: return
+  [RosterEntry { bid: "fte_optimus_gs_t3", faction: "autobot", klass: "tact", star: 3 }, RosterEntry { bid: "fte_stars_gs_t3", faction: "decepticon", klass: "warr", star: 3 }, RosterEntry { bid: "arcee_gs_deluxe2014", faction: "autobot", klass: "scou", star: 3 }, RosterEntry { bid: "blaster_gs_leader2016", faction: "autobot", klass: "tech", star: 4 }, RosterEntry { bid: "bumblebee_cin_dotm", faction: "autobot", klass: "scou", star: 3 }, RosterEntry { bid: "bumblebee_gs_kabam", faction: "autobot", klass: "scou", star: 3 }, RosterEntry { bid: "cheetor_bw_transmetal", faction: "autobot", klass: "scou", star: 4 }, RosterEntry { bid: "cliffjumper_gs_kabam", faction: "autobot", klass: "warr", star: 2 }, RosterEntry { bid: "dinobot_bw_kabam", faction: "autobot", klass: "warr", star: 4 }, RosterEntry { bid: "drift_cin_aoe", faction: "autobot", klass: "tact", star: 4 }, RosterEntry { bid: "grimlock_gs_mp08", faction: "autobot", klass: "braw", star: 5 }, RosterEntry { bid: "hotrod_cin_tlk", faction: "autobot", klass: "warr", star: 4 }, RosterEntry { bid: "hound_cin_tlk", faction: "autobot", klass: "demo", star: 3 }, RosterEntry { bid: "ironhide_cin_rotf", faction: "autobot", klass: "tact", star: 3 }, RosterEntry { bid: "ironhide_gs_kabam", faction: "autobot", klass: "tact", star: 3 }, RosterEntry { bid: "jazz_gs_twm05", faction: "autobot", klass: "scou", star: 3 }, RosterEntry { bid: "jetfire_gs_leader2014", faction: "autobot", klass: "tech", star: 4 }, RosterEntry { bid: "mirage_gs_deluxe2016", faction: "autobot", klass: "scou", star: 3 }, RosterEntry { bid: "optimusprimal_bw_mp32", faction: "autobot", klass: "braw", star: 5 }, RosterEntry { bid: "optimusprime_cin_tf", faction: "autobot", klass: "braw", star: 5 }, RosterEntry { bid: "prowl_gs_deluxe2016", faction: "autobot", klass: "tact", star: 3 }]
+end
+
+function roster_part_2(): a list of RosterEntry
+  intent: return
+  [RosterEntry { bid: "ratchet_gs_kabam", faction: "autobot", klass: "tech", star: 2 }, RosterEntry { bid: "rhinox_gs_voyager2014", faction: "autobot", klass: "braw", star: 3 }, RosterEntry { bid: "rodimusprime_gs_mp09", faction: "autobot", klass: "warr", star: 4 }, RosterEntry { bid: "sideswipe_gs", faction: "autobot", klass: "warr", star: 3 }, RosterEntry { bid: "sunstreaker_gs_deluxe2008", faction: "autobot", klass: "warr", star: 3 }, RosterEntry { bid: "ultramagnus_gs_leader", faction: "autobot", klass: "braw", star: 4 }, RosterEntry { bid: "wheeljack_gs_mp20", faction: "autobot", klass: "tech", star: 3 }, RosterEntry { bid: "windblade_gs", faction: "autobot", klass: "scou", star: 4 }, RosterEntry { bid: "barricade_cin_dotm", faction: "decepticon", klass: "scou", star: 3 }, RosterEntry { bid: "bludgeon_gs_rd20", faction: "decepticon", klass: "warr", star: 4 }, RosterEntry { bid: "bonecrusher_cin_rotf", faction: "decepticon", klass: "demo", star: 3 }, RosterEntry { bid: "cyclonus_gs_uw06", faction: "decepticon", klass: "warr", star: 3 }, RosterEntry { bid: "dirge_gs_deluxe2008", faction: "decepticon", klass: "warr", star: 2 }, RosterEntry { bid: "galvatron_gs_voyager2016", faction: "decepticon", klass: "braw", star: 5 }, RosterEntry { bid: "grindor_cin_rotf", faction: "decepticon", klass: "demo", star: 3 }, RosterEntry { bid: "kickback_gs_kabam", faction: "decepticon", klass: "scou", star: 2 }, RosterEntry { bid: "megatron_cin_rotf", faction: "decepticon", klass: "braw", star: 5 }, RosterEntry { bid: "megatron_gs_leader2015", faction: "decepticon", klass: "braw", star: 5 }, RosterEntry { bid: "megatronus_gs_kabam", faction: "decepticon", klass: "tact", star: 5 }, RosterEntry { bid: "mixmaster_cin_rotf", faction: "decepticon", klass: "demo", star: 3 }, RosterEntry { bid: "motormaster_gs_voyager2015", faction: "decepticon", klass: "braw", star: 4 }]
+end
+
+function roster_part_3(): a list of RosterEntry
+  intent: return
+  [RosterEntry { bid: "necrotronus_gs_kabam", faction: "decepticon", klass: "demo", star: 4 }, RosterEntry { bid: "nemesisprime_gs_voyager2015", faction: "decepticon", klass: "tact", star: 4 }, RosterEntry { bid: "ramjet_gs_deluxe2008", faction: "decepticon", klass: "warr", star: 2 }, RosterEntry { bid: "scorponok_bw_kabam", faction: "decepticon", klass: "tech", star: 3 }, RosterEntry { bid: "shockwave_gs", faction: "decepticon", klass: "tech", star: 4 }, RosterEntry { bid: "skywarp_gs_leader2015", faction: "decepticon", klass: "warr", star: 4 }, RosterEntry { bid: "slipstream_gs", faction: "decepticon", klass: "tact", star: 3 }, RosterEntry { bid: "soundblaster_gs_mp13b", faction: "decepticon", klass: "tech", star: 4 }, RosterEntry { bid: "soundwave_gs", faction: "decepticon", klass: "tech", star: 4 }, RosterEntry { bid: "thundercracker_gs_leader2015", faction: "decepticon", klass: "warr", star: 4 }, RosterEntry { bid: "tantrum_gs_kabam", faction: "decepticon", klass: "braw", star: 2 }, RosterEntry { bid: "waspinator_gs_deluxe", faction: "decepticon", klass: "tech", star: 2 }, RosterEntry { bid: "sharkticon_gs_kabam", faction: "decepticon", klass: "braw", star: 1 }, RosterEntry { bid: "sharkticon_gs_brawler", faction: "decepticon", klass: "braw", star: 1 }, RosterEntry { bid: "sharkticon_gs_demolition", faction: "decepticon", klass: "demo", star: 1 }, RosterEntry { bid: "sharkticon_gs_scout", faction: "decepticon", klass: "scou", star: 1 }, RosterEntry { bid: "sharkticon_gs_tactician", faction: "decepticon", klass: "tact", star: 1 }, RosterEntry { bid: "sharkticon_gs_tech", faction: "decepticon", klass: "tech", star: 1 }, RosterEntry { bid: "sharkticon_gs_warrior", faction: "decepticon", klass: "warr", star: 1 }]
+end
+
+public function roster(): a list of RosterEntry
+  intent: build
+  mutable result: a list of RosterEntry = []
+  for entry in roster_part_1() do
+    set result = append(result, entry)
+  end
+  for entry in roster_part_2() do
+    set result = append(result, entry)
+  end
+  for entry in roster_part_3() do
+    set result = append(result, entry)
+  end
+  result
+end
+
+public function owned(): a list of text
+  intent: build
+  mutable result: a list of text = []
+  for entry in roster() do
+    set result = append(result, entry.bid)
+  end
+  result
+end
+
+function class_hp_mult(klass: text): decimal
+  intent: return
+  if klass == "braw" then
+  1.25
+else if klass == "scou" then
+  0.85
+else if klass == "demo" then
+  1.1
+else if klass == "warr" then
+  0.95
+else if klass == "tech" then
+  1.05
+else
+  1
+end
+end
+
+function class_atk_mult(klass: text): decimal
+  intent: return
+  if klass == "braw" then
+  0.9
+else if klass == "scou" then
+  1.15
+else if klass == "demo" then
+  1.05
+else if klass == "warr" then
+  1.2
+else if klass == "tech" then
+  0.95
+else
+  1
+end
+end
+
+function star_hp(star: integer): integer
+  intent: return
+  if star == 2 then
+  3400
+else if star == 3 then
+  5200
+else if star == 4 then
+  7800
+else if star == 5 then
+  11500
+else
+  2200
+end
+end
+
+function star_atk(star: integer): integer
+  intent: return
+  if star == 2 then
+  300
+else if star == 3 then
+  430
+else if star == 4 then
+  610
+else if star == 5 then
+  850
+else
+  210
+end
+end
+
+function roster_entry(bid: text): RosterEntry
+  intent: find
+  mutable result: RosterEntry = RosterEntry { bid: bid, faction: "decepticon", klass: "tact", star: 1 }
+  for entry in roster() do
+    if entry.bid == bid then
+  set result = entry
+end
+  end
+  result
+end
+
+public function base_stats(bid: text, rank: integer, level: integer): Stats
+  intent: build
+  let entry: RosterEntry = roster_entry(bid)
+  let rank_mult: decimal = 1 + 0.35 * to_decimal(max(1, rank) - 1)
+  let level_add: decimal = to_decimal(max(1, level) - 1) / 100
+  let level_factor: decimal = 1 + level_add
+  let factor: decimal = rank_mult * level_factor
+  Stats { hp: to_integer(to_decimal(star_hp(entry.star)) * class_hp_mult(entry.klass) * factor), atk: to_integer(to_decimal(star_atk(entry.star)) * class_atk_mult(entry.klass) * factor) }
+end
+
+public function msa_override(): a list of IntEntry
+  intent: return
+  [IntEntry { key: "bumblebee_gs_kabam", value: 1 }, IntEntry { key: "fte_optimus_gs_t3", value: 3 }, IntEntry { key: "fte_stars_gs_t3", value: 3 }]
+end
+
+public function max_special_attacks(bid: text, star: integer): integer
+  intent: return
+  mutable found: boolean = false
+  mutable result: integer = if star <= 1 then
+  1
+else if star <= 3 then
+  2
+else
+  3
+end
+  for entry in msa_override() do
+    if entry.key == bid then
+  set found = true
+  set result = entry.value
+end
+  end
+  result
+end
+
+public function special_damage_ratios(bid: text, star: integer): a list of decimal
+  intent: return
+  [1.75, 2.5, 3.5]
+end
+
+public function art_overrides(): a list of TextEntry
+  intent: return
+  [TextEntry { key: "fte_optimus_gs_t3", value: "optimus_gs" }, TextEntry { key: "fte_stars_gs_t3", value: "stars_gs" }, TextEntry { key: "blaster_gs_leader2016", value: "blastr_gs" }, TextEntry { key: "bumblebee_cin_dotm", value: "bumbl_c" }, TextEntry { key: "bumblebee_gs_kabam", value: "bumbl_gs" }, TextEntry { key: "cliffjumper_gs_kabam", value: "cliffjump_gs" }, TextEntry { key: "dinobot_bw_kabam", value: "dinob_bw" }, TextEntry { key: "drift_cin_aoe", value: "drift_c" }, TextEntry { key: "grimlock_gs_mp08", value: "griml_gs" }, TextEntry { key: "hotrod_cin_tlk", value: "hotrod_c" }, TextEntry { key: "hound_cin_tlk", value: "hound_c" }, TextEntry { key: "ironhide_cin_rotf", value: "ironh_c_rotf" }, TextEntry { key: "ironhide_gs_kabam", value: "ironh_gs" }, TextEntry { key: "mirage_gs_deluxe2016", value: "mirag_gs" }, TextEntry { key: "optimusprimal_bw_mp32", value: "oprimal_bw" }, TextEntry { key: "optimusprime_cin_tf", value: "optimus_c_tf" }, TextEntry { key: "ratchet_gs_kabam", value: "ratch_gs" }, TextEntry { key: "rhinox_gs_voyager2014", value: "rhino_bw" }, TextEntry { key: "rodimusprime_gs_mp09", value: "rodimus_gs" }, TextEntry { key: "sideswipe_gs", value: "sides_gs" }, TextEntry { key: "sunstreaker_gs_deluxe2008", value: "sunstreak_gs" }, TextEntry { key: "ultramagnus_gs_leader", value: "ultram_gs" }, TextEntry { key: "wheeljack_gs_mp20", value: "wheelj_gs" }, TextEntry { key: "windblade_gs", value: "windb_gs" }, TextEntry { key: "barricade_cin_dotm", value: "barri_c" }, TextEntry { key: "bludgeon_gs_rd20", value: "bludge_gs" }, TextEntry { key: "bonecrusher_cin_rotf", value: "bonec_c" }, TextEntry { key: "cyclonus_gs_uw06", value: "cyclon_gs" }, TextEntry { key: "grindor_cin_rotf", value: "grind_c_rotf" }, TextEntry { key: "kickback_gs_kabam", value: "kickb_gs" }, TextEntry { key: "megatron_cin_rotf", value: "megat_c" }, TextEntry { key: "megatron_gs_leader2015", value: "megat_gs" }, TextEntry { key: "megatronus_gs_kabam", value: "megatro_gs" }, TextEntry { key: "mixmaster_cin_rotf", value: "mixma_c_rotf" }, TextEntry { key: "motormaster_gs_voyager2015", value: "motorm_gs" }, TextEntry { key: "necrotronus_gs_kabam", value: "necrotro_gs" }, TextEntry { key: "nemesisprime_gs_voyager2015", value: "nemesis_p" }, TextEntry { key: "shockwave_gs", value: "shock_c" }, TextEntry { key: "soundblaster_gs_mp13b", value: "soundblast_gs" }, TextEntry { key: "soundwave_gs", value: "sound_gs" }, TextEntry { key: "thundercracker_gs_leader2015", value: "thunder_gs" }, TextEntry { key: "waspinator_gs_deluxe", value: "wasp_bw" }, TextEntry { key: "sharkticon_gs_kabam", value: "npc_shark_gold" }, TextEntry { key: "sharkticon_gs_brawler", value: "npc_shark_braw" }, TextEntry { key: "sharkticon_gs_demolition", value: "npc_shark_demo" }, TextEntry { key: "sharkticon_gs_scout", value: "npc_shark_scou" }, TextEntry { key: "sharkticon_gs_tactician", value: "npc_shark_tact" }, TextEntry { key: "sharkticon_gs_tech", value: "npc_shark_tech" }, TextEntry { key: "sharkticon_gs_warrior", value: "npc_shark_warr" }]
+end
+
+public function art_base(bid: text): text
+  intent: find
+  mutable result: text = ""
+  mutable found: boolean = false
+  for entry in art_overrides() do
+    if entry.key == bid then
+  set result = entry.value
+  set found = true
+end
+  end
+  if found then
+  result
+else
+  let parts: a list of text = split(bid, "_")
+  if length(parts) >= 2 then
+  unwrap_or(get(parts, 0), "") ++ "_" ++ unwrap_or(get(parts, 1), "")
+else
+  bid
+end
+end
+end
+
+public function model_overrides(): a list of TextEntry
+  intent: return
+  [TextEntry { key: "fte_optimus_gs_t3", value: "optimusprime_cin_tf" }, TextEntry { key: "fte_stars_gs_t3", value: "skywarp_gs_leader2015" }]
+end
+
+public function model_id(bid: text): text
+  intent: find
+  mutable result: text = bid
+  for entry in model_overrides() do
+    if entry.key == bid then
+  set result = entry.value
+end
+  end
+  result
+end
+
+public function display_name(bid: text): text
+  intent: build
+  let parts: a list of text = split(bid, "_")
+  mutable token: text = unwrap_or(get(parts, 0), "")
+  if token == "fte" and length(parts) > 1 then
+  set token = unwrap_or(get(parts, 1), "")
+end
+  uppercase(substring(token, 0, 1)) ++ substring(token, 1, text_length(token) - 1)
+end
+
+public function build_blueprints(): Json
+  intent: build
+  mutable output: a list of Pair = []
+  for entry in roster() do
+    let ratios: a list of decimal = special_damage_ratios(entry.bid, entry.star)
+    let model: text = model_id(entry.bid)
+    let art: text = art_base(entry.bid)
+    let name: text = display_name(entry.bid)
+    let blueprint: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(entry.bid)), jsonout.json_pair("et", jsonout.json_text("bot")), jsonout.json_pair("c", jsonout.json_text(entry.bid)), jsonout.json_pair("r", jsonout.json_int(entry.star)), jsonout.json_pair("a", jsonout.json_text(entry.faction)), jsonout.json_pair("cl", jsonout.json_text(entry.klass)), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("name_s", jsonout.json_text(name)), jsonout.json_pair("m", jsonout.json_text(model)), jsonout.json_pair("mdl", jsonout.json_text(model)), jsonout.json_pair("i", jsonout.json_text(art)), jsonout.json_pair("img", jsonout.json_text(art)), jsonout.json_pair("ma", jsonout.json_text(model)), jsonout.json_pair("map_asset", jsonout.json_text(model)), jsonout.json_pair("s1", jsonout.json_dec(unwrap_or(get(ratios, 0), 0))), jsonout.json_pair("s2", jsonout.json_dec(unwrap_or(get(ratios, 1), 0))), jsonout.json_pair("s3", jsonout.json_dec(unwrap_or(get(ratios, 2), 0))), jsonout.json_pair("msa", jsonout.json_int(max_special_attacks(entry.bid, entry.star))), jsonout.json_pair("ab", jsonout.json_dec(100)), jsonout.json_pair("gg", jsonout.json_int(1)), jsonout.json_pair("mfl", jsonout.json_int(0)), jsonout.json_pair("nfr", jsonout.json_int(0)), jsonout.json_pair("fcpg", jsonout.json_text("")), jsonout.json_pair("fhpag", jsonout.json_text(""))])
+    set output = append(output, jsonout.json_pair(entry.bid, blueprint))
+  end
+  jsonout.json_obj(output)
+end
+
+function dump_helpers(): nothing
+  intent: print
+  for entry in roster() do
+    for rank in [1, 2, 3, 5] do
+      for level in [1, 7, 30] do
+        let stats: Stats = base_stats(entry.bid, rank, level)
+        print(entry.bid ++ " " ++ to_text(rank) ++ " " ++ to_text(level) ++ " " ++ to_text(stats.hp) ++ " " ++ to_text(stats.atk))
+      end
+    end
+    print("MSA " ++ entry.bid ++ " " ++ to_text(max_special_attacks(entry.bid, entry.star)))
+    print("NAME " ++ entry.bid ++ " " ++ display_name(entry.bid))
+    print("ART " ++ entry.bid ++ " " ++ art_base(entry.bid))
+    print("MODEL " ++ entry.bid ++ " " ++ model_id(entry.bid))
+  end
+  let unknown: Stats = base_stats("no_such_bot_xyz", 1, 1)
+  let ids: a list of text = owned()
+  print("UNKNOWN (" ++ to_text(unknown.hp) ++ ", " ++ to_text(unknown.atk) ++ ")")
+  print("OWNED " ++ to_text(length(ids)) ++ " " ++ unwrap_or(get(ids, 0), "") ++ " " ++ unwrap_or(get(ids, length(ids) - 1), ""))
+  print("CDN " ++ cdn())
+  print("CLASSES " ++ join(classes(), ","))
+  print("DIAG " ++ to_text(diag_mana_start()))
+end
+
+function main(): nothing
+  intent: run
+  let arguments: a list of text = get_args()
+  let mode: text = unwrap_or(get(arguments, 1), "")
+  if mode == "--dump-blueprints" then
+  print(jsonout.encode_compact(build_blueprints()))
+else if mode == "--dump-helpers" then
+  dump_helpers()
+else
+  print("usage: gamedata.lbl --dump-blueprints|--dump-helpers")
+end
+end
+
+main()
