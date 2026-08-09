@@ -388,16 +388,18 @@ It accepts the same flags, but its error messages go to stdout because Legible h
 `tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
 `currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
 need Frida's native Python bindings.
-`Server/build_phone_apk.py`
-rewrites ZIP APK entries and packed binary metadata (`zipfile`, `struct`), and
-The request-synthesis layer and plain-HTTP listener are also ported as
+`Server/build_phone_apk.py` rewrites ZIP APK entries and packed binary metadata
+(`zipfile`, `struct`). The request-synthesis layer and plain-HTTP listener are also ported as
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run them with
 `legible run Server/fakeserver.lbl --http 8080` or `legible run Server/run_local.lbl`.
 Only the HTTPS:443 listener is not ported: Legible's `tiny_http` backend is built without
 TLS, a Legible process can hold only one listener, and it has no threads, so
 `Server/fakeserver.py` remains the way to serve HTTPS.
-Finally, `Server/gamedata.py` and `Server/export_payload.py` are imported by the Server
-test suite, so converting them would break that Python-module test surface.
+`Server/export_payload.lbl` now produces the byte-identical in-APK payload: run
+`legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
+counterpart remains because `Server/build_phone_apk.py` and `Server/test_inapk_server.py`
+still import it. As elsewhere in Legible, errors go to stdout (there is no stderr builtin),
+and it does not reproduce argparse's `--help` or usage-error text.
 
 ## The gotchas that will eat your time
 

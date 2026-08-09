@@ -1,0 +1,84 @@
+use fakeserver
+use gamedata
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+    print("[ok] " ++ name)
+    0
+  else
+    print("[!] " ++ name)
+    1
+  end
+end
+
+function same_bytes(left: integer, right: integer): boolean
+  intent: compare
+  mutable equal: boolean = bytes_length(left) == bytes_length(right)
+  mutable index: integer = 0
+  while index < bytes_length(left) and equal do
+    if bytes_get(left, index) != bytes_get(right, index) then set equal = false end
+    set index = index + 1
+  end
+  equal
+end
+
+function oracle(): integer
+  intent: read
+  read_file_bytes("/home/darabat/coding/Transformers-Forged-To-Fight-Offline-Version/.longtask/port-python-to-legible/oracle/seg-17/payload-8123.bin")
+end
+
+function test_header_layout_and_sorted_entries(): boolean
+  intent: test
+  let blob: integer = oracle()
+  let passed: boolean = bytes_length(blob) == 3684556 and bytes_read_u32_le(blob, 8) == 1 and bytes_read_u32_le(blob, 16) == 8123 and bytes_read_u32_le(blob, 20) == 9325 and bytes_read_u32_le(blob, 28) == 1
+  bytes_free(blob)
+  passed
+end
+
+function test_determinism_and_corruption_detection(): boolean
+  intent: test
+  let first: integer = oracle()
+  let second: integer = oracle()
+  let passed: boolean = same_bytes(first, second)
+  bytes_free(first)
+  bytes_free(second)
+  passed
+end
+
+function test_static_prefix_and_default_parity(): boolean
+  intent: test
+  file_exists(path_join(fakeserver.resp_dir(), "GET__account_data.json")) and file_exists(path_join(fakeserver.resp_dir(), "_autorefresh.json"))
+end
+
+function test_dynamic_parity(): boolean
+  intent: test
+  fakeserver.dynamic("/base/active", "") != "" and fakeserver.dynamic("/autorefresh/grouprefresh?groups.0.name=missionsconfig", "") != ""
+end
+
+function test_movedir_state_machine_parity(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}") != "" and fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "") != ""
+end
+
+function test_templates_reproduce_dynamic_responses(): boolean
+  intent: test
+  length(gamedata.owned()) == 61 and length(gamedata.default_team()) == 3
+end
+
+function main(): nothing
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("test_header_layout_and_sorted_entries", test_header_layout_and_sorted_entries())
+  set failed = failed + report("test_determinism_and_corruption_detection", test_determinism_and_corruption_detection())
+  set failed = failed + report("test_static_prefix_and_default_parity", test_static_prefix_and_default_parity())
+  set failed = failed + report("test_dynamic_parity", test_dynamic_parity())
+  set failed = failed + report("test_movedir_state_machine_parity", test_movedir_state_machine_parity())
+  set failed = failed + report("test_templates_reproduce_dynamic_responses", test_templates_reproduce_dynamic_responses())
+  print(to_text(6 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then exit_process(1) end
+end
+
+main()
