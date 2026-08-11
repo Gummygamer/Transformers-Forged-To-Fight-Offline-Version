@@ -24,6 +24,12 @@ record Prefixes
   bodies: a list of text
 end
 
+record TableValues
+  keys: a list of text
+  bodies: a list of text
+  error: text
+end
+
 function here(): text
   intent: return
   let args: a list of text = get_args()
@@ -126,9 +132,9 @@ function mission_pairs(): a list of text
   let root: Json = jsonout.parse_json(read_file(path_join(responses(), "GET__quests_quest-list.json")))
   mutable pairs: a list of text = []
   for item in jsonout.list_items(jsonout.obj_get(root, "result")) do
-    let set_id: text = jsonout.encode_compact(jsonout.obj_get(item, "setId"))
+    let set_id: text = jsonout.as_text(jsonout.obj_get(item, "setId"))
     for quest in jsonout.list_items(jsonout.obj_get(item, "availableQuests")) do
-      let pair: text = set_id ++ "\t" ++ jsonout.encode_compact(jsonout.obj_get(quest, "id"))
+      let pair: text = set_id ++ "\t" ++ jsonout.as_text(jsonout.obj_get(quest, "id"))
       if not contains(pairs, pair) then set pairs = append(pairs, pair) end
     end
   end
@@ -140,7 +146,13 @@ function detail_for(bid: text, rank: integer, level: integer): text
   intent: build
   let sentinel: integer = 987654321
   let req: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(sentinel))])
-  let detail: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([req])), 0), jsonout.json_obj([]))
+  let original: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([req])), 0), jsonout.json_obj([]))
+  let stats: Stats = gamedata.payload_base_stats(bid, rank, level)
+  let with_rating_hp: Json = jsonout.obj_set(original, "rating_hp", jsonout.json_int(stats.hp))
+  let with_max_hp: Json = jsonout.obj_set(with_rating_hp, "max_hp", jsonout.json_int(stats.hp))
+  let with_rating_attack: Json = jsonout.obj_set(with_max_hp, "rating_attack", jsonout.json_int(stats.atk))
+  let with_attack: Json = jsonout.obj_set(with_rating_attack, "attack", jsonout.json_int(stats.atk))
+  let detail: Json = jsonout.obj_set(with_attack, "health", jsonout.json_int(stats.hp))
   let body: text = jsonout.encode_compact(detail)
   replace_exact(body, to_text(sentinel), "%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
 end
@@ -459,11 +471,25 @@ function header(blob: integer, total: integer, port: integer, count: integer, pr
   bytes_write_u32_le(blob, 44, crc)
 end
 
-function build_payload(listen_port: integer): integer
+public function build_payload(listen_port: integer): integer
   intent: build
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
-  let blob: integer = read_file_bytes("/home/darabat/coding/Transformers-Forged-To-Fight-Offline-Version/.longtask/port-python-to-legible/oracle/seg-17/payload-8080.bin")
-  bytes_write_u32_le(blob, 16, listen_port)
+  let entries: Entries = build_entries(listen_port)
+  let keys: a list of text = sort_text(entries.keys)
+  let pref: Prefixes = prefixes()
+  if length(keys) != 9325 then fail("payload entry count is not 9325: " ++ to_text(length(keys))) end
+  if length(pref.keys) != 1 or length(pref.bodies) != 1 then fail("payload prefix count is not 1") end
+  let total: integer = payload_total(entries, keys, pref)
+  if total != 3684556 then fail("payload total size is not 3684556: " ++ to_text(total)) end
+  let blob: integer = bytes_new(total)
+  let prefix_offset: integer = 64 + 16 * length(keys)
+  let values_offset: integer = prefix_offset + 16 * length(pref.keys)
+  let after_entries: integer = write_entries(blob, entries, keys, values_offset)
+  let after_prefixes: integer = write_prefixes(blob, pref, prefix_offset, after_entries)
+  let default_offset: integer = after_prefixes
+  let final_offset: integer = write_value(blob, default_offset, "\{\"error\":null,\"result\":\{\}\}")
+  if final_offset != total then fail("payload writer ended at " ++ to_text(final_offset) ++ " instead of " ++ to_text(total)) end
+  header(blob, total, listen_port, length(keys), length(pref.keys), prefix_offset, default_offset)
   blob
 end
 
@@ -472,14 +498,14 @@ function payload_error(message: text): Payload
   Payload { version: 0, listen_port: 0, entry_keys: [], entry_bodies: [], prefix_keys: [], prefix_bodies: [], default_body: "", error: message }
 end
 
-function read_value(blob: integer, offset: integer, size: integer, label: text): a list of text
-  intent: read
+function value_error(blob: integer, offset: integer, size: integer, label: text): text
+  intent: check
   let total: integer = bytes_length(blob)
   let padded_end: integer = (offset + size + 1 + 3) - ((offset + size + 1 + 3) % 4)
-  if offset % 4 != 0 then ["", label ++ " offset is not four-byte aligned"]
-  else if offset < 64 or offset + size >= total then ["", label ++ " is outside the payload"]
-  else if bytes_get(blob, offset + size) != 0 then ["", label ++ " is not NUL-terminated"]
-  else if padded_end > total then ["", label ++ " padding is invalid"]
+  if offset % 4 != 0 then label ++ " offset is not four-byte aligned"
+  else if offset < 64 or offset + size >= total then label ++ " is outside the payload"
+  else if bytes_get(blob, offset + size) != 0 then label ++ " is not NUL-terminated"
+  else if padded_end > total then label ++ " padding is invalid"
   else
     mutable valid: boolean = true
     mutable index: integer = offset + size + 1
@@ -487,16 +513,111 @@ function read_value(blob: integer, offset: integer, size: integer, label: text):
       if bytes_get(blob, index) != 0 then set valid = false end
       set index = index + 1
     end
-    if not valid then
-      ["", label ++ " padding is invalid"]
-    else
-      let value: text = bytes_to_text(bytes_slice(blob, offset, size))
+    if valid then "" else label ++ " padding is invalid" end
+  end
+end
+
+function valid_utf8(blob: integer, offset: integer, size: integer): boolean
+  intent: check
+  mutable valid: boolean = true
+  mutable index: integer = offset
+  let stop: integer = offset + size
+  while index < stop and valid do
+    let first: integer = bytes_get(blob, index)
+    mutable needed: integer = 0
+    mutable second_low: integer = 128
+    mutable second_high: integer = 191
+    if first <= 127 then set needed = 0
+    else if first >= 194 and first <= 223 then set needed = 1
+    else if first >= 224 and first <= 239 then
+      set needed = 2
+      if first == 224 then set second_low = 160 end
+      if first == 237 then set second_high = 159 end
+    else if first >= 240 and first <= 244 then
+      set needed = 3
+      if first == 240 then set second_low = 144 end
+      if first == 244 then set second_high = 143 end
+    else set valid = false
+    end
+    if valid and index + needed >= stop then set valid = false end
+    if valid and needed > 0 then
+      let second: integer = bytes_get(blob, index + 1)
+      if second < second_low or second > second_high then set valid = false end
+    end
+    mutable follow: integer = 2
+    while valid and follow <= needed do
+      let byte: integer = bytes_get(blob, index + follow)
+      if byte < 128 or byte > 191 then set valid = false end
+      set follow = follow + 1
+    end
+    set index = index + needed + 1
+  end
+  valid
+end
+
+function read_value(blob: integer, offset: integer, size: integer, label: text): a list of text
+  intent: read
+  let issue: text = value_error(blob, offset, size, label)
+  if issue != "" then ["", issue]
+  else
+      let data: integer = bytes_slice(blob, offset, size)
+      let value: text = bytes_to_text(data)
+      bytes_free(data)
       [value, ""]
   end
 end
+
+function read_table(blob: integer, offset: integer, count: integer, label: text): TableValues
+  intent: read
+  let total: integer = bytes_length(blob)
+  if offset % 4 != 0 or offset < 64 or offset + count * 16 > total then
+    TableValues { keys: [], bodies: [], error: label ++ " table is outside the payload" }
+  else
+    mutable keys: a list of text = []
+    mutable bodies: a list of text = []
+    mutable error: text = ""
+    mutable index: integer = 0
+    while index < count and error == "" do
+      let row: integer = offset + index * 16
+      let key_offset: integer = bytes_read_u32_le(blob, row)
+      let key_size: integer = bytes_read_u32_le(blob, row + 4)
+      let key_label: text = label ++ " key " ++ to_text(index)
+      let key_error: text = value_error(blob, key_offset, key_size, key_label)
+      if key_error != "" then
+        set error = key_error
+      else if not valid_utf8(blob, key_offset, key_size) then
+        set error = key_label ++ " is not UTF-8"
+      else
+        let key_value: a list of text = read_value(blob, key_offset, key_size, key_label)
+        let body_value: a list of text = read_value(blob, bytes_read_u32_le(blob, row + 8), bytes_read_u32_le(blob, row + 12), label ++ " body " ++ to_text(index))
+        let body_error: text = unwrap_or(get(body_value, 1), "")
+        if body_error != "" then
+          set error = body_error
+        else
+          set keys = append(keys, unwrap_or(get(key_value, 0), ""))
+          set bodies = append(bodies, unwrap_or(get(body_value, 0), ""))
+        end
+      end
+      set index = index + 1
+    end
+    TableValues { keys: keys, bodies: bodies, error: error }
+  end
 end
 
-function load_payload(blob: integer): Payload
+function strictly_sorted_unique(values: a list of text): boolean
+  intent: check
+  mutable valid: boolean = true
+  mutable index: integer = 1
+  while index < length(values) and valid do
+    let previous: text = unwrap_or(get(values, index - 1), "")
+    let current: text = unwrap_or(get(values, index), "")
+    if previous >= current then set valid = false end
+    set index = index + 1
+  end
+  valid
+end
+
+public function load_payload(blob: integer): Payload
   intent: load
   if bytes_length(blob) < 64 then payload_error("payload is shorter than the 64-byte header")
   else if bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0 then payload_error("invalid payload magic")
@@ -506,8 +627,23 @@ function load_payload(blob: integer): Payload
     let crc: integer = bytes_read_u32_le(blob, 44)
     if version != 1 then payload_error("unsupported payload version: " ++ to_text(version))
     else if total != bytes_length(blob) then payload_error("payload total size does not match blob length")
+    else if bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0 then payload_error("payload reserved header fields are non-zero")
     else if crc_of(blob, 64, total - 64, crc_table()) != crc then payload_error("payload CRC-32 mismatch")
-    else Payload { version: version, listen_port: bytes_read_u32_le(blob, 16), entry_keys: repeat("", bytes_read_u32_le(blob, 20)), entry_bodies: [], prefix_keys: repeat("", bytes_read_u32_le(blob, 28)), prefix_bodies: [], default_body: "\{\"error\":null,\"result\":\{\}\}", error: "" }
+    else
+      let entries: TableValues = read_table(blob, bytes_read_u32_le(blob, 24), bytes_read_u32_le(blob, 20), "entry")
+      if entries.error != "" then payload_error(entries.error)
+      else if not strictly_sorted_unique(entries.keys) then payload_error("entry table is not strictly sorted by unique raw key bytes")
+      else
+        let pref: TableValues = read_table(blob, bytes_read_u32_le(blob, 32), bytes_read_u32_le(blob, 28), "prefix")
+        if pref.error != "" then payload_error(pref.error)
+        else
+          let default_value: a list of text = read_value(blob, bytes_read_u32_le(blob, 36), bytes_read_u32_le(blob, 40), "default body")
+          let default_error: text = unwrap_or(get(default_value, 1), "")
+          if default_error != "" then payload_error(default_error)
+          else Payload { version: version, listen_port: bytes_read_u32_le(blob, 16), entry_keys: entries.keys, entry_bodies: entries.bodies, prefix_keys: pref.keys, prefix_bodies: pref.bodies, default_body: unwrap_or(get(default_value, 0), ""), error: "" }
+          end
+        end
+      end
     end
   end
 end
@@ -535,7 +671,7 @@ function main(): nothing
   end
   let blob: integer = build_payload(port)
   write_file_bytes(output, blob)
-  print("wrote " ++ output ++ ": " ++ to_text(bytes_length(blob)) ++ " bytes, 9325 entries, 1 prefixes, port " ++ to_text(port))
+  print("wrote " ++ output ++ ": " ++ to_text(bytes_length(blob)) ++ " bytes, " ++ to_text(bytes_read_u32_le(blob, 20)) ++ " entries, " ++ to_text(bytes_read_u32_le(blob, 28)) ++ " prefixes, port " ++ to_text(bytes_read_u32_le(blob, 16)))
   bytes_free(blob)
 end
 

@@ -395,7 +395,8 @@ need Frida's native Python bindings.
 Only the HTTPS:443 listener is not ported: Legible's `tiny_http` backend is built without
 TLS, a Legible process can hold only one listener, and it has no threads, so
 `Server/fakeserver.py` remains the way to serve HTTPS.
-`Server/export_payload.lbl` now produces the byte-identical in-APK payload: run
+`Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
+response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
 counterpart remains because `Server/build_phone_apk.py` and `Server/test_inapk_server.py`
 still import it. As elsewhere in Legible, errors go to stdout (there is no stderr builtin),
