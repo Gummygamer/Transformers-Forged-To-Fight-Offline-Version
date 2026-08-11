@@ -194,7 +194,14 @@ should generate your own.
 You need the APK installed on an ARM translation capable emulator (LDPlayer 9 was used, with
 root and writable system), Python on the PC, and the items from the section above.
 
-1. Generate certs once: `bash Server/gen_certs.sh`.
+1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
+   Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
+   real shell (Git Bash on Windows). Do not run it with `python`/`python3` and do not
+   paste its contents into a Python interactive prompt: the file is an OpenSSL
+   config generator, not Python source, and a Python REPL will fail to parse it
+   (for example, tripping over the `CN = tform-0901-...` line in the embedded
+   config with a "leading zeros in decimal integer literals" error). That error
+   means the wrong interpreter was used, not a bug in the script.
 2. Build the patched library once: `legible run patches/patch_il2cpp.lbl path/to/original/libil2cpp.so --apply`.
    That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
 3. Build the arm64 hook once if you want to rebuild it, otherwise use the prebuilt one:
@@ -388,8 +395,9 @@ It accepts the same flags, but its error messages go to stdout because Legible h
 `tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
 `currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
 need Frida's native Python bindings.
-`Server/build_phone_apk.py` rewrites ZIP APK entries and packed binary metadata
-(`zipfile`, `struct`). The request-synthesis layer and both listeners are ported as
+`Server/build_phone_apk.lbl` ports the phone APK builder: run
+`legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N]`.
+The source APK's non-signature entries are all `ZIP_STORED`, so its Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. The request-synthesis layer and both listeners are ported as
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run
 `legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
 or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
