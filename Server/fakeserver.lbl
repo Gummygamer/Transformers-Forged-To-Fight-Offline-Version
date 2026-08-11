@@ -73,6 +73,11 @@ public function log_dir(): text
   path_join(here(), "logs")
 end
 
+public function pem_path(): text
+  intent: get
+  path_join(path_join(here(), "certs"), "server.pem")
+end
+
 public function logfile(): text
   intent: get
   path_join(log_dir(), "requests.log")
@@ -536,11 +541,8 @@ end
   out
 end
 
-public function serve_http(port: integer): nothing
+function request_loop(): nothing
   intent: serve
-  create_dir(log_dir())
-  http_start(port)
-  log_line("[*] HTTP  listening on :" ++ to_text(port))
   while true do
     let req: Request = http_next_request()
     let path: text = if req.query == "" then
@@ -576,6 +578,22 @@ end
   http_respond_with_headers(200, {"Content-Type": "application/json", "Content-Length": to_text(text_length(choice.body))}, choice.body)
 end
   end
+end
+
+public function serve_http(port: integer): nothing
+  intent: serve
+  create_dir(log_dir())
+  http_start(port)
+  log_line("[*] HTTP  listening on :" ++ to_text(port))
+  request_loop()
+end
+
+public function serve_https(port: integer): nothing
+  intent: serve
+  create_dir(log_dir())
+  http_start_https(port, pem_path(), pem_path())
+  log_line("[*] HTTPS listening on :" ++ to_text(port))
+  request_loop()
 end
 
 function emit(name: text, value: text): nothing
@@ -668,8 +686,10 @@ function main(): nothing
   dump_dynamic()
 else if command == "--http" then
   serve_http(unwrap_or(to_integer(unwrap_or(get(arguments, 2), "80")), 80))
+else if command == "--https" then
+  serve_https(unwrap_or(to_integer(unwrap_or(get(arguments, 2), "443")), 443))
 else
-  print("[!] fakeserver.lbl serves plain HTTP only; use Server/fakeserver.py for the HTTPS:443 listener")
+  print("[*] One listener per process: run this with --http 80 and a second copy with --https 443.")
   serve_http(80)
 end
 end

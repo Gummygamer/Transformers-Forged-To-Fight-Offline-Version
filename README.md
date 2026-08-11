@@ -389,12 +389,16 @@ It accepts the same flags, but its error messages go to stdout because Legible h
 `currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
 need Frida's native Python bindings.
 `Server/build_phone_apk.py` rewrites ZIP APK entries and packed binary metadata
-(`zipfile`, `struct`). The request-synthesis layer and plain-HTTP listener are also ported as
-`Server/fakeserver.lbl` and `Server/run_local.lbl`: run them with
-`legible run Server/fakeserver.lbl --http 8080` or `legible run Server/run_local.lbl`.
-Only the HTTPS:443 listener is not ported: Legible's `tiny_http` backend is built without
-TLS, a Legible process can hold only one listener, and it has no threads, so
-`Server/fakeserver.py` remains the way to serve HTTPS.
+(`zipfile`, `struct`). The request-synthesis layer and both listeners are ported as
+`Server/fakeserver.lbl` and `Server/run_local.lbl`: run
+`legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
+or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
+The TLS listener uses `Server/certs/server.pem` through Legible's `http_start_https`.
+Each Legible process holds one listener and has no threads, so HTTP and HTTPS run as two
+processes rather than Python's two threads; this is a design difference, not a port limitation.
+`Server/fakeserver.py` remains on disk only because `Server/export_payload.py` (and, through it,
+`Server/build_phone_apk.py` and `Server/test_inapk_server.py`) still import it; it is no longer
+needed to serve HTTPS.
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python

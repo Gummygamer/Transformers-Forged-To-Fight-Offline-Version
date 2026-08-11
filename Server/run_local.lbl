@@ -5,14 +5,26 @@ function port_from_env(): integer
   unwrap_or(to_integer(unwrap_or(env_get("HTTP_PORT"), "8080")), 8080)
 end
 
+function https_port_from_env(): integer
+  intent: get
+  unwrap_or(to_integer(unwrap_or(env_get("HTTPS_PORT"), "8443")), 8443)
+end
+
 function main(): nothing
   intent: serve
   create_dir(fakeserver.log_dir())
-  write_file(fakeserver.logfile(), "")
-  let port: integer = port_from_env()
+  let command: text = unwrap_or(get(get_args(), 1), "")
   print("[*] Running the fake Sparx server on unprivileged host ports for adb reverse.")
-  print("[!] HTTPS_PORT is unavailable in the Legible port; use Server/run_local.py for that listener.")
-  fakeserver.serve_http(port)
+  print("[*] One listener per process. Run both:")
+  print("      legible run Server/run_local.lbl            # HTTP  on $HTTP_PORT (default 8080)")
+  print("      legible run Server/run_local.lbl --https    # HTTPS on $HTTPS_PORT (default 8443)")
+  if command == "--https" then
+  fakeserver.serve_https(https_port_from_env())
+else
+  -- Only the HTTP process truncates the shared request log.
+  write_file(fakeserver.logfile(), "")
+  fakeserver.serve_http(port_from_env())
+end
 end
 
 main()
