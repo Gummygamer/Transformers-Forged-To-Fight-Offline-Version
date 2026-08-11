@@ -92,6 +92,14 @@ bash Server/gen_certs.sh
 This creates `Server/certs/server.pem`, which the server needs. Keep the
 generated private keys local.
 
+This one step uses Git Bash and `bash`, unlike most other commands on this page
+which use `python` in Command Prompt — `gen_certs.sh` is a shell script, not a
+Python file. Running it with `python` instead of `bash`, or pasting its contents
+into a Python prompt, produces a `SyntaxError` (e.g. on the `CN = tform-0901-...`
+line inside the generated OpenSSL config) because Python cannot parse a bash
+script. That error means the wrong interpreter was used; switch to Git Bash and
+run it with `bash` as shown above.
+
 ## 5. Build the ARMv7 runtime hook
 
 Return to Command Prompt:
