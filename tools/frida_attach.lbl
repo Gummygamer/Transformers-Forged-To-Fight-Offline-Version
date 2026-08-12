@@ -1,0 +1,91 @@
+function shell_quote(value: text): text
+  intent: quote a shell argument safely
+  "'" ++ join(split(value, "'"), "'\\''") ++ "'"
+end
+
+function adb_path(): text
+  intent: select the configured adb executable
+  let configured: text = unwrap_or(env_get("ADB"), "")
+  if configured != "" then configured else "/home/darabat/Android/Sdk/platform-tools/adb" end
+end
+
+function message_line(raw: text): text
+  intent: render one Frida message as a Python-compatible log line
+  let message: a mapping from text to text = json_parse(raw)
+  let kind: text = unwrap_or(get(message, "type"), "")
+  if kind == "send" then
+    let payload: text = unwrap_or(get(message, "payload"), none)
+    let rendered: text = json_encode(payload)
+    if starts_with(rendered, "\"") then to_text(payload) ++ "\n" else rendered ++ "\n" end
+  else if kind == "log" then
+    to_text(unwrap_or(get(message, "payload"), "")) ++ "\n"
+  else if kind == "error" then
+    if has_key(message, "stack") then "JSERR: " ++ to_text(unwrap_or(get(message, "stack"), "")) ++ "\n" else "JSERR: " ++ raw ++ "\n" end
+  else
+    ""
+  end
+end
+
+function append_message(raw: text, output_path: text, contents: text): text
+  intent: append one handled Frida message and flush it
+  let line: text = message_line(raw)
+  if line == "" then
+    contents
+  else
+    let updated: text = contents ++ line
+    write_file(output_path, updated)
+    updated
+  end
+end
+
+function pump_messages(script: integer, output_path: text, seconds: integer, contents: text): text
+  intent: drain Frida messages for a fixed capture window
+  let deadline: integer = current_time_ms() + seconds * 1000
+  mutable output: text = contents
+  while current_time_ms() < deadline do
+    let raw: text = frida_wait_message(script, 100)
+    if raw != "" then set output = append_message(raw, output_path, output) end
+  end
+  mutable trailing: text = frida_next_message(script)
+  while trailing != "" do
+    set output = append_message(trailing, output_path, output)
+    set trailing = frida_next_message(script)
+  end
+  output
+end
+
+function main(): nothing
+  intent: launch the game, attach Frida hooks at the menu, and capture messages
+  let arguments: a list of text = get_args()
+  let source_path: text = unwrap_or(get(arguments, 1), "tools/hook_dot.js")
+  let output_path: text = unwrap_or(get(arguments, 2), "probe/frida_out.log")
+  let boot: integer = unwrap_or(to_integer(unwrap_or(get(arguments, 3), "")), 24)
+  let run: integer = unwrap_or(to_integer(unwrap_or(get(arguments, 4), "")), 16)
+  let adb: text = adb_path()
+  let serial: text = "127.0.0.1:5555"
+  let package: text = "com.kabam.bigrobot"
+  let activity: text = "com.kabam.bigrobot/com.explodingbarrel.Activity"
+  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell am force-stop " ++ shell_quote(package))
+  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell am start -n " ++ shell_quote(activity) ++ " > /dev/null 2>&1")
+  print("launched; booting " ++ to_text(boot) ++ "s to menu before attach...")
+  shell_exec("sleep " ++ to_text(boot))
+  let device: integer = frida_usb_device(15)
+  let pid: integer = frida_device_process_pid(device, "Transformers")
+  if pid == -1 then
+    print("could not attach: process 'Transformers' was not found")
+    exit_process(1)
+  end
+  let session: integer = frida_attach(device, pid)
+  let script: integer = frida_create_script(session, read_file(source_path))
+  write_file(output_path, "")
+  frida_load_script(script)
+  print("attached at menu + hooks loaded")
+  mutable contents: text = pump_messages(script, output_path, 3, "")
+  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell input tap 960 810")
+  print("tapped PLAY NOW; capturing " ++ to_text(run) ++ "s")
+  set contents = pump_messages(script, output_path, run, contents)
+  if session > 0 then frida_detach(session) end
+  print("done -> " ++ output_path)
+end
+
+main()
