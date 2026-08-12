@@ -1,0 +1,934 @@
+-- Build a stock-device APK for the local fake server.  ZIP support here deliberately
+-- covers only stored entries: all non-signature entries in the shipped APK are stored.
+use export_payload
+
+record TextResult
+  value: text
+  error: text
+end
+
+record IntResult
+  value: integer
+  error: text
+end
+
+record Replacement
+  old: text
+  new: text
+end
+
+record MetadataPatch
+  data: integer
+  changed: a list of text
+  error: text
+end
+
+record BytesResult
+  data: integer
+  error: text
+end
+
+record ZipEntry
+  name: text
+  create_version: integer
+  create_system: integer
+  extract_version: integer
+  flag_bits: integer
+  compress_type: integer
+  dostime: integer
+  dosdate: integer
+  crc: integer
+  compress_size: integer
+  file_size: integer
+  extra: integer
+  comment: integer
+  internal_attr: integer
+  external_attr: integer
+  header_offset: integer
+  data_offset: integer
+  data: integer
+end
+
+record ZipArchive
+  raw: integer
+  entries: a list of ZipEntry
+  error: text
+end
+
+record BuildOptions
+  source: text
+  destination: text
+  server_host: text
+  abi: text
+  keep_other_abi: boolean
+  patched_il2cpp: text
+  scheme: text
+  server_port: integer
+  bundle_server: boolean
+  hook_override_arm64: text
+  hook_override_armv7: text
+end
+
+record BuildResult
+  hosts: a list of text
+  error: text
+end
+
+record BuildState
+  archive: ZipArchive
+  hook: integer
+  replacement: integer
+  payload: integer
+  hook_path: text
+  error: text
+end
+
+record EntryResult
+  entry: ZipEntry
+  changed: a list of text
+  error: text
+end
+
+record EntryCollection
+  entries: a list of ZipEntry
+  changed: a list of text
+  error: text
+end
+
+record CliResult
+  options: BuildOptions
+  error: text
+end
+
+public function metadata_name(): text
+  intent: get
+  "assets/bin/Data/Managed/Metadata/global-metadata.dat"
+end
+
+public function sparx_manifest_name(): text
+  intent: get
+  "res/raw/sparxmanifest"
+end
+
+public function endpoint_config_name(): text
+  intent: get
+  "assets/bin/Data/e1917cd7a6bdb4492a247b8f758df2ae"
+end
+
+public function arm64(): text
+  intent: get
+  "arm64-v8a"
+end
+
+public function armv7(): text
+  intent: get
+  "armeabi-v7a"
+end
+
+public function payload_asset(): text
+  intent: get
+  "assets/tftf_offline_payload.bin"
+end
+
+public function default_server_host(): text
+  intent: get
+  "127.0.0.1"
+end
+
+public function hook_entry(abi: text): text
+  intent: build
+  "lib/" ++ abi ++ "/libdothook.so"
+end
+
+public function il2cpp_entry(abi: text): text
+  intent: build
+  "lib/" ++ abi ++ "/libil2cpp.so"
+end
+
+function directory_name(path: text): text
+  intent: get
+  mutable slash: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then set slash = index end
+    set index = index + 1
+  end
+  if slash < 0 then "." else substring(path, 0, slash) end
+end
+
+function here(): text
+  intent: get
+  let args: a list of text = get_args()
+  let script: text = unwrap_or(get(args, 0), "Server/build_phone_apk.lbl")
+  let absolute: text = if starts_with(script, "/") then script else path_join(get_cwd(), script) end
+  directory_name(absolute)
+end
+
+public function abi_hook_path(abi: text): text
+  intent: get
+  if abi == arm64() then path_join(path_join(here(), "../tools/nativehook"), "libdothook.so") else path_join(path_join(here(), "../tools/nativehook"), "libdothook-armeabi-v7a.so") end
+end
+
+public function abi_elf_class(abi: text): integer
+  intent: get
+  if abi == arm64() then 2 else 1 end
+end
+
+public function abi_elf_machine(abi: text): integer
+  intent: get
+  if abi == arm64() then 183 else 40 end
+end
+
+function put_u16(data: integer, offset: integer, value: integer): nothing
+  intent: write
+  bytes_set(data, offset, value % 256)
+  bytes_set(data, offset + 1, floor(value / 256) % 256)
+end
+
+function count_bytes(data: integer, needle: text): integer
+  intent: count
+  let n: integer = bytes_length(bytes_from_text(needle))
+  mutable count: integer = 0
+  mutable at: integer = bytes_index_of(data, needle, 0)
+  while at >= 0 do
+    set count = count + 1
+    set at = bytes_index_of(data, needle, at + n)
+  end
+  count
+end
+
+function copy_bytes(data: integer): integer
+  intent: copy
+  let result: integer = bytes_new(bytes_length(data))
+  bytes_write_bytes(result, 0, data)
+  result
+end
+
+function text_bytes_length(value: text): integer
+  intent: get
+  let data: integer = bytes_from_text(value)
+  let result: integer = bytes_length(data)
+  bytes_free(data)
+  result
+end
+
+function bytes_equal_at(data: integer, offset: integer, needle: text): boolean
+  intent: compare
+  let wanted: integer = bytes_from_text(needle)
+  let n: integer = bytes_length(wanted)
+  mutable same: boolean = offset >= 0 and offset + n <= bytes_length(data)
+  mutable index: integer = 0
+  while index < n and same do
+    if bytes_get(data, offset + index) != bytes_get(wanted, index) then set same = false end
+    set index = index + 1
+  end
+  bytes_free(wanted)
+  same
+end
+
+function zip_signature_at(data: integer, offset: integer, third: integer, fourth: integer): boolean
+  intent: compare
+  if offset < 0 or offset + 4 > bytes_length(data) then false else
+    bytes_get(data, offset) == 80 and bytes_get(data, offset + 1) == 75 and bytes_get(data, offset + 2) == third and bytes_get(data, offset + 3) == fourth
+  end
+end
+
+public function check_elf(data: integer, abi: text, path: text, description: text): text
+  intent: validate
+  if bytes_length(data) < 20 or bytes_get(data, 0) != 127 or bytes_get(data, 1) != 69 or bytes_get(data, 2) != 76 or bytes_get(data, 3) != 70 then
+    description ++ " is not an ELF library: " ++ path
+  else
+    let elf_class: integer = bytes_get(data, 4)
+    let machine: integer = bytes_read_u16_le(data, 18)
+    let want_class: integer = abi_elf_class(abi)
+    let want_machine: integer = abi_elf_machine(abi)
+    if elf_class != want_class or machine != want_machine then
+      description ++ " " ++ path ++ " is ELF class " ++ to_text(elf_class) ++ "/machine " ++ to_text(machine) ++ ", but " ++ abi ++ " needs class " ++ to_text(want_class) ++ "/machine " ++ to_text(want_machine)
+    else "" end
+  end
+end
+
+public function check_hook(data: integer, abi: text, path: text, bundle_server: boolean): text
+  intent: validate
+  let elf_error: text = check_elf(data, abi, path, "runtime hook")
+  if elf_error != "" then elf_error
+  else if bundle_server and bytes_index_of(data, payload_asset(), 0) < 0 then
+    "runtime hook " ++ path ++ " was built without the in-app server (no " ++ payload_asset() ++ " reference); rebuild it with tools/nativehook/inapk_server.c"
+  else "" end
+end
+
+function is_digits_dots(value: text): boolean
+  intent: validate
+  mutable result: boolean = text_length(value) > 0
+  mutable index: integer = 0
+  while index < text_length(value) do
+    let c: text = substring(value, index, 1)
+    if not ((c >= "0" and c <= "9") or c == ".") then set result = false end
+    set index = index + 1
+  end
+  result
+end
+
+function valid_ipv4(value: text): boolean
+  intent: validate
+  let parts: a list of text = split(value, ".")
+  mutable valid: boolean = length(parts) == 4
+  for part in parts do
+    let parsed: integer = to_integer(part)
+    if part == "" or (text_length(part) > 1 and starts_with(part, "0")) or parsed < 0 or parsed > 255 then set valid = false end
+    mutable index: integer = 0
+    while index < text_length(part) do
+      let c: text = substring(part, index, 1)
+      if c < "0" or c > "9" then set valid = false end
+      set index = index + 1
+    end
+  end
+  valid
+end
+
+function valid_hostname(value: text): boolean
+  intent: validate
+  if text_length(value) < 1 or text_length(value) > 253 then false else
+    let labels: a list of text = split(value, ".")
+    mutable valid: boolean = true
+    for label in labels do
+      if text_length(label) < 1 or text_length(label) > 63 or starts_with(label, "-") or ends_with(label, "-") then set valid = false end
+      mutable index: integer = 0
+      while index < text_length(label) do
+        let c: text = substring(label, index, 1)
+        if not ((c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "-") then set valid = false end
+        set index = index + 1
+      end
+    end
+    valid
+  end
+end
+
+function text_has(value: text, needle: text): boolean
+  intent: find
+  mutable found: boolean = false
+  mutable index: integer = 0
+  while index + text_length(needle) <= text_length(value) do
+    if substring(value, index, text_length(needle)) == needle then set found = true end
+    set index = index + 1
+  end
+  found
+end
+
+function replacement_index(data: integer, start: integer, size: integer, pending: a list of Replacement): integer
+  intent: find
+  mutable hit: integer = -1
+  mutable index: integer = 0
+  while index < length(pending) do
+    let replacement: Replacement = unwrap_or(get(pending, index), Replacement { old: "", new: "" })
+    if text_bytes_length(replacement.old) == size and bytes_equal_at(data, start, replacement.old) then set hit = index end
+    set index = index + 1
+  end
+  hit
+end
+
+function missing_replacements(pending: a list of Replacement): text
+  intent: get
+  mutable values: a list of text = []
+  for replacement in pending do set values = append(values, replacement.old) end
+  "expected string literals not found: " ++ join(values, ", ")
+end
+
+public function validate_server_host(value: text): TextResult
+  intent: validate
+  let clean: text = trim(value)
+  if clean == "" or text_has(clean, "/") or text_has(clean, ":") or text_has(clean, "[") or text_has(clean, "]") then
+    TextResult { value: "", error: "server host must be a bare IPv4 address or DNS name (no scheme, port, or path)" }
+  else if valid_ipv4(clean) or (not is_digits_dots(clean) and valid_hostname(clean)) then
+    TextResult { value: clean, error: "" }
+  else TextResult { value: "", error: "invalid server host: '" ++ clean ++ "'" } end
+end
+
+public function validate_server_port(value: text): IntResult
+  intent: validate
+  mutable digits: boolean = value != ""
+  mutable index: integer = 0
+  while index < text_length(value) do
+    let c: text = substring(value, index, 1)
+    if c < "0" or c > "9" then set digits = false end
+    set index = index + 1
+  end
+  let parsed: integer = to_integer(value)
+  if not digits then IntResult { value: 0, error: "invalid server port: '" ++ value ++ "'" }
+  else if parsed < 1 or parsed > 65535 then IntResult { value: 0, error: "server port must be in the range 1..65535" }
+  else IntResult { value: parsed, error: "" } end
+end
+
+public function literal_replacements(server_host: text, server_port: integer): a list of Replacement
+  intent: build
+  let port: text = to_text(server_port)
+  [Replacement { old: "tf-odr.mcoc-cdn.cn", new: server_host ++ ":" ++ port }, Replacement { old: "tf-static.mcoc-cdn.cn", new: server_host ++ ":" ++ port }, Replacement { old: "words-express.tf-cdn.net", new: server_host ++ ":" ++ port }, Replacement { old: "wss://gametalk.sparx.io:30443", new: "wss://" ++ server_host ++ ":30443" }]
+end
+
+public function patch_metadata(metadata: integer, server_host: text, server_port: integer): MetadataPatch
+  intent: patch
+  if bytes_length(metadata) < 24 then MetadataPatch { data: 0, changed: [], error: "metadata is too short" } else
+    let out: integer = copy_bytes(metadata)
+    let literal_offset: integer = bytes_read_u32_le(out, 8)
+    let literal_count: integer = bytes_read_u32_le(out, 12)
+    let data_offset: integer = bytes_read_u32_le(out, 16)
+    mutable changed: a list of text = []
+    mutable error: text = ""
+    mutable pending: a list of Replacement = literal_replacements(server_host, server_port)
+    mutable entry: integer = literal_offset
+    while entry < literal_offset + literal_count and error == "" do
+      if entry + 8 > bytes_length(out) then set error = "metadata literal table is out of range" else
+        let size: integer = bytes_read_u32_le(out, entry)
+        let index: integer = bytes_read_u32_le(out, entry + 4)
+        let start: integer = data_offset + index
+        let hit: integer = replacement_index(out, start, size, pending)
+        if hit >= 0 then
+          let replacement: Replacement = unwrap_or(get(pending, hit), Replacement { old: "", new: "" })
+          let new_data: integer = bytes_from_text(replacement.new)
+          if bytes_length(new_data) > size then set error = "replacement is longer than literal: '" ++ replacement.old ++ "'" else
+            bytes_write_bytes(out, start, new_data)
+            bytes_write_u32_le(out, entry, bytes_length(new_data))
+            set changed = append(changed, replacement.old)
+            mutable rest: a list of Replacement = []
+            mutable q: integer = 0
+            while q < length(pending) do
+              if q != hit then set rest = append(rest, unwrap_or(get(pending, q), Replacement { old: "", new: "" })) end
+              set q = q + 1
+            end
+            set pending = rest
+          end
+          bytes_free(new_data)
+        end
+      end
+      set entry = entry + 8
+    end
+    if error == "" and length(pending) > 0 then set error = missing_replacements(pending) end
+    if error != "" then bytes_free(out) end
+    MetadataPatch { data: if error == "" then out else 0 end, changed: changed, error: error }
+  end
+end
+
+function replace_one_fixed(data: integer, old: text, replacement: text, pad: boolean, label: text): BytesResult
+  intent: patch
+  let count: integer = count_bytes(data, old)
+  if count != 1 then BytesResult { data: 0, error: label } else
+    let old_data: integer = bytes_from_text(old)
+    let new_data: integer = bytes_from_text(replacement)
+    if pad and bytes_length(new_data) > bytes_length(old_data) then
+      bytes_free(old_data)
+      bytes_free(new_data)
+      BytesResult { data: 0, error: "server host is too long for the fixed-size Unity endpoint config" }
+    else if pad then
+      let out: integer = copy_bytes(data)
+      let at: integer = bytes_index_of(out, old, 0)
+      bytes_write_bytes(out, at, new_data)
+      bytes_fill(out, at + bytes_length(new_data), bytes_length(old_data) - bytes_length(new_data), 32)
+      bytes_free(old_data)
+      bytes_free(new_data)
+      BytesResult { data: out, error: "" }
+    else
+      let at: integer = bytes_index_of(data, old, 0)
+      let prefix: integer = bytes_slice(data, 0, at)
+      let suffix: integer = bytes_slice(data, at + bytes_length(old_data), bytes_length(data) - at - bytes_length(old_data))
+      let beginning: integer = bytes_concat(prefix, new_data)
+      let out: integer = bytes_concat(beginning, suffix)
+      bytes_free(prefix)
+      bytes_free(suffix)
+      bytes_free(beginning)
+      bytes_free(old_data)
+      bytes_free(new_data)
+      BytesResult { data: out, error: "" }
+    end
+  end
+end
+
+public function patch_sparx_manifest(data: integer, server_host: text, scheme: text, server_port: integer): BytesResult
+  intent: patch
+  replace_one_fixed(data, "https://tform-0901-hzlhiniyfcwf.tf-cdn.net", scheme ++ "://" ++ server_host ++ ":" ++ to_text(server_port), false, "unexpected Sparx manifest endpoint count")
+end
+
+public function patch_endpoint_config(data: integer, server_host: text, scheme: text, server_port: integer): BytesResult
+  intent: patch
+  let old: text = "\{\"Default\":\{\"Prod\":\"https://tform-0901-hzlhiniyfcwf.tf-cdn.net\"}}"
+  let new: text = "\{\"Default\":\{\"Prod\":\"" ++ scheme ++ "://" ++ server_host ++ ":" ++ to_text(server_port) ++ "\"}}"
+  replace_one_fixed(data, old, new, true, "unexpected Unity endpoint config count")
+end
+
+function crc_table(): a list of integer
+  intent: build
+  mutable table: a list of integer = []
+  mutable index: integer = 0
+  while index < 256 do
+    mutable value: integer = index
+    mutable bit: integer = 0
+    while bit < 8 do
+      if bit_and(value, 1) == 1 then set value = bit_xor(shift_right_unsigned(value, 1), 3988292384) else set value = shift_right_unsigned(value, 1) end
+      set bit = bit + 1
+    end
+    set table = append(table, value)
+    set index = index + 1
+  end
+  table
+end
+
+function crc_of(handle: integer, start: integer, count: integer, table: a list of integer): integer
+  intent: compute
+  mutable crc: integer = 4294967295
+  mutable index: integer = start
+  let stop: integer = start + count
+  while index < stop do
+    let slot: integer = bit_and(bit_xor(crc, bytes_get(handle, index)), 255)
+    set crc = bit_xor(shift_right_unsigned(crc, 8), unwrap_or(get(table, slot), 0))
+    set index = index + 1
+  end
+  bit_xor(crc, 4294967295)
+end
+
+function zip_error(raw: integer, message: text): ZipArchive
+  intent: build
+  ZipArchive { raw: raw, entries: [], error: message }
+end
+
+public function zip_read(path: text): ZipArchive
+  intent: read
+  if not file_exists(path) then zip_error(0, "APK is missing: " ++ path) else
+    let raw: integer = read_file_bytes(path)
+    mutable eocd: integer = bytes_length(raw) - 22
+    while eocd >= 0 and not zip_signature_at(raw, eocd, 5, 6) do set eocd = eocd - 1 end
+    if eocd < 0 or eocd + 22 > bytes_length(raw) then zip_error(raw, "invalid ZIP end of central directory") else
+      let count: integer = bytes_read_u16_le(raw, eocd + 10)
+      mutable offset: integer = bytes_read_u32_le(raw, eocd + 16)
+      mutable entries: a list of ZipEntry = []
+      mutable error: text = ""
+      mutable index: integer = 0
+      while index < count and error == "" do
+        if offset + 46 > bytes_length(raw) or not zip_signature_at(raw, offset, 1, 2) then set error = "invalid ZIP central directory" else
+          let nlen: integer = bytes_read_u16_le(raw, offset + 28)
+          let xlen: integer = bytes_read_u16_le(raw, offset + 30)
+          let clen: integer = bytes_read_u16_le(raw, offset + 32)
+          let local: integer = bytes_read_u32_le(raw, offset + 42)
+          if local + 30 > bytes_length(raw) or not zip_signature_at(raw, local, 3, 4) then set error = "invalid ZIP local header" else
+            let local_nlen: integer = bytes_read_u16_le(raw, local + 26)
+            let local_xlen: integer = bytes_read_u16_le(raw, local + 28)
+            let name_data: integer = bytes_slice(raw, offset + 46, nlen)
+            let entry: ZipEntry = ZipEntry { name: bytes_to_text(name_data), create_version: bytes_get(raw, offset + 4), create_system: bytes_get(raw, offset + 5), extract_version: bytes_get(raw, offset + 6), flag_bits: bytes_read_u16_le(raw, offset + 8), compress_type: bytes_read_u16_le(raw, offset + 10), dostime: bytes_read_u16_le(raw, offset + 12), dosdate: bytes_read_u16_le(raw, offset + 14), crc: bytes_read_u32_le(raw, offset + 16), compress_size: bytes_read_u32_le(raw, offset + 20), file_size: bytes_read_u32_le(raw, offset + 24), extra: bytes_slice(raw, offset + 46 + nlen, xlen), comment: bytes_slice(raw, offset + 46 + nlen + xlen, clen), internal_attr: bytes_read_u16_le(raw, offset + 36), external_attr: bytes_read_u32_le(raw, offset + 38), header_offset: local, data_offset: local + 30 + local_nlen + local_xlen, data: 0 }
+            bytes_free(name_data)
+            set entries = append(entries, entry)
+            set offset = offset + 46 + nlen + xlen + clen
+          end
+        end
+        set index = index + 1
+      end
+      ZipArchive { raw: raw, entries: entries, error: error }
+    end
+  end
+end
+
+public function zip_names(archive: ZipArchive): a list of text
+  intent: get
+  mutable names: a list of text = []
+  for entry in archive.entries do set names = append(names, entry.name) end
+  names
+end
+
+public function zip_find(archive: ZipArchive, name: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < length(archive.entries) do
+    if unwrap_or(get(archive.entries, index), ZipEntry { name: "", create_version: 0, create_system: 0, extract_version: 0, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 0, crc: 0, compress_size: 0, file_size: 0, extra: 0, comment: 0, internal_attr: 0, external_attr: 0, header_offset: 0, data_offset: 0, data: 0 }).name == name then set result = index end
+    set index = index + 1
+  end
+  result
+end
+
+public function zip_entry_data(archive: ZipArchive, index: integer): integer
+  intent: read
+  let entry: ZipEntry = unwrap_or(get(archive.entries, index), ZipEntry { name: "", create_version: 0, create_system: 0, extract_version: 0, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 0, crc: 0, compress_size: 0, file_size: 0, extra: 0, comment: 0, internal_attr: 0, external_attr: 0, header_offset: 0, data_offset: 0, data: 0 })
+  if entry.data != 0 then copy_bytes(entry.data) else bytes_slice(archive.raw, entry.data_offset, entry.compress_size) end
+end
+
+public function zip_free(archive: ZipArchive): nothing
+  intent: free
+  for entry in archive.entries do
+    if entry.extra != 0 then bytes_free(entry.extra) end
+    if entry.comment != 0 then bytes_free(entry.comment) end
+  end
+  if archive.raw != 0 then bytes_free(archive.raw) end
+end
+
+function entry_data(archive: ZipArchive, entry: ZipEntry): integer
+  intent: read
+  if entry.data != 0 then entry.data else bytes_slice(archive.raw, entry.data_offset, entry.compress_size) end
+end
+
+function write_local(out: integer, offset: integer, entry: ZipEntry, crc: integer, size: integer): integer
+  intent: write
+  let name: integer = bytes_from_text(entry.name)
+  let name_length: integer = bytes_length(name)
+  bytes_set(out, offset, 80)
+  bytes_set(out, offset + 1, 75)
+  bytes_set(out, offset + 2, 3)
+  bytes_set(out, offset + 3, 4)
+  bytes_set(out, offset + 4, entry.extract_version)
+  bytes_set(out, offset + 5, 0)
+  put_u16(out, offset + 6, 0)
+  put_u16(out, offset + 8, 0)
+  put_u16(out, offset + 10, entry.dostime)
+  put_u16(out, offset + 12, entry.dosdate)
+  bytes_write_u32_le(out, offset + 14, crc)
+  bytes_write_u32_le(out, offset + 18, size)
+  bytes_write_u32_le(out, offset + 22, size)
+  put_u16(out, offset + 26, name_length)
+  put_u16(out, offset + 28, bytes_length(entry.extra))
+  bytes_write_bytes(out, offset + 30, name)
+  bytes_write_bytes(out, offset + 30 + name_length, entry.extra)
+  let next: integer = offset + 30 + name_length + bytes_length(entry.extra)
+  bytes_free(name)
+  next
+end
+
+function write_central(out: integer, offset: integer, entry: ZipEntry, crc: integer, size: integer, header: integer): integer
+  intent: write
+  let name: integer = bytes_from_text(entry.name)
+  bytes_set(out, offset, 80)
+  bytes_set(out, offset + 1, 75)
+  bytes_set(out, offset + 2, 1)
+  bytes_set(out, offset + 3, 2)
+  bytes_set(out, offset + 4, entry.create_version)
+  bytes_set(out, offset + 5, entry.create_system)
+  bytes_set(out, offset + 6, entry.extract_version)
+  bytes_set(out, offset + 7, 0)
+  put_u16(out, offset + 8, 0)
+  put_u16(out, offset + 10, 0)
+  put_u16(out, offset + 12, entry.dostime)
+  put_u16(out, offset + 14, entry.dosdate)
+  bytes_write_u32_le(out, offset + 16, crc)
+  bytes_write_u32_le(out, offset + 20, size)
+  bytes_write_u32_le(out, offset + 24, size)
+  put_u16(out, offset + 28, bytes_length(name))
+  put_u16(out, offset + 30, bytes_length(entry.extra))
+  put_u16(out, offset + 32, bytes_length(entry.comment))
+  put_u16(out, offset + 34, 0)
+  put_u16(out, offset + 36, entry.internal_attr)
+  bytes_write_u32_le(out, offset + 38, if entry.external_attr == 0 then 25165824 else entry.external_attr end)
+  bytes_write_u32_le(out, offset + 42, header)
+  bytes_write_bytes(out, offset + 46, name)
+  bytes_write_bytes(out, offset + 46 + bytes_length(name), entry.extra)
+  bytes_write_bytes(out, offset + 46 + bytes_length(name) + bytes_length(entry.extra), entry.comment)
+  let next: integer = offset + 46 + bytes_length(name) + bytes_length(entry.extra) + bytes_length(entry.comment)
+  bytes_free(name)
+  next
+end
+
+function zip_write_entries(path: text, entries: a list of ZipEntry, table: a list of integer): text
+  intent: write
+  let checked: a list of ZipEntry = crc_entries(entries, table)
+  write_preserved_zip(path, checked, 0)
+end
+
+function crc_entries(entries: a list of ZipEntry, table: a list of integer): a list of ZipEntry
+  intent: build
+  mutable out: a list of ZipEntry = []
+  for entry in entries do
+    let crc: integer = crc_of(entry.data, 0, bytes_length(entry.data), table)
+    set out = append(out, copied_entry(entry, entry.data, crc))
+  end
+  out
+end
+
+public function zip_write(path: text, entries: a list of ZipEntry): text
+  intent: write
+  zip_write_entries(path, entries, crc_table())
+end
+
+function dos_from_epoch(seconds: integer): a list of integer
+  intent: convert
+  -- Howard Hinnant's civil-from-days, using UTC deliberately.
+  let days: integer = floor(seconds / 86400)
+  let sod: integer = seconds % 86400
+  let z: integer = days + 719468
+  let era: integer = if z >= 0 then floor(z / 146097) else floor((z - 146096) / 146097) end
+  let doe: integer = z - era * 146097
+  let yoe: integer = floor((doe - floor(doe / 1460) + floor(doe / 36524) - floor(doe / 146096)) / 365)
+  let y: integer = yoe + era * 400
+  let doy: integer = doe - (365 * yoe + floor(yoe / 4) - floor(yoe / 100))
+  let mp: integer = floor((5 * doy + 2) / 153)
+  let d: integer = doy - floor((153 * mp + 2) / 5) + 1
+  let m: integer = mp + if mp < 10 then 3 else -9 end
+  let year: integer = y + if m <= 2 then 1 else 0 end
+  [floor(sod / 3600), floor((sod % 3600) / 60), sod % 60, floor(year / 1), m, d]
+end
+
+function fresh_entry(name: text, data: integer): ZipEntry
+  intent: build
+  let epoch: integer = unwrap_or(to_integer(unwrap_or(env_get("SOURCE_DATE_EPOCH"), "")), floor(current_time_ms() / 1000))
+  let civil: a list of integer = dos_from_epoch(epoch)
+  let hh: integer = unwrap_or(get(civil, 0), 0)
+  let mm: integer = unwrap_or(get(civil, 1), 0)
+  let ss: integer = unwrap_or(get(civil, 2), 0)
+  let yy: integer = unwrap_or(get(civil, 3), 1980)
+  let mo: integer = unwrap_or(get(civil, 4), 1)
+  let dd: integer = unwrap_or(get(civil, 5), 1)
+  ZipEntry { name: name, create_version: 20, create_system: 3, extract_version: 20, flag_bits: 0, compress_type: 0, dostime: hh * 2048 + mm * 32 + floor(ss / 2), dosdate: (yy - 1980) * 512 + mo * 32 + dd, crc: crc_of(data, 0, bytes_length(data), crc_table()), compress_size: bytes_length(data), file_size: bytes_length(data), extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 25165824, header_offset: 0, data_offset: 0, data: data }
+end
+
+function payload_entry(data: integer): ZipEntry
+  intent: build
+  ZipEntry { name: payload_asset(), create_version: 20, create_system: 3, extract_version: 20, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 33, crc: crc_of(data, 0, bytes_length(data), crc_table()), compress_size: bytes_length(data), file_size: bytes_length(data), extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 27525120, header_offset: 0, data_offset: 0, data: data }
+end
+
+public function default_build_options(source: text, destination: text): BuildOptions
+  intent: build
+  BuildOptions { source: source, destination: destination, server_host: default_server_host(), abi: arm64(), keep_other_abi: false, patched_il2cpp: "", scheme: "https", server_port: 8443, bundle_server: false, hook_override_arm64: "", hook_override_armv7: "" }
+end
+
+function selected_hook(options: BuildOptions): text
+  intent: get
+  if options.abi == arm64() and options.hook_override_arm64 != "" then options.hook_override_arm64
+  else if options.abi == armv7() and options.hook_override_armv7 != "" then options.hook_override_armv7
+  else abi_hook_path(options.abi) end
+end
+
+function has_signature(name: text): boolean
+  intent: validate
+  let upper: text = uppercase(name)
+  starts_with(upper, "META-INF/") and (ends_with(upper, ".SF") or ends_with(upper, ".RSA") or ends_with(upper, ".DSA") or ends_with(upper, ".EC") or ends_with(upper, "MANIFEST.MF"))
+end
+
+function unique(values: a list of text): a list of text
+  intent: unique
+  mutable out: a list of text = []
+  for value in values do if not contains(out, value) then set out = append(out, value) end end
+  out
+end
+
+public function build(options: BuildOptions): BuildResult
+  intent: build
+  let state: BuildState = prepare_build(options)
+  let result: BuildResult = if state.error != "" then BuildResult { hosts: [], error: state.error } else
+    let selected: EntryCollection = collect_entries(options, state)
+    if selected.error != "" then BuildResult { hosts: [], error: selected.error }
+    else
+      let write_error: text = write_preserved_zip(options.destination, selected.entries, state.archive.raw)
+      if write_error != "" then BuildResult { hosts: [], error: write_error } else BuildResult { hosts: unique(selected.changed), error: "" } end
+    end
+  end
+  zip_free(state.archive)
+  if state.hook != 0 then bytes_free(state.hook) end
+  if state.replacement != 0 then bytes_free(state.replacement) end
+  if state.payload != 0 then bytes_free(state.payload) end
+  result
+end
+
+function prepare_build(options: BuildOptions): BuildState
+  intent: prepare
+  let archive: ZipArchive = zip_read(options.source)
+  mutable error: text = archive.error
+  if options.source == options.destination then set error = "destination must differ from source; the original APK is preserved" end
+  if error == "" and options.abi != arm64() and options.abi != armv7() then set error = "invalid ABI: " ++ options.abi end
+  if error == "" and options.bundle_server and options.scheme != "http" then set error = "bundled server requires --scheme http" end
+  if error == "" and options.bundle_server and options.server_host != "127.0.0.1" then set error = "bundled server binds loopback only; --server-host must be 127.0.0.1" end
+  for name in ["AndroidManifest.xml", metadata_name(), sparx_manifest_name(), endpoint_config_name(), il2cpp_entry(options.abi)] do
+    if error == "" and zip_find(archive, name) < 0 then set error = "APK is missing " ++ name end
+  end
+  let hook_path: text = selected_hook(options)
+  if error == "" and not file_exists(hook_path) then set error = "current runtime hook is missing: " ++ hook_path end
+  let hook: integer = if error == "" then read_file_bytes(hook_path) else 0 end
+  if error == "" then set error = check_hook(hook, options.abi, hook_path, options.bundle_server) end
+  let replacement: integer = if options.patched_il2cpp != "" and file_exists(options.patched_il2cpp) then read_file_bytes(options.patched_il2cpp) else 0 end
+  if error == "" and options.patched_il2cpp != "" and replacement == 0 then set error = "patched libil2cpp is missing: " ++ options.patched_il2cpp end
+  if error == "" and replacement != 0 then set error = check_elf(replacement, options.abi, options.patched_il2cpp, "patched libil2cpp") end
+  if error == "" and replacement != 0 then
+    if bytes_index_of(replacement, "libdothook.so", 0) < 0 then set error = "patched libil2cpp does not reference libdothook.so: " ++ options.patched_il2cpp end
+  end
+  let payload: integer = if error == "" and options.bundle_server then export_payload.build_payload(options.server_port) else 0 end
+  BuildState { archive: archive, hook: hook, replacement: replacement, payload: payload, hook_path: hook_path, error: error }
+end
+
+function copied_entry(entry: ZipEntry, data: integer, crc: integer): ZipEntry
+  intent: build
+  ZipEntry { name: entry.name, create_version: entry.create_version, create_system: entry.create_system, extract_version: entry.extract_version, flag_bits: 0, compress_type: 0, dostime: entry.dostime, dosdate: entry.dosdate, crc: crc, compress_size: bytes_length(data), file_size: bytes_length(data), extra: entry.extra, comment: entry.comment, internal_attr: entry.internal_attr, external_attr: entry.external_attr, header_offset: 0, data_offset: 0, data: data }
+end
+
+function preserved_entry(entry: ZipEntry): ZipEntry
+  intent: build
+  ZipEntry { name: entry.name, create_version: entry.create_version, create_system: entry.create_system, extract_version: entry.extract_version, flag_bits: 0, compress_type: 0, dostime: entry.dostime, dosdate: entry.dosdate, crc: entry.crc, compress_size: entry.compress_size, file_size: entry.file_size, extra: entry.extra, comment: entry.comment, internal_attr: entry.internal_attr, external_attr: entry.external_attr, header_offset: 0, data_offset: entry.data_offset, data: 0 }
+end
+
+function patch_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
+  intent: patch
+  if entry.name == metadata_name() then
+    let raw: integer = entry_data(state.archive, entry)
+    let patched: MetadataPatch = patch_metadata(raw, options.server_host, options.server_port)
+    bytes_free(raw)
+    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, crc_of(patched.data, 0, bytes_length(patched.data), crc_table())), changed: patched.changed, error: "" } end
+  else if entry.name == sparx_manifest_name() then
+    let raw: integer = entry_data(state.archive, entry)
+    let patched: BytesResult = patch_sparx_manifest(raw, options.server_host, options.scheme, options.server_port)
+    bytes_free(raw)
+    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, crc_of(patched.data, 0, bytes_length(patched.data), crc_table())), changed: ["tform-0901-hzlhiniyfcwf.tf-cdn.net"], error: "" } end
+  else if entry.name == endpoint_config_name() then
+    let raw: integer = entry_data(state.archive, entry)
+    let patched: BytesResult = patch_endpoint_config(raw, options.server_host, options.scheme, options.server_port)
+    bytes_free(raw)
+    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, crc_of(patched.data, 0, bytes_length(patched.data), crc_table())), changed: [], error: "" } end
+  else if entry.name == hook_entry(options.abi) then
+    EntryResult { entry: copied_entry(entry, state.hook, crc_of(state.hook, 0, bytes_length(state.hook), crc_table())), changed: [], error: "" }
+  else if entry.name == il2cpp_entry(options.abi) and state.replacement != 0 then
+    EntryResult { entry: copied_entry(entry, state.replacement, crc_of(state.replacement, 0, bytes_length(state.replacement), crc_table())), changed: [], error: "" }
+  else EntryResult { entry: preserved_entry(entry), changed: [], error: "" } end
+end
+
+function collect_entries(options: BuildOptions, state: BuildState): EntryCollection
+  intent: collect
+  mutable entries: a list of ZipEntry = []
+  mutable changed: a list of text = []
+  mutable error: text = ""
+  let other_prefix: text = "lib/" ++ if options.abi == arm64() then armv7() else arm64() end ++ "/"
+  for entry in state.archive.entries do
+    let keep: boolean = not has_signature(entry.name) and (options.keep_other_abi or not starts_with(entry.name, other_prefix)) and (not options.bundle_server or entry.name != payload_asset())
+    if keep and error == "" then
+      if entry.compress_type != 0 then set error = "unsupported compressed ZIP entry: " ++ entry.name else
+        let result: EntryResult = patch_entry(options, state, entry)
+        if result.error != "" then set error = result.error else
+          set entries = append(entries, result.entry)
+          for value in result.changed do set changed = append(changed, value) end
+        end
+      end
+    end
+  end
+  if error == "" and zip_find(state.archive, hook_entry(options.abi)) < 0 then set entries = append(entries, fresh_entry(hook_entry(options.abi), state.hook)) end
+  if error == "" and options.bundle_server then set entries = append(entries, payload_entry(state.payload)) end
+  EntryCollection { entries: entries, changed: changed, error: error }
+end
+
+function entry_size(entry: ZipEntry): integer
+  intent: get
+  if entry.data != 0 then bytes_length(entry.data) else entry.compress_size end
+end
+
+function zip_sizes(entries: a list of ZipEntry): a list of integer
+  intent: calculate
+  mutable local_size: integer = 0
+  mutable central_size: integer = 0
+  for entry in entries do
+    set local_size = local_size + 30 + text_bytes_length(entry.name) + bytes_length(entry.extra) + entry_size(entry)
+    set central_size = central_size + 46 + text_bytes_length(entry.name) + bytes_length(entry.extra) + bytes_length(entry.comment)
+  end
+  [local_size, central_size]
+end
+
+function write_zip_directory(out: integer, offset: integer, entries: a list of ZipEntry, headers: a list of integer): integer
+  intent: write
+  mutable at: integer = offset
+  mutable index: integer = 0
+  while index < length(entries) do
+    let entry: ZipEntry = unwrap(get(entries, index))
+    set at = write_central(out, at, entry, entry.crc, entry_size(entry), unwrap_or(get(headers, index), 0))
+    set index = index + 1
+  end
+  at
+end
+
+function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw: integer): text
+  intent: write
+  let sizes: a list of integer = zip_sizes(entries)
+  let out: integer = bytes_new(unwrap_or(get(sizes, 0), 0) + unwrap_or(get(sizes, 1), 0) + 22)
+  mutable at: integer = 0
+  mutable headers: a list of integer = []
+  for entry in entries do
+    set headers = append(headers, at)
+    let size: integer = entry_size(entry)
+    set at = write_local(out, at, entry, entry.crc, size)
+    if entry.data != 0 then bytes_write_bytes(out, at, entry.data) else
+      let chunk: integer = bytes_slice(source_raw, entry.data_offset, entry.compress_size)
+      bytes_write_bytes(out, at, chunk)
+      bytes_free(chunk)
+    end
+    set at = at + size
+  end
+  let central: integer = at
+  set at = write_zip_directory(out, at, entries, headers)
+  bytes_set(out, at, 80)
+  bytes_set(out, at + 1, 75)
+  bytes_set(out, at + 2, 5)
+  bytes_set(out, at + 3, 6)
+  put_u16(out, at + 4, 0)
+  put_u16(out, at + 6, 0)
+  put_u16(out, at + 8, length(entries))
+  put_u16(out, at + 10, length(entries))
+  bytes_write_u32_le(out, at + 12, at - central)
+  bytes_write_u32_le(out, at + 16, central)
+  put_u16(out, at + 20, 0)
+  write_file_bytes(path, out)
+  bytes_free(out)
+  ""
+end
+
+function print_build_result(options: BuildOptions, result: BuildResult): nothing
+  intent: print
+  print("wrote unsigned APK: " ++ options.destination)
+  print("abi: " ++ options.abi ++ if options.keep_other_abi then "" else " (other ABI's libraries dropped)" end)
+  print("redirected: " ++ join(result.hosts, ", "))
+  print("fake server: " ++ options.scheme ++ "://" ++ options.server_host ++ ":" ++ to_text(options.server_port))
+  if options.bundle_server then
+    let payload: integer = export_payload.build_payload(options.server_port)
+    let loaded: Payload = export_payload.load_payload(payload)
+    print("bundled server payload: " ++ payload_asset() ++ " (" ++ to_text(bytes_length(payload)) ++ " bytes, " ++ to_text(length(loaded.entry_keys)) ++ " routes, port " ++ to_text(options.server_port) ++ ")")
+    bytes_free(payload)
+  end
+  let hook: integer = read_file_bytes(selected_hook(options))
+  print("embedded runtime hook: " ++ selected_hook(options) ++ " (" ++ to_text(bytes_length(hook)) ++ " bytes)")
+  bytes_free(hook)
+  if options.patched_il2cpp != "" then print("embedded patched libil2cpp: " ++ options.patched_il2cpp) end
+  print("targetSdkVersion: preserved")
+end
+
+function die(message: text, code: integer): nothing
+  intent: exit
+  print(message)
+  exit_process(code)
+end
+
+function main(): nothing
+  intent: run
+  let args: a list of text = get_args()
+  if length(args) < 3 then die("usage: build_phone_apk.lbl <source> <destination> [--server-host H] [--scheme https|http] [--server-port N] [--abi arm64-v8a|armeabi-v7a] [--keep-other-abi] [--patched-il2cpp PATH] [--bundle-server]", 2) end
+  mutable options: BuildOptions = default_build_options(unwrap_or(get(args, 1), ""), unwrap_or(get(args, 2), ""))
+  mutable error: text = ""
+  mutable index: integer = 3
+  while index < length(args) and error == "" do
+    let flag: text = unwrap_or(get(args, index), "")
+    if flag == "--keep-other-abi" then set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: true, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 }
+    else if flag == "--bundle-server" then set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: true, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 }
+    else if flag == "--server-host" then
+      let checked: TextResult = validate_server_host(unwrap_or(get(args, index + 1), ""))
+      if checked.error != "" then set error = checked.error else set options = BuildOptions { source: options.source, destination: options.destination, server_host: checked.value, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
+      set index = index + 1
+    else if flag == "--server-port" then
+      let checked: IntResult = validate_server_port(unwrap_or(get(args, index + 1), ""))
+      if checked.error != "" then set error = checked.error else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: checked.value, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
+      set index = index + 1
+    else if flag == "--scheme" then
+      let value: text = unwrap_or(get(args, index + 1), "")
+      if value != "https" and value != "http" then set error = "invalid scheme: " ++ value else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: value, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
+      set index = index + 1
+    else if flag == "--abi" then
+      let value: text = unwrap_or(get(args, index + 1), "")
+      if value != arm64() and value != armv7() then set error = "invalid ABI: " ++ value else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: value, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
+      set index = index + 1
+    else if flag == "--patched-il2cpp" then
+      let value: text = unwrap_or(get(args, index + 1), "")
+      if value == "" then set error = "--patched-il2cpp requires a path" else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: value, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
+      set index = index + 1
+    else set error = "unknown argument: " ++ flag end
+    set index = index + 1
+  end
+  if error != "" then die(error, 2) end
+  let result: BuildResult = build(options)
+  if result.error != "" then die(result.error, 1) end
+  print_build_result(options, result)
+end
+
+main()
