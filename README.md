@@ -124,10 +124,6 @@ Server/
 tools/
   provision_ldplayer.sh       one shot re-provision of the emulator to the working state
   setup_arm64.sh              toolchain setup notes
-  decompile_targets.py        drive the Ghidra headless decompiler at chosen offsets
-  find_xrefs.py               cross reference search over the binary
-  apply_labels.py             apply IL2CPP symbol labels
-  light_analyze.py            lightweight static analysis helpers
   apply_labels.lbl            build the portable Ghidra label input
   find_xrefs.lbl              normalize and format portable Ghidra xref data
   decompile_targets.lbl       normalize portable Ghidra decompiler targets
@@ -138,8 +134,6 @@ tools/
     LightAnalyze.java         JVM GhidraScript that disables heavy analyzers
     FindXrefs.java            JVM GhidraScript that collects raw references
     DecompileTargets.java     JVM GhidraScript that writes decompiled C
-  frida_attach.py             Frida helper reference implementations
-  frida_run.py
   frida_attach.lbl            Legible Frida attach-and-capture driver
   frida_run.lbl               Legible Frida spawn-and-capture driver
   hook_dot.js
@@ -403,8 +397,8 @@ function disassembler; run it from that same directory as `legible run patches/d
 <offset_hex> [num_bytes_hex]`. Its two script.json progress lines go to stdout because Legible
 has no stderr builtin. Run the native patcher as
 `legible run patches/patch_il2cpp.lbl <so> [--abi ...] [--apply] [--needed ...] [-o ...]`.
-It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The four former Jython Ghidra scripts are split into Legible data halves (`tools/apply_labels.lbl`, `tools/find_xrefs.lbl`, and `tools/decompile_targets.lbl`) and Java `GhidraScript` shims under `tools/ghidra/`, because Ghidra executes only JVM-hosted scripts. Run each workflow as `legible run tools/ghidra_run.lbl <labels|xrefs|decompile>` with `GHIDRA_HOME` set to the Ghidra installation; `GHIDRA_PROJECT_DIR`, `GHIDRA_PROJECT_NAME`, and `GHIDRA_BINARY` optionally override the project directory, project name, and imported binary. The workflows use `il2cpp_out/labels.tsv`, `xref_targets.norm.tsv`, `xrefs_raw.tsv`, and `decompile_targets.norm.txt` as intermediate files; their final `il2cpp_out/xrefs_out.txt` and `il2cpp_out/decomp_out.c` artifacts retain the Jython scripts' exact byte formats. Ghidra is not installed on this development machine, so the Java halves are unexecuted and uncompiled here; the Legible data halves are covered by `tools/test_ghidra_tools.lbl`. `tools/frida_attach.py` and `tools/frida_run.py` are
-now ported as `tools/frida_attach.lbl` and `tools/frida_run.lbl`; they require a `legible` binary
+It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The four former Jython Ghidra scripts are split into Legible data halves (`tools/apply_labels.lbl`, `tools/find_xrefs.lbl`, and `tools/decompile_targets.lbl`) and Java `GhidraScript` shims under `tools/ghidra/`, because Ghidra executes only JVM-hosted scripts. Run each workflow as `legible run tools/ghidra_run.lbl <labels|xrefs|decompile>` with `GHIDRA_HOME` set to the Ghidra installation; `GHIDRA_PROJECT_DIR`, `GHIDRA_PROJECT_NAME`, and `GHIDRA_BINARY` optionally override the project directory, project name, and imported binary. The workflows use `il2cpp_out/labels.tsv`, `xref_targets.norm.tsv`, `xrefs_raw.tsv`, and `decompile_targets.norm.txt` as intermediate files; their final `il2cpp_out/xrefs_out.txt` and `il2cpp_out/decomp_out.c` artifacts retain the Jython scripts' exact byte formats. Ghidra is not installed on this development machine, so the Java halves are unexecuted and uncompiled here; the Legible data halves are covered by `tools/test_ghidra_tools.lbl`.
+The Frida drivers are `tools/frida_attach.lbl` and `tools/frida_run.lbl` (ported from the former `tools/frida_attach.py` / `tools/frida_run.py`); they require a `legible` binary
 built with `--features frida`. Run them as `legible run tools/frida_attach.lbl [script.js] [out.log]
 [boot_s] [run_s]` or `legible run tools/frida_run.lbl [script.js] [out.log] [boot_s] [run_s]`. Their
 adb path defaults to `/home/darabat/Android/Sdk/platform-tools/adb` and can be overridden with a
@@ -412,6 +406,8 @@ non-empty `ADB` environment variable. Frida message delivery is polled rather th
 and non-string `send` payloads are rendered as JSON rather than Python `str()`; the default
 `tools/hook_dot.js` only sends console-log messages, so the latter difference is theoretical for
 its normal use.
+The Python originals of the Ghidra and Frida tools were removed once their Legible and Java
+replacements were verified; they remain recoverable from git history at commit `d636dae`.
 `Server/build_phone_apk.lbl` ports the phone APK builder: run
 `legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N] [--abi arm64-v8a|armeabi-v7a] [--keep-other-abi] [--patched-il2cpp PATH] [--bundle-server]`.
 The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. `Server/build_phone_apk.py` remains on disk as the Python verification oracle and for the Python test suite. The request-synthesis layer and both listeners are ported as
