@@ -1,0 +1,83 @@
+-- Normalize decompiler targets for tools/ghidra/DecompileTargets.java.
+
+public function parse_hex(value: text): integer
+  intent: parse hexadecimal text
+  let body: text = if starts_with(value, "0x") or starts_with(value, "0X") then substring(value, 2, text_length(value) - 2) else value end
+  mutable result: integer = 0
+  mutable index: integer = 0
+  while index < text_length(body) do
+    let digit: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(body, index, 1))), -1)
+    if digit < 0 then
+      print("decompile_targets: invalid target " ++ value)
+      exit_process(1)
+    end
+    set result = result * 16 + digit
+    set index = index + 1
+  end
+  result
+end
+
+public function to_hex_lower(number: integer): text
+  intent: format integer hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789abcdef", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function first_token(line: text): text
+  intent: find first whitespace-delimited token
+  mutable index: integer = 0
+  while index < text_length(line) and substring(line, index, 1) != " " and substring(line, index, 1) != "\t" do
+    set index = index + 1
+  end
+  substring(line, 0, index)
+end
+
+public function prepare_targets(raw: text): text
+  intent: normalize decompiler targets
+  mutable out: text = ""
+  for source_line in split(raw, "\n") do
+    let line: text = trim(source_line)
+    if line != "" and not starts_with(line, "#") then
+      set out = out ++ "0x" ++ to_hex_lower(parse_hex(first_token(line))) ++ "\n"
+    end
+  end
+  out
+end
+
+function record_count(raw: text): integer
+  intent: count nonempty records
+  mutable count: integer = 0
+  for line in split(raw, "\n") do
+    if line != "" then
+      set count = count + 1
+    end
+  end
+  count
+end
+
+function main(): nothing
+  intent: prepare decompiler targets
+  let arguments: a list of text = get_args()
+  let mode: text = unwrap_or(get(arguments, 1), "")
+  if mode != "--prepare" then
+    print("decompile_targets: expected --prepare")
+    exit_process(1)
+  end
+  let targets: text = unwrap_or(get(arguments, 2), "il2cpp_out/decompile_targets.txt")
+  let normalized: text = unwrap_or(get(arguments, 3), "il2cpp_out/decompile_targets.norm.txt")
+  let output: text = prepare_targets(read_file(targets))
+  write_file(normalized, output)
+  print("decompile_targets: " ++ to_text(record_count(output)) ++ " targets -> " ++ normalized)
+end
+
+main()

@@ -128,6 +128,16 @@ tools/
   find_xrefs.py               cross reference search over the binary
   apply_labels.py             apply IL2CPP symbol labels
   light_analyze.py            lightweight static analysis helpers
+  apply_labels.lbl            build the portable Ghidra label input
+  find_xrefs.lbl              normalize and format portable Ghidra xref data
+  decompile_targets.lbl       normalize portable Ghidra decompiler targets
+  ghidra_run.lbl              run the Ghidra headless workflows
+  test_ghidra_tools.lbl       test the Ghidra Legible data halves
+  ghidra/
+    ApplyLabels.java          JVM GhidraScript that applies prepared labels
+    LightAnalyze.java         JVM GhidraScript that disables heavy analyzers
+    FindXrefs.java            JVM GhidraScript that collects raw references
+    DecompileTargets.java     JVM GhidraScript that writes decompiled C
   frida_attach.py             Frida helper reference implementations
   frida_run.py
   frida_attach.lbl            Legible Frida attach-and-capture driver
@@ -393,9 +403,7 @@ function disassembler; run it from that same directory as `legible run patches/d
 <offset_hex> [num_bytes_hex]`. Its two script.json progress lines go to stdout because Legible
 has no stderr builtin. Run the native patcher as
 `legible run patches/patch_il2cpp.lbl <so> [--abi ...] [--apply] [--needed ...] [-o ...]`.
-It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The Ghidra scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
-`tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
-`currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py` are
+It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The four former Jython Ghidra scripts are split into Legible data halves (`tools/apply_labels.lbl`, `tools/find_xrefs.lbl`, and `tools/decompile_targets.lbl`) and Java `GhidraScript` shims under `tools/ghidra/`, because Ghidra executes only JVM-hosted scripts. Run each workflow as `legible run tools/ghidra_run.lbl <labels|xrefs|decompile>` with `GHIDRA_HOME` set to the Ghidra installation; `GHIDRA_PROJECT_DIR`, `GHIDRA_PROJECT_NAME`, and `GHIDRA_BINARY` optionally override the project directory, project name, and imported binary. The workflows use `il2cpp_out/labels.tsv`, `xref_targets.norm.tsv`, `xrefs_raw.tsv`, and `decompile_targets.norm.txt` as intermediate files; their final `il2cpp_out/xrefs_out.txt` and `il2cpp_out/decomp_out.c` artifacts retain the Jython scripts' exact byte formats. Ghidra is not installed on this development machine, so the Java halves are unexecuted and uncompiled here; the Legible data halves are covered by `tools/test_ghidra_tools.lbl`. `tools/frida_attach.py` and `tools/frida_run.py` are
 now ported as `tools/frida_attach.lbl` and `tools/frida_run.lbl`; they require a `legible` binary
 built with `--features frida`. Run them as `legible run tools/frida_attach.lbl [script.js] [out.log]
 [boot_s] [run_s]` or `legible run tools/frida_run.lbl [script.js] [out.log] [boot_s] [run_s]`. Their
