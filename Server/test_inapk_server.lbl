@@ -1,0 +1,371 @@
+use fakeserver
+use export_payload
+use gamedata
+use jsonout
+
+record TestResult
+  passed: boolean
+  detail: text
+end
+
+record HttpReply
+  status: text
+  body: text
+  headers: text
+end
+
+record HarnessStart
+  pid: text
+  error: text
+end
+
+function ok(): TestResult
+  intent: return
+  TestResult { passed: true, detail: "" }
+end
+
+function failed(detail: text): TestResult
+  intent: return
+  TestResult { passed: false, detail: detail }
+end
+
+function report(name: text, result: TestResult): integer
+  intent: report
+  if result.passed then
+    print("[ok] " ++ name)
+    0
+  else
+    print("[!] " ++ name ++ ": " ++ result.detail)
+    1
+  end
+end
+
+function expect(label: text, got: text, want: text): boolean
+  intent: compare
+  if got == want then
+    true
+  else
+    print(label ++ " got(" ++ to_text(text_length(got)) ++ "): " ++ substring(got, 0, 120))
+    print(label ++ " want(" ++ to_text(text_length(want)) ++ "): " ++ substring(want, 0, 120))
+    false
+  end
+end
+
+function command_output(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stdout"), "")
+end
+
+function command_error(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stderr"), "")
+end
+
+function command_failed(result: a mapping from text to text): boolean
+  intent: check
+  unwrap_or(get(result, "exit_code"), -1) != 0
+end
+
+function find_port(): integer
+  intent: find
+  mutable port: integer = 0
+  mutable attempts: integer = 0
+  while attempts < 20 and port == 0 do
+    let candidate: integer = 21000 + random_int(38000)
+    let probe: a mapping from text to text = shell_exec("ss -ltn | grep -c ':" ++ to_text(candidate) ++ " ' || true")
+    if trim(command_output(probe)) == "0" then set port = candidate end
+    set attempts = attempts + 1
+  end
+  port
+end
+
+function start_harness(base: text, harness: text, payload: text, port: integer): HarnessStart
+  intent: start
+  let out: text = path_join(base, "out.log")
+  let err: text = path_join(base, "err.log")
+  let started: a mapping from text to text = shell_exec("nohup " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let pid: text = trim(command_output(started))
+  let deadline: integer = current_time_ms() + 10000
+  mutable ready: boolean = false
+  while not ready and current_time_ms() < deadline do
+    if file_exists(out) and contains_text(read_file(out), "listening " ++ to_text(port)) then
+      set ready = true
+    else
+      shell_exec("sleep 0.1")
+    end
+  end
+  if ready and pid != "" then
+    HarnessStart { pid: pid, error: "" }
+  else
+    HarnessStart { pid: pid, error: "native harness did not start: " ++ if file_exists(err) then read_file(err) else "no stderr log" end }
+  end
+end
+
+function stop_harness(pid: text): nothing
+  intent: stop
+  if pid != "" then shell_exec("kill " ++ pid ++ " 2>/dev/null; sleep 0.3; kill -9 " ++ pid ++ " 2>/dev/null; true") end
+end
+
+function reply_file(path: text): text
+  intent: read
+  if file_exists(path) then read_file(path) else "" end
+end
+
+function request(base: text, port: integer, method: text, path: text, body: text, close: boolean, has_body: boolean): HttpReply
+  intent: request
+  let response: text = path_join(base, "resp.bin")
+  let headers: text = path_join(base, "resp.hdr")
+  let request_body: text = path_join(base, "req.bin")
+  let url: text = "http://127.0.0.1:" ++ to_text(port) ++ path
+  mutable command: text = "curl -sS --http1.1 --max-time 10 -D " ++ headers ++ " -o " ++ response ++ " -w \"%\{http_code\}\""
+  if close then set command = command ++ " -H \"Connection: close\"" end
+  if method == "HEAD" then
+    set command = command ++ " -I"
+  else if method == "POST" then
+    set command = command ++ " -X POST"
+    if has_body then
+      write_file(request_body, body)
+      set command = command ++ " --data-binary @" ++ request_body
+    end
+  end
+  let ran: a mapping from text to text = shell_exec(command ++ " '" ++ url ++ "'")
+  HttpReply { status: trim(command_output(ran)), body: reply_file(response), headers: reply_file(headers) }
+end
+
+function reused_bodies(base: text, port: integer, first: text, second: text): a list of text
+  intent: request
+  let a: text = path_join(base, "reuse-a.bin")
+  let b: text = path_join(base, "reuse-b.bin")
+  let url_a: text = "http://127.0.0.1:" ++ to_text(port) ++ first
+  let url_b: text = "http://127.0.0.1:" ++ to_text(port) ++ second
+  shell_exec("curl -sS --http1.1 --max-time 10 -o " ++ a ++ " '" ++ url_a ++ "' -o " ++ b ++ " '" ++ url_b ++ "'")
+  [reply_file(a), reply_file(b)]
+end
+
+function payload_basic_checks(base: text, port: integer): boolean
+  intent: test
+  let account: text = read_file(path_join(fakeserver.resp_dir(), "GET__account_data.json"))
+  let auth: text = read_file(path_join(fakeserver.resp_dir(), "POST__auth_init.json"))
+  let prefix: text = read_file(path_join(fakeserver.resp_dir(), "_autorefresh.json"))
+  let one: HttpReply = request(base, port, "GET", "/account/data", "", false, false)
+  let two: HttpReply = request(base, port, "POST", "/auth/init", "\{\}", false, true)
+  let three: HttpReply = request(base, port, "GET", "/totally/unknown/route?x=1", "", false, false)
+  let four: HttpReply = request(base, port, "GET", "/autorefresh/somethingelse", "", false, false)
+  let reused: a list of text = reused_bodies(base, port, "/account/data", "/autorefresh/somethingelse")
+  let head: HttpReply = request(base, port, "HEAD", "/account/data", "", false, false)
+  expect("GET account status", one.status, "200") and expect("GET account", one.body, account) and expect("POST auth status", two.status, "200") and expect("POST auth", two.body, auth) and expect("unknown status", three.status, "200") and expect("unknown", three.body, "\{\"error\":null,\"result\":\{\}\}") and expect("autorefresh status", four.status, "200") and expect("autorefresh", four.body, prefix) and expect("reuse account", unwrap_or(get(reused, 0), ""), account) and expect("reuse autorefresh", unwrap_or(get(reused, 1), ""), prefix) and expect("HEAD status", head.status, "200") and contains_text(lowercase(head.headers), "content-length: 0")
+end
+
+function payload_dynamic_checks(base: text, port: integer): boolean
+  intent: test
+  let one: text = "/autorefresh/grouprefresh?groups.0.name=gacha&groups.7.name=quests"
+  let two: text = "/autorefresh/grouprefresh?groups.3.name=missionsconfig"
+  let three: text = "/base/active"
+  let one_reply: HttpReply = request(base, port, "GET", one, "", false, false)
+  let two_reply: HttpReply = request(base, port, "GET", two, "", false, false)
+  let three_reply: HttpReply = request(base, port, "GET", three, "", false, false)
+  expect(one, one_reply.body, fakeserver.dynamic(one, "")) and expect(two, two_reply.body, fakeserver.dynamic(two, "")) and expect(three, three_reply.body, fakeserver.dynamic(three, ""))
+end
+
+function payload_tutorial_checks(base: text, port: integer): boolean
+  intent: test
+  let one: text = "\{\"tid\":\"FTE\",\"bid\":\"IntroFight\"\}"
+  let two: text = "\{\"tid\":\"ShieldTutorial\"\}"
+  let three: text = "\{\"tid\":\"SomeOther\",\"bid\":\"b1\"\}"
+  let four: text = "\{\"tid\":\"FTE\"\}"
+  let a: HttpReply = request(base, port, "POST", "/tutorial/start-branch", one, false, true)
+  let b: HttpReply = request(base, port, "POST", "/tutorial/start-branch", two, false, true)
+  let c: HttpReply = request(base, port, "POST", "/tutorial/start-branch", three, false, true)
+  let d: HttpReply = request(base, port, "POST", "/tutorial/start-branch", four, false, true)
+  let complete: HttpReply = request(base, port, "POST", "/tutorial/complete-tutorial", one, false, true)
+  let tutorial: HttpReply = request(base, port, "POST", "/tutorial/start-tutorial", "\{\}", false, true)
+  expect("tutorial one", a.body, fakeserver.dynamic("/tutorial/start-branch", one)) and expect("tutorial two", b.body, fakeserver.dynamic("/tutorial/start-branch", two)) and expect("tutorial three", c.body, fakeserver.dynamic("/tutorial/start-branch", three)) and expect("tutorial four", d.body, fakeserver.dynamic("/tutorial/start-branch", four)) and expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json")))
+end
+
+function payload_session_checks(base: text, port: integer): boolean
+  intent: test
+  let heroes: text = "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":0,\"flvl\":0,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\}],\"nonce\":\"x\",\"api\":6\}"
+  let heroes_two: text = "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":3,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\},\{\"level\":2,\"sig_lvl\":4,\"rank\":1,\"bid\":\"optimusprime_cin_tf\"\}]\}"
+  let saved: text = "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\"],\"api\":6,\"nonce\":\"x\",\"teamID\":\"0\"\}"
+  let detail: text = "\{\"hash\":\"\",\"setId\":\"story_act1\"\}"
+  let detail_path: text = "/quests/quest-detail/1.1.1?sig=x&stoken=y"
+  let begin: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\"\}"
+  let hero_one: HttpReply = request(base, port, "POST", "/bcg/getBaseHeroData", heroes, false, true)
+  let hero_two: HttpReply = request(base, port, "POST", "/bcg/getBaseHeroData", heroes_two, false, true)
+  let saved_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", saved, false, true)
+  let detail_reply: HttpReply = request(base, port, "POST", detail_path, detail, false, true)
+  let begin_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", begin, false, true)
+  mutable good: boolean = expect("hero one", hero_one.body, fakeserver.dynamic("/bcg/getBaseHeroData", heroes)) and expect("hero two", hero_two.body, fakeserver.dynamic("/bcg/getBaseHeroData", heroes_two)) and expect("saved", saved_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", saved)) and expect("detail", detail_reply.body, fakeserver.dynamic(detail_path, detail)) and expect("begin", begin_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", begin))
+  mutable index: integer = 0
+  while index < 3 do
+    let path: text = "/quests/quest-movedir/1.1.1-0/1/0"
+    let moved: HttpReply = request(base, port, "POST", path, "\{\}", false, true)
+    if not expect("movedir " ++ to_text(index), moved.body, fakeserver.dynamic(path, "\{\}")) then set good = false end
+    set index = index + 1
+  end
+  good
+end
+
+function test_payload_server_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  let started: HarnessStart = start_harness(base, harness, payload, port)
+  if started.error != "" then
+    stop_harness(started.pid)
+    failed(started.error)
+  else
+    let a: boolean = payload_basic_checks(base, port)
+    let b: boolean = payload_dynamic_checks(base, port)
+    let c: boolean = payload_tutorial_checks(base, port)
+    let d: boolean = payload_session_checks(base, port)
+    stop_harness(started.pid)
+    if a and b and c and d then ok() else failed("wire regressions") end
+  end
+end
+
+function selected_squad_checks(base: text, port: integer): boolean
+  intent: test
+  let path: text = "/bcg/getUserData"
+  let default_reply: HttpReply = request(base, port, "GET", path, "", true, false)
+  let selected: text = "\{\"heroes\":[\"megatron_cin_rotf\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}"
+  let selected_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", selected, true, true)
+  let after_selected: HttpReply = request(base, port, "GET", path, "", true, false)
+  let set_id: text = "\{\"setId\":\"story_act1\"\}"
+  let simple_begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", set_id, true, true)
+  let empty_move: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "", true, false)
+  let switched: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"megatron_g1_mp10\"\}"
+  let switched_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", switched, true, true)
+  let unknown: text = "\{\"heroes\":[\"not_a_real_bot\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}"
+  let unknown_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", unknown, true, true)
+  let final_reply: HttpReply = request(base, port, "GET", path, "", true, false)
+  let decoded: Json = jsonout.parse_json(final_reply.body)
+  let saved_teams: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(decoded, "result"), "updates"), "savedTeams")
+  let first_team: Json = unwrap_or(get(jsonout.list_items(saved_teams), 0), jsonout.json_obj([]))
+  let heroes: Json = jsonout.obj_get(first_team, "heroes")
+  let first_hero: Json = unwrap_or(get(jsonout.list_items(heroes), 0), jsonout.json_obj([]))
+  let bid: text = jsonout.as_text(jsonout.obj_get(first_hero, "bid"))
+  let team: a list of text = gamedata.default_team()
+  expect("default user", default_reply.body, fakeserver.dynamic(path, "")) and expect("default canned", default_reply.body, read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))) and expect("selected", selected_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", selected)) and expect("after selected", after_selected.body, fakeserver.dynamic(path, "")) and expect("simple begin", simple_begin.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", set_id)) and expect("empty move", empty_move.body, fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) and expect("switched", switched_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", switched)) and expect("unknown", unknown_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", unknown)) and expect("final", final_reply.body, fakeserver.dynamic(path, "")) and expect("fallback", bid, unwrap_or(get(team, 0), ""))
+end
+
+function test_selected_squad_session_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  let started: HarnessStart = start_harness(base, harness, payload, port)
+  if started.error != "" then
+    stop_harness(started.pid)
+    failed(started.error)
+  else
+    let good: boolean = selected_squad_checks(base, port)
+    stop_harness(started.pid)
+    if good then ok() else failed("selected squad regressions") end
+  end
+end
+
+function candidates(base: text, harness: text, maps: text, cmdline: text, has_cmdline: boolean): a list of text
+  intent: run
+  let maps_path: text = path_join(base, "maps")
+  let cmdline_path: text = path_join(base, "cmdline")
+  write_file(maps_path, maps)
+  if has_cmdline then
+    let raw: integer = bytes_from_text(cmdline)
+    let data: integer = bytes_new(bytes_length(raw) + 1)
+    bytes_write_bytes(data, 0, raw)
+    bytes_set(data, bytes_length(raw), 0)
+    write_file_bytes(cmdline_path, data)
+    bytes_free(raw)
+    bytes_free(data)
+  else shell_exec("rm -f -- " ++ cmdline_path) end
+  let ran: a mapping from text to text = shell_exec("timeout 30 " ++ harness ++ " " ++ maps_path ++ " " ++ cmdline_path)
+  split(trim(command_output(ran)), "\n")
+end
+
+function test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base: text, harness: text): TestResult
+  intent: test
+  let gms: text = "/data/app/~~sdunyrwN8nShSO2adhEEjg==/com.google.android.gms-Db7dSfGIhIufd1UUBDv5Ww==/base.apk"
+  let game: text = "/data/app/~~vxoZ9FQU_8mVV2lHYIaJuA==/com.kabam.bigrobot-TLmfuByms-uLJyuSkKWlAA==/base.apk"
+  let split_apk: text = "/data/app/~~vxoZ9FQU_8mVV2lHYIaJuA==/com.kabam.bigrobot-xyz==/split_config.arm64_v8a.apk"
+  let maps: text = "7a1b000000-7a1b100000 r--p 00000000 fd:03 12345  " ++ gms ++ "\n7a1c000000-7a1c100000 r--p 00000000 fd:03 12346  " ++ game ++ "\n7a1c100000-7a1c200000 r-xp 00010000 fd:03 12346  " ++ game ++ "\n7a1d000000-7a1d100000 r--p 00000000 fd:03 12347  " ++ split_apk ++ "\n7a1e000000-7a1e100000 r-xp 00000000 fd:03 12348  /apex/com.android.art/lib64/libart.so\n"
+  let found: a list of text = candidates(base, harness, maps, "com.kabam.bigrobot", true)
+  let first: text = unwrap_or(get(found, 0), "")
+  let all: text = join(found, "\n")
+  if expect("candidate first", first, game) and expect("candidate game count", to_text(length(split(all, game)) - 1), "1") and contains_text(all, split_apk) and contains_text(all, gms) then ok() else failed("candidate ranking") end
+end
+
+function test_empty_or_missing_cmdline_still_returns_all_apks(base: text, harness: text): TestResult
+  intent: test
+  let first: text = "/data/app/a/com.google.android.gms-x/base.apk"
+  let second: text = "/data/app/b/com.kabam.bigrobot-y/base.apk"
+  let maps: text = "1-2 r--p 0 00:00 1 " ++ first ++ "\n2-3 r--p 0 00:00 2 " ++ second ++ "\n"
+  let expected: a list of text = sort_text([first, second])
+  let empty: a list of text = sort_text(candidates(base, harness, maps, "", true))
+  let missing: a list of text = sort_text(candidates(base, harness, maps, "", false))
+  if expect("empty cmdline candidates", join(empty, "\n"), join(expected, "\n")) and expect("missing cmdline candidates", join(missing, "\n"), join(expected, "\n")) then ok() else failed("candidate cmdline handling") end
+end
+
+function compile_harness(base: text, root: text, output: text, source: text): TestResult
+  intent: compile
+  let built: a mapping from text to text = shell_exec("timeout 300 cc -std=c11 -O1 -Wall -Wextra -o " ++ output ++ " " ++ path_join(root, "tools/nativehook/" ++ source) ++ " " ++ path_join(root, "tools/nativehook/inapk_server.c") ++ " -lpthread")
+  if command_failed(built) then
+    print(command_error(built))
+    failed("cc failed for " ++ source)
+  else
+    ok()
+  end
+end
+
+function run_suite(): nothing
+  intent: run
+  let base: text = "/tmp/tftf-inapk-" ++ random_hex(8)
+  create_dir(base)
+  let root: text = path_join(fakeserver.here(), "..")
+  let harness: text = path_join(base, "harness")
+  let candidate_harness: text = path_join(base, "candidates")
+  let server_build: TestResult = compile_harness(base, root, harness, "inapk_server_main.c")
+  let candidate_build: TestResult = compile_harness(base, root, candidate_harness, "inapk_candidates_main.c")
+  let port: integer = find_port()
+  if not server_build.passed or not candidate_build.passed then
+    report("compile inapk server harness", server_build)
+    report("compile inapk candidate harness", candidate_build)
+    shell_exec("rm -rf -- " ++ base)
+    exit_process(1)
+  else if port == 0 then
+    print("[!] could not select a free TCP port")
+    shell_exec("rm -rf -- " ++ base)
+    exit_process(1)
+  else
+    print("using port " ++ to_text(port))
+    let payload: text = path_join(base, to_text(port) ++ ".bin")
+    let blob: integer = export_payload.build_payload(port)
+    write_file_bytes(payload, blob)
+    bytes_free(blob)
+    let names: a list of text = ["test_payload_server_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
+    let results: a list of TestResult = [test_payload_server_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
+    mutable failures: integer = 0
+    mutable index: integer = 0
+    while index < length(names) do
+      set failures = failures + report(unwrap_or(get(names, index), ""), unwrap_or(get(results, index), failed("missing result")))
+      set index = index + 1
+    end
+    shell_exec("rm -rf -- " ++ base)
+    print(to_text(4 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+    if failures != 0 then exit_process(1) end
+  end
+end
+
+function main(): nothing
+  intent: run
+  let cc: a mapping from text to text = shell_exec("command -v cc")
+  let curl: a mapping from text to text = shell_exec("command -v curl")
+  if command_failed(cc) then
+    print("skipping: cc is not on PATH")
+  else if command_failed(curl) then
+    print("skipping: curl is not on PATH")
+  else
+    run_suite()
+  end
+end
+
+main()
