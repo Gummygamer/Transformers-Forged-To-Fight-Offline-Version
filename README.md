@@ -396,8 +396,8 @@ It accepts the same flags, but its error messages go to stdout because Legible h
 `currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
 need Frida's native Python bindings.
 `Server/build_phone_apk.lbl` ports the phone APK builder: run
-`legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N]`.
-The source APK's non-signature entries are all `ZIP_STORED`, so its Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. The request-synthesis layer and both listeners are ported as
+`legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N] [--abi arm64-v8a|armeabi-v7a] [--keep-other-abi] [--patched-il2cpp PATH] [--bundle-server]`.
+The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. `Server/build_phone_apk.py` remains on disk as the Python verification oracle and for the Python test suite. The request-synthesis layer and both listeners are ported as
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run
 `legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
 or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
