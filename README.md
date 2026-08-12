@@ -128,8 +128,10 @@ tools/
   find_xrefs.py               cross reference search over the binary
   apply_labels.py             apply IL2CPP symbol labels
   light_analyze.py            lightweight static analysis helpers
-  frida_attach.py             Frida helpers (kept for reference, see the libnb note)
+  frida_attach.py             Frida helper reference implementations
   frida_run.py
+  frida_attach.lbl            Legible Frida attach-and-capture driver
+  frida_run.lbl               Legible Frida spawn-and-capture driver
   hook_dot.js
   nativehook/
     hook.c                    source of libdothook.so, the runtime hook (arm64)
@@ -393,8 +395,15 @@ has no stderr builtin. Run the native patcher as
 `legible run patches/patch_il2cpp.lbl <so> [--abi ...] [--apply] [--needed ...] [-o ...]`.
 It accepts the same flags, but its error messages go to stdout because Legible has no stderr builtin, and it does not reproduce argparse's `--help` or usage-error text. The Ghidra scripts (`tools/apply_labels.py`, `tools/light_analyze.py`, `tools/find_xrefs.py`, and
 `tools/decompile_targets.py`) are Jython run inside Ghidra's JVM against its live
-`currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py`
-need Frida's native Python bindings.
+`currentProgram` and `monitor` globals. `tools/frida_attach.py` and `tools/frida_run.py` are
+now ported as `tools/frida_attach.lbl` and `tools/frida_run.lbl`; they require a `legible` binary
+built with `--features frida`. Run them as `legible run tools/frida_attach.lbl [script.js] [out.log]
+[boot_s] [run_s]` or `legible run tools/frida_run.lbl [script.js] [out.log] [boot_s] [run_s]`. Their
+adb path defaults to `/home/darabat/Android/Sdk/platform-tools/adb` and can be overridden with a
+non-empty `ADB` environment variable. Frida message delivery is polled rather than callback-driven,
+and non-string `send` payloads are rendered as JSON rather than Python `str()`; the default
+`tools/hook_dot.js` only sends console-log messages, so the latter difference is theoretical for
+its normal use.
 `Server/build_phone_apk.lbl` ports the phone APK builder: run
 `legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N] [--abi arm64-v8a|armeabi-v7a] [--keep-other-abi] [--patched-il2cpp PATH] [--bundle-server]`.
 The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. `Server/build_phone_apk.py` remains on disk as the Python verification oracle and for the Python test suite. The request-synthesis layer and both listeners are ported as
