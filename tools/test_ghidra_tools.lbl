@@ -1,0 +1,73 @@
+use apply_labels
+use find_xrefs
+use decompile_targets
+
+record TestResult
+  passed: integer
+  failed: integer
+end
+
+function report(name: text, passed: boolean, detail: text): TestResult
+  intent: report test result
+  if passed then
+    print("[ok] " ++ name)
+    TestResult { passed: 1, failed: 0 }
+  else
+    print("[!] " ++ name ++ ": " ++ detail)
+    TestResult { passed: 0, failed: 1 }
+  end
+end
+
+function apply_labels_fixture(): boolean
+  intent: test label TSV construction
+  let root: a mapping from text to text = json_parse("\{\"ScriptMethod\":[\{\"Address\":16,\"Name\":\"Method One\"\},\{\"Address\":48879,\"Name\":\"Two\"\}],\"ScriptString\":[\{\"Address\":32,\"Value\":\"first\"\},\{\"Address\":255,\"Value\":\"second\"\}]\}")
+  apply_labels.build_labels_tsv(root) == "M\t10\tMethod-One\nM\tbeef\tTwo\nS\t20\tSTR_0\tfirst\nS\tff\tSTR_1\tsecond\n"
+end
+
+function tsv_escape_fixture(): boolean
+  intent: test TSV escaping
+  apply_labels.tsv_escape("a\\b\tc\nd") == "a\\\\b\\tc\\nd"
+end
+
+function prepare_xrefs_fixture(): boolean
+  intent: test xref target preparation
+  find_xrefs.prepare_targets("\n# ignored\n0x10   # first target\n  0x20\tsecond target\n") == "0x10\t0x10   # first target\n0x20\t0x20\\tsecond target\n"
+end
+
+function format_xrefs_fixture(): boolean
+  intent: test xref formatting and per-target dedupe
+  let raw: text = "R\tignored\tignored\tignored\nT\t0x10\\tfirst\nR\t0x100\talpha\t0x111\nR\t0x100\talpha-repeat\t0x112\nR\t0x200\tbeta\t0x113\nT\t0x20\nR\t0x100\talpha-again\t0x211\n"
+  find_xrefs.format_xrefs(raw) == "=== refs to 0x10\tfirst ===\n  0x100  alpha  (from 0x111)\n  0x200  beta  (from 0x113)\n=== refs to 0x20 ===\n  0x100  alpha-again  (from 0x211)\n"
+end
+
+function prepare_decompile_fixture(): boolean
+  intent: test decompiler target preparation
+  decompile_targets.prepare_targets("0x1A\nbeEF  # target\n# ignored\n\n0X2\n") == "0x1a\n0xbeef\n0x2\n"
+end
+
+function main(): nothing
+  intent: run Ghidra data half tests
+  mutable passed: integer = 0
+  mutable failed: integer = 0
+  let labels: TestResult = report("apply_labels TSV", apply_labels_fixture(), "label records differed")
+  set passed = passed + labels.passed
+  set failed = failed + labels.failed
+  let escaped: TestResult = report("TSV escape", tsv_escape_fixture(), "escaped field differed")
+  set passed = passed + escaped.passed
+  set failed = failed + escaped.failed
+  let prepared_xrefs: TestResult = report("xref preparation", prepare_xrefs_fixture(), "normalized targets differed")
+  set passed = passed + prepared_xrefs.passed
+  set failed = failed + prepared_xrefs.failed
+  let formatted_xrefs: TestResult = report("xref formatting", format_xrefs_fixture(), "formatted references differed")
+  set passed = passed + formatted_xrefs.passed
+  set failed = failed + formatted_xrefs.failed
+  let prepared_decompile: TestResult = report("decompile preparation", prepare_decompile_fixture(), "normalized targets differed")
+  set passed = passed + prepared_decompile.passed
+  set failed = failed + prepared_decompile.failed
+  print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed != 0 then
+    exit_process(1)
+  end
+end
+
+main()
