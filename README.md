@@ -432,8 +432,9 @@ still import it. As elsewhere in Legible, errors go to stdout (there is no stder
 and it does not reproduce argparse's `--help` or usage-error text.
 `Server/test_inapk_server.lbl` ports the native in-APK wire regression: run
 `legible run Server/test_inapk_server.lbl`. It compiles the two C harnesses with `cc` and
-drives the native server with `curl`, because Legible has no socket or subprocess builtin and
-its HTTP client builtins do not support HEAD, custom headers, or connection reuse. The test
+drives the native server with `curl`, because Legible has no socket builtin and its HTTP client
+builtins do not support HEAD, custom headers, or connection reuse, so the test drives `curl`
+through `shell_exec`. The test
 builds the payload once and restarts the harness between its two server tests (rather than
 Python's per-test rebuild), because `build_payload` costs roughly 50--60 seconds in Legible.
 `Server/test_inapk_server.py` remains on disk as the Python oracle.
