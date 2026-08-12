@@ -1,0 +1,115 @@
+-- Prepare and format the portable stream used by tools/ghidra/FindXrefs.java.
+
+public function tsv_escape(value: text): text
+  intent: escape a TSV field
+  let slashes: text = replace(value, "\\", "\\\\")
+  let tabs: text = replace(slashes, "\t", "\\t")
+  let returns: text = replace(tabs, "\r", "\\r")
+  replace(returns, "\n", "\\n")
+end
+
+public function tsv_unescape(value: text): text
+  intent: unescape a TSV field
+  mutable out: text = ""
+  mutable index: integer = 0
+  while index < text_length(value) do
+    let character: text = substring(value, index, 1)
+    if character == "\\" and index + 1 < text_length(value) then
+      let next: text = substring(value, index + 1, 1)
+      if next == "\\" then
+        set out = out ++ "\\"
+      else if next == "t" then
+        set out = out ++ "\t"
+      else if next == "r" then
+        set out = out ++ "\r"
+      else if next == "n" then
+        set out = out ++ "\n"
+      else
+        set out = out ++ "\\" ++ next
+      end
+      set index = index + 2
+    else
+      set out = out ++ character
+      set index = index + 1
+    end
+  end
+  out
+end
+
+function first_token(line: text): text
+  intent: find first whitespace-delimited token
+  mutable index: integer = 0
+  while index < text_length(line) and substring(line, index, 1) != " " and substring(line, index, 1) != "\t" do
+    set index = index + 1
+  end
+  substring(line, 0, index)
+end
+
+public function prepare_targets(raw: text): text
+  intent: normalize xref targets
+  mutable out: text = ""
+  for source_line in split(raw, "\n") do
+    let line: text = trim(source_line)
+    if line != "" and not starts_with(line, "#") then
+      set out = out ++ first_token(line) ++ "\t" ++ tsv_escape(line) ++ "\n"
+    end
+  end
+  out
+end
+
+function record_count(raw: text): integer
+  intent: count nonempty records
+  mutable count: integer = 0
+  for line in split(raw, "\n") do
+    if line != "" then
+      set count = count + 1
+    end
+  end
+  count
+end
+
+public function format_xrefs(raw: text): text
+  intent: format Ghidra xref records
+  mutable out: text = ""
+  mutable active: boolean = false
+  mutable seen: a list of text = []
+  for line in split(raw, "\n") do
+    let fields: a list of text = split(line, "\t")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    if kind == "T" then
+      set active = true
+      set seen = []
+      set out = out ++ "=== refs to " ++ tsv_unescape(unwrap_or(get(fields, 1), "")) ++ " ===\n"
+    else if kind == "R" and active then
+      let start: text = unwrap_or(get(fields, 1), "")
+      if not contains(seen, start) then
+        set seen = append(seen, start)
+        set out = out ++ "  " ++ start ++ "  " ++ tsv_unescape(unwrap_or(get(fields, 2), "")) ++ "  (from " ++ unwrap_or(get(fields, 3), "") ++ ")\n"
+      end
+    end
+  end
+  out
+end
+
+function main(): nothing
+  intent: prepare or format xrefs
+  let arguments: a list of text = get_args()
+  let mode: text = unwrap_or(get(arguments, 1), "")
+  if mode == "--prepare" then
+    let targets: text = unwrap_or(get(arguments, 2), "il2cpp_out/xref_targets.txt")
+    let normalized: text = unwrap_or(get(arguments, 3), "il2cpp_out/xref_targets.norm.tsv")
+    let output: text = prepare_targets(read_file(targets))
+    write_file(normalized, output)
+    print("find_xrefs: " ++ to_text(record_count(output)) ++ " targets -> " ++ normalized)
+  else if mode == "--format" then
+    let raw_path: text = unwrap_or(get(arguments, 2), "il2cpp_out/xrefs_raw.tsv")
+    let output_path: text = unwrap_or(get(arguments, 3), "il2cpp_out/xrefs_out.txt")
+    write_file(output_path, format_xrefs(read_file(raw_path)))
+    print("find_xrefs done -> " ++ output_path)
+  else
+    print("find_xrefs: expected --prepare or --format")
+    exit_process(1)
+  end
+end
+
+main()

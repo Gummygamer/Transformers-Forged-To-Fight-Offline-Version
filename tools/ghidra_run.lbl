@@ -1,0 +1,71 @@
+-- Drive the Legible preparation/formatting halves and Ghidra's JVM script host.
+use apply_labels
+use find_xrefs
+use decompile_targets
+
+function configured(name: text, fallback: text): text
+  intent: read environment setting
+  let value: text = unwrap_or(env_get(name), "")
+  if value == "" then fallback else value end
+end
+
+function basename(path: text): text
+  intent: get final path component
+  mutable last: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then
+      set last = index
+    end
+    set index = index + 1
+  end
+  if last < 0 then path else substring(path, last + 1, text_length(path) - last - 1) end
+end
+
+function run_command(command: text): nothing
+  intent: run Ghidra command
+  print(command)
+  let result: a mapping from text to text = shell_exec(command)
+  let status: integer = unwrap_or(get(result, "exit_code"), 1)
+  print("ghidra_run: exit status " ++ to_text(status))
+  if status != 0 then
+    print("ghidra_run: command failed")
+    exit_process(1)
+  end
+end
+
+function main(): nothing
+  intent: run Ghidra workflow step
+  let arguments: a list of text = get_args()
+  let step: text = unwrap_or(get(arguments, 1), "")
+  let ghidra_home: text = unwrap_or(env_get("GHIDRA_HOME"), "")
+  let analyze: text = path_join(ghidra_home, "support/analyzeHeadless")
+  if ghidra_home == "" or not file_exists(analyze) then
+    print("ghidra_run: analyzeHeadless not found; set GHIDRA_HOME to a Ghidra installation")
+    exit_process(1)
+  end
+  let project_dir: text = configured("GHIDRA_PROJECT_DIR", "il2cpp_out/ghidra_proj")
+  let project_name: text = configured("GHIDRA_PROJECT_NAME", "tftf")
+  let binary: text = configured("GHIDRA_BINARY", "extracted/lib/arm64-v8a/libil2cpp.so")
+  let script_path: text = "tools/ghidra"
+  if step == "labels" then
+    let root: a mapping from text to text = json_parse(read_file("il2cpp_out/script.json"))
+    write_file("il2cpp_out/labels.tsv", apply_labels.build_labels_tsv(root))
+    let command: text = analyze ++ " " ++ project_dir ++ " " ++ project_name ++ " -import " ++ binary ++ " -preScript LightAnalyze.java -postScript ApplyLabels.java -scriptPath " ++ script_path
+    run_command(command)
+  else if step == "xrefs" then
+    write_file("il2cpp_out/xref_targets.norm.tsv", find_xrefs.prepare_targets(read_file("il2cpp_out/xref_targets.txt")))
+    let command: text = analyze ++ " " ++ project_dir ++ " " ++ project_name ++ " -process " ++ basename(binary) ++ " -noanalysis -postScript FindXrefs.java -scriptPath " ++ script_path
+    run_command(command)
+    write_file("il2cpp_out/xrefs_out.txt", find_xrefs.format_xrefs(read_file("il2cpp_out/xrefs_raw.tsv")))
+  else if step == "decompile" then
+    write_file("il2cpp_out/decompile_targets.norm.txt", decompile_targets.prepare_targets(read_file("il2cpp_out/decompile_targets.txt")))
+    let command: text = analyze ++ " " ++ project_dir ++ " " ++ project_name ++ " -process " ++ basename(binary) ++ " -noanalysis -postScript DecompileTargets.java -scriptPath " ++ script_path
+    run_command(command)
+  else
+    print("ghidra_run: expected labels, xrefs, or decompile")
+    exit_process(1)
+  end
+end
+
+main()

@@ -1,0 +1,60 @@
+-- Build the portable label stream consumed by tools/ghidra/ApplyLabels.java.
+
+public function to_hex_lower(number: integer): text
+  intent: format integer hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789abcdef", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+public function tsv_escape(value: text): text
+  intent: escape a TSV field
+  let slashes: text = replace(value, "\\", "\\\\")
+  let tabs: text = replace(slashes, "\t", "\\t")
+  let returns: text = replace(tabs, "\r", "\\r")
+  replace(returns, "\n", "\\n")
+end
+
+public function build_labels_tsv(root: a mapping from text to text): text
+  intent: build label TSV records
+  let method_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMethod"), [])
+  let string_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptString"), [])
+  mutable out: text = ""
+  for method in method_entries do
+    let address: integer = unwrap_or(get(method, "Address"), 0)
+    let name: text = unwrap_or(get(method, "Name"), "")
+    set out = out ++ "M\t" ++ to_hex_lower(address) ++ "\t" ++ tsv_escape(replace(name, " ", "-")) ++ "\n"
+  end
+  mutable index: integer = 0
+  for string in string_entries do
+    let address: integer = unwrap_or(get(string, "Address"), 0)
+    let value: text = unwrap_or(get(string, "Value"), "")
+    set out = out ++ "S\t" ++ to_hex_lower(address) ++ "\tSTR_" ++ to_text(index) ++ "\t" ++ tsv_escape(value) ++ "\n"
+    set index = index + 1
+  end
+  out
+end
+
+function main(): nothing
+  intent: build Ghidra label input
+  let arguments: a list of text = get_args()
+  let script_json: text = unwrap_or(get(arguments, 1), "il2cpp_out/script.json")
+  let labels_tsv: text = unwrap_or(get(arguments, 2), "il2cpp_out/labels.tsv")
+  let root: a mapping from text to text = json_parse(read_file(script_json))
+  let method_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMethod"), [])
+  let string_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptString"), [])
+  write_file(labels_tsv, build_labels_tsv(root))
+  print("apply_labels: " ++ to_text(length(method_entries)) ++ " methods, " ++ to_text(length(string_entries)) ++ " strings")
+  print("apply_labels: wrote " ++ labels_tsv)
+end
+
+main()
