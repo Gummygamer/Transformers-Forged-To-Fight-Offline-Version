@@ -1,0 +1,204 @@
+-- Wire-level STORY 1.1.1 walk checks against the live Legible fake server.
+
+use fakeserver
+use gamedata
+use jsonout
+
+record HttpReply
+  status: text
+  body: text
+end
+
+record HarnessStart
+  pid: text
+  ready: boolean
+end
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+    print("[ok] " ++ name)
+    0
+  else
+    print("[!] " ++ name)
+    1
+  end
+end
+
+function command_output(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stdout"), "")
+end
+
+function find_port(): integer
+  intent: find
+  mutable port: integer = 0
+  mutable attempts: integer = 0
+  while attempts < 20 and port == 0 do
+    let candidate: integer = 21000 + random_int(38000)
+    let probe: a mapping from text to text = shell_exec("ss -ltn | grep -c ':" ++ to_text(candidate) ++ " ' || true")
+    if trim(command_output(probe)) == "0" then set port = candidate end
+    set attempts = attempts + 1
+  end
+  port
+end
+
+function start_server(base: text, server: text, port: integer): HarnessStart
+  intent: start
+  let out: text = path_join(base, "out.log")
+  let err: text = path_join(base, "err.log")
+  let started: a mapping from text to text = shell_exec("nohup legible run " ++ server ++ " --http " ++ to_text(port) ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let pid: text = trim(command_output(started))
+  let deadline: integer = current_time_ms() + 10000
+  mutable ready: boolean = false
+  while not ready and current_time_ms() < deadline do
+    if file_exists(out) and contains_text(read_file(out), "listening on") then
+      set ready = true
+    else
+      shell_exec("sleep 0.1")
+    end
+  end
+  HarnessStart { pid: pid, ready: ready and pid != "" }
+end
+
+function stop_server(pid: text): nothing
+  intent: stop
+  if pid != "" then shell_exec("kill " ++ pid ++ " 2>/dev/null; sleep 0.3; kill -9 " ++ pid ++ " 2>/dev/null; true") end
+end
+
+function post(base: text, port: integer, path: text, body: text): HttpReply
+  intent: request
+  let request_body: text = path_join(base, "request.json")
+  let response_body: text = path_join(base, "response.json")
+  write_file(request_body, body)
+  let command: text = "curl -sS --http1.1 --max-time 15 -X POST --data-binary @" ++ request_body ++ " -H \"Content-Type: application/json\" -o " ++ response_body ++ " -w \"%\{http_code\}\" 'http://127.0.0.1:" ++ to_text(port) ++ path ++ "'"
+  let ran: a mapping from text to text = shell_exec(command)
+  HttpReply { status: trim(command_output(ran)), body: if file_exists(response_body) then read_file(response_body) else "" end }
+end
+
+function result(reply: HttpReply): Json
+  intent: get
+  jsonout.obj_get(jsonout.parse_json(reply.body), "result")
+end
+
+function first_item(node: Json): Json
+  intent: get
+  unwrap_or(get(jsonout.list_items(node), 0), jsonout.json_obj([]))
+end
+
+function item(node: Json, index: integer): Json
+  intent: get
+  unwrap_or(get(jsonout.list_items(node), index), jsonout.json_obj([]))
+end
+
+function encoded(node: Json, value: text): boolean
+  intent: compare
+  jsonout.encode_compact(node) == value
+end
+
+function test_begin_then_walks_through_patrol_to_final_boss(base: text, port: integer): boolean
+  intent: test
+  let begin_body: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_g1_mp10\"\}"
+  let begun_reply: HttpReply = post(base, port, "/quests/quest-begin/1.1.1", begin_body)
+  let begun: Json = result(begun_reply)
+  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "1.1.1")
+  let instance: Json = first_item(jsonout.obj_get(active, "instances"))
+  let board: Json = jsonout.obj_get(instance, "map")
+  let grid: Json = jsonout.obj_get(board, "grid")
+  let start: Json = item(item(grid, 0), 1)
+  let patrol: Json = item(item(grid, 1), 1)
+  let boss: Json = item(item(grid, 2), 1)
+  let minion: text = gamedata.minion_blueprint()
+  let link_zero: text = "\{\"x\":0,\"y\":1\}"
+  let link_boss: text = "\{\"x\":2,\"y\":1\}"
+  mutable links_have_zero: boolean = false
+  mutable links_have_boss: boolean = false
+  for link in jsonout.list_items(jsonout.obj_get(patrol, "links")) do
+    if jsonout.encode_compact(link) == link_zero then set links_have_zero = true end
+    if jsonout.encode_compact(link) == link_boss then set links_have_boss = true end
+  end
+  let first_reply: HttpReply = post(base, port, "/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  let first: Json = result(first_reply)
+  let first_results: Json = jsonout.obj_get(first, "results")
+  let first_battle: Json = jsonout.obj_get(jsonout.obj_get(item(first_results, 1), "action"), "battle")
+  let progression: Json = jsonout.obj_get(first, "progression")
+  let second_reply: HttpReply = post(base, port, "/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  let second: Json = result(second_reply)
+  let second_results: Json = jsonout.obj_get(second, "results")
+  let second_battle: Json = jsonout.obj_get(jsonout.obj_get(item(second_results, 1), "action"), "battle")
+  begun_reply.status == "200" and jsonout.as_bool(jsonout.obj_get(start, "start")) and jsonout.as_bool(jsonout.obj_get(patrol, "walkable")) and (not jsonout.obj_has(patrol, "final") or not jsonout.as_bool(jsonout.obj_get(patrol, "final"))) and jsonout.as_text(jsonout.obj_get(patrol, "boss")) == minion and jsonout.obj_has(jsonout.obj_get(patrol, "entities"), minion) and not jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(patrol, "entities"), minion) |> jsonout.obj_get("isFinalBoss")) and links_have_zero and links_have_boss and jsonout.as_bool(jsonout.obj_get(boss, "final")) and first_reply.status == "200" and length(jsonout.list_items(first_results)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(first_results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(first_battle, "x")) == 1 and jsonout.as_int(jsonout.obj_get(first_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(first_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(first_battle, "battleEnemy"), "key")) == minion and jsonout.as_text(jsonout.obj_get(progression, "currentBattleId")) == minion and encoded(jsonout.obj_get(progression, "currentBattleEnemy"), "\{\"id\":\"" ++ minion ++ "\"\}") and encoded(jsonout.obj_get(progression, "currentBattlePos"), "\{\"x\":1,\"y\":1\}") and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid()), "currentBattleState")) == "activated" and second_reply.status == "200" and encoded(jsonout.obj_get(jsonout.obj_get(item(second_results, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(second_battle, "x")) == 2 and jsonout.as_int(jsonout.obj_get(second_battle, "y")) == 1 and jsonout.as_bool(jsonout.obj_get(second_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(second_battle, "battleEnemy"), "key")) == gamedata.boss_blueprint()
+end
+
+function test_both_quest_enemies_resolve_to_their_sharkticon_assets(base: text, port: integer): boolean
+  intent: test
+  let minion: text = gamedata.minion_blueprint()
+  let boss: text = gamedata.boss_blueprint()
+  let body: text = "\{\"heroes\":[\{\"bid\":\"" ++ minion ++ "\",\"rank\":1,\"level\":1\},\{\"bid\":\"" ++ boss ++ "\",\"rank\":1,\"level\":1\}]\}"
+  let reply: HttpReply = post(base, port, "/bcg/getBaseHeroData", body)
+  let heroes: Json = result(reply)
+  let first: Json = item(heroes, 0)
+  let second: Json = item(heroes, 1)
+  reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == minion and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "npc_shark_warr" and jsonout.as_text(jsonout.obj_get(second, "img")) == "npc_shark_braw" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
+end
+
+function last_slash(path: text): integer
+  intent: find
+  mutable result: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then set result = index end
+    set index = index + 1
+  end
+  result
+end
+
+function directory_name(path: text): text
+  intent: get
+  let slash: integer = last_slash(path)
+  if slash < 0 then "." else substring(path, 0, slash) end
+end
+
+function absolute_script_path(arguments: a list of text): text
+  intent: return
+  let path: text = unwrap_or(get(arguments, 0), "")
+  if starts_with(path, "/") then path else path_join(get_cwd(), path) end
+end
+
+function main(): nothing
+  intent: run
+  let base: text = "/tmp/tftf-quest-walk-" ++ random_hex(8)
+  let server: text = path_join(directory_name(absolute_script_path(get_args())), "fakeserver.lbl")
+  let port: integer = find_port()
+  create_dir(base)
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  if port == 0 then
+    shell_exec("rm -rf -- " ++ base)
+    fakeserver.reset_saved_team()
+    fakeserver.reset_quest_positions()
+    print("0 passed, 2 failed")
+    exit_process(1)
+  else
+    let started: HarnessStart = start_server(base, server, port)
+    if not started.ready then
+      stop_server(started.pid)
+      fakeserver.reset_saved_team()
+      fakeserver.reset_quest_positions()
+      shell_exec("rm -rf -- " ++ base)
+      print("0 passed, 2 failed")
+      exit_process(1)
+    else
+      let walk: boolean = test_begin_then_walks_through_patrol_to_final_boss(base, port)
+      let assets: boolean = test_both_quest_enemies_resolve_to_their_sharkticon_assets(base, port)
+      stop_server(started.pid)
+      fakeserver.reset_saved_team()
+      fakeserver.reset_quest_positions()
+      shell_exec("rm -rf -- " ++ base)
+      let failed: integer = report("test_begin_then_walks_through_patrol_to_final_boss", walk) + report("test_both_quest_enemies_resolve_to_their_sharkticon_assets", assets)
+      print(to_text(2 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+      if failed > 0 then exit_process(1) end
+    end
+  end
+end
+
+main()

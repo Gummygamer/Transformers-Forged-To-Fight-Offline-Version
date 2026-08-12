@@ -430,7 +430,7 @@ end
   let start: Position = position_for(qid)
   let candidate_x: integer = start.x + offx
   let candidate_y: integer = start.y + offy
-  if candidate_x >= 0 and candidate_x < 3 and candidate_y == 1 then
+  if candidate_x >= 0 and candidate_x < gamedata.quest_dim() and candidate_y == gamedata.quest_path_col() then
   set_position(qid, candidate_x, candidate_y)
   else
     set offx = 0
