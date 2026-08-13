@@ -435,6 +435,53 @@ class BaseActiveTests(unittest.TestCase):
 
 
 class StoryFightArenaTests(unittest.TestCase):
+    def test_intermediate_map_tile_carries_an_authored_nonfinal_encounter(self):
+        tile = gamedata.build_quest_map()["grid"][1][1]
+        enemy = tile["entities"][gamedata.MINION_BLUEPRINT]
+
+        self.assertTrue(tile["walkable"])
+        self.assertFalse(tile.get("final", False))
+        self.assertEqual(tile["boss"], gamedata.MINION_BLUEPRINT)
+        self.assertEqual(enemy["entityType"], "boss")
+        self.assertIs(enemy["isFinalBoss"], False)
+        self.assertEqual(enemy["characters"], [gamedata.MINION_BLUEPRINT])
+        self.assertEqual(enemy["mapOverride"], gamedata.ARENA_LEVEL)
+        self.assertEqual(enemy["todIndex"], gamedata.ARENA_TOD_INDEX)
+
+    def test_intermediate_blueprint_is_a_distinct_owned_roster_member(self):
+        self.assertNotEqual(gamedata.MINION_BLUEPRINT, gamedata.BOSS_BLUEPRINT)
+        self.assertIn(gamedata.MINION_BLUEPRINT, gamedata.ROSTER)
+        self.assertIn(gamedata.BOSS_BLUEPRINT, gamedata.ROSTER)
+
+    def test_move_to_intermediate_tile_opens_the_minion_battle(self):
+        result = gamedata.build_quest_movedir(offx=1, offy=0, start=(0, 1))
+        battle = next(action["action"]["battle"] for action in result["results"]
+                      if "battle" in action["action"])
+
+        self.assertEqual(battle["battleEnemy"]["key"], gamedata.MINION_BLUEPRINT)
+        self.assertIs(battle["isFinalBoss"], False)
+        self.assertEqual(
+            result["progression"]["currentBattleId"], gamedata.MINION_BLUEPRINT
+        )
+        self.assertEqual(
+            result["progression"]["users"][gamedata.LOCAL_UID]["currentBattleState"],
+            "activated",
+        )
+
+    def test_move_to_final_tile_still_opens_the_boss_battle(self):
+        result = gamedata.build_quest_movedir(offx=1, offy=0, start=(1, 1))
+        battle = next(action["action"]["battle"] for action in result["results"]
+                      if "battle" in action["action"])
+
+        self.assertEqual(battle["battleEnemy"]["key"], gamedata.BOSS_BLUEPRINT)
+        self.assertIs(battle["isFinalBoss"], True)
+
+    def test_default_quest_enemy_remains_the_final_boss(self):
+        enemy = gamedata.build_quest_enemy()
+
+        self.assertEqual(enemy["key"], gamedata.BOSS_BLUEPRINT)
+        self.assertIs(enemy["isFinalBoss"], True)
+
     def test_default_arena_is_not_the_black_karnak_fallback(self):
         """ARENA_LEVEL must not default to karnak, whose offline ground is black."""
         self.assertNotEqual(gamedata.ARENA_LEVEL, "karnak")
