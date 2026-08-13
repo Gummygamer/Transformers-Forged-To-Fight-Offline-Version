@@ -114,9 +114,8 @@ Server/
   gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
   test_gamedata.lbl           verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
-  run_local.py                run the server on unprivileged phone-friendly ports
   run_local.lbl               run the Legible plain-HTTP server on an unprivileged port
-  build_phone_apk.py          create an unsigned local-server APK for a stock phone
+  build_phone_apk.lbl         create an unsigned local-server APK for a stock phone
   provision_phone.sh          install, launch, and configure USB or Wi-Fi phone use
   setup_device.sh             device side network and trust setup reference
   iterate.sh                  quick restart and capture loop
@@ -227,13 +226,15 @@ built with the laptop's LAN IPv4 address because a stock phone cannot override t
 Kabam DNS names. For example, if the laptop is `192.168.0.139`:
 
 1. Build the LAN variant:
-   `python3 Server/build_phone_apk.py --server-host 192.168.0.139 "Transformers 9.2 offline.apk" build/phone-wifi-unsigned.apk`.
+   `legible run Server/build_phone_apk.lbl --server-host 192.168.0.139 "Transformers 9.2 offline.apk" build/phone-wifi-unsigned.apk`.
 2. Align and sign it with Android build-tools:
    `zipalign -f -p 4 build/phone-wifi-unsigned.apk build/phone-wifi-aligned.apk`, then
    `apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/Transformers-9.2-offline-phone-wifi.apk build/phone-wifi-aligned.apk`.
-3. Start `python3 Server/run_local.py` on the laptop. It listens on every network interface
-   at HTTPS port 8443 and HTTP port 8080. Allow those two TCP ports through the laptop's
-   firewall for the private LAN if a firewall is enabled.
+3. Start `legible run Server/run_local.lbl` on the laptop, and in a second terminal
+   `legible run Server/run_local.lbl --https`. One Legible process holds one listener, so
+   the two together listen on every network interface at HTTP port 8080 and HTTPS port
+   8443. Allow those two TCP ports through the laptop's firewall for the private LAN if a
+   firewall is enabled.
 4. Install once over USB with
    `CONNECTION_MODE=wifi UPDATE_APK=1 APK=build/Transformers-9.2-offline-phone-wifi.apk Server/provision_phone.sh`.
    The update preserves game data when the installed app uses the same signing key. You can
@@ -252,14 +253,15 @@ Retail phones cannot use the emulator's root-only hosts and system-CA bind mount
 phone variant that redirects the embedded backend names to loopback and uses Android's
 owner-installed CA trust, then use ADB reverse to carry the traffic over USB:
 
-1. Run `python3 Server/build_phone_apk.py "Transformers 9.2 offline.apk" build/phone-unsigned.apk`.
+1. Run `legible run Server/build_phone_apk.lbl "Transformers 9.2 offline.apk" build/phone-unsigned.apk`.
    The builder also injects the current `tools/nativehook/libdothook.so`, so phone builds
    include the same gameplay fixes tested on the emulator.
 2. Sign the result with Android `apksigner`, writing
    `build/Transformers-9.2-offline-phone.apk`. The generated local build uses your Android
    debug key. If a differently signed build of the same package is already installed, it
    must be uninstalled first; doing so erases that installation's local game data.
-3. Start `python3 Server/run_local.py` on the laptop.
+3. Start `legible run Server/run_local.lbl` on the laptop, plus
+   `legible run Server/run_local.lbl --https` in a second terminal.
 4. Connect and authorize exactly one physical phone, then run `Server/provision_phone.sh`.
    If Play Protect rejects this locally modified APK with
    `INSTALL_FAILED_VERIFICATION_FAILURE`, review the APK and rerun the first installation as
@@ -286,12 +288,12 @@ If it hangs at login, check the very first item in the Gotchas section before an
 
 Build, align, sign, and install an arm64 APK with the fake-server response payload embedded:
 
-1. `python3 Server/build_phone_apk.py "Transformers 9.2 offline.apk" build/phone-unsigned.apk --scheme http --server-host 127.0.0.1 --server-port 8080 --bundle-server`
+1. `legible run Server/build_phone_apk.lbl "Transformers 9.2 offline.apk" build/phone-unsigned.apk --scheme http --server-host 127.0.0.1 --server-port 8080 --bundle-server`
 2. `~/Android/Sdk/build-tools/35.0.0/zipalign -f -p 4 build/phone-unsigned.apk build/phone-aligned.apk`
 3. `~/Android/Sdk/build-tools/35.0.0/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/bundled.apk build/phone-aligned.apk`
 4. `adb uninstall com.kabam.bigrobot` then `adb install --no-incremental --abi arm64-v8a build/bundled.apk`
 
-Nothing else is needed: no `run_local.py`, no `adb reverse`, no hosts file edits, no CA install,
+Nothing else is needed: no `run_local.lbl`, no `adb reverse`, no hosts file edits, no CA install,
 no root, and no `provision_*.sh`. Install and play. The existing host-server workflows above are
 unchanged and remain the default.
 
@@ -311,7 +313,7 @@ the hook is never loaded — which looks exactly like a broken server but is not
 1. `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a --needed inplace --apply \
    -o build/libil2cpp-armv7-patched.so "Transformers 9.2 extracted/lib/armeabi-v7a/libil2cpp.so"`
    (`--needed inplace` avoids `patchelf`, which is not always on PATH.)
-2. `python3 Server/build_phone_apk.py --abi armeabi-v7a --bundle-server --scheme http \
+2. `legible run Server/build_phone_apk.lbl --abi armeabi-v7a --bundle-server --scheme http \
    --server-host 127.0.0.1 --server-port 8080 --patched-il2cpp build/libil2cpp-armv7-patched.so \
    "Transformers 9.2 offline.apk" build/phone-armv7-unsigned.apk`
 3. `~/Android/Sdk/build-tools/35.0.0/zipalign -f -p 4 build/phone-armv7-unsigned.apk build/phone-armv7-aligned.apk`
@@ -352,7 +354,7 @@ were verified firing during that run.
    Keep API level 21 for old 32-bit phones and `-Wl,-soname,libdothook.so` because
    `libil2cpp.so`'s `DT_NEEDED` names `libdothook.so`. The resulting `.so` is a local build
    artifact and must not be committed.
-3. Build the APK: `python3 Server/build_phone_apk.py --abi armeabi-v7a ...`. It embeds the
+3. Build the APK: `legible run Server/build_phone_apk.lbl --abi armeabi-v7a ...`. It embeds the
    matching hook and, by default, drops the arm64 libraries. That last part matters: Android
    prefers arm64 whenever it is present, so an APK containing both would load the unpatched
    64-bit library and ignore the offline build entirely.
@@ -410,21 +412,23 @@ The Python originals of the Ghidra and Frida tools were removed once their Legib
 replacements were verified; they remain recoverable from git history at commit `d636dae`.
 `Server/build_phone_apk.lbl` ports the phone APK builder: run
 `legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N] [--abi arm64-v8a|armeabi-v7a] [--keep-other-abi] [--patched-il2cpp PATH] [--bundle-server]`.
-The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. `Server/build_phone_apk.py` remains on disk as the Python verification oracle. The request-synthesis layer and both listeners are ported as
+The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. The Python builder `Server/build_phone_apk.py` was removed once the Legible port was verified against it; it remains recoverable from git history at commit `55a5a6b`, for example `git show 55a5a6b:Server/build_phone_apk.py`. The request-synthesis layer and both listeners are ported as
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run
 `legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
 or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
 The TLS listener uses `Server/certs/server.pem` through Legible's `http_start_https`.
 Each Legible process holds one listener and has no threads, so HTTP and HTTPS run as two
 processes rather than Python's two threads; this is a design difference, not a port limitation.
-`Server/fakeserver.py` remains on disk only because `Server/export_payload.py` (and, through it,
-`Server/build_phone_apk.py`) still imports it; it is no longer
-needed to serve HTTPS.
+`Server/fakeserver.py` remains on disk only as a Python reading reference alongside
+`Server/gamedata.py`; nothing imports it any more, and it is no longer needed to serve
+HTTPS.
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
-counterpart remains because `Server/build_phone_apk.py`
-still imports it. As elsewhere in Legible, errors go to stdout (there is no stderr builtin),
+counterpart `Server/export_payload.py` was removed once the port produced a byte-identical
+payload; it remains recoverable from git history at commit `3488449`. `Server/run_local.py`
+was removed the same way and is recoverable at commit `f8e2f22`. As elsewhere in Legible,
+errors go to stdout (there is no stderr builtin),
 and it does not reproduce argparse's `--help` or usage-error text.
 `Server/test_inapk_server.lbl` ports the native in-APK wire regression: run
 `legible run Server/test_inapk_server.lbl`. It compiles the two C harnesses with `cc` and
@@ -433,9 +437,8 @@ builtins do not support HEAD, custom headers, or connection reuse, so the test d
 through `shell_exec`. The test
 builds the payload once and restarts the harness between its two server tests (rather than
 Python's per-test rebuild), because `build_payload` costs roughly 50--60 seconds in Legible.
-The Python test suite (`Server/test_gamedata.py`, `test_fakeserver.py`,
-`test_export_payload.py`, `test_build_phone_apk.py`, `test_inapk_server.py`, and
-`test_quest_walk.py`) was removed once its Legible replacements were verified; the files
+The Python test suite (the former game-data, fake-server, payload, APK-builder, in-APK-server,
+and quest-walk tests) was removed once its Legible replacements were verified; the files
 remain recoverable from git history at commit `23950a3`, for example
 `git show 23950a3:Server/test_gamedata.py`. The equivalent tests now run as
 `legible run Server/test_<name>.lbl`.
