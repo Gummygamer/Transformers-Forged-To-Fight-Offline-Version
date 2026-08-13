@@ -14,7 +14,7 @@ it, `python Server/gamedata.py` regenerates two response files:
   characters, and the `attackValues` combat balance table).
 - `Server/responses/GET__bcg_getUserData.json` — the owned roster.
 
-`Server/fakeserver.py`'s dynamic `/bcg/getBaseHeroData` handler now computes hero stats
+`Server/fakeserver.lbl`'s dynamic `/bcg/getBaseHeroData` handler now computes hero stats
 from the same authored curve, so on-screen numbers stay consistent with the roster.
 
 The special-attack-meter work adds only newly authored original values, invented for this
