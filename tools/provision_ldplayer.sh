@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Re-provision the LDPlayer instance to the WORKING (PC-dependent) state -> boots to home.
 # Run this after every emulator restart (the hosts/CA redirects are bind-mounts that don't
-# survive a reboot). The PC fake server (server/fakeserver.py) must be running on :443/:80,
+# survive a reboot). The PC fake server (Server/fakeserver.lbl) must be running on :443/:80,
 # and PC_IP must be this PC's LAN address that the emulator can reach.
 #
 # Prereqs (one-time): build the patched lib + hook:
@@ -37,4 +37,4 @@ S "su 0 sh -c 'rm -rf /data/local/tmp/cac; mkdir -p /data/local/tmp/cac; cp /sys
 
 echo "[*] launch"
 S am start -n $PKG/com.explodingbarrel.Activity >/dev/null
-echo "[+] provisioned. Wait ~45s; tap the title screen to log in. Make sure fakeserver.py is running."
+echo "[+] provisioned. Wait ~45s; tap the title screen to log in. Make sure fakeserver.lbl is running."

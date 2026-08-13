@@ -69,7 +69,7 @@ the client silently mishandles.
 ## Recovered data structures
 
 These are the shapes the client parses. They are served from `server/responses/` or
-synthesized in `server/fakeserver.py`.
+synthesized in `Server/fakeserver.lbl`.
 
 `/bcg/getUserData` is `{userData: {maxes...}, updates: {heroes: [...], savedTeams: [],
 activeTeams: []}, deletes: {}}`. The update handler reads `userData.blueprintsMax`,
@@ -214,7 +214,7 @@ so the roster grid, hero details, and team select populate offline. The blueprin
 character, and owned-hero JSON keys are exactly the shapes proven to parse (the same ones
 the original three-entry seed used); `entity_type`/`et` stays `bot` per the roster gotcha
 above, and the msa values of the three original seed entries are preserved so the intro
-fight is not regressed. `fakeserver.py`'s `/bcg/getBaseHeroData` handler computes stats
+fight is not regressed. `fakeserver.lbl`'s `/bcg/getBaseHeroData` handler computes stats
 from the same curve. Normal combat damage requires case-sensitive `attackValues` rows named
 `Light`, `Medium`, `Heavy`, and `Ranged`; `PlayerAttributes.GetAttackPercent` returns zero
 when a row is absent and does not fall back to `default`. The table now carries an authored
