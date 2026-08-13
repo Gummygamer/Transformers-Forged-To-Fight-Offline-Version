@@ -96,11 +96,11 @@ echo "[*] launch game"
 if [[ "$CONNECTION_MODE" == usb ]]; then
   cat <<'EOF'
 [+] Phone provisioned and game launched in USB mode.
-Keep Server/run_local.py running and keep USB debugging connected while playing.
+Keep Server/run_local.lbl running and keep USB debugging connected while playing.
 EOF
 else
   cat <<'EOF'
 [+] Phone provisioned and game launched in Wi-Fi/LAN mode.
-Keep Server/run_local.py running. The USB cable may now be disconnected.
+Keep Server/run_local.lbl running. The USB cable may now be disconnected.
 EOF
 fi

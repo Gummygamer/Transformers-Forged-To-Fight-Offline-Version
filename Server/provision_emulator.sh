@@ -8,14 +8,14 @@
 # each cold boot is: SELinux permissive, the hosts redirect, the CA, and the adb
 # reverse port forwards. The Kabam domains are pointed at 127.0.0.1 and the guest's
 # privileged :443/:80 are forwarded (via `adb reverse`) to the unprivileged host
-# ports that Server/run_local.py listens on, so nothing here needs sudo.
+# ports that Server/run_local.lbl listens on, so nothing here needs sudo.
 #
 # Usage:
 #   Server/provision_emulator.sh            # provision + (re)launch the game
 #   D=emulator-5554 Server/provision_emulator.sh
 #
 # Prereqs: emulator booted, `adb root` available (google_apis image, not playstore),
-# and Server/run_local.py running on the host (HTTP :8080 / HTTPS :8443).
+# and both Server/run_local.lbl processes running on the host (HTTP :8080 / HTTPS :8443).
 set -e
 ADB="${ADB:-adb}"
 D="${D:-emulator-5554}"
@@ -65,4 +65,4 @@ echo "[*] launch $PKG/$ACTIVITY"
 S am force-stop "$PKG"
 S am start -n "$PKG/$ACTIVITY" >/dev/null
 echo "[+] provisioned. Wait ~45s, then tap CONTINUE (language) and PLAY NOW (title)."
-echo "    Make sure Server/run_local.py is running on the host."
+echo "    Make sure Server/run_local.lbl is running on the host."
