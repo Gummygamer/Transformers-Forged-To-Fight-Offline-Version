@@ -410,7 +410,7 @@ Those diagnostics were removed before shipping. The local reproduction patch is
 `.longtask/hitstun-combat/findings/seg-06-hitstun-diagnostic-hooks.patch`; `.longtask/` is
 gitignored, so this RVA list is the durable record. The shipped fix is one authored stat-modifier
 row: `build_stat_modifiers()` in `Server/gamedata.py` emits `statMods["gp_hit_stun"]`, covered
-by `HitStunStatModifierTests` in `Server/test_gamedata.py`.
+by `test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row` in `Server/test_gamedata.lbl`.
 
 | Device log | `STATMOD id=gp_hit_stun` | `HITSTQ ... now=1` (`get_HitStunned` true) |
 | --- | --- | --- |
@@ -508,7 +508,7 @@ compiled into `libdothook.so` for arm64 with `aarch64-linux-android28-clang` and
 `libdothook-armeabi-v7a.so` for ARMv7 with `armv7a-linux-androideabi21-clang`. Its constructor
 caller finds mapped `base.apk` through `/proc/self/maps`, walks its ZIP directory for the stored
 payload (with a magic-scan fallback), and mmaps only that entry. It preserves Python dispatch
-order: dynamic handlers, exact route, prefix route, then default. `Server/test_inapk_server.py`
+order: dynamic handlers, exact route, prefix route, then default. `Server/test_inapk_server.lbl`
 compiles the host harness and compares live HTTP replies with `fakeserver`. The source is 32-bit
 clean through `#define _FILE_OFFSET_BITS 64`: 32-bit bionic's `struct stat.st_size` is 64-bit
 while bare `off_t` is 32-bit, so stat/mmap offsets would otherwise truncate. The ARMv7 hook builds

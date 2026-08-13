@@ -112,7 +112,7 @@ Server/
   fakeserver.py               the fake Sparx server
   fakeserver.lbl              Legible request synthesis and plain-HTTP listener
   gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
-  test_gamedata.py            verifies generated roster, combat, tuning, and mesh mappings
+  test_gamedata.lbl           verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
   run_local.py                run the server on unprivileged phone-friendly ports
   run_local.lbl               run the Legible plain-HTTP server on an unprivileged port
@@ -410,7 +410,7 @@ The Python originals of the Ghidra and Frida tools were removed once their Legib
 replacements were verified; they remain recoverable from git history at commit `d636dae`.
 `Server/build_phone_apk.lbl` ports the phone APK builder: run
 `legible run Server/build_phone_apk.lbl <source.apk> <destination.apk> [--server-host H] [--scheme https|http] [--server-port N] [--abi arm64-v8a|armeabi-v7a] [--keep-other-abi] [--patched-il2cpp PATH] [--bundle-server]`.
-The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. `Server/build_phone_apk.py` remains on disk as the Python verification oracle and for the Python test suite. The request-synthesis layer and both listeners are ported as
+The arm64, armv7, and bundled outputs have been compared byte-for-byte with the Python builder. The source APK's non-signature entries are all `ZIP_STORED`, so the Legible ZIP reader/writer needs no compressor. A newly added ZIP entry uses UTC rather than Python's local-time timestamp; set `SOURCE_DATE_EPOCH` (and `TZ=UTC` for the Python comparison) for deterministic byte-identical output. `Server/build_phone_apk.py` remains on disk as the Python verification oracle. The request-synthesis layer and both listeners are ported as
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run
 `legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
 or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
@@ -418,13 +418,13 @@ The TLS listener uses `Server/certs/server.pem` through Legible's `http_start_ht
 Each Legible process holds one listener and has no threads, so HTTP and HTTPS run as two
 processes rather than Python's two threads; this is a design difference, not a port limitation.
 `Server/fakeserver.py` remains on disk only because `Server/export_payload.py` (and, through it,
-`Server/build_phone_apk.py` and `Server/test_inapk_server.py`) still import it; it is no longer
+`Server/build_phone_apk.py`) still imports it; it is no longer
 needed to serve HTTPS.
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
-counterpart remains because `Server/build_phone_apk.py` and `Server/test_inapk_server.py`
-still import it. As elsewhere in Legible, errors go to stdout (there is no stderr builtin),
+counterpart remains because `Server/build_phone_apk.py`
+still imports it. As elsewhere in Legible, errors go to stdout (there is no stderr builtin),
 and it does not reproduce argparse's `--help` or usage-error text.
 `Server/test_inapk_server.lbl` ports the native in-APK wire regression: run
 `legible run Server/test_inapk_server.lbl`. It compiles the two C harnesses with `cc` and
@@ -433,7 +433,12 @@ builtins do not support HEAD, custom headers, or connection reuse, so the test d
 through `shell_exec`. The test
 builds the payload once and restarts the harness between its two server tests (rather than
 Python's per-test rebuild), because `build_payload` costs roughly 50--60 seconds in Legible.
-`Server/test_inapk_server.py` remains on disk as the Python oracle.
+The Python test suite (`Server/test_gamedata.py`, `test_fakeserver.py`,
+`test_export_payload.py`, `test_build_phone_apk.py`, `test_inapk_server.py`, and
+`test_quest_walk.py`) was removed once its Legible replacements were verified; the files
+remain recoverable from git history at commit `23950a3`, for example
+`git show 23950a3:Server/test_gamedata.py`. The equivalent tests now run as
+`legible run Server/test_<name>.lbl`.
 
 ## The gotchas that will eat your time
 
