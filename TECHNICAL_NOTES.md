@@ -462,7 +462,7 @@ unless the target still holds the exact instruction the RE was done against
 
 ## In-app server payload (v1)
 
-`Server/export_payload.py` turns the authored Python game data into
+`Server/export_payload.lbl` turns the authored game data into
 `assets/tftf_offline_payload.bin`, which the arm64 in-app HTTP server mmaps
 directly from `base.apk`. It is a little-endian, deterministic binary: every offset is
 absolute from byte zero, four-byte aligned, and every stored key/body is NUL-terminated
@@ -515,7 +515,7 @@ while bare `off_t` is 32-bit, so stat/mmap offsets would otherwise truncate. The
 warning-free.
 
 The server was verified on an `android-30 google_apis x86_64` emulator with ARM translation and
-`arm64-v8a`, using `Server/build_phone_apk.py --scheme http --server-host 127.0.0.1 --server-port
+`arm64-v8a`, using `legible run Server/build_phone_apk.lbl --scheme http --server-host 127.0.0.1 --server-port
 8080 --bundle-server`. With guest SELinux enforcing, a stock `/system/etc/hosts`, no host server,
 and no `adb reverse` forwards, the game boots to the home screen, opens the first STORY mission,
 renders the game board, moves the player between board nodes, and plays the fight. The only

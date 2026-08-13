@@ -157,7 +157,7 @@ phone. This example uses `192.168.1.25`:
 
 ```cmd
 mkdir build 2>nul
-python Server\build_phone_apk.py --abi armeabi-v7a --server-host 192.168.1.25 --patched-il2cpp work\libil2cpp-armv7-patched.so input\Transformers-9.2.0.apk build\tftf-armv7-wifi-unsigned.apk
+legible run Server\build_phone_apk.lbl --abi armeabi-v7a --server-host 192.168.1.25 --patched-il2cpp work\libil2cpp-armv7-patched.so input\Transformers-9.2.0.apk build\tftf-armv7-wifi-unsigned.apk
 ```
 
 Use a DHCP reservation if possible. If the PC address changes, rebuild with the
@@ -169,7 +169,7 @@ USB mode uses the default server host, `127.0.0.1`, with ADB reverse:
 
 ```cmd
 mkdir build 2>nul
-python Server\build_phone_apk.py --abi armeabi-v7a --patched-il2cpp work\libil2cpp-armv7-patched.so input\Transformers-9.2.0.apk build\tftf-armv7-usb-unsigned.apk
+legible run Server\build_phone_apk.lbl --abi armeabi-v7a --patched-il2cpp work\libil2cpp-armv7-patched.so input\Transformers-9.2.0.apk build\tftf-armv7-usb-unsigned.apk
 ```
 
 The builder embeds the patched ARMv7 `libil2cpp.so` and current ARMv7 hook
@@ -221,14 +221,20 @@ Substitute the USB filename when using USB mode.
 
 ## 9. Start the local server
 
-Start a separate Command Prompt and leave it open:
+Start two separate Command Prompts and leave both open. One Legible process holds one
+listener, so HTTP and HTTPS run as two processes:
 
 ```cmd
 cd /d C:\TFTF-Offline
-python Server\run_local.py
+legible run Server\run_local.lbl
 ```
 
-The server listens on HTTPS 8443 and HTTP 8080.
+```cmd
+cd /d C:\TFTF-Offline
+legible run Server\run_local.lbl --https
+```
+
+The two servers listen on HTTP 8080 and HTTPS 8443.
 
 For Wi-Fi, open only those ports on the private Windows network. Run once from
 an elevated Command Prompt:
@@ -291,7 +297,7 @@ Do that only if losing its data is acceptable.
 
 If login hangs:
 
-1. Confirm `python Server\run_local.py` is still running.
+1. Confirm both `legible run Server\run_local.lbl` processes are still running.
 2. For Wi-Fi, confirm the PC still has the IP embedded in the APK.
 3. Confirm Windows Firewall allows TCP 8080 and 8443 on the private profile.
 4. For USB, rerun `adb reverse --list`.
