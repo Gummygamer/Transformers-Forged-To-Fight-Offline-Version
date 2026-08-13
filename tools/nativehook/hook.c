@@ -700,7 +700,7 @@ static float game_clock(void){
     p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
     return *(float*)(p+0x18);
 }
-#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.py; keep in step.
+#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.lbl; keep in step.
 // slot 58 FIX: PlayerInput.QueuedAction.SetAction(this=QueuedAction, action) @0xD35130.
 // Before maxQueuedActionTime was authored, a tap fully registered offline
 // (OnReleaseAttackInput -> SetAction(Attack) ran), but SetAction stored TimeStamp = now + 0:

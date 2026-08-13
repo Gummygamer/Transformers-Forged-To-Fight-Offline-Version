@@ -13,7 +13,8 @@ files, generated keys, build output, or anything under `media/` to Git.
 
 Use a 64-bit Windows 7 SP1 PC and install:
 
-- Python 3.8.10 (64-bit), with `python.exe` on `PATH`.
+- The `legible` interpreter, with `legible.exe` on `PATH` (the repo's tools are `.lbl`
+  sources run as `legible run <file>`).
 - A Windows 7-compatible Git for Windows release, providing Git Bash and OpenSSL.
 - 7-Zip, with `7z.exe` on `PATH`.
 - JDK 8, with `java.exe` and `keytool.exe` on `PATH`.
@@ -53,7 +54,7 @@ set PATH=%ANDROID_SDK_ROOT%\platform-tools;%ANDROID_SDK_ROOT%\build-tools\30.0.3
 Check each tool:
 
 ```cmd
-python --version
+legible --version
 java -version
 7z
 adb version
@@ -61,11 +62,7 @@ zipalign -h
 apksigner version
 ```
 
-Python must report 3.8.x. Install the patcher's Python dependency:
-
-```cmd
-python -m pip install capstone==5.0.1
-```
+The patcher has no external dependency because `patches/patch_il2cpp.lbl` decodes ARM64 itself.
 
 ## 3. Check that the phone accepts 32-bit apps
 

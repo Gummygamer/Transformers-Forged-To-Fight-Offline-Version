@@ -110,7 +110,7 @@ patches/
   find_str_ref.lbl            helper: find references to a string
 Server/
   fakeserver.lbl              the fake Sparx server (request synthesis, HTTP and HTTPS listeners)
-  gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
+  gamedata.lbl                hand-authored roster, battle balance, mission, and tuning data
   test_gamedata.lbl           verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
   run_local.lbl               run the Legible plain-HTTP server on an unprivileged port
@@ -300,8 +300,8 @@ unchanged and remain the default.
 `--bundle-server` supports both `arm64-v8a` (the default and primary tested path) and
 `armeabi-v7a`. It requires plain HTTP on loopback: `--scheme https` and non-loopback
 `--server-host` values are rejected. The baked payload is a snapshot of the authored data at build
-time, so changing `Server/gamedata.py` requires rebuilding the APK. Its responses are the same
-ones served by `Server/fakeserver.py`.
+time, so changing `Server/gamedata.lbl` requires rebuilding the APK. Its responses are the same
+ones served by `Server/fakeserver.lbl`.
 
 For an ARMv7 bundled build, use the same align and signing steps with ARMv7 output names.
 Unlike the arm64 one, this build must also supply a patched library: `Transformers 9.2
@@ -422,6 +422,12 @@ processes rather than Python's two threads; this is a design difference, not a p
 The Python original `Server/fakeserver.py` was removed once the Legible listeners were
 verified; it remains recoverable from git history at commit `23950a3`, for example
 `git show 23950a3:Server/fakeserver.py`.
+The Python original `Server/gamedata.py` was removed once `Server/gamedata.lbl` was
+verified to regenerate `Server/responses/` byte-identically; it remains recoverable from
+git history at commit `23950a3`, for example `git show 23950a3:Server/gamedata.py`. With
+the Python gone, the committed artifacts are the oracle: `Server/responses/` and the baked
+payload (4,500,656 bytes, 9325 entries; md5 `f551c1858e0524a98c6d760c755c24bf` at listen
+port 8080 and `3b05a0cca171e527ffc57720a309b1d9` at 18080).
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
@@ -496,7 +502,7 @@ A sane order to attack it:
 
 1. Persist quest completion and author the reward contract for the existing STORY fight.
 2. Add original per-bot ability definitions and test their in-fight effects. The normal attack
-   and special-damage data already have a working generated path in `Server/gamedata.py`.
+   and special-damage data already have a working generated path in `Server/gamedata.lbl`.
 3. Add missions, maps, and opponent lineups one small path at a time, using the runtime hook
    and `re_notes/dump.cs` to establish the client contract.
 4. Add the economy and wider progression only after the missions and rewards that use them.

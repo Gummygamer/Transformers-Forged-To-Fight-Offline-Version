@@ -2,13 +2,13 @@
 
 This file records how the backend-content reconstruction in this package was done so
 that it stays on the right side of copyright and stays defensive/interoperability-only.
-It covers the data added in `Server/gamedata.py` and the regenerated response files.
+It covers the data added in `Server/gamedata.lbl` and the regenerated response files.
 
 ## What was added
 
-`Server/gamedata.py` is a hand-authored source of the server-side content that Kabam
+`Server/gamedata.lbl` is a hand-authored source of the server-side content that Kabam
 used to stream to the client and that shut down with their servers in early 2020. From
-it, `python Server/gamedata.py` regenerates two response files:
+it, `legible run Server/gamedata.lbl` regenerates two response files:
 
 - `Server/responses/GET__bcg_getLoginData.json` — the config blob (blueprints,
   characters, and the `attackValues` combat balance table).
@@ -59,7 +59,7 @@ already-shipped local loopback server compute the same response bodies the Pytho
 produced, so the bundled build behaves like the host-server build. It adds no network
 interception, no new binary patch, and no new hook.
 
-The BOTS-roster navigation fix likewise introduces no authored game values: `Server/gamedata.py`
+The BOTS-roster navigation fix likewise introduces no authored game values: `Server/gamedata.lbl`
 is unchanged, so it adds no invented numbers, names, or content. Its arm64 `RSENTER`/`RSEXIT`
 hooks only call `GameObject.SetActive` on base-builder objects that the client's own base-board
 code already activated and then failed to deactivate when roster navigation bypassed
@@ -70,7 +70,7 @@ navigation path were removed before shipping.
 The level-3 cinematic-special transform investigation ended in a negative result and ships no
 fix. The four arm64 hooks it had previously added (`SP3XNEW`, `SP3XHOLD`, `SP3XIN`, `SP3XOUT`)
 were measured to have no visible effect and have been removed again, so the shipped hook set is
-smaller than before rather than larger. `Server/gamedata.py` is unchanged, so no invented
+smaller than before rather than larger. `Server/gamedata.lbl` is unchanged, so no invented
 numbers, names, or game content were authored. The temporary read-only diagnostic hooks used
 during the investigation only observed the client's own calls and were removed before shipping;
 they added no network interception, no binary patch of shipped content, no new capability, and
@@ -81,7 +81,7 @@ no game assets or binaries to the repository.
 - **Everything authored here is original.** Kabam's real balance data (the roster
   numbers, the class/star assignments, the `attackValues` table, the ability
   definitions) was server-side and is gone. It was not recovered, copied, or
-  reproduced. Every number, class, faction, and rarity in `gamedata.py` was invented
+  reproduced. Every number, class, faction, and rarity in `gamedata.lbl` was invented
   for this offline revival. The point of the file's header comment is to make that
   explicit and auditable.
 
@@ -128,7 +128,7 @@ this repository. Follow the loop the README describes — author in the shapes
 
 The roster-scroll crash guard authors no new game values whatsoever: no numbers, names,
 balance data, stats, or strings of game content. Nothing was transcribed from recovered Kabam
-server data. It is pure client-side crash-guard plumbing. `Server/gamedata.py` is unchanged;
+server data. It is pure client-side crash-guard plumbing. `Server/gamedata.lbl` is unchanged;
 the change is confined to this revival's own native hook shim, which is original code written
 for the project.
 
@@ -147,7 +147,7 @@ content bundles.
 The alternate-form rendering change authors no new game values whatsoever: no numbers, names,
 balance data, stats, or strings of game content. Nothing was transcribed from recovered Kabam
 server data. It is confined to this revival's own native hook shim, which is original code written
-for the project. `Server/gamedata.py` is unchanged.
+for the project. `Server/gamedata.lbl` is unchanged.
 
 No game asset is added, copied, or transcribed. The alternate-form model is the client's own
 already-shipped `transformed` prop; the change only makes the user's own client display a model it
@@ -167,7 +167,7 @@ so the earlier statement about their removal remains accurate.
 The alternate-form animation change authors no new game values whatsoever: no numbers, names,
 balance data, stats, or strings of game content. Nothing was transcribed from recovered Kabam
 server data. It is confined to this revival's own native hook shim, which is original code written
-for the project. `Server/gamedata.py` is unchanged.
+for the project. `Server/gamedata.lbl` is unchanged.
 
 No game asset is added, copied, or transcribed. The animation played is the client's own
 already-shipped clip on its own already-shipped alternate-form prop; the change only makes the
