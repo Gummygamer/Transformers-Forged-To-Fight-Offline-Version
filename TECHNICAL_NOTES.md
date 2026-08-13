@@ -154,7 +154,7 @@ crashes."* Both affected roster lists were native process deaths, not managed ex
 main-menu BOTS grid survived nine downward flicks and died on the tenth, while STORY → EDIT
 SQUAD died on its first flick. The decisive arm64-v8a tombstones were SIGSEGVs (signal 11, fault
 addresses `0x0` / `0x150048`) and contained no authored server data, so this could not be a
-`Server/gamedata.py` fix.
+`Server/gamedata.lbl` fix.
 
 There are two bad delegate/ABI routes. The first invokes
 `EditTeamScreenPresentation.OnGridItemClicked` from the no-argument
@@ -202,13 +202,13 @@ pattern where `if (X != 0)` guards a path and there is a throw at the end is the
 check. X being null is what throws. String keys appear as placeholder symbols whose index
 resolves in the dumper's string literal output.
 
-## Authored content data (gamedata.py)
+## Authored content data (gamedata.lbl)
 
-`Server/gamedata.py` is the single hand-authored source for the reconstructed content:
+`Server/gamedata.lbl` is the single hand-authored source for the reconstructed content:
 the roster (every character bundle listed in `re_notes/ASSET_INVENTORY.txt`, with an
 original class/faction/star assignment and an original stat curve) and the `attackValues`
 combat balance table. All numbers are original; none are recovered Kabam data (see
-`COMPLIANCE.md`). Running `python Server/gamedata.py` regenerates
+`COMPLIANCE.md`). Running `legible run Server/gamedata.lbl` regenerates
 `responses/GET__bcg_getLoginData.json` and `responses/GET__bcg_getUserData.json` from it,
 so the roster grid, hero details, and team select populate offline. The blueprint,
 character, and owned-hero JSON keys are exactly the shapes proven to parse (the same ones
@@ -292,7 +292,7 @@ animated the bot between nodes, refreshed reachability, and changed explored pro
 
 ### Arena authoring
 
-`build_quest_enemy()` in `Server/gamedata.py` authors the QuestBoss wire keys
+`build_quest_enemy()` in `Server/gamedata.lbl` authors the QuestBoss wire keys
 `mapOverride` (level name) and `todIndex` (time-of-day index). An empty `mapOverride`
 means no arena is assigned, so the client falls back to Karnak; its ground renders black in
 this offline build. `chicago` is the verified-good default because its ground and street
@@ -409,7 +409,7 @@ frame, its probe logged transitions only to avoid flooding the device log.
 Those diagnostics were removed before shipping. The local reproduction patch is
 `.longtask/hitstun-combat/findings/seg-06-hitstun-diagnostic-hooks.patch`; `.longtask/` is
 gitignored, so this RVA list is the durable record. The shipped fix is one authored stat-modifier
-row: `build_stat_modifiers()` in `Server/gamedata.py` emits `statMods["gp_hit_stun"]`, covered
+row: `build_stat_modifiers()` in `Server/gamedata.lbl` emits `statMods["gp_hit_stun"]`, covered
 by `test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row` in `Server/test_gamedata.lbl`.
 
 | Device log | `STATMOD id=gp_hit_stun` | `HITSTQ ... now=1` (`get_HitStunned` true) |
