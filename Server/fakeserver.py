@@ -257,10 +257,13 @@ class H(http.server.BaseHTTPRequestHandler):
                 start = _quest_positions.get(qid, (0, 1))
                 team = list(_saved_team) if _saved_team else []
                 candidate = (start[0] + offx_i, start[1] + offy_i)
-                # The authored 1.1.1 map is a three-node vertical path in map
-                # coordinates (x=0..2, y=1). Ignore impossible directions rather
-                # than corrupting progression with an out-of-map position.
-                if 0 <= candidate[0] < 3 and candidate[1] == 1:
+                # The authored 1.1.1 map is a vertical path in map coordinates.
+                # Keep this acceptance gate on the same dimensions as build_quest_map:
+                # the wire walk test's second /1/0 move reached (2,1), so a separate
+                # literal here would otherwise be able to clamp a valid authored node.
+                quest_dim = gamedata.QUEST_DIM if gamedata is not None else 3
+                path_col = gamedata.QUEST_PATH_COL if gamedata is not None else 1
+                if 0 <= candidate[0] < quest_dim and candidate[1] == path_col:
                     _quest_positions[qid] = candidate
                 else:
                     offx_i = offy_i = 0

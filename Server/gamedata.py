@@ -772,6 +772,20 @@ def build_hero_entry(bid, rank=1, level=1):
 # the model_id fix above), not Optimus Primal.
 DEFAULT_TEAM = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_g1_mp10"]
 BOSS_BLUEPRINT = "sharkticon_gs_brawler"
+# The intermediate-node encounter uses a different sharkticon variant so it does not look
+# identical to the boss (npc_shark_warr vs. npc_shark_braw). It is in ROSTER/OWNED, so
+# /bcg/getBaseHeroData resolves it.
+MINION_BLUEPRINT = "sharkticon_gs_warrior"
+
+# STORY 1.1.1 remains a 3x3 board with a single vertical walkable path. Keep every authored
+# encounter here so the map and move reply cannot drift apart as the path grows.
+QUEST_DIM = 3
+QUEST_PATH_COL = 1
+# row on the walkable column -> (entity/blueprint key, is_final_boss, tile label)
+QUEST_ENCOUNTERS = {
+    1: (MINION_BLUEPRINT, False, "Patrol"),
+    2: (BOSS_BLUEPRINT, True, "Boss"),
+}
 
 
 # Live verification showed that changing only quest-begin updates its progression while the
@@ -921,7 +935,7 @@ def build_quest_map(qid="1.1.1"):
     MapTile wire keys (all optional, from MapTileJSONKeys @309090): `start`/`final`/`hidden`/
     `walkable`(bool), `barrier`/`item`/`dialogue`/`dialoguePE`(string). start=true -> startTile,
     final=true -> endTile. QuestMapTile adds label/timeLimit/boss/etc (LegacyDeserialize)."""
-    dim = 3
+    dim = QUEST_DIM
 
     def tile(**kw):
         t = {"walkable": True, "hidden": False}
@@ -929,7 +943,9 @@ def build_quest_map(qid="1.1.1"):
         return t
 
     # 3x3 grid, indexed grid[row][col]. Straight walkable path down the middle column
-    # (col=1): start at (0,1), boss/final at (2,1). Edge columns are non-walkable filler.
+    # (col=1): start at (0,1), an encounter at (1,1), and boss/final at (2,1). Edge columns
+    # are non-walkable filler. The path now carries an encounter on the intermediate node as
+    # well as the final tile.
     # Tile wire keys (harvested live from QuestMapTile.Deserialize via the FDS2/dA field log):
     # base MapTile has start/final/hidden/walkable(bool); QuestMapTile adds `lab`/`lab_loc`
     # (label), `boss`(BCGEntity)/`bossSlot`, `bt`/`db`/`pt`(arrays), `renderTemplate`, `bg`,
@@ -959,22 +975,21 @@ def build_quest_map(qid="1.1.1"):
             return []
         return [{"x": r, "y": 1} for r in (row - 1, row + 1) if 0 <= r < dim]
 
-    boss = build_quest_enemy()
-
     grid = []
     for row in range(dim):
         r = []
         for col in range(dim):
-            if col == 1:
+            if col == QUEST_PATH_COL:
                 lk = links_for(row, col)
                 if row == 0:
                     r.append(tile(start=True, lab="Start", links=lk, visibleLinks=lk))
-                elif row == dim - 1:
+                elif row in QUEST_ENCOUNTERS:
+                    key, is_final_boss, label = QUEST_ENCOUNTERS[row]
                     r.append(tile(
-                        final=True, lab="Boss", links=lk, visibleLinks=lk,
-                        boss=BOSS_BLUEPRINT,
+                        final=(row == dim - 1), lab=label, links=lk, visibleLinks=lk,
+                        boss=key,
                         entities={
-                            BOSS_BLUEPRINT: boss,
+                            key: build_quest_enemy(key=key, is_final_boss=is_final_boss),
                         },
                     ))
                 else:
@@ -1015,25 +1030,28 @@ def build_quest_map(qid="1.1.1"):
     }
 
 
-def build_quest_enemy(map_override=None, tod_index=None):
+def build_quest_enemy(map_override=None, tod_index=None, key=None, is_final_boss=True):
     """An authored STORY BCGEntity in the exact QuestBoss wire schema.
 
     The field names were captured from the live QuestBoss.Deserialize call after the first
     entity successfully selected Quests.BCGEntity in Builder.NewEntity. In particular the
     compact keys are `characters`, `sig_lvl`, `flvl`, `aiString`, and `aiPer`; the earlier
     property-name guesses were silently ignored and produced the anonymous 8888 placeholder.
+    The entity key doubles as the combat blueprint id sent to /bcg/getBaseHeroData; non-final
+    encounters set isFinalBoss=False, while only the last path tile is the final boss.
     """
     map_override = ARENA_LEVEL if map_override is None else map_override
     tod_index = ARENA_TOD_INDEX if tod_index is None else tod_index
+    key = BOSS_BLUEPRINT if key is None else key
     return {
         # The entity key doubles as the combat blueprint id. PrefightScreenData sends it
         # verbatim to /bcg/getBaseHeroData; an arbitrary encounter id therefore creates a
         # real BCGEntity but an invalid/anonymous combatant.
-        "key": BOSS_BLUEPRINT,
+        "key": key,
         "entityType": "boss",
         "parentEntityType": "boss",
-        "isFinalBoss": True,
-        "characters": [BOSS_BLUEPRINT],
+        "isFinalBoss": is_final_boss,
+        "characters": [key],
         "rank": 1, "level": 1, "sig_lvl": 0, "flvl": 0,
         "aiType": 0, "aiString": "default", "aiPer": "default",
         "mapOverride": map_override, "todIndex": tod_index,
@@ -1196,17 +1214,23 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1), team=None):
     }
     actions = [action]
 
-    # Arriving at the authored final tile is a two-action result: MOVE_TO animates the squad
+    # Arriving at an authored encounter tile is a two-action result: MOVE_TO animates the squad
     # onto the node, then BATTLE makes Gameboard.Action_Battle open the real pre-fight screen.
     # QuestActionResult chooses its enum by the first non-null nested variant; `battle` is slot
     # 3 (BATTLE). Its x/y locate actionTile and `battleEnemy` is deserialized into the
-    # encounter entity. The name is live-confirmed from QuestActionResult's field trace.
-    if (nx, ny) == (2, 1):
+    # encounter entity. The name is live-confirmed from QuestActionResult's field trace. This
+    # variant is not final-tile-specific: isFinalBoss is its field, so intermediate nodes use
+    # the same slot-3 `battle` variant with isFinalBoss false.
+    encounter = QUEST_ENCOUNTERS.get(nx) if ny == QUEST_PATH_COL else None
+    if encounter is not None:
+        key, is_final_boss, _ = encounter
         actions.append({
             "action": {
                 "battle": {
-                    "x": nx, "y": ny, "isFinalBoss": True,
-                    "battleEnemy": build_quest_enemy(),
+                    "x": nx, "y": ny, "isFinalBoss": is_final_boss,
+                    "battleEnemy": build_quest_enemy(
+                        key=key, is_final_boss=is_final_boss,
+                    ),
                 },
             },
         })
@@ -1215,22 +1239,22 @@ def build_quest_movedir(qid="1.1.1", offx=1, offy=0, start=(0, 1), team=None):
     prog = build_quest_progression(qid, start=(nx, ny), team=team)
     prog["cleared"] = [{"x": sx, "y": sy}]
     prog["revealed"] = [{"x": r, "y": 1} for r in range(3)]
-    if (nx, ny) == (2, 1):
+    if encounter is not None:
         prog.update({
-            "currentBattleId": BOSS_BLUEPRINT,
+            "currentBattleId": key,
             "currentBattlePos": {"x": nx, "y": ny},
             # This compact identity is the chosen enemy CHARACTER blueprint, not the stable
             # encounter entity key. PrefightScreenData feeds it directly to GetBlueprint;
             # using the encounter id produced live `GETBP story_1_1_1_boss` misses and an
             # empty opponent. Position and health remain sibling progression fields.
-            "currentBattleEnemy": {"id": BOSS_BLUEPRINT},
+            "currentBattleEnemy": {"id": key},
             "currentBattleEnemyHealth": 1.0,
         })
         # QuestProgression and the local QuestUserInfo retain parallel battle state. The
         # pre-fight screen reads the latter through ActiveQuest.localPlayer; progression-only
         # battle fields open the window but leave its fight launch state incomplete.
         prog["users"][LOCAL_UID].update({
-            "currentBattleId": BOSS_BLUEPRINT,
+            "currentBattleId": key,
             "currentBattlePos": {"x": nx, "y": ny},
             "currentBattleState": "activated",
         })
@@ -1579,6 +1603,11 @@ def build_base_hero_details(req_heroes):
         out.append({
             "bid": bid, "rank": rank, "level": level,
             "sig_lvl": int(h.get("sig_lvl", 0) or 0),
+            # The request identifies the enemy only by bid. Keep its authored render
+            # identity on the computed detail too; the wire walk check confirmed the
+            # intermediate warrior must resolve as npc_shark_warr, not a blank default.
+            "i": art_base(bid), "img": art_base(bid),
+            "m": model_id(bid), "mdl": model_id(bid),
             "rating_hp": hp, "max_hp": hp,
             "rating_attack": atk, "attack": atk,
             "health": hp, "armor": 0, "crit_rate": 0, "crit_dmg": 0,
