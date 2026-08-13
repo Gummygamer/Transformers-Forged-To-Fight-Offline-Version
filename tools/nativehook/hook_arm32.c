@@ -28,7 +28,7 @@
 //   3. SETACTFIX. hook_11 carries the maxQueuedActionTime fallback change: keep
 //      the window computed by the game when it exists, and use
 //      SETACT_FALLBACK_WINDOW only when it does not. The real source of that
-//      window is bcg-combat.maxQueuedActionTime, authored in Server/gamedata.py;
+//      window is bcg-combat.maxQueuedActionTime, authored in Server/gamedata.lbl;
 //      keep SETACT_FALLBACK_WINDOW in step with it. This armv7 source change has
 //      not been compiled or run on a 32-bit device. It is verified on arm64 only.
 //
@@ -298,7 +298,7 @@ static float game_clock(void){
     p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
     return *(float*)(p + OFF_CLOCK_NOW);
 }
-#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.py; keep in step.
+#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.lbl; keep in step.
 
 // PlayerInput.QueuedAction.SetAction(this, action) @0x907DD8. Before maxQueuedActionTime was
 // authored, a tap fully registered offline (OnReleaseAttackInput -> SetAction(Attack) ran), but
