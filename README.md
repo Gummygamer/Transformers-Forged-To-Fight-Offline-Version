@@ -68,7 +68,7 @@ Kabam.
    pop the "failed to log in" dialog. It also re-injects a single dependency entry (see the
    Gotchas section) so the runtime hook actually loads. The output is `libil2cpp.patched.so`.
 
-2. A fake Sparx server. `Server/fakeserver.py` stands in for Kabam's backend. It listens on
+2. A fake Sparx server. `Server/fakeserver.lbl` stands in for Kabam's backend. It listens on
    TLS 443 and plain HTTP 80 and answers the game's API calls. Canned responses live in
    `Server/responses/`, one file per endpoint, named by method and path, for example
    `GET__account_data.json`. A few endpoints are answered dynamically in code rather than
@@ -109,8 +109,7 @@ patches/
   find_callers.lbl            helper: find callers of a function
   find_str_ref.lbl            helper: find references to a string
 Server/
-  fakeserver.py               the fake Sparx server
-  fakeserver.lbl              Legible request synthesis and plain-HTTP listener
+  fakeserver.lbl              the fake Sparx server (request synthesis, HTTP and HTTPS listeners)
   gamedata.py                 hand-authored roster, battle balance, mission, and tuning data
   test_gamedata.lbl           verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
@@ -197,7 +196,7 @@ should generate your own.
 ## How to run what exists today
 
 You need the APK installed on an ARM translation capable emulator (LDPlayer 9 was used, with
-root and writable system), Python on the PC, and the items from the section above.
+root and writable system), the `legible` interpreter on the PC, and the items from the section above.
 
 1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
    Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
@@ -212,7 +211,8 @@ root and writable system), Python on the PC, and the items from the section abov
 3. Build the arm64 hook once if you want to rebuild it, otherwise use the prebuilt one:
    `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
    `tools/nativehook/deploy.sh` has historical Windows paths and is not the current command.
-4. Start the fake server on the PC: `python3 Server/fakeserver.py`. It needs to be reachable
+4. Start the fake server on the PC: `legible run Server/fakeserver.lbl --https 443` and
+   `legible run Server/fakeserver.lbl --http 80` (one process per listener). They need to be reachable
    on ports 443 and 80 from the emulator.
 5. Provision the device: `bash tools/provision_ldplayer.sh <your-PC-LAN-IP>`. Re-run this
    after every emulator reboot.
@@ -419,9 +419,9 @@ or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --
 The TLS listener uses `Server/certs/server.pem` through Legible's `http_start_https`.
 Each Legible process holds one listener and has no threads, so HTTP and HTTPS run as two
 processes rather than Python's two threads; this is a design difference, not a port limitation.
-`Server/fakeserver.py` remains on disk only as a Python reading reference alongside
-`Server/gamedata.py`; nothing imports it any more, and it is no longer needed to serve
-HTTPS.
+The Python original `Server/fakeserver.py` was removed once the Legible listeners were
+verified; it remains recoverable from git history at commit `23950a3`, for example
+`git show 23950a3:Server/fakeserver.py`.
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
@@ -488,7 +488,7 @@ The method that works is the loop this project is built around. Run the game wit
 attached. The hook logs every key the client reads. When the client asks for something you
 have not provided, you see exactly what it wanted. You then synthesize a response in the
 right shape, drop it in `Server/responses/` or add it to the dynamic handler in
-`Server/fakeserver.py`, restart, and verify the client accepts it and moves forward. Repeat. Every
+`Server/fakeserver.lbl`, restart, and verify the client accepts it and moves forward. Repeat. Every
 screen in the current build was brought up this exact way. `re_notes/dump.cs` tells you the
 shape of each structure before you even run, because it lists every field the client reads.
 
