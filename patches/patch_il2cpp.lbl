@@ -155,7 +155,9 @@ function arm64_sites(): a list of Site
     Site { offset: 16523700, patch: bytes_from_hex("09000014"), name: "Hub.InitializeComponents -> register managers past OTAConfig gate" }, -- 0xFC21B4
     Site { offset: 23246480, patch: bytes_from_hex("1f2003d5"), name: "LoginManager._PostInit -> skip 'no valid authenticators' fail on Count==0" }, -- 0x162B690
     Site { offset: 16529176, patch: bytes_from_hex("1f2003d5"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xFC3718
-    Site { offset: 19056256, patch: bytes_from_hex("c0035fd6"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" } -- 0x122C680
+    Site { offset: 19056256, patch: bytes_from_hex("c0035fd6"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" }, -- 0x122C680
+    Site { offset: 28599028, patch: bytes_concat(bytes_from_hex("40008052"), bytes_from_hex("c0035fd6")), name: "Application.internetReachability -> ReachableViaLocalAreaNetwork (bundled loopback server needs no Wi-Fi AP)" }, -- 0x1B462F4
+    Site { offset: 20135496, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" } -- 0x1333E48
   ]
 end
 

@@ -61,11 +61,13 @@ Kabam.
 
 1. Native binary patches. The game is Unity IL2CPP, so the logic lives in a compiled ARM
    library, `libil2cpp.so`, not in editable script files. `patches/patch_il2cpp.lbl` rewrites
-   six functions in that library to get past the dead server checks: it defeats two
+   eight functions in that library to get past the dead server checks: it defeats two
    certificate pinning paths so our own TLS cert is accepted, forces the manager
    registration block to run even though the live config is null, lets login succeed with
    our local device session, and silences the subsystem fatal errors that would otherwise
-   pop the "failed to log in" dialog. It also re-injects a single dependency entry (see the
+   pop the "failed to log in" dialog. The last two stub the Unity reachability getter and the
+   endpoint's connectivity check, so the client will talk to the bundled loopback server on a
+   phone with no Wi-Fi access point. It also re-injects a single dependency entry (see the
    Gotchas section) so the runtime hook actually loads. The output is `libil2cpp.patched.so`.
 
 2. A fake Sparx server. `Server/fakeserver.lbl` stands in for Kabam's backend. It listens on
@@ -103,7 +105,7 @@ README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
-  patch_il2cpp.lbl            the six native patches plus the dependency re-injection
+  patch_il2cpp.lbl            the eight native patches plus the dependency re-injection
   abi_map.lbl                 translate arm64 addresses and field offsets to armeabi-v7a
   disasm_fn.lbl               helper: disassemble a function at an offset
   find_callers.lbl            helper: find callers of a function
@@ -344,7 +346,11 @@ were verified firing during that run.
 
 1. Patch the 32-bit library:
    `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
-   The same six patches apply; only the addresses and encodings differ. Linux continues to
+   The same six original patches apply; only the addresses and encodings differ. The two newer
+   reachability patches are arm64 only for now, because `abi_map.lbl` needs an Il2CppDumper dump
+   of the 32-bit build to translate them and this repo only carries the arm64 dump; addresses
+   must never be hand-translated. A 32-bit bundled APK therefore still needs a network interface
+   to be up. Linux continues to
    use `patchelf` by default. Windows uses the strict in-place injector, which reuses a
    verified alias string and spare dynamic-table slot without moving code or changing any
    patch offset. Either route can be selected explicitly with `--needed patchelf` or
