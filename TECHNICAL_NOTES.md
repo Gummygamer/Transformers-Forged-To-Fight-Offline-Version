@@ -31,7 +31,8 @@ body.
 
 ## The native patches
 
-All six are in `patches/patch_il2cpp.lbl`, applied by file offset, and the script prints a
+All eight are in `patches/patch_il2cpp.lbl` (arm64; the armeabi-v7a list is still the first six),
+applied by file offset, and the script prints a
 before and after disassembly of each so you can confirm them. In short:
 
 1 and 2. Certificate validation. Two TLS code paths are forced to accept any certificate, so
@@ -48,6 +49,13 @@ completes on the local device session token.
 5 and 6. Subsystem fatal errors. A subsystem that cannot reach its data would otherwise pop
 the failed to log in dialog. Both the polling check and the fatal tail call are neutralized,
 so a failed subsystem is treated as connected and the boot continues.
+
+7 and 8. Network reachability. `EB.Sparx.EndPoint::get_HasInternetConnectivity` is literally
+`Application.internetReachability != NotReachable`, and the HTTP endpoint's fetch coroutine
+branches on it before it will send anything, including to `127.0.0.1`. With no Wi-Fi access
+point the bundled build therefore refused to use its own in-APK server and stopped on the failed
+to log in dialog. Both getters are stubbed to constants, so reachability is always
+`ReachableViaLocalAreaNetwork` and connectivity is always true. These two are arm64 only.
 
 The script also re-injects the dependency that loads the runtime hook. See the gotcha below.
 
@@ -427,7 +435,9 @@ stun blends into the normal strike/stagger animation.
 
 `patches/abi_map.lbl` translates arm64 method addresses and field offsets to the 32-bit
 build by pairing the two Il2CppDumper dumps, which both come from the same
-`global-metadata.dat`. That covers the six native patches and ten of the twelve hook sites.
+`global-metadata.dat`. That covers the six original native patches and ten of the twelve hook
+sites. The two reachability patches added later are arm64 only because the 32-bit Il2CppDumper
+dump this pairing needs is not in the repo.
 It does not cover anything that is not a method address, and two fixes are exactly that.
 Both were re-derived against the 32-bit binary; the reasoning is written out in
 `tools/nativehook/hook_arm32.c` next to each fix, and both were confirmed firing live.
