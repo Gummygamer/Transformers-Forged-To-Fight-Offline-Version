@@ -206,7 +206,7 @@ end
 
 function test_max_special_attacks_honours_override(): boolean
   intent: test
-  gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 1 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 1 and gamedata.max_special_attacks("grimlock_gs_mp08", 5) == 3
+  gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 1 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 1 and gamedata.max_special_attacks("grimlock_gs_mp08", 5) == 3 and gamedata.max_special_attacks("ironhide_gs_kabam", 3) == 3 and gamedata.max_special_attacks("cliffjumper_gs_kabam", 2) == 2
 end
 
 function encoded_field(node: Json, key: text): text
