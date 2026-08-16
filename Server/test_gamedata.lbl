@@ -373,6 +373,7 @@ function run_slice3_tests(): integer
   set failed = failed + report("test_move_to_intermediate_tile_opens_the_minion_battle", test_move_to_intermediate_tile_opens_the_minion_battle(), "intermediate battle was wrong")
   set failed = failed + report("test_move_to_final_tile_still_opens_the_boss_battle", test_move_to_final_tile_still_opens_the_boss_battle(), "final battle was wrong")
   set failed = failed + report("test_default_quest_enemy_remains_the_final_boss", test_default_quest_enemy_remains_the_final_boss(), "default quest enemy was wrong")
+  set failed = failed + report("test_quest_enemy_names_a_shipped_ai_profile_and_personality", test_quest_enemy_names_a_shipped_ai_profile_and_personality(), "enemy AI profile or personality was invalid")
   set failed = failed + report("test_default_arena_is_not_the_black_karnak_fallback", test_default_arena_is_not_the_black_karnak_fallback(), "default arena was invalid")
   set failed = failed + report("test_quest_enemy_assigns_a_nonempty_shipped_arena_level", test_quest_enemy_assigns_a_nonempty_shipped_arena_level(), "enemy arena assignment was invalid")
   set failed = failed + report("test_quest_enemy_tod_is_valid_for_its_arena_level", test_quest_enemy_tod_is_valid_for_its_arena_level(), "enemy time of day was invalid")
@@ -446,6 +447,14 @@ function test_default_quest_enemy_remains_the_final_boss(): boolean
   intent: test
   let enemy: Json = gamedata.build_quest_enemy("", -1)
   jsonout.as_text(jsonout.obj_get(enemy, "key")) == gamedata.boss_blueprint() and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) == true
+end
+
+function test_quest_enemy_names_a_shipped_ai_profile_and_personality(): boolean
+  intent: test
+  let enemy: Json = gamedata.build_quest_enemy("", -1)
+  let profile: text = jsonout.as_text(jsonout.obj_get(enemy, "aiString"))
+  let personality: text = jsonout.as_text(jsonout.obj_get(enemy, "aiPer"))
+  profile == gamedata.enemy_ai_profile() and profile == "Default" and profile != "default" and personality == gamedata.enemy_ai_personality() and personality == "Ranged" and personality != "default"
 end
 
 function test_default_arena_is_not_the_black_karnak_fallback(): boolean
