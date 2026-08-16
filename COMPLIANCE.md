@@ -277,3 +277,27 @@ the repository ignores `media/`. The change adds no capability: it introduces no
 interception, no certificate bypass, and no patching of shipped content bundles. No new externally
 derived IL2CPP addresses were needed for this change; it reuses the entry points already recorded
 in the previous section.
+
+## Special-attack prop visibility
+
+During special attacks, the fighter's energy swords and other props its moves activate previously
+did not appear even when the client requested them. They now appear when requested, including the
+vehicle's own parts during the level-3 cinematic.
+
+This change authors no game values, names, balance data, or strings of game content. It contains
+no numbers or text of game content.
+
+The prop names `LeftToe_ebrb`, `Neck_ebrb`, `RightToe_ebrb`, `Sword`, `character_model`,
+`doublesword`, `gun`, `leftSword`, `leftsword`, `rightSword`, `rightsword`, `shoulderguns`, and
+`transformed` are the client's own object names, observed in the user's own installed client for
+interoperability and diagnostic purposes, and are not redistributed game content. No new
+externally-derived IL2CPP address was needed; this change reuses the `PropData.SetActiveInternal`
+entry point already recorded in the earlier sections.
+
+No game assets or binaries were added to the repository, and no shipped content bundle was
+patched. The props are assets that already ship inside the user's own installed client; nothing
+was extracted, added, or redistributed. The change adds no capability: it introduces no network
+interception or certificate bypass. Evidence recordings are local-only captures and are not
+committed; the repository ignores `media/`. Temporary read-only diagnostic hooks added during the
+investigation were removed before shipping, so the earlier statements about their removal remain
+accurate.
