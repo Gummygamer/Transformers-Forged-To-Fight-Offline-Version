@@ -1,0 +1,20 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #18222c; background: #f3f5f7; }
+body { margin: 0; }
+main { max-width: 900px; margin: 0 auto; padding: 28px 20px 48px; }
+h1 { margin: 0; } h2 { font-size: 1.15rem; margin: 1.5rem 0 .5rem; }
+.intro, .note { color: #405161; } .note { margin: .55rem 0; font-size: .92rem; }
+fieldset { border: 1px solid #b8c3ce; border-radius: 6px; margin: 16px 0; padding: 14px; background: #fff; }
+legend { font-weight: 700; padding: 0 5px; }
+label { display: block; margin: 9px 0; font-weight: 600; }
+input[type="text"], input[type="number"], select { display: block; box-sizing: border-box; width: 100%; margin-top: 4px; padding: 8px; border: 1px solid #8190a0; border-radius: 4px; font: inherit; font-weight: 400; }
+input[type="checkbox"], input[type="radio"] { margin-right: 6px; }
+input:disabled, select:disabled { background: #e1e6eb; color: #65717d; cursor: not-allowed; }
+.two-columns, .three-columns { display: grid; gap: 12px; } .two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); } .three-columns { grid-template-columns: 2fr 1fr 1fr; }
+.alert { margin: 7px 0; padding: 9px 11px; border-left: 4px solid; border-radius: 3px; }
+.error { background: #fdeaea; border-color: #bd1d24; color: #701016; }.warning { background: #fff6da; border-color: #b77900; color: #6a4700; }.success { background: #e7f7eb; border-color: #237a3b; color: #175a2b; }
+.commands { min-height: 70px; white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid #a9b5c1; border-radius: 5px; background: #19232d; color: #eaf2fa; font: .84rem/1.45 ui-monospace, monospace; }.log { min-height: 90px; }
+.button-row { display: flex; gap: 10px; margin: 16px 0 8px; }
+button { padding: 10px 17px; border: 0; border-radius: 4px; background: #0959a2; color: #fff; font: 700 1rem system-ui, sans-serif; cursor: pointer; }button:hover { background: #06477f; }button:disabled { background: #8794a1; cursor: not-allowed; }
+button.secondary { background: #6b7682; }button.secondary:hover:not(:disabled) { background: #515b66; }
+.run-result { min-height: 1.4rem; color: #8a1515; font-weight: 600; }.hidden { display: none; }
+@media (max-width: 620px) { .two-columns, .three-columns { grid-template-columns: 1fr; } }
