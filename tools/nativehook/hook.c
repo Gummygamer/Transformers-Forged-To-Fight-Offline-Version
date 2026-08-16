@@ -455,12 +455,12 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // the scroll function still runs and real picker card taps never use this no-arg delegate.
     { 0x1E5F444, "ROSTERDRAGCTX",   2, 0 }, // 136 UIScrollView.Drag -> set dynamic drag extent
     { 0x1404E6C, "ROSTERDRAGCHOKE", 2, 0 }, // 137 UIScrollView.OnDragNotification.Invoke -> skip in drag
-    // PROPGOACT (alternate-form rendering): PlayerController.Transform(bool) @0x117A67C activates
-    // the transformed prop and deactivates character_model; both end in PropData.SetActiveInternal
-    // @0xEA023C, which only calls Renderer.set_enabled on PropData._renderers. That flag has no
-    // visible effect in this build, leaving the robot drawn and the alternate body hidden. Mirror
-    // each requested state onto the renderer GameObjects and, during a level-3 cinematic, follow
-    // the authored transform-window beat schedule rather than holding either body permanently.
+    // PROPGOACT (alternate-form rendering): PropData.SetActiveInternal @0xEA023C only calls
+    // Renderer.set_enabled on PropData._renderers, which has no visible effect in this build.
+    // Mirror every prop's requested state onto the renderer GameObjects: weapons and effects,
+    // alternate bodies, and the alternate body's own parts. Restricting this to character_model
+    // and transformed hid the energy swords and left vehicle form incomplete; the level-3
+    // cinematic schedule still controls only those two body props.
     { 0xEA023C, "PROPGOACT", 2, 0 }, // 138 PropData.SetActiveInternal -> mirror prop state onto renderer GameObjects
     // SP3MOVE (level-3 alternate-form resolution): this build's animator enters SpecialAttack03,
     // but its MoveSet has no matching MoveInfo, so no authored MoveEvent can run. The SP3 asset
@@ -3081,10 +3081,12 @@ static int g_sp3cand_dumped = 0;
 static int g_sp3cand_lines = 0;
 static uint64_t propgo_now_ms(void){ struct timespec ts; if(clock_gettime(CLOCK_MONOTONIC,&ts)) return 0;
     return (uint64_t)ts.tv_sec*1000u + (uint64_t)ts.tv_nsec/1000000u; }
-/* PROPGOACT (shipped): Renderer.set_enabled has no visible effect in this build, so mirror the
-   prop's requested state onto each renderer's own GameObject. a0 is a PropData*; its renderer
-   array is at +0x70 (length at +0x18, elements from +0x20). 0x1B4BD28 =
-   Component.get_gameObject, 0x1B50CA8 = GameObject.SetActive. */
+/* PROPGOACT (shipped): PropData.SetActiveInternal only sets Renderer.enabled, which has no
+   visible effect in this build. Mirror every prop's requested state onto each renderer's own
+   GameObject: weapons and effects (including energy swords), alternate bodies, and alternate
+   body parts. Restricting this to character_model/transformed hid the swords and made vehicle
+   form incomplete. a0 is a PropData*; its renderer array is at +0x70 (length at +0x18,
+   elements from +0x20). 0x1B4BD28 = Component.get_gameObject, 0x1B50CA8 = GameObject.SetActive. */
 static int sp3_prop_mirror(void* prop, int on){
     int applied=0;
     void* arr=*(void**)((char*)prop+0x70);
@@ -3182,11 +3184,11 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     });
     void* r = H[138].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({
+        int on = (intptr_t)a1 ? 1 : 0;
+        int applied = sp3_prop_mirror(a0, on);
+        if(applied > 0 && g_propgoact_lines < 200){ g_propgoact_lines++;
+            flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
         if(propgo_special){
-            int on = (intptr_t)a1 ? 1 : 0;
-            int applied = sp3_prop_mirror(a0, on);
-            if(g_propgoact_lines < 200){ g_propgoact_lines++;
-                flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
             // SP3ANIM (shipped): the cinematic special never runs the move's event list on this build, so the
             // alternate-form prop is never told to play its own SpecialAttack03 clip and renders in bind pose.
             // Drive its Animator directly, once per cinematic, right after the prop is activated.
