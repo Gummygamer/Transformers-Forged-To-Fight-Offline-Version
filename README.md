@@ -331,6 +331,18 @@ Build, align, sign, and install an arm64 APK with the fake-server response paylo
 3. `~/Android/Sdk/build-tools/35.0.0/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/bundled.apk build/phone-aligned.apk`
 4. `adb uninstall com.kabam.bigrobot` then `adb install --no-incremental --abi arm64-v8a build/bundled.apk`
 
+On a retail phone, this install can fail with `INSTALL_FAILED_VERIFICATION_FAILURE` until ADB
+install verification is disabled. On the Galaxy A52, the required settings were:
+
+```
+adb shell settings put global package_verifier_enable 0
+adb shell settings put global verifier_verify_adb_installs 0
+adb shell settings put global package_verifier_user_consent -1
+```
+
+These settings may reset. The roughly 930 MB APK then takes about 35 seconds to install; see the
+host-server provisioning note above for the analogous scripted flow.
+
 Nothing else is needed: no `run_local.lbl`, no `adb reverse`, no hosts file edits, no CA install,
 no root, and no `provision_*.sh`. Install and play. The existing host-server workflows above are
 unchanged and remain the default.
@@ -366,6 +378,12 @@ even to root.
 
 For debugging, `adb logcat -s TFTFHOOK` should show `in-apk server listening on 127.0.0.1:8080`
 and `in-apk server start: 0`.
+
+`in-apk candidate rejected <path>: <reason>` lines are normal: the server enumerates every mapped
+APK in the process, and retail devices map other packages' APKs, notably Google Play Services',
+into the game process. A run that logs `in-apk server start: -1` with no accepted candidate did
+not find the payload in any mapped APK, meaning the APK was built without `--bundle-server` or its
+`libdothook.so` was built without `inapk_server.c`.
 
 
 ### Building for 32-bit ARM (armeabi-v7a)
