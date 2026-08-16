@@ -1,0 +1,22 @@
+-- Detached build worker. The HTTP server launches this in its own process group.
+use pipeline
+use runner
+
+function main(): nothing
+  intent: run
+  let request_path: text = unwrap_or(get(get_args(), 1), pipeline.request_file())
+  if not file_exists(request_path) then
+    runner.append_log("ERROR: build request file is missing.")
+    runner.write_state(RunnerState { status: "failed", step: "", step_index: 0, step_total: 0, exit_code: 2 })
+    exit_process(2)
+  end
+  let body: text = read_file(request_path)
+  if not json_valid(body) then
+    runner.append_log("ERROR: build request is invalid JSON.")
+    runner.write_state(RunnerState { status: "failed", step: "", step_index: 0, step_total: 0, exit_code: 2 })
+    exit_process(2)
+  end
+  runner.run_worker(pipeline.request_from_json(body))
+end
+
+main()

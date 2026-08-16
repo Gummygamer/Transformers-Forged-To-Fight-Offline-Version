@@ -1,0 +1,229 @@
+-- Authenticated local web UI for planning and running APK patch builds.
+use pipeline
+use runner
+
+record Request
+  method: text
+  path: text
+  body: text
+  query: text
+  headers: a mapping from text to text
+end
+
+record ServerOptions
+  port: integer
+  no_browser: boolean
+  valid: boolean
+end
+
+record ErrorResponse
+  error: text
+end
+
+record ValidationResponse
+  errors: a list of text
+  warnings: a list of text
+  steps: a list of Step
+end
+
+record RunResponse
+  started: boolean
+  error: text
+  errors: a list of text
+  warnings: a list of text
+  steps: a list of Step
+end
+
+function respond(status: integer, content_type: text, body: text): nothing
+  intent: respond
+  http_respond_with_headers(status, {"Content-Type": content_type, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}, body)
+end
+
+function respond_json(status: integer, body: text): nothing
+  intent: respond with JSON
+  respond(status, "application/json; charset=utf-8", body)
+end
+
+function respond_error(status: integer, message: text): nothing
+  intent: respond with error
+  respond_json(status, json_encode(ErrorResponse { error: message }))
+end
+
+function serve_file(path: text, content_type: text): nothing
+  intent: serve static file
+  if file_exists(path) then respond(200, content_type, read_file(path)) else respond_error(404, "not found") end
+end
+
+function query_value(query: text, name: text): text
+  intent: find query value
+  for field in split(query, "&") do
+    let parts: a list of text = split(field, "=")
+    if unwrap_or(get(parts, 0), "") == name then return unwrap_or(get(parts, 1), "") end
+  end
+  ""
+end
+
+function authorised(request: Request, token: text): boolean
+  intent: authenticate
+  query_value(request.query, "token") == token
+end
+
+function valid_json_object(body: text): boolean
+  intent: validate request JSON object
+  let value: text = trim(body)
+  value != "" and starts_with(value, "\{") and json_valid(value)
+end
+
+function handle_defaults(): nothing
+  intent: respond
+  respond_json(200, json_encode(pipeline.defaults_response()))
+end
+
+function handle_validate(body: text): nothing
+  intent: validate
+  if not valid_json_object(body) then
+    respond_error(400, "expected a JSON object")
+  else
+    let request: BuildRequest = pipeline.request_from_json(body)
+    let checked: Validation = pipeline.validate(request)
+    respond_json(200, json_encode(ValidationResponse { errors: checked.errors, warnings: checked.warnings, steps: pipeline.plan_steps(request) }))
+  end
+end
+
+function handle_run(body: text): nothing
+  intent: start
+  if not valid_json_object(body) then
+    respond_error(400, "expected a JSON object")
+  else
+    let request: BuildRequest = pipeline.request_from_json(body)
+    let checked: Validation = pipeline.validate(request)
+    let steps: a list of Step = pipeline.plan_steps(request)
+    if length(checked.errors) > 0 then
+      respond_json(400, json_encode(RunResponse { started: false, error: "", errors: checked.errors, warnings: checked.warnings, steps: steps }))
+    else
+      let started: StartResult = runner.start(body, request, steps)
+      if started.started then
+        respond_json(200, json_encode(RunResponse { started: true, error: "", errors: [], warnings: checked.warnings, steps: steps }))
+      else
+        respond_json(409, json_encode(RunResponse { started: false, error: started.error, errors: [], warnings: checked.warnings, steps: steps }))
+      end
+    end
+  end
+end
+
+function route_get(request: Request): nothing
+  intent: route GET request
+  let static_dir: text = path_join(pipeline.module_dir(), "static")
+  if request.path == "/" then
+    serve_file(path_join(static_dir, "index.html"), "text/html; charset=utf-8")
+  else if request.path == "/api/defaults" then
+    handle_defaults()
+  else if request.path == "/api/log" then
+    let offset: integer = unwrap_or(to_integer(query_value(request.query, "offset")), 0)
+    respond_json(200, json_encode(runner.snapshot(offset)))
+  else if request.path == "/static/app.js" then
+    serve_file(path_join(static_dir, "app.js"), "application/javascript; charset=utf-8")
+  else if request.path == "/static/style.css" then
+    serve_file(path_join(static_dir, "style.css"), "text/css; charset=utf-8")
+  else
+    respond_error(404, "not found")
+  end
+end
+
+function route_post(request: Request): nothing
+  intent: route
+  if request.path == "/api/validate" then
+    handle_validate(request.body)
+  else if request.path == "/api/run" then
+    handle_run(request.body)
+  else if request.path == "/api/cancel" then
+    runner.cancel()
+    respond_json(200, json_encode(runner.snapshot(0)))
+  else
+    respond_error(404, "not found")
+  end
+end
+
+function request_loop(token: text): nothing
+  intent: serve
+  while true do
+    let request: Request = http_next_request()
+    if request.method == "GET" and (request.path == "/static/app.js" or request.path == "/static/style.css") then
+      route_get(request)
+    else if not authorised(request, token) then
+      respond_error(403, "missing or invalid local session token")
+    else if request.method == "GET" then
+      route_get(request)
+    else if request.method == "POST" then
+      route_post(request)
+    else
+      respond_error(405, "method not allowed")
+    end
+  end
+end
+
+function port_available(port: integer): boolean
+  intent: check local port availability
+  let result: a mapping from text to text = shell_exec("ss -ltn 2>/dev/null | grep -q ':" ++ to_text(port) ++ " ' ")
+  unwrap_or(to_integer(unwrap_or(get(result, "exit_code"), "1")), 1) != 0
+end
+
+function free_port(): integer
+  intent: find available local port
+  mutable port: integer = 35000 + random_int(20000)
+  mutable attempts: integer = 0
+  while attempts < 200 and not port_available(port) do
+    set port = 35000 + random_int(20000)
+    set attempts = attempts + 1
+  end
+  port
+end
+
+function parse_options(): ServerOptions
+  intent: parse server command options
+  let args: a list of text = get_args()
+  mutable port: integer = 0
+  mutable no_browser: boolean = false
+  mutable valid: boolean = true
+  mutable index: integer = 1
+  while index < length(args) do
+    let argument: text = unwrap_or(get(args, index), "")
+    if argument == "--port" then
+      set port = unwrap_or(to_integer(unwrap_or(get(args, index + 1), "")), -1)
+      set index = index + 1
+    else if argument == "--no-browser" then
+      set no_browser = true
+    else if argument == "--host" and unwrap_or(get(args, index + 1), "") == "127.0.0.1" then
+      -- Retained for compatibility with the former launcher. Access is token protected.
+      set index = index + 1
+    else
+      print("usage: legible run tools/apk_patcher_gui/server.lbl [--port 1..65535] [--no-browser]")
+      set valid = false
+    end
+    set index = index + 1
+  end
+  if port == 0 then set port = free_port() end
+  if port < 1 or port > 65535 then set valid = false end
+  ServerOptions { port: port, no_browser: no_browser, valid: valid }
+end
+
+function session_token(): text
+  intent: create
+  to_text(random_int(1000000000)) ++ "-" ++ to_text(random_int(1000000000)) ++ "-" ++ to_text(random_int(1000000000)) ++ "-" ++ to_text(random_int(1000000000))
+end
+
+function main(): nothing
+  intent: start APK patcher GUI
+  let options: ServerOptions = parse_options()
+  if not options.valid then exit_process(2) end
+  runner.ensure_state_dir()
+  let token: text = session_token()
+  let url: text = "http://127.0.0.1:" ++ to_text(options.port) ++ "/?token=" ++ token
+  http_start(options.port)
+  print("APK patcher GUI listening at " ++ url)
+  print("Requests require the per-launch session token shown in this URL.")
+  if not options.no_browser then shell_exec("xdg-open " ++ pipeline.shell_quote(url) ++ " >/dev/null 2>&1 &") end
+  request_loop(token)
+end
+
+main()

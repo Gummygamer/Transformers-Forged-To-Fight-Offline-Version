@@ -1,0 +1,58 @@
+use pipeline
+use runner
+
+function report(name: text, passed: boolean): integer
+  intent: test
+  if passed then print("[ok] " ++ name) 0 else print("[!] " ++ name) 1 end
+end
+
+function command_quoting_test(): boolean
+  intent: test
+  let step: Step = Step { name: "echo", argv: ["echo", "hello world", "it's safe"], cwd: "/tmp/path with spaces", java: "" }
+  runner.command_text(step) == "cd '/tmp/path with spaces' && 'echo' 'hello world' 'it'\"'\"'s safe'"
+end
+
+function java_environment_test(): boolean
+  intent: test Java environment command
+  let step: Step = Step { name: "sign", argv: ["apksigner", "sign"], cwd: "", java: "/opt/jdk/bin/java" }
+  let command: text = runner.command_text(step)
+  starts_with(command, "env JAVA_HOME='/opt/jdk'") and contains_text(command, "PATH='/opt/jdk/bin:") and ends_with(command, " 'apksigner' 'sign'")
+end
+
+function state_roundtrip_test(): boolean
+  intent: test runner state storage
+  let wanted: RunnerState = RunnerState { status: "failed", step: "sign APK", step_index: 3, step_total: 4, exit_code: 7 }
+  runner.write_state(wanted)
+  let actual: RunnerState = runner.read_state()
+  actual.status == wanted.status and actual.step == wanted.step and actual.step_index == 3 and actual.step_total == 4 and actual.exit_code == 7
+end
+
+function snapshot_offset_test(): boolean
+  intent: test runner log offsets
+  write_file(pipeline.log_file(), "first\nsecond\n")
+  runner.write_state(RunnerState { status: "succeeded", step: "", step_index: 2, step_total: 2, exit_code: 0 })
+  let first: Snapshot = runner.snapshot(0)
+  let second: Snapshot = runner.snapshot(6)
+  first.status == "succeeded" and first.next_offset == 13 and unwrap_or(get(first.lines, 0), "") == "first" and unwrap_or(get(second.lines, 0), "") == "second"
+end
+
+function cancel_test(): boolean
+  intent: test idle cancellation
+  runner.write_state(runner.idle_state())
+  runner.cancel()
+  runner.read_state().status == "idle"
+end
+
+function main(): nothing
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + report("command quoting", command_quoting_test())
+  set failed = failed + report("Java environment", java_environment_test())
+  set failed = failed + report("state roundtrip", state_roundtrip_test())
+  set failed = failed + report("snapshot offsets", snapshot_offset_test())
+  set failed = failed + report("idle cancellation", cancel_test())
+  print(to_text(5 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then exit_process(1) end
+end
+
+main()

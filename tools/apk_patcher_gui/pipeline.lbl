@@ -1,0 +1,468 @@
+-- Planning, validation, and command construction for the APK patcher GUI.
+
+record BuildRequest
+  source_apk: text
+  dest_apk: text
+  abi: text
+  server_mode: text
+  server_host: text
+  server_port: integer
+  scheme: text
+  keep_other_abi: boolean
+  patched_il2cpp: text
+  auto_patch_il2cpp: boolean
+  il2cpp_source: text
+  keystore: text
+  ks_pass: text
+  key_pass: text
+  do_install: boolean
+  legible: text
+  zipalign: text
+  apksigner: text
+  java: text
+  adb: text
+end
+
+record Step
+  name: text
+  argv: a list of text
+  cwd: text
+  java: text
+end
+
+record Validation
+  errors: a list of text
+  warnings: a list of text
+end
+
+record IntermediatePaths
+  unsigned: text
+  aligned: text
+end
+
+record ToolStatus
+  legible: boolean
+  zipalign: boolean
+  apksigner: boolean
+  java: boolean
+  adb: boolean
+end
+
+record DefaultsResponse
+  defaults: BuildRequest
+  suggested_patched_il2cpp: text
+  tool_status: ToolStatus
+end
+
+public function arm64(): text
+  intent: return
+  "arm64-v8a"
+end
+
+public function armv7(): text
+  intent: return ABI name
+  "armeabi-v7a"
+end
+
+public function bundled(): text
+  intent: return
+  "bundled"
+end
+
+public function separate(): text
+  intent: return
+  "separate"
+end
+
+public function directory_name(path: text): text
+  intent: return
+  mutable slash: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    if substring(path, index, 1) == "/" then set slash = index end
+    set index = index + 1
+  end
+  if slash < 0 then "." else if slash == 0 then "/" else substring(path, 0, slash) end
+end
+
+function absolute_script_path(): text
+  intent: return entry script path
+  let script: text = unwrap_or(get(get_args(), 0), "tools/apk_patcher_gui/server.lbl")
+  if starts_with(script, "/") then script else path_join(get_cwd(), script) end
+end
+
+public function module_dir(): text
+  intent: return GUI source directory
+  directory_name(absolute_script_path())
+end
+
+public function project_root(): text
+  intent: return
+  directory_name(directory_name(module_dir()))
+end
+
+public function state_dir(): text
+  intent: return
+  path_join(path_join(project_root(), "build"), ".apk-patcher-gui")
+end
+
+public function state_file(): text
+  intent: return runner state file
+  path_join(state_dir(), "state")
+end
+
+public function pid_file(): text
+  intent: return runner pid file
+  path_join(state_dir(), "worker.pid")
+end
+
+public function log_file(): text
+  intent: return runner log file
+  path_join(state_dir(), "build.log")
+end
+
+public function request_file(): text
+  intent: return
+  path_join(state_dir(), "request.json")
+end
+
+public function shell_quote(value: text): text
+  intent: format
+  "'" ++ replace(value, "'", "'\"'\"'") ++ "'"
+end
+
+function command_output(command: text): text
+  intent: return command output
+  trim(unwrap_or(get(shell_exec(command), "stdout"), ""))
+end
+
+function executable_in_path(name: text): text
+  intent: find
+  command_output("command -v " ++ shell_quote(name) ++ " 2>/dev/null")
+end
+
+function home_dir(): text
+  intent: return active home directory
+  unwrap_or(env_get("HOME"), "")
+end
+
+function add_root(roots: a list of text, root: text): a list of text
+  intent: append unique nonempty root
+  if root != "" and not contains(roots, root) then append(roots, root) else roots end
+end
+
+public function sdk_roots(): a list of text
+  intent: collect Android SDK roots
+  mutable roots: a list of text = []
+  set roots = add_root(roots, unwrap_or(env_get("ANDROID_HOME"), ""))
+  set roots = add_root(roots, unwrap_or(env_get("ANDROID_SDK_ROOT"), ""))
+  if home_dir() != "" then
+    set roots = add_root(roots, path_join(path_join(home_dir(), "Android"), "Sdk"))
+    set roots = add_root(roots, path_join(path_join(home_dir(), "Android"), "sdk"))
+  end
+  add_root(roots, "/opt/android-sdk")
+end
+
+public function find_build_tool(name: text): text
+  intent: find newest Android build tool
+  for root in sdk_roots() do
+    let build_tools: text = path_join(root, "build-tools")
+    if is_dir(build_tools) then
+      let command: text = "find " ++ shell_quote(build_tools) ++ " -mindepth 2 -maxdepth 2 -type f -name " ++ shell_quote(name) ++ " -perm -u+x -print 2>/dev/null | sort -V | tail -n 1"
+      let candidate: text = command_output(command)
+      if candidate != "" then return candidate end
+    end
+  end
+  executable_in_path(name)
+end
+
+public function find_adb(): text
+  intent: find
+  for root in sdk_roots() do
+    let candidate: text = path_join(path_join(root, "platform-tools"), "adb")
+    if file_exists(candidate) then return candidate end
+  end
+  executable_in_path("adb")
+end
+
+public function find_java(): text
+  intent: find Java executable
+  let java_home: text = unwrap_or(env_get("JAVA_HOME"), "")
+  if java_home != "" and file_exists(path_join(path_join(java_home, "bin"), "java")) then
+    return path_join(path_join(java_home, "bin"), "java")
+  end
+  let from_path: text = executable_in_path("java")
+  if from_path != "" then return from_path end
+  if home_dir() != "" and file_exists(path_join(path_join(path_join(home_dir(), "jdk17"), "bin"), "java")) then
+    return path_join(path_join(path_join(home_dir(), "jdk17"), "bin"), "java")
+  end
+  command_output("find /usr/lib/jvm -mindepth 3 -maxdepth 3 -type f -path '*/bin/java' -perm -u+x -print 2>/dev/null | sort -V | tail -n 1")
+end
+
+public function default_patched_il2cpp(): text
+  intent: return patched library path
+  path_join(path_join(project_root(), "build"), "libil2cpp-armv7-patched.so")
+end
+
+function default_keystore(): text
+  intent: return debug keystore path
+  if home_dir() == "" then ".android/debug.keystore" else path_join(path_join(home_dir(), ".android"), "debug.keystore") end
+end
+
+public function default_request_for(abi: text): BuildRequest
+  intent: build default request
+  let root: text = project_root()
+  let patched: text = if abi == armv7() and file_exists(default_patched_il2cpp()) then default_patched_il2cpp() else "" end
+  BuildRequest {
+    source_apk: path_join(root, "Transformers 9.2 offline.apk"),
+    dest_apk: path_join(path_join(root, "build"), "Transformers 9.2 offline-revival.apk"),
+    abi: abi,
+    server_mode: bundled(),
+    server_host: "127.0.0.1",
+    server_port: 8080,
+    scheme: "http",
+    keep_other_abi: false,
+    patched_il2cpp: patched,
+    auto_patch_il2cpp: false,
+    il2cpp_source: path_join(path_join(path_join(path_join(root, "Transformers 9.2 extracted"), "lib"), abi), "libil2cpp.so"),
+    keystore: default_keystore(),
+    ks_pass: "android",
+    key_pass: "android",
+    do_install: false,
+    legible: executable_in_path("legible"),
+    zipalign: find_build_tool("zipalign"),
+    apksigner: find_build_tool("apksigner"),
+    java: find_java(),
+    adb: find_adb()
+  }
+end
+
+public function default_request(): BuildRequest
+  intent: build default arm64 request
+  default_request_for(arm64())
+end
+
+public function defaults_response(): DefaultsResponse
+  intent: build defaults API response
+  let request: BuildRequest = default_request()
+  DefaultsResponse {
+    defaults: request,
+    suggested_patched_il2cpp: if file_exists(default_patched_il2cpp()) then default_patched_il2cpp() else "" end,
+    tool_status: ToolStatus {
+      legible: request.legible != "",
+      zipalign: request.zipalign != "",
+      apksigner: request.apksigner != "",
+      java: request.java != "",
+      adb: request.adb != ""
+    }
+  }
+end
+
+function mapped(values: a mapping from text to text, key: text, fallback: text): text
+  intent: read
+  unwrap_or(get(values, key), fallback)
+end
+
+function mapped_bool(values: a mapping from text to text, key: text, fallback: boolean): boolean
+  intent: read mapped boolean
+  if not has_key(values, key) then fallback else
+    let value: text = lowercase(mapped(values, key, ""))
+    value == "true" or value == "on" or value == "1"
+  end
+end
+
+function mapped_port(values: a mapping from text to text, fallback: integer): integer
+  intent: read server port
+  unwrap_or(to_integer(mapped(values, "server_port", to_text(fallback))), 0)
+end
+
+public function request_from_mapping(values: a mapping from text to text): BuildRequest
+  intent: parse
+  let requested_abi: text = mapped(values, "abi", arm64())
+  let abi: text = if requested_abi == armv7() then armv7() else arm64() end
+  let defaults: BuildRequest = default_request_for(abi)
+  BuildRequest {
+    source_apk: mapped(values, "source_apk", defaults.source_apk),
+    dest_apk: mapped(values, "dest_apk", defaults.dest_apk),
+    abi: abi,
+    server_mode: mapped(values, "server_mode", defaults.server_mode),
+    server_host: mapped(values, "server_host", defaults.server_host),
+    server_port: mapped_port(values, defaults.server_port),
+    scheme: mapped(values, "scheme", defaults.scheme),
+    keep_other_abi: mapped_bool(values, "keep_other_abi", defaults.keep_other_abi),
+    patched_il2cpp: mapped(values, "patched_il2cpp", defaults.patched_il2cpp),
+    auto_patch_il2cpp: mapped_bool(values, "auto_patch_il2cpp", defaults.auto_patch_il2cpp),
+    il2cpp_source: mapped(values, "il2cpp_source", defaults.il2cpp_source),
+    keystore: mapped(values, "keystore", defaults.keystore),
+    ks_pass: mapped(values, "ks_pass", defaults.ks_pass),
+    key_pass: mapped(values, "key_pass", defaults.key_pass),
+    do_install: mapped_bool(values, "do_install", defaults.do_install),
+    legible: mapped(values, "legible", defaults.legible),
+    zipalign: mapped(values, "zipalign", defaults.zipalign),
+    apksigner: mapped(values, "apksigner", defaults.apksigner),
+    java: mapped(values, "java", defaults.java),
+    adb: mapped(values, "adb", defaults.adb)
+  }
+end
+
+public function request_from_json(body: text): BuildRequest
+  intent: parse JSON browser request
+  let values: a mapping from text to text = json_parse(body)
+  request_from_mapping(values)
+end
+
+public function auto_patch_output(request: BuildRequest): text
+  intent: return automatic patch output
+  path_join(path_join(project_root(), "build"), "libil2cpp-" ++ request.abi ++ "-patched.so")
+end
+
+public function elf_abi(path: text): text
+  intent: check
+  if not file_exists(path) then "" else
+    let data: integer = read_file_bytes(path)
+    let result: text = if bytes_length(data) < 20 or bytes_get(data, 0) != 127 or bytes_get(data, 1) != 69 or bytes_get(data, 2) != 76 or bytes_get(data, 3) != 70 or bytes_get(data, 5) == 2 then
+      ""
+    else
+      let machine: integer = bytes_get(data, 18) + bytes_get(data, 19) * 256
+      if machine == 183 then arm64() else if machine == 40 then armv7() else "" end
+    end
+    bytes_free(data)
+    result
+  end
+end
+
+function validate_files_and_server(request: BuildRequest): Validation
+  intent: validate files and server options
+  mutable errors: a list of text = []
+  mutable warnings: a list of text = []
+  let source: text = trim(request.source_apk)
+  let destination: text = trim(request.dest_apk)
+  if source == "" or not file_exists(source) then set errors = append(errors, "Source APK is missing or is not a file; choose the APK to patch.") end
+  if destination == "" then
+    set errors = append(errors, "Final destination APK is empty; choose a separate signed output path.")
+  else if source != "" and destination == source then
+    set errors = append(errors, "Destination must differ from source so the original APK is not overwritten.")
+  end
+  if request.abi != arm64() and request.abi != armv7() then set errors = append(errors, "ABI must be exactly arm64-v8a or armeabi-v7a.") end
+  if request.server_mode != bundled() and request.server_mode != separate() then set errors = append(errors, "Server mode must be either bundled or separate.") end
+  if request.server_mode == bundled() then
+    if request.scheme != "http" then set errors = append(errors, "A bundled server only supports http because the builder cannot bundle https.") end
+    if request.server_host != "127.0.0.1" then set errors = append(errors, "A bundled server binds loopback only, so its server host must be exactly 127.0.0.1.") end
+  else if request.server_mode == separate() then
+    if trim(request.server_host) == "" then
+      set errors = append(errors, "A separate PC-hosted server needs a non-empty server host.")
+    else if trim(request.server_host) == "127.0.0.1" then
+      set warnings = append(warnings, "127.0.0.1 points at the phone itself; use your PC's reachable address for a separate server.")
+    end
+  end
+  if request.scheme != "http" and request.scheme != "https" then set errors = append(errors, "Scheme must be http or https.") end
+  if request.server_port < 1 or request.server_port > 65535 then set errors = append(errors, "Server port must be between 1 and 65535.") end
+  Validation { errors: errors, warnings: warnings }
+end
+
+function validate_libraries(request: BuildRequest): Validation
+  intent: validate patch libraries
+  mutable errors: a list of text = []
+  mutable warnings: a list of text = []
+  if request.abi == armv7() and trim(request.patched_il2cpp) == "" and not request.auto_patch_il2cpp then
+    set errors = append(errors, "32-bit builds need a patched libil2cpp.so: without it the APK installs, but TFTFHOOK never logs and nothing listens on port 8080. Supply a patched library or enable auto-patching.")
+  end
+  if trim(request.patched_il2cpp) != "" and not file_exists(request.patched_il2cpp) then
+    set errors = append(errors, "The supplied patched libil2cpp.so path does not exist or is not a file.")
+  else if trim(request.patched_il2cpp) != "" then
+    let actual_abi: text = elf_abi(request.patched_il2cpp)
+    if actual_abi != "" and actual_abi != request.abi then
+      set errors = append(errors, "The supplied patched libil2cpp.so at " ++ request.patched_il2cpp ++ " is " ++ actual_abi ++ ", but this build targets " ++ request.abi ++ ". Supply a patched library built for " ++ request.abi ++ ", or change the ABI.")
+    end
+  end
+  if request.auto_patch_il2cpp and (trim(request.il2cpp_source) == "" or not file_exists(request.il2cpp_source)) then
+    set errors = append(errors, "Auto-patching is enabled, but the pristine libil2cpp.so source is missing or is not a file.")
+  else if request.auto_patch_il2cpp then
+    let source_abi: text = elf_abi(request.il2cpp_source)
+    if source_abi != "" and source_abi != request.abi then
+      set errors = append(errors, "The pristine libil2cpp.so source at " ++ request.il2cpp_source ++ " is " ++ source_abi ++ ", but this build targets " ++ request.abi ++ ". Choose the pristine library for " ++ request.abi ++ ", or change the ABI.")
+    end
+  end
+  if request.abi == armv7() and not request.keep_other_abi then set warnings = append(warnings, "32-bit-only output drops the arm64 libraries; enable keeping the other ABI if you need both architectures.") end
+  Validation { errors: errors, warnings: warnings }
+end
+
+function validate_tools(request: BuildRequest): Validation
+  intent: validate
+  mutable errors: a list of text = []
+  if trim(request.legible) == "" then set errors = append(errors, "Required tool legible was not found; install it or provide its path.") end
+  if trim(request.zipalign) == "" then set errors = append(errors, "Required tool zipalign was not found; install it or provide its path.") end
+  if trim(request.apksigner) == "" then set errors = append(errors, "Required tool apksigner was not found; install it or provide its path.") end
+  if trim(request.java) == "" then set errors = append(errors, "apksigner requires Java, but no JRE/JDK was found; install one or set JAVA_HOME.") end
+  if request.do_install and trim(request.adb) == "" then set errors = append(errors, "adb was not found, but installation to a connected device was requested.") end
+  if trim(request.keystore) == "" or not file_exists(request.keystore) then set errors = append(errors, "Signing keystore is missing or is not a file.") end
+  Validation { errors: errors, warnings: [] }
+end
+
+public function validate(request: BuildRequest): Validation
+  intent: validate build request
+  let files: Validation = validate_files_and_server(request)
+  let libraries: Validation = validate_libraries(request)
+  let tools: Validation = validate_tools(request)
+  Validation {
+    errors: concat(concat(files.errors, libraries.errors), tools.errors),
+    warnings: concat(concat(files.warnings, libraries.warnings), tools.warnings)
+  }
+end
+
+public function patch_il2cpp_command(request: BuildRequest): a list of text
+  intent: build patch command
+  let needed: text = if request.abi == arm64() then "byte" else "inplace" end
+  [request.legible, "run", path_join(path_join(project_root(), "patches"), "patch_il2cpp.lbl"), "--abi", request.abi, "--needed", needed, "--apply", "-o", auto_patch_output(request), request.il2cpp_source]
+end
+
+public function build_apk_command(request: BuildRequest, unsigned: text): a list of text
+  intent: build APK command
+  mutable argv: a list of text = [request.legible, "run", path_join(path_join(project_root(), "Server"), "build_phone_apk.lbl"), request.source_apk, unsigned, "--scheme", request.scheme, "--server-host", request.server_host, "--server-port", to_text(request.server_port), "--abi", request.abi]
+  if request.keep_other_abi then set argv = append(argv, "--keep-other-abi") end
+  let patched: text = if request.auto_patch_il2cpp then auto_patch_output(request) else trim(request.patched_il2cpp) end
+  if patched != "" then set argv = concat(argv, ["--patched-il2cpp", patched]) end
+  if request.server_mode == bundled() then set argv = append(argv, "--bundle-server") end
+  argv
+end
+
+public function zipalign_command(request: BuildRequest, unsigned: text, aligned: text): a list of text
+  intent: build zipalign command
+  [request.zipalign, "-f", "-p", "4", unsigned, aligned]
+end
+
+public function apksigner_command(request: BuildRequest, aligned: text): a list of text
+  intent: build
+  [request.apksigner, "sign", "--ks", request.keystore, "--ks-pass", "pass:" ++ request.ks_pass, "--key-pass", "pass:" ++ request.key_pass, "--out", request.dest_apk, aligned]
+end
+
+public function adb_install_command(request: BuildRequest): a list of text
+  intent: build install command
+  [request.adb, "install", "-r", "--no-incremental", "--abi", request.abi, request.dest_apk]
+end
+
+function file_stem(path: text): text
+  intent: return
+  let parent: text = directory_name(path)
+  let name: text = if parent == "." then path else substring(path, text_length(parent) + if parent == "/" then 0 else 1 end, text_length(path) - text_length(parent) - if parent == "/" then 0 else 1 end) end
+  if ends_with(name, ".apk") then substring(name, 0, text_length(name) - 4) else name end
+end
+
+public function intermediate_paths(request: BuildRequest): IntermediatePaths
+  intent: build intermediate paths
+  let parent: text = directory_name(request.dest_apk)
+  let stem: text = file_stem(request.dest_apk)
+  IntermediatePaths { unsigned: path_join(parent, stem ++ "-unsigned.apk"), aligned: path_join(parent, stem ++ "-aligned.apk") }
+end
+
+public function plan_steps(request: BuildRequest): a list of Step
+  intent: plan build steps
+  let paths: IntermediatePaths = intermediate_paths(request)
+  mutable steps: a list of Step = []
+  if request.auto_patch_il2cpp then set steps = append(steps, Step { name: "patch il2cpp", argv: patch_il2cpp_command(request), cwd: project_root(), java: "" }) end
+  set steps = append(steps, Step { name: "build APK", argv: build_apk_command(request, paths.unsigned), cwd: project_root(), java: "" })
+  set steps = append(steps, Step { name: "zipalign APK", argv: zipalign_command(request, paths.unsigned, paths.aligned), cwd: "", java: "" })
+  set steps = append(steps, Step { name: "sign APK", argv: apksigner_command(request, paths.aligned), cwd: "", java: request.java })
+  if request.do_install then set steps = append(steps, Step { name: "install APK", argv: adb_install_command(request), cwd: "", java: "" }) end
+  steps
+end

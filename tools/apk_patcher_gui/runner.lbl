@@ -1,0 +1,198 @@
+-- File-backed background runner used by the Legible HTTP GUI.
+use pipeline
+
+record RunnerState
+  status: text
+  step: text
+  step_index: integer
+  step_total: integer
+  exit_code: integer
+end
+
+record Snapshot
+  status: text
+  lines: a list of text
+  next_offset: integer
+  step: text
+  step_index: integer
+  step_total: integer
+  exit_code: integer
+end
+
+record StartResult
+  started: boolean
+  error: text
+end
+
+public function idle_state(): RunnerState
+  intent: create idle runner state
+  RunnerState { status: "idle", step: "", step_index: 0, step_total: 0, exit_code: 0 }
+end
+
+public function ensure_state_dir(): nothing
+  intent: create
+  let build: text = path_join(pipeline.project_root(), "build")
+  if not is_dir(build) then create_dir(build) end
+  if not is_dir(pipeline.state_dir()) then create_dir(pipeline.state_dir()) end
+end
+
+public function write_state(state: RunnerState): nothing
+  intent: store runner state
+  ensure_state_dir()
+  write_file(pipeline.state_file(), state.status ++ "|" ++ state.step ++ "|" ++ to_text(state.step_index) ++ "|" ++ to_text(state.step_total) ++ "|" ++ to_text(state.exit_code))
+end
+
+public function read_state(): RunnerState
+  intent: fetch runner state
+  if not file_exists(pipeline.state_file()) then idle_state() else
+    let fields: a list of text = split(read_file(pipeline.state_file()), "|")
+    RunnerState {
+      status: unwrap_or(get(fields, 0), "idle"),
+      step: unwrap_or(get(fields, 1), ""),
+      step_index: unwrap_or(to_integer(unwrap_or(get(fields, 2), "0")), 0),
+      step_total: unwrap_or(to_integer(unwrap_or(get(fields, 3), "0")), 0),
+      exit_code: unwrap_or(to_integer(unwrap_or(get(fields, 4), "0")), 0)
+    }
+  end
+end
+
+public function append_log(line: text): nothing
+  intent: append runner log line
+  ensure_state_dir()
+  let current: text = if file_exists(pipeline.log_file()) then read_file(pipeline.log_file()) else "" end
+  write_file(pipeline.log_file(), current ++ line ++ "\n")
+end
+
+function pid_value(): integer
+  intent: read
+  if not file_exists(pipeline.pid_file()) then 0 else unwrap_or(to_integer(trim(read_file(pipeline.pid_file()))), 0) end
+end
+
+function process_alive(pid: integer): boolean
+  intent: check
+  pid > 1 and unwrap_or(to_integer(unwrap_or(get(shell_exec("kill -0 " ++ to_text(pid) ++ " 2>/dev/null"), "exit_code"), "1")), 1) == 0
+end
+
+function refresh_stale_state(): RunnerState
+  intent: update
+  let state: RunnerState = read_state()
+  if state.status == "running" and not process_alive(pid_value()) then
+    let failed: RunnerState = state with { status: "failed", exit_code: 127 }
+    append_log("ERROR: build worker exited unexpectedly.")
+    write_state(failed)
+    failed
+  else
+    state
+  end
+end
+
+public function snapshot(offset: integer): Snapshot
+  intent: create runner snapshot
+  let state: RunnerState = refresh_stale_state()
+  let content: text = if file_exists(pipeline.log_file()) then read_file(pipeline.log_file()) else "" end
+  let start: integer = min(max(offset, 0), text_length(content))
+  let chunk: text = substring(content, start, text_length(content) - start)
+  Snapshot {
+    status: state.status,
+    lines: if chunk == "" then [] else split(chunk, "\n") end,
+    next_offset: text_length(content),
+    step: state.step,
+    step_index: state.step_index,
+    step_total: state.step_total,
+    exit_code: state.exit_code
+  }
+end
+
+public function command_text(step: Step): text
+  intent: format step command
+  mutable quoted: a list of text = []
+  for argument in step.argv do set quoted = append(quoted, pipeline.shell_quote(argument)) end
+  mutable command: text = join(quoted, " ")
+  if step.java != "" then
+    let bin: text = pipeline.directory_name(step.java)
+    let java_home: text = pipeline.directory_name(bin)
+    let current_path: text = unwrap_or(env_get("PATH"), "")
+    set command = "env JAVA_HOME=" ++ pipeline.shell_quote(java_home) ++ " PATH=" ++ pipeline.shell_quote(bin ++ ":" ++ current_path) ++ " " ++ command
+  end
+  if step.cwd != "" then set command = "cd " ++ pipeline.shell_quote(step.cwd) ++ " && " ++ command end
+  command
+end
+
+function worker_command(step: Step): text
+  intent: build redirected worker command
+  command_text(step) ++ " >> " ++ pipeline.shell_quote(pipeline.log_file()) ++ " 2>&1"
+end
+
+function command_code(result: a mapping from text to text): integer
+  intent: return command exit code
+  unwrap_or(to_integer(unwrap_or(get(result, "exit_code"), "1")), 1)
+end
+
+function current_cancelled(): boolean
+  intent: check cancellation state
+  read_state().status == "cancelled"
+end
+
+public function run_worker(request: BuildRequest): nothing
+  intent: execute
+  let steps: a list of Step = pipeline.plan_steps(request)
+  let total: integer = length(steps)
+  let parent: text = pipeline.directory_name(request.dest_apk)
+  if not is_dir(parent) then create_dir(parent) end
+  mutable index: integer = 0
+  while index < total and not current_cancelled() do
+    let step: Step = unwrap(get(steps, index))
+    let number: integer = index + 1
+    write_state(RunnerState { status: "running", step: step.name, step_index: number, step_total: total, exit_code: 0 })
+    append_log("== [" ++ to_text(number) ++ "/" ++ to_text(total) ++ "] " ++ step.name ++ " ==")
+    append_log("$ " ++ command_text(step))
+    let code: integer = command_code(shell_exec(worker_command(step)))
+    if current_cancelled() then return 0 end
+    if code != 0 then
+      append_log("STEP FAILED: '" ++ step.name ++ "' exited with code " ++ to_text(code))
+      write_state(RunnerState { status: "failed", step: step.name, step_index: number, step_total: total, exit_code: code })
+      return 0
+    end
+    set index = index + 1
+  end
+  if current_cancelled() then return 0 end
+  append_log("SUCCESS: finished signed APK at " ++ request.dest_apk)
+  write_state(RunnerState { status: "succeeded", step: "", step_index: total, step_total: total, exit_code: 0 })
+end
+
+public function start(request_body: text, request: BuildRequest, steps: a list of Step): StartResult
+  intent: start background build worker
+  let state: RunnerState = refresh_stale_state()
+  if state.status == "running" then
+    StartResult { started: false, error: "a build is already in progress" }
+  else
+    ensure_state_dir()
+    write_file(pipeline.log_file(), "")
+    write_file(pipeline.request_file(), request_body)
+    write_state(RunnerState { status: "running", step: "", step_index: 0, step_total: length(steps), exit_code: 0 })
+    let worker: text = path_join(pipeline.module_dir(), "worker.lbl")
+    let launch_log: text = path_join(pipeline.state_dir(), "worker-start.log")
+    let command: text = "nohup setsid " ++ pipeline.shell_quote(request.legible) ++ " run " ++ pipeline.shell_quote(worker) ++ " " ++ pipeline.shell_quote(pipeline.request_file()) ++ " > " ++ pipeline.shell_quote(launch_log) ++ " 2>&1 & echo $!"
+    let result: a mapping from text to text = shell_exec(command)
+    let pid: integer = unwrap_or(to_integer(trim(unwrap_or(get(result, "stdout"), ""))), 0)
+    if pid <= 1 then
+      append_log("ERROR: could not start the build worker.")
+      write_state(RunnerState { status: "failed", step: "", step_index: 0, step_total: length(steps), exit_code: 127 })
+      StartResult { started: false, error: "could not start the build worker" }
+    else
+      write_file(pipeline.pid_file(), to_text(pid))
+      StartResult { started: true, error: "" }
+    end
+  end
+end
+
+public function cancel(): nothing
+  intent: cancel background build worker
+  let state: RunnerState = read_state()
+  if state.status == "running" then
+    write_state(state with { status: "cancelled" })
+    append_log("Run cancelled by the user.")
+    let pid: integer = pid_value()
+    if pid > 1 then shell_exec("kill -TERM -- -" ++ to_text(pid) ++ " 2>/dev/null || kill -TERM " ++ to_text(pid) ++ " 2>/dev/null || true") end
+  end
+end

@@ -14,6 +14,12 @@ let timer = null;
 let logOffset = 0;
 let pollTimer = null;
 let finalDestination = "";
+const sessionToken = new URLSearchParams(window.location.search).get("token") || "";
+
+function api(path, parameters = {}) {
+  const query = new URLSearchParams({token: sessionToken, ...parameters});
+  return `${path}?${query.toString()}`;
+}
 
 function value(name) {
   const element = form.elements[name];
@@ -29,10 +35,10 @@ function options() {
     source_apk: value("source_apk"), dest_apk: value("dest_apk"), abi: selected("abi"),
     server_mode: selected("server_mode"), server_host: value("server_host"),
     server_port: value("server_port"), scheme: value("scheme"),
-    keep_other_abi: value("keep_other_abi"), patched_il2cpp: value("patched_il2cpp"),
-    auto_patch_il2cpp: value("auto_patch_il2cpp"), il2cpp_source: value("il2cpp_source"),
+    keep_other_abi: String(value("keep_other_abi")), patched_il2cpp: value("patched_il2cpp"),
+    auto_patch_il2cpp: String(value("auto_patch_il2cpp")), il2cpp_source: value("il2cpp_source"),
     keystore: value("keystore"), ks_pass: value("ks_pass"), key_pass: value("key_pass"),
-    do_install: value("do_install"), legible: defaults.legible || "", zipalign: defaults.zipalign || "",
+    do_install: String(value("do_install")), legible: defaults.legible || "", zipalign: defaults.zipalign || "",
     apksigner: defaults.apksigner || "", java: defaults.java || "", adb: defaults.adb || ""
   };
 }
@@ -62,6 +68,12 @@ function updateMode() {
 function updateArmv7Warning() {
   const show = selected("abi") === "armeabi-v7a" && !value("patched_il2cpp").trim() && !value("auto_patch_il2cpp");
   armv7Warning.classList.toggle("hidden", !show);
+}
+
+function updateIl2cppSourceAbi() {
+  const source = form.elements.il2cpp_source;
+  const abi = selected("abi");
+  source.value = source.value.replace(/([/\\]lib[/\\])(arm64-v8a|armeabi-v7a)([/\\]libil2cpp\.so)$/, `$1${abi}$3`);
 }
 
 function renderMessages(result) {
@@ -107,7 +119,7 @@ function setRunResult(text) {
 async function refresh() {
   updateArmv7Warning();
   try {
-    const response = await fetch("/api/validate", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(options())});
+    const response = await fetch(api("/api/validate"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(options())});
     const result = await response.json();
     renderMessages(result);
     commands.textContent = result.steps.map((step) => `${step.name}:\n${step.argv.map(quote).join(" ")}`).join("\n\n");
@@ -123,7 +135,7 @@ function scheduleRefresh() {
 
 async function pollLog() {
   try {
-    const response = await fetch(`/api/log?offset=${logOffset}`);
+    const response = await fetch(api("/api/log", {offset: String(logOffset)}));
     const data = await response.json();
     if (data.lines && data.lines.length) {
       appendLogLines(data.lines);
@@ -162,8 +174,11 @@ function finishRun(data) {
 form.addEventListener("input", scheduleRefresh);
 form.addEventListener("change", (event) => {
   if (event.target.name === "server_mode") updateMode();
-  if (event.target.name === "abi" && selected("abi") === "armeabi-v7a" && !value("patched_il2cpp").trim()) {
-    form.elements.patched_il2cpp.value = defaults.suggested_patched_il2cpp || "";
+  if (event.target.name === "abi") {
+    updateIl2cppSourceAbi();
+    if (selected("abi") === "armeabi-v7a" && !value("patched_il2cpp").trim()) {
+      form.elements.patched_il2cpp.value = defaults.suggested_patched_il2cpp || "";
+    }
   }
   scheduleRefresh();
 });
@@ -171,7 +186,7 @@ form.addEventListener("change", (event) => {
 buildButton.addEventListener("click", async () => {
   setRunResult("");
   try {
-    const response = await fetch("/api/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(options())});
+    const response = await fetch(api("/api/run"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(options())});
     const result = await response.json();
     if (response.status === 400) {
       renderMessages(result);
@@ -202,14 +217,14 @@ buildButton.addEventListener("click", async () => {
 
 cancelButton.addEventListener("click", async () => {
   try {
-    await fetch("/api/cancel", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(options())});
+    await fetch(api("/api/cancel"), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(options())});
   } catch (error) {
     setRunResult(error.message);
   }
 });
 
 async function start() {
-  const response = await fetch("/api/defaults");
+  const response = await fetch(api("/api/defaults"));
   const data = await response.json();
   defaults = {...data.defaults, suggested_patched_il2cpp: data.suggested_patched_il2cpp || ""};
   for (const [name, item] of Object.entries(defaults)) {
