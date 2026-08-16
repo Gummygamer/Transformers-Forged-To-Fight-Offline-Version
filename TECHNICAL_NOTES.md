@@ -516,13 +516,25 @@ baked transition/body pair before updating it.
 `tools/nativehook/inapk_server.c` is the process-local HTTP server shared by both ABIs. It is
 compiled into `libdothook.so` for arm64 with `aarch64-linux-android28-clang` and into
 `libdothook-armeabi-v7a.so` for ARMv7 with `armv7a-linux-androideabi21-clang`. Its constructor
-caller finds mapped `base.apk` through `/proc/self/maps`, walks its ZIP directory for the stored
-payload (with a magic-scan fallback), and mmaps only that entry. It preserves Python dispatch
-order: dynamic handlers, exact route, prefix route, then default. `Server/test_inapk_server.lbl`
-compiles the host harness and compares live HTTP replies with `fakeserver`. The source is 32-bit
-clean through `#define _FILE_OFFSET_BITS 64`: 32-bit bionic's `struct stat.st_size` is 64-bit
-while bare `off_t` is 32-bit, so stat/mmap offsets would otherwise truncate. The ARMv7 hook builds
-warning-free.
+caller enumerates every distinct mapped `*.apk` path through `/proc/self/maps`, ranking paths
+whose directory matches the package name from `/proc/self/cmdline` ahead of the others. If the
+package name is unavailable it tries every mapped APK. It tries each candidate's ZIP directory in
+rank order and then, for package-name-matching candidates, falls back to a magic scan until one
+yields the payload; rejected candidates log `in-apk candidate rejected <path>: <reason>`.
+Whole-file magic scans are deliberately limited to package-name-matching candidates, because
+scanning a foreign APK such as Play Services' hundreds-of-megabyte `base.apk` would be ruinously
+slow. It mmaps only the payload entry. It preserves Python dispatch order: dynamic handlers, exact
+route, prefix route, then default. `Server/test_inapk_server.lbl` compiles the host harness and
+compares live HTTP replies with `fakeserver`. The source is 32-bit clean through
+`#define _FILE_OFFSET_BITS 64`: 32-bit bionic's `struct stat.st_size` is 64-bit while bare `off_t`
+is 32-bit, so stat/mmap offsets would otherwise truncate. The ARMv7 hook builds warning-free.
+
+On a retail Galaxy A52 (SM-A525M, Android 14), Google Play Services' `base.apk` is mapped into
+the game process before the game's APK. The old first-match scan selected that GMS APK, found no
+payload, never started the server, and left the game at the "failed to log in" dialog. The emulator
+does not map a GMS `base.apk` into the process, so it could not reproduce the failure. The bundled
+APK now reaches the home screen on that phone with no host server and no `adb reverse` forwards.
+`Server/test_inapk_server.lbl` covers candidate ranking and the missing-`cmdline` fallback.
 
 The server was verified on an `android-30 google_apis x86_64` emulator with ARM translation and
 `arm64-v8a`, using `legible run Server/build_phone_apk.lbl --scheme http --server-host 127.0.0.1 --server-port
