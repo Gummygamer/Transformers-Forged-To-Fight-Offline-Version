@@ -1,0 +1,170 @@
+use pipeline
+
+record Fixture
+  root: text
+  request: BuildRequest
+  patched: text
+  pristine: text
+end
+
+record Counts
+  passed: integer
+  failed: integer
+end
+
+function report(name: text, passed: boolean): Counts
+  intent: test
+  if passed then
+    print("[ok] " ++ name)
+    Counts { passed: 1, failed: 0 }
+  else
+    print("[!] " ++ name)
+    Counts { passed: 0, failed: 1 }
+  end
+end
+
+function make_elf(path: text, machine: integer): nothing
+  intent: create
+  let data: integer = bytes_new(64)
+  bytes_set(data, 0, 127)
+  bytes_set(data, 1, 69)
+  bytes_set(data, 2, 76)
+  bytes_set(data, 3, 70)
+  bytes_set(data, 5, 1)
+  bytes_set(data, 18, machine % 256)
+  bytes_set(data, 19, floor(machine / 256))
+  write_file_bytes(path, data)
+  bytes_free(data)
+end
+
+function fixture(): Fixture
+  intent: create pipeline fixtures
+  let root: text = "/tmp/apk-patcher-pipeline-" ++ to_text(random_int(1000000000))
+  create_dir(root)
+  let source: text = path_join(root, "source with spaces.apk")
+  let destination: text = path_join(root, "patched.apk")
+  let keystore: text = path_join(root, "debug.keystore")
+  let pristine: text = path_join(root, "libil2cpp-pristine.so")
+  let patched: text = path_join(root, "libil2cpp-patched.so")
+  write_file(source, "source")
+  write_file(keystore, "key")
+  write_file(pristine, "pristine")
+  write_file(patched, "patched")
+  Fixture {
+    root: root,
+    patched: patched,
+    pristine: pristine,
+    request: BuildRequest {
+      source_apk: source, dest_apk: destination, abi: pipeline.arm64(),
+      server_mode: pipeline.bundled(), server_host: "127.0.0.1", server_port: 8080,
+      scheme: "http", keep_other_abi: false, patched_il2cpp: "", auto_patch_il2cpp: false,
+      il2cpp_source: pristine, keystore: keystore, ks_pass: "android", key_pass: "android",
+      do_install: false, legible: "legible", zipalign: "zipalign", apksigner: "apksigner",
+      java: "/jdk/bin/java", adb: "adb"
+    }
+  }
+end
+
+function bundled_command_test(fix: Fixture): boolean
+  intent: test bundled command
+  let paths: IntermediatePaths = pipeline.intermediate_paths(fix.request)
+  let command: a list of text = pipeline.build_apk_command(fix.request, paths.unsigned)
+  unwrap_or(get(command, 0), "") == "legible" and unwrap_or(get(command, 2), "") == path_join(path_join(pipeline.project_root(), "Server"), "build_phone_apk.lbl") and unwrap_or(get(command, 3), "") == fix.request.source_apk and unwrap_or(get(command, 4), "") == paths.unsigned and contains(command, "--bundle-server") and not contains(command, "--patched-il2cpp")
+end
+
+function server_validation_test(fix: Fixture): boolean
+  intent: test bundled server validation
+  let invalid: BuildRequest = fix.request with { scheme: "https", server_host: "10.0.0.5" }
+  let checked: Validation = pipeline.validate(invalid)
+  length(checked.errors) == 2 and contains_text(join(checked.errors, "\n"), "only supports http") and contains_text(join(checked.errors, "\n"), "127.0.0.1")
+end
+
+function armv7_patch_test(fix: Fixture): boolean
+  intent: test armv7 patch validation
+  let missing: BuildRequest = fix.request with { abi: pipeline.armv7() }
+  let errors: Validation = pipeline.validate(missing)
+  let supplied: Validation = pipeline.validate(missing with { patched_il2cpp: fix.patched })
+  let automatic: Validation = pipeline.validate(missing with { auto_patch_il2cpp: true })
+  contains_text(join(errors.errors, "\n"), "TFTFHOOK") and length(supplied.errors) == 0 and length(automatic.errors) == 0
+end
+
+function command_order_test(fix: Fixture): boolean
+  intent: test
+  let full: BuildRequest = fix.request with { do_install: true }
+  let steps: a list of Step = pipeline.plan_steps(full)
+  length(steps) == 4 and unwrap(get(steps, 0)).name == "build APK" and unwrap(get(steps, 1)).name == "zipalign APK" and unwrap(get(steps, 2)).name == "sign APK" and unwrap(get(steps, 3)).name == "install APK" and contains(unwrap(get(steps, 3)).argv, "--no-incremental")
+end
+
+function automatic_patch_command_test(fix: Fixture): boolean
+  intent: test automatic patch command
+  let armv7_steps: a list of Step = pipeline.plan_steps(fix.request with { abi: pipeline.armv7(), auto_patch_il2cpp: true })
+  let armv7_command: a list of text = unwrap(get(armv7_steps, 0)).argv
+  let arm64_steps: a list of Step = pipeline.plan_steps(fix.request with { abi: pipeline.arm64(), auto_patch_il2cpp: true })
+  let arm64_command: a list of text = unwrap(get(arm64_steps, 0)).argv
+  length(armv7_steps) == 4 and unwrap(get(armv7_steps, 0)).name == "patch il2cpp" and contains(armv7_command, "--needed") and contains(armv7_command, "inplace") and contains(armv7_command, "--apply") and length(arm64_steps) == 4 and contains(arm64_command, "--needed") and contains(arm64_command, "byte") and not contains(arm64_command, "inplace")
+end
+
+function elf_test(fix: Fixture): boolean
+  intent: test ELF architecture detection
+  let elf64: text = path_join(fix.root, "arm64.so")
+  let elf7: text = path_join(fix.root, "armv7.so")
+  make_elf(elf64, 183)
+  make_elf(elf7, 40)
+  pipeline.elf_abi(elf64) == pipeline.arm64() and pipeline.elf_abi(elf7) == pipeline.armv7() and pipeline.elf_abi(path_join(fix.root, "missing.so")) == ""
+end
+
+function elf_mismatch_test(fix: Fixture): boolean
+  intent: test ELF mismatch validation
+  let elf7: text = path_join(fix.root, "mismatch.so")
+  make_elf(elf7, 40)
+  let checked: Validation = pipeline.validate(fix.request with { patched_il2cpp: elf7 })
+  contains_text(join(checked.errors, "\n"), "is armeabi-v7a") and contains_text(join(checked.errors, "\n"), "targets arm64-v8a")
+end
+
+function pristine_elf_mismatch_test(fix: Fixture): boolean
+  intent: test pristine ELF mismatch validation
+  let elf7: text = path_join(fix.root, "pristine-armv7.so")
+  make_elf(elf7, 40)
+  let checked: Validation = pipeline.validate(fix.request with { auto_patch_il2cpp: true, il2cpp_source: elf7 })
+  contains_text(join(checked.errors, "\n"), "pristine libil2cpp.so source") and contains_text(join(checked.errors, "\n"), "is armeabi-v7a") and contains_text(join(checked.errors, "\n"), "targets arm64-v8a")
+end
+
+function defaults_test(): boolean
+  intent: test
+  let request: BuildRequest = pipeline.default_request()
+  let home: text = unwrap_or(env_get("HOME"), "")
+  request.abi == pipeline.arm64() and request.patched_il2cpp == "" and contains_text(request.il2cpp_source, "/arm64-v8a/libil2cpp.so") and request.keystore == path_join(path_join(home, ".android"), "debug.keystore") and contains(pipeline.sdk_roots(), path_join(path_join(home, "Android"), "Sdk"))
+end
+
+function mapping_test(fix: Fixture): boolean
+  intent: test
+  let values: a mapping from text to text = {"source_apk": fix.request.source_apk, "dest_apk": fix.request.dest_apk, "keep_other_abi": "true", "do_install": "false", "server_port": "8123"}
+  let request: BuildRequest = pipeline.request_from_mapping(values)
+  request.keep_other_abi and not request.do_install and request.server_port == 8123
+end
+
+function add(counts: Counts, result: Counts): Counts
+  intent: add test counts
+  Counts { passed: counts.passed + result.passed, failed: counts.failed + result.failed }
+end
+
+function main(): nothing
+  intent: run pipeline tests
+  let fix: Fixture = fixture()
+  mutable counts: Counts = Counts { passed: 0, failed: 0 }
+  set counts = add(counts, report("bundled build command", bundled_command_test(fix)))
+  set counts = add(counts, report("bundled validation", server_validation_test(fix)))
+  set counts = add(counts, report("armv7 patch requirement", armv7_patch_test(fix)))
+  set counts = add(counts, report("pipeline command order", command_order_test(fix)))
+  set counts = add(counts, report("automatic patch command", automatic_patch_command_test(fix)))
+  set counts = add(counts, report("ELF ABI detection", elf_test(fix)))
+  set counts = add(counts, report("ELF mismatch validation", elf_mismatch_test(fix)))
+  set counts = add(counts, report("pristine ELF mismatch validation", pristine_elf_mismatch_test(fix)))
+  set counts = add(counts, report("user-specific defaults", defaults_test()))
+  set counts = add(counts, report("browser mapping", mapping_test(fix)))
+  shell_exec("rm -rf -- " ++ pipeline.shell_quote(fix.root))
+  print(to_text(counts.passed) ++ " passed, " ++ to_text(counts.failed) ++ " failed")
+  if counts.failed > 0 then exit_process(1) end
+end
+
+main()

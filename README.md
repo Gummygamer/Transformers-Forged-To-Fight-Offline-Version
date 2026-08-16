@@ -291,13 +291,15 @@ If it hangs at login, check the very first item in the Gotchas section before an
 From the repository root, launch the local browser UI with:
 
 ```sh
-python3 tools/apk_patcher_gui/server.py
+legible run tools/apk_patcher_gui/server.lbl
 ```
 
-It prints a `http://127.0.0.1:<port>/` URL and opens it in the default browser. Python 3's
-standard library is all it needs; there is nothing to install. It binds loopback only.
-Use `--port N` to choose a port instead of letting the OS choose a free one, or
-`--no-browser` when working headlessly or remotely.
+It prints a token-protected `http://127.0.0.1:<port>/` URL and opens it in the default
+browser. The GUI, planner, background worker, and tests are all Legible; Python is not
+required. Use `--port N` to choose a port instead of the default random free port, or
+`--no-browser` when working headlessly. Legible's HTTP listener binds all interfaces, so
+the GUI requires an unguessable per-launch token on every page and API request; keep the
+printed URL private.
 
 The page exposes the APK source and destination, signing keystore and passwords, and an
 optional install-to-device step. Choose `arm64-v8a` (64-bit, the default) or
