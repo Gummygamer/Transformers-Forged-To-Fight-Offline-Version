@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transformers APK Patcher</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main>
+    <h1>Transformers APK Patcher</h1>
+    <p class="intro">Choose the build options below. This page previews every command before building.</p>
+
+    <form id="build-form">
+      <fieldset>
+        <legend>APK files</legend>
+        <label>Source APK <input id="source_apk" name="source_apk" type="text" required></label>
+        <label>Final signed APK <input id="dest_apk" name="dest_apk" type="text" required></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Architecture</legend>
+        <label><input type="radio" name="abi" value="arm64-v8a" checked> 64-bit (arm64-v8a) - recommended</label>
+        <label><input type="radio" name="abi" value="armeabi-v7a"> 32-bit (armeabi-v7a)</label>
+        <label><input id="keep_other_abi" name="keep_other_abi" type="checkbox"> Keep the other ABI's libraries</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Server</legend>
+        <label><input type="radio" name="server_mode" value="bundled" checked> Bundled server - self-contained, no PC needed</label>
+        <label><input type="radio" name="server_mode" value="separate"> Separate server running on a PC</label>
+        <p id="bundled-note" class="note">Bundled mode is fixed at 127.0.0.1:8080 over http; the builder only accepts those values.</p>
+        <div class="three-columns">
+          <label>Host <input id="server_host" name="server_host" type="text"></label>
+          <label>Port <input id="server_port" name="server_port" type="number" min="1" max="65535"></label>
+          <label>Scheme <select id="scheme" name="scheme"><option value="http">http</option><option value="https">https</option></select></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>32-bit libil2cpp patch</legend>
+        <p id="armv7-warning" class="alert error hidden">32-bit builds require a patched libil2cpp.so. Without it the APK installs, but <code>TFTFHOOK</code> never logs and nothing listens on port 8080.</p>
+        <label>Patched libil2cpp.so <input id="patched_il2cpp" name="patched_il2cpp" type="text"></label>
+        <label><input id="auto_patch_il2cpp" name="auto_patch_il2cpp" type="checkbox"> Auto-patch it for me</label>
+        <label>Pristine libil2cpp.so source <input id="il2cpp_source" name="il2cpp_source" type="text"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Signing and device</legend>
+        <label>Keystore <input id="keystore" name="keystore" type="text"></label>
+        <div class="two-columns">
+          <label>Keystore password <input id="ks_pass" name="ks_pass" type="text"></label>
+          <label>Key password <input id="key_pass" name="key_pass" type="text"></label>
+        </div>
+        <label><input id="do_install" name="do_install" type="checkbox"> Install to connected device with adb when finished</label>
+      </fieldset>
+    </form>
+
+    <section aria-live="polite">
+      <h2>Checks</h2>
+      <div id="messages" class="messages"></div>
+    </section>
+    <section>
+      <h2>Commands that will run</h2>
+      <pre id="commands" class="commands" aria-label="Command preview"></pre>
+    </section>
+    <div class="button-row">
+      <button id="build-button" type="button">Build APK</button>
+      <button id="cancel-button" type="button" class="secondary" disabled>Cancel</button>
+    </div>
+    <p id="run-result" class="run-result" aria-live="polite"></p>
+    <section>
+      <h2>Build log</h2>
+      <pre id="build-log" class="commands log" aria-label="Build log"></pre>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

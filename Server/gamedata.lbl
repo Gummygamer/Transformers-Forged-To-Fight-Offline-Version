@@ -662,6 +662,17 @@ else
 end
 end
 
+-- These exact names must match the AIProfile and AIPersonality assets shipped in the client; lowercase "default" matched no asset and left the opponent melee-only.
+public function enemy_ai_profile(): text
+  intent: name
+  "Default"
+end
+
+public function enemy_ai_personality(): text
+  intent: name
+  "Ranged"
+end
+
 public function arena_tod_index(): integer
   intent: get
   let level: text = arena_level()
@@ -813,7 +824,7 @@ end
 else
   tod_index
 end
-  jsonout.json_obj([jsonout.json_pair("key", jsonout.json_text(key)), jsonout.json_pair("entityType", jsonout.json_text("boss")), jsonout.json_pair("parentEntityType", jsonout.json_text("boss")), jsonout.json_pair("isFinalBoss", jsonout.json_bool(is_final_boss)), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(key)])), jsonout.json_pair("rank", jsonout.json_int(1)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("sig_lvl", jsonout.json_int(0)), jsonout.json_pair("flvl", jsonout.json_int(0)), jsonout.json_pair("aiType", jsonout.json_int(0)), jsonout.json_pair("aiString", jsonout.json_text("default")), jsonout.json_pair("aiPer", jsonout.json_text("default")), jsonout.json_pair("mapOverride", jsonout.json_text(selected_map)), jsonout.json_pair("todIndex", jsonout.json_int(selected_tod))])
+  jsonout.json_obj([jsonout.json_pair("key", jsonout.json_text(key)), jsonout.json_pair("entityType", jsonout.json_text("boss")), jsonout.json_pair("parentEntityType", jsonout.json_text("boss")), jsonout.json_pair("isFinalBoss", jsonout.json_bool(is_final_boss)), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(key)])), jsonout.json_pair("rank", jsonout.json_int(1)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("sig_lvl", jsonout.json_int(0)), jsonout.json_pair("flvl", jsonout.json_int(0)), jsonout.json_pair("aiType", jsonout.json_int(0)), jsonout.json_pair("aiString", jsonout.json_text(enemy_ai_profile())), jsonout.json_pair("aiPer", jsonout.json_text(enemy_ai_personality())), jsonout.json_pair("mapOverride", jsonout.json_text(selected_map)), jsonout.json_pair("todIndex", jsonout.json_int(selected_tod))])
 end
 
 public function build_quest_enemy(map_override: text, tod_index: integer): Json

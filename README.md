@@ -286,6 +286,42 @@ reconnection.
 
 If it hangs at login, check the very first item in the Gotchas section before anything else.
 
+### Patching the APK from a GUI
+
+From the repository root, launch the local browser UI with:
+
+```sh
+python3 tools/apk_patcher_gui/server.py
+```
+
+It prints a `http://127.0.0.1:<port>/` URL and opens it in the default browser. Python 3's
+standard library is all it needs; there is nothing to install. It binds loopback only.
+Use `--port N` to choose a port instead of letting the OS choose a free one, or
+`--no-browser` when working headlessly or remotely.
+
+The page exposes the APK source and destination, signing keystore and passwords, and an
+optional install-to-device step. Choose `arm64-v8a` (64-bit, the default) or
+`armeabi-v7a` (32-bit), and choose whether to keep the other ABI's libraries. The server
+mode is either bundled (self-contained, no PC, fixed to `http` and `127.0.0.1`) or
+separate (a PC-hosted fake server, with a host, port, and `http`/`https` supplied by you).
+It also accepts a patched `libil2cpp.so` path, or can auto-patch one with
+`patches/patch_il2cpp.lbl` from the pristine library.
+
+Pressing **Build APK** runs the same pipeline documented below: optional
+`patch_il2cpp.lbl`, then `legible run Server/build_phone_apk.lbl`, then
+`zipalign -f -p 4`, then `apksigner sign` with the debug keystore, and optionally
+`adb install -r --no-incremental`. Each command's output streams live into the page, and
+the build can be cancelled.
+
+Before starting the multi-minute, multi-hundred-megabyte build, the UI catches a bundled
+server configured with `https` or a non-loopback host (that mode only accepts `http` plus
+`127.0.0.1`) and a 32-bit build with no patched `libil2cpp.so`. The latter is the failure
+described in the 32-bit section below: the APK installs cleanly, but `TFTFHOOK` never
+appears in the log and nothing listens on port 8080.
+
+The manual recipes below remain the ground truth and are the fallback if the GUI is not
+available.
+
 ### Building a self-contained APK (bundled server, no PC)
 
 Build, align, sign, and install an arm64 APK with the fake-server response payload embedded:
