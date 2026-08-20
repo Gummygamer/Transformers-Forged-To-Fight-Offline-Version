@@ -58,6 +58,9 @@ static void flog(const char* fmt, ...){
 
 typedef void* (*fn8)(void*,void*,void*,void*,void*,void*,void*,void*);
 typedef void* (*fn1)(void*);
+// AIController.Simulate(this, dT, MethodInfo*): dT is passed in s0, so this must
+// not use the generic fn8 thunk when calling the relocated original.
+typedef void (*fn_ai_simulate)(void*, float, void*);
 typedef void* (*strnew_t)(const char*);   // il2cpp_string_new
 typedef void* (*arraynew_t)(void*, size_t); // il2cpp_array_new(elementClass, len)
 
@@ -481,6 +484,7 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // alternate the forms. Simulation.FixedUpdate is the combat simulation tick and is the pump
     // that walks the alternation schedule while the cinematic latch is up.
     { 0xDE8750, "SP3BEAT", 2, 0 }, // 145 Simulation.FixedUpdate -> drive the alt/robot beat schedule
+    { 0xDB1D30, "AIRANGE", 2, 0 }, // 146 AIController.Simulate -> basic Attack while the AI can shoot at range
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -3434,6 +3438,26 @@ void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({ sp3_beat_pump(); });
     return r;
 }
+// AIRANGE (slot 146): the shipped AI behavior tree receives the valid Default/Ranged
+// profile data but does not select its basic Attack action at distance. Run normal
+// simulation first, then request the same Attack action used by the stock ranged node.
+// CanShoot supplies availability and out-of-melee-range gates; TryExecuteAction retains
+// normal action-state, hit-stun, recovery, and blocked-action checks. No custom range/cooldown.
+void hook_146(void* self, float dT, void* method){
+    ((fn_ai_simulate)H[146].orig)(self,dT,method);
+    PROTECT({
+        void* player=fld_p(self,0x90);                    // AIController.PlayerController
+        if(obj_ok(player) && *(uint8_t*)((uintptr_t)self+0x88) && // AIController._inited
+           ((int(*)(void*,void*))(g_base+0xDB07A4))(self,NULL) && // get_IsActive
+           !((int(*)(void*,void*))(g_base+0xDB025C))(self,NULL) && // get_IsPaused
+           !((int(*)(void*,void*))(g_base+0x11752C8))(player,NULL) && // get_IsAttacking
+           ((int(*)(void*,void*))(g_base+0x1174FEC))(player,NULL)){ // get_CanShoot
+            ((void(*)(void*,int,void*))(g_base+0x1179AF4))(player,1,NULL); // Action.Attack
+            static unsigned fired_lines=0;
+            if(fired_lines<100){ fired_lines++; flog("AIRANGE fired=1 ai=%p player=%p",self,player); }
+        }
+    });
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -3449,7 +3473,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
     hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
-    hook_145 };
+    hook_145,hook_146 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
