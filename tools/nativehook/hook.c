@@ -438,7 +438,7 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // Leave it hidden through that overlay and restore only on actual home-screen entry; retain
     // the active gate until then so the TSSHOWW fallback cannot restore it underneath the detail.
     { 0xC587B8, "RSENTER",    0, 0 }, // 133 HeroesScreen.WindowEnter -> hide residual base objects
-    { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> mark roster inactive; retain hidden objects
+    { 0xC595AC, "RSEXIT",     0, 0 }, // 134 HeroesScreen.WindowExit -> retain the active gate and hidden set through detail
     // ROSTERDRAGFIX (roster-scroll): EditTeamScreenPresentation.OnGridItemClicked(this, gridItem)
     // @0xB210CC is called directly from UIScrollView.OnDragNotification.Invoke (@0x1404E6C) while
     // UIDragScrollView.OnDrag (@0x1BF37E0) / UIScrollView.Drag (@0x1E5F444) handles a swipe. The
@@ -3250,7 +3250,8 @@ static int sp3_is_excluded(const char* name, const char* anim){
     return 0;
 }
 /* SP3BEAT (shipped): scan the substituted move's authored event list for its TransformMoveEvent
-   and record that event's duration as the alternation beat length. MoveEvent layout on this build:
+   and record that event's duration as a diagnostic only; the current schedule remains the single
+   authored alternate-form window. MoveEvent layout on this build:
    events list at move+0x28 (List<MoveEvent>, backing array at +0x10, count via list_count),
    StartTime float at event+0x54, Duration float at event+0x58 (both seconds). */
 static void sp3_beat_capture(void* move){
@@ -3426,8 +3427,8 @@ void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     });
     return r;
 }
-/* SP3BEAT (shipped): per simulation tick, walk the alternation schedule for an active cinematic
-   special and apply the scheduled body when it changes. */
+/* SP3BEAT (shipped): per simulation tick, drive the one contiguous alternate-form block for an
+   active cinematic special and apply the scheduled body when it changes. */
 void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r=H[145].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({ sp3_beat_pump(); });

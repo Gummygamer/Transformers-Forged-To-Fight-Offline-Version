@@ -324,11 +324,8 @@ function handler_definition_matches(compact: text, wanted: integer): boolean
   false
 end
 
-function test_roster_slots(slots: a list of Slot, source: text): TestResult
-  intent: test roster slots expected addresses comments
-  let tags: a list of text = ["ROSTERDRAGFIX", "ROSTERDRAGCTX", "ROSTERDRAGCHOKE"]
-  let indices: a list of integer = [135, 136, 137]
-  let addresses: a list of integer = [parse_hex("0xB210CC"), parse_hex("0x1E5F444"), parse_hex("0x1404E6C")]
+function test_feature_slots(slots: a list of Slot, source: text, feature: text, tags: a list of text, indices: a list of integer, addresses: a list of integer): TestResult
+  intent: test feature slots expected addresses comments
   mutable passed: boolean = true
   mutable detail: text = ""
   mutable wanted_index: integer = 0
@@ -360,12 +357,11 @@ function test_roster_slots(slots: a list of Slot, source: text): TestResult
     end
     set wanted_index = wanted_index + 1
   end
-  TestResult { passed: passed, detail: detail }
+  TestResult { passed: passed, detail: feature ++ ": " ++ detail }
 end
 
-function test_roster_handlers(handlers: a list of integer, source: text): TestResult
-  intent: return result
-  let wanted: a list of integer = [135, 136, 137]
+function test_feature_handlers(handlers: a list of integer, source: text, feature: text, wanted: a list of integer): TestResult
+  intent: test feature handler dispatch alignment
   let compact: text = remove_whitespace(source)
   mutable passed: boolean = true
   mutable detail: text = ""
@@ -384,6 +380,54 @@ function test_roster_handlers(handlers: a list of integer, source: text): TestRe
         set detail = detail ++ "handlers[" ++ to_text(number) ++ "] expected " ++ to_text(number) ++ ", got " ++ to_text(actual) ++ "; "
       end
     end
+  end
+  TestResult { passed: passed, detail: feature ++ ": " ++ detail }
+end
+
+function test_handler_array_alignment(slots: a list of Slot, handlers: a list of integer): TestResult
+  intent: assert every handler dispatch entry follows its slot
+  mutable passed: boolean = length(slots) == length(handlers)
+  mutable detail: text = if passed then "" else "slot count " ++ to_text(length(slots)) ++ " differs from handler count " ++ to_text(length(handlers)) ++ "; " end
+  mutable index: integer = 0
+  while index < length(slots) and index < length(handlers) do
+    if unwrap_or(get(handlers, index), -1) != index then
+      set passed = false
+      set detail = detail ++ "handlers[" ++ to_text(index) ++ "] is not hook_" ++ to_text(index) ++ "; "
+    end
+    set index = index + 1
+  end
+  TestResult { passed: passed, detail: detail }
+end
+
+function hook_body_before_original(compact: text, wanted: integer): text
+  intent: return compact hook body before original call
+  let start: text = "void*hook_" ++ to_text(wanted) ++ "("
+  let finish: text = "returnH[" ++ to_text(wanted) ++ "].orig"
+  let start_at: integer = unwrap_or(index_of(compact, start), -1)
+  let finish_at: integer = unwrap_or(index_of(compact, finish), -1)
+  if start_at < 0 or finish_at < start_at then "" else substring(compact, start_at, finish_at - start_at) end
+end
+
+function test_source_invariants(source: text): TestResult
+  intent: assert whitespace normalized shipped roster SP3 invariants
+  let compact: text = remove_whitespace(source)
+  let patterns: a list of text = ["g_ts_screen_active=1;tshide_hide(1);returnH[133].orig", "void*hook_134(void*a0,void*a1,void*a2,void*a3,void*a4,void*a5,void*a6,void*a7)", "restoreandactivecleardeferredtoRSHOME", "void*hook_144(void*a0,void*a1,void*a2,void*a3,void*a4,void*a5,void*a6,void*a7)", "g_ts_screen_active=0;tshide_restore(", "intapplied=sp3_prop_mirror(a0,on);", "if(!strcmp(name,", "character_model", "transformed", "g_strnew(", "SpecialAttack03", "g_sp3_alt_on_ms=1000", "g_sp3_alt_off_ms=2500", "((void(*)(void*,int,void*))(g_base+0x117A67C))(pc,0,NULL);"]
+  let names: a list of text = ["RSENTER activates the hide gate and hides", "RSEXIT handler exists", "RSEXIT defers restoring through detail", "RSHOME handler exists", "RSHOME clears the gate and restores", "every prop reaches sp3_prop_mirror", "body forcing checks prop names", "body forcing includes character_model", "body forcing includes transformed", "alternate prop animation call exists", "alternate prop drives SpecialAttack03", "alternate form starts at 1000 ms", "alternate form ends at 2500 ms", "SP3 exit restores robot form"]
+  mutable passed: boolean = true
+  mutable detail: text = ""
+  mutable index: integer = 0
+  while index < length(patterns) do
+    let pattern: text = unwrap_or(get(patterns, index), "")
+    if not contains_text(compact, pattern) then
+      set passed = false
+      set detail = detail ++ unwrap_or(get(names, index), "source invariant") ++ "; "
+    end
+    set index = index + 1
+  end
+  let exit_body: text = hook_body_before_original(compact, 134)
+  if contains_text(exit_body, "tshide_restore") then
+    set passed = false
+    set detail = detail ++ "RSEXIT restores during detail transition; "
   end
   TestResult { passed: passed, detail: detail }
 end
@@ -425,11 +469,17 @@ function main(): nothing
   let source: text = read_file(path)
   let slots: a list of Slot = parse_slots(source)
   let handlers: a list of integer = parse_handlers(source)
-  let first: TestResult = test_roster_slots(slots, source)
-  let second: TestResult = test_roster_handlers(handlers, source)
-  let third: TestResult = test_safe_action(slots)
-  let failed: integer = report("roster drag slots have expected order and addresses", first) + report("roster drag handlers match their slot indices", second) + report("hardened safe action slot is retained", third)
-  let passed: integer = 3 - failed
+  let roster_slots: TestResult = test_feature_slots(slots, source, "roster", ["RSENTER", "RSEXIT", "RSHOME"], [133, 134, 144], [parse_hex("0xC587B8"), parse_hex("0xC595AC"), parse_hex("0xE746B8")])
+  let roster_handlers: TestResult = test_feature_handlers(handlers, source, "roster", [133, 134, 144])
+  let drag_slots: TestResult = test_feature_slots(slots, source, "roster drag", ["ROSTERDRAGFIX", "ROSTERDRAGCTX", "ROSTERDRAGCHOKE"], [135, 136, 137], [parse_hex("0xB210CC"), parse_hex("0x1E5F444"), parse_hex("0x1404E6C")])
+  let drag_handlers: TestResult = test_feature_handlers(handlers, source, "roster drag", [135, 136, 137])
+  let sp3_slots: TestResult = test_feature_slots(slots, source, "SP3", ["PROPGOACT", "SP3MOVE", "SP3XNEW", "SP3XHOLD", "SP3XIN", "SP3XOUT", "SP3BEAT"], [138, 139, 140, 141, 142, 143, 145], [parse_hex("0xEA023C"), parse_hex("0x100A76C"), parse_hex("0xDE7CF4"), parse_hex("0x117A67C"), parse_hex("0x1174038"), parse_hex("0x1174484"), parse_hex("0xDE8750")])
+  let sp3_handlers: TestResult = test_feature_handlers(handlers, source, "SP3", [138, 139, 140, 141, 142, 143, 145])
+  let alignment: TestResult = test_handler_array_alignment(slots, handlers)
+  let invariants: TestResult = test_source_invariants(source)
+  let safe_action: TestResult = test_safe_action(slots)
+  let failed: integer = report("roster lifecycle slots have expected order and addresses", roster_slots) + report("roster lifecycle handlers match their slot indices", roster_handlers) + report("roster drag slots have expected order and addresses", drag_slots) + report("roster drag handlers match their slot indices", drag_handlers) + report("SP3 slots have expected order and addresses", sp3_slots) + report("SP3 handlers match their slot indices", sp3_handlers) + report("handler array aligns with every hook slot", alignment) + report("roster and SP3 shipped source invariants hold", invariants) + report("hardened safe action slot is retained", safe_action)
+  let passed: integer = 9 - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
     exit_process(1)

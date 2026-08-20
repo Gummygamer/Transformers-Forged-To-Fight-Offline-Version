@@ -60,21 +60,23 @@ produced, so the bundled build behaves like the host-server build. It adds no ne
 interception, no new binary patch, and no new hook.
 
 The BOTS-roster navigation fix likewise introduces no authored game values: `Server/gamedata.lbl`
-is unchanged, so it adds no invented numbers, names, or content. Its arm64 `RSENTER`/`RSEXIT`
-hooks only call `GameObject.SetActive` on base-builder objects that the client's own base-board
+is unchanged, so it adds no invented numbers, names, or content. Its arm64 `RSENTER`, `RSEXIT`,
+and `RSHOME` hooks only call `GameObject.SetActive` on base-builder objects that the client's own base-board
 code already activated and then failed to deactivate when roster navigation bypassed
-`BaseBoard.LeaveBoard`. They add no network interception, no binary patch of shipped content,
-and no new capability. Temporary read-only diagnostic hooks used to establish the affected
-navigation path were removed before shipping.
+`BaseBoard.LeaveBoard`. `RSENTER` hides the recorded set, `RSEXIT` retains it through the detail
+overlay, and `RSHOME` restores it on return to the home screen. They add no network interception,
+no binary patch of shipped content, and no new capability. Temporary read-only diagnostic hooks
+used to establish the affected navigation path were removed before shipping.
 
-The level-3 cinematic-special transform investigation ended in a negative result and ships no
-fix. The four arm64 hooks it had previously added (`SP3XNEW`, `SP3XHOLD`, `SP3XIN`, `SP3XOUT`)
-were measured to have no visible effect and have been removed again, so the shipped hook set is
-smaller than before rather than larger. `Server/gamedata.lbl` is unchanged, so no invented
-numbers, names, or game content were authored. The temporary read-only diagnostic hooks used
-during the investigation only observed the client's own calls and were removed before shipping;
-they added no network interception, no binary patch of shipped content, no new capability, and
-no game assets or binaries to the repository.
+The earlier level-3 cinematic-special negative verdict is historical and superseded by the later
+measured arm64 implementation. The shipped hook now resolves the missing usable cinematic move,
+mirrors ineffective renderer visibility onto renderer GameObjects, constrains body forcing to the
+existing `character_model` and `transformed` props, directly starts the alternate prop's existing
+`SpecialAttack03` animation, schedules one original 1000–2500 ms alternate-form window, applies a
+timeout, and restores robot form on cinematic exit. These hooks introduce no game asset, recovered
+server value, external audiovisual material, network interception, binary patch of shipped
+content, or new capability. `Server/gamedata.lbl` remains unchanged. The regression tests merely
+lock already-documented interoperability addresses and the existing authored timings.
 
 ## Why this is copyright-compliant
 
