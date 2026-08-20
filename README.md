@@ -355,6 +355,9 @@ unchanged and remain the default.
 time, so changing `Server/gamedata.lbl` requires rebuilding the APK. Its responses are the same
 ones served by `Server/fakeserver.lbl`.
 
+Because its two reachability patch sites are arm64 only, the bundled `armeabi-v7a` build requires
+Android to report any active network; loopback-only airplane mode is not sufficient.
+
 For an ARMv7 bundled build, use the same align and signing steps with ARMv7 output names.
 Unlike the arm64 one, this build must also supply a patched library: `Transformers 9.2
 offline.apk` ships an **already patched** `lib/arm64-v8a/libil2cpp.so` but a **pristine**
@@ -372,8 +375,9 @@ the hook is never loaded — which looks exactly like a broken server but is not
 4. `~/Android/Sdk/build-tools/35.0.0/apksigner sign --ks ~/.android/debug.keystore --ks-pass pass:android --key-pass pass:android --out build/bundled-armv7.apk build/phone-armv7-aligned.apk`
 5. `adb install -r --no-incremental --abi armeabi-v7a build/bundled-armv7.apk`
 
-This exact sequence was run end to end on 2026-07-28: the game reached the home screen and a
-populated BOTS roster with no host server running and `adb reverse --list` empty.
+On 2026-08-17, bundled `armeabi-v7a` was live-verified with no host server and `adb reverse
+--list` empty: it reached STORY 1.1.1, won its intermediate Patrol fight while the in-APK server
+served requests, and the final Boss remained reachable (33% to 66% explored).
 
 `--no-incremental` is mandatory: incremental-fs mounts the native library directory read-only,
 even to root.
