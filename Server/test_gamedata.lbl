@@ -217,7 +217,7 @@ function test_max_special_attacks_are_three_for_every_bot_and_wire_builder(): bo
   for entry in gamedata.roster() do
     let bp: Json = jsonout.obj_get(blueprints, entry.bid)
     set requests = append(requests, jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(entry.bid))]))
-    set passed = passed and jsonout.as_int(jsonout.obj_get(bp, "msa")) == 3 and has_three_special_attacks(gamedata.build_hero_base(entry.bid, 1)) and has_three_special_attacks(gamedata.build_hero_entry(entry.bid, 1, 1))
+    set passed = passed and gamedata.max_special_attacks(entry.bid, entry.star) == 3 and jsonout.as_int(jsonout.obj_get(bp, "msa")) == 3 and has_three_special_attacks(gamedata.build_hero_base(entry.bid, 1)) and has_three_special_attacks(gamedata.build_hero_entry(entry.bid, 1, 1))
   end
   for bid in gamedata.default_team() do
     set requests = append(requests, jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid))]))
@@ -384,6 +384,105 @@ function test_group_autorefresh_update_has_exact_client_fields(): boolean
   jsonout.encode_compact(update) == jsonout.encode_compact(expected)
 end
 
+function story_grid(): a list of Json
+  intent: get
+  jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map("1.1.1"), "grid"))
+end
+
+function test_story_board_authors_at_least_ten_encounter_tiles(): boolean
+  intent: test
+  mutable encounters: integer = 0
+  for row in story_grid() do
+    for tile in jsonout.list_items(row) do
+      if jsonout.obj_has(tile, "entities") then set encounters = encounters + 1 end
+    end
+  end
+  encounters >= 10
+end
+
+function test_story_board_has_exactly_one_final_encounter_and_it_is_the_boss(): boolean
+  intent: test
+  mutable finals: integer = 0
+  mutable boss_is_final: boolean = false
+  for row in story_grid() do
+    for tile in jsonout.list_items(row) do
+      if jsonout.obj_has(tile, "final") then
+        if jsonout.as_bool(jsonout.obj_get(tile, "final")) then
+          set finals = finals + 1
+          set boss_is_final = jsonout.as_text(jsonout.obj_get(tile, "boss")) == gamedata.boss_blueprint()
+        end
+      end
+    end
+  end
+  finals == 1 and boss_is_final
+end
+
+function test_story_board_geometry_is_square_and_fully_revealed(): boolean
+  intent: test
+  let map: Json = gamedata.build_quest_map("1.1.1")
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  let paths: a list of Json = jsonout.list_items(jsonout.obj_get(map, "pathData"))
+  let path: Json = unwrap_or(get(paths, 0), jsonout.json_obj([]))
+  mutable passed: boolean = length(grid) == gamedata.quest_dim() and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == gamedata.quest_dim() and jsonout.as_int(jsonout.obj_get(map, "visibleWalkableCount")) == gamedata.quest_dim() and length(jsonout.list_items(jsonout.obj_get(path, "path"))) == gamedata.quest_dim()
+  for row in grid do
+    set passed = passed and length(jsonout.list_items(row)) == gamedata.quest_dim()
+  end
+  passed
+end
+
+function test_every_encounter_row_triggers_a_battle_on_movedir(): boolean
+  intent: test
+  mutable row: integer = 1
+  mutable passed: boolean = true
+  while row < gamedata.quest_dim() do
+    let result: Json = gamedata.build_quest_movedir("1.1.1", 1, 0, row - 1, gamedata.quest_path_col(), [])
+    let results: a list of Json = jsonout.list_items(jsonout.obj_get(result, "results"))
+    let action: Json = unwrap_or(get(results, 1), jsonout.json_obj([]))
+    let battle: Json = jsonout.obj_get(jsonout.obj_get(action, "action"), "battle")
+    let encounter: QuestEncounter = gamedata.quest_encounter(row)
+    set passed = passed and jsonout.obj_has(jsonout.obj_get(action, "action"), "battle") and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "key")) == encounter.key
+    set row = row + 1
+  end
+  passed
+end
+
+function story_bosses_are_distinct(bosses: a list of text, bid: text): boolean
+  intent: find
+  not contains(bosses, bid)
+end
+
+function test_story_encounters_use_varied_enemy_blueprints(): boolean
+  intent: test
+  mutable bosses: a list of text = []
+  for row in story_grid() do
+    for tile in jsonout.list_items(row) do
+      if jsonout.obj_has(tile, "entities") then
+        let bid: text = jsonout.as_text(jsonout.obj_get(tile, "boss"))
+        if story_bosses_are_distinct(bosses, bid) then set bosses = append(bosses, bid) end
+      end
+    end
+  end
+  length(bosses) >= 8
+end
+
+function dialogue_set_is_authored(sets: Json, id: text): boolean
+  intent: check
+  let dialogue: Json = jsonout.obj_get(sets, id)
+  let entries: a list of Json = jsonout.list_items(jsonout.obj_get(dialogue, "entries"))
+  mutable passed: boolean = jsonout.obj_has(sets, id) and text_length(jsonout.as_text(jsonout.obj_get(dialogue, "id"))) > 0 and length(entries) >= 2
+  for entry in entries do
+    set passed = passed and jsonout.obj_has(entry, "inShadow") and jsonout.obj_has(entry, "character") and jsonout.obj_has(entry, "side") and jsonout.obj_has(entry, "style") and jsonout.obj_has(entry, "line") and text_length(jsonout.as_text(jsonout.obj_get(entry, "line"))) > 0
+  end
+  passed
+end
+
+function test_quest_summary_exposes_authored_dialogue_sets(): boolean
+  intent: test
+  let summary: Json = gamedata.build_quest_summary("1.1.1", "story_act1")
+  let sets: Json = jsonout.obj_get(summary, "dialogueSets")
+  jsonout.obj_has(summary, "dialogueSets") and dialogue_set_is_authored(sets, "arrival_intro") and dialogue_set_is_authored(sets, "midpoint_rally") and dialogue_set_is_authored(sets, "final_stand") and dialogue_set_is_authored(sets, "shore_secured")
+end
+
 function main(): nothing
   intent: test
   mutable failed: integer = 0
@@ -414,9 +513,15 @@ function main(): nothing
   set failed = failed + report("test_account_response_contains_current_missions_config", test_account_response_contains_current_missions_config(), "account missions config differed")
   set failed = failed + report("test_direct_autorefresh_repeats_current_missions_config", test_direct_autorefresh_repeats_current_missions_config(), "direct autorefresh differed")
   set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
+  set failed = failed + report("test_story_board_authors_at_least_ten_encounter_tiles", test_story_board_authors_at_least_ten_encounter_tiles(), "story board had too few encounters")
+  set failed = failed + report("test_story_board_has_exactly_one_final_encounter_and_it_is_the_boss", test_story_board_has_exactly_one_final_encounter_and_it_is_the_boss(), "story final encounter was wrong")
+  set failed = failed + report("test_story_board_geometry_is_square_and_fully_revealed", test_story_board_geometry_is_square_and_fully_revealed(), "story board geometry was wrong")
+  set failed = failed + report("test_every_encounter_row_triggers_a_battle_on_movedir", test_every_encounter_row_triggers_a_battle_on_movedir(), "story encounter did not trigger")
+  set failed = failed + report("test_story_encounters_use_varied_enemy_blueprints", test_story_encounters_use_varied_enemy_blueprints(), "story encounters were not varied")
+  set failed = failed + report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing")
   set failed = failed + run_slice3_tests()
   set failed = failed + run_slice4_tests()
-  print(to_text(58 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(64 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -499,7 +604,7 @@ end
 
 function test_move_to_final_tile_still_opens_the_boss_battle(): boolean
   intent: test
-  let result: Json = gamedata.build_quest_movedir("1.1.1", 1, 0, 1, 1, [])
+  let result: Json = gamedata.build_quest_movedir("1.1.1", 1, 0, gamedata.quest_dim() - 2, 1, [])
   let action: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(result, "results")), 1), jsonout.json_obj([]))
   let battle: Json = jsonout.obj_get(jsonout.obj_get(action, "action"), "battle")
   jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "key")) == gamedata.boss_blueprint() and jsonout.as_bool(jsonout.obj_get(battle, "isFinalBoss")) == true

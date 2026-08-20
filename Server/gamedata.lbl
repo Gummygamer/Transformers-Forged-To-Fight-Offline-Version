@@ -494,7 +494,7 @@ end
 
 public function quest_dim(): integer
   intent: return
-  3
+  11
 end
 
 public function quest_path_col(): integer
@@ -504,13 +504,29 @@ end
 
 public function quest_has_encounter(row: integer): boolean
   intent: check
-  row == 1 or row == 2
+  row >= 1 and row <= quest_dim() - 1
 end
 
 public function quest_encounter(row: integer): QuestEncounter
   intent: get
   if row == 1 then
   QuestEncounter { key: minion_blueprint(), final_boss: false, label: "Patrol" }
+else if row == 2 then
+  QuestEncounter { key: "sharkticon_gs_scout", final_boss: false, label: "Scouting Party" }
+else if row == 3 then
+  QuestEncounter { key: "sharkticon_gs_tech", final_boss: false, label: "Signal Jammer" }
+else if row == 4 then
+  QuestEncounter { key: "sharkticon_gs_demolition", final_boss: false, label: "Demolition Crew" }
+else if row == 5 then
+  QuestEncounter { key: "sharkticon_gs_tactician", final_boss: false, label: "Ambush" }
+else if row == 6 then
+  QuestEncounter { key: "sharkticon_gs_kabam", final_boss: false, label: "Gilded Enforcer" }
+else if row == 7 then
+  QuestEncounter { key: "kickback_gs_kabam", final_boss: false, label: "Insecticon Raid" }
+else if row == 8 then
+  QuestEncounter { key: "waspinator_gs_deluxe", final_boss: false, label: "Buzzsaw Swarm" }
+else if row == 9 then
+  QuestEncounter { key: "soundwave_gs", final_boss: false, label: "Interceptor" }
 else
   QuestEncounter { key: boss_blueprint(), final_boss: true, label: "Boss" }
 end
@@ -715,13 +731,28 @@ else
 end
 end
 
+function dialogue_entry(in_shadow: boolean, character: text, side: text, style: text, line: text): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("inShadow", jsonout.json_bool(in_shadow)), jsonout.json_pair("character", jsonout.json_text(character)), jsonout.json_pair("side", jsonout.json_text(side)), jsonout.json_pair("style", jsonout.json_text(style)), jsonout.json_pair("line", jsonout.json_text(line))])
+end
+
+function dialogue_set(id: text, entries: a list of Json): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(id)), jsonout.json_pair("entries", jsonout.json_list(entries))])
+end
+
+public function build_dialogue_sets(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("arrival_intro", dialogue_set("arrival_intro", [dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Sensors read a cold beachhead ahead. Whatever landed here is already moving."), dialogue_entry(true, "sharkticon_gs_warrior", "right", "default", "The tide brought us in. The tide will bury you."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we hold this line, and we hold it together.")])), jsonout.json_pair("midpoint_rally", dialogue_set("midpoint_rally", [dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."), dialogue_entry(true, "soundwave_gs", "right", "default", "Every step you take is recorded. Every step you take is counted."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we walk it to the end. Steady spark, higher guard.")])), jsonout.json_pair("final_stand", dialogue_set("final_stand", [dialogue_entry(true, "sharkticon_gs_brawler", "right", "default", "You climbed a long way just to break at the top."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "We climbed a long way to end this. Stand down or fall down.")])), jsonout.json_pair("shore_secured", dialogue_set("shore_secured", [dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "The shore is quiet. Log the coordinates and get the wounded home."), dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Quiet today. We will be back before it gets loud again.")]))])
+end
+
 public function build_quest_summary(mission_id: text, set_id: text): Json
   intent: build
   let parts: a list of text = split(mission_id, ".")
   let act: integer = mission_part(parts, 0)
   let chapter: integer = mission_part(parts, 1)
   let mission: integer = mission_part(parts, 2)
-  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0))])
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueSets", build_dialogue_sets())])
 end
 
 public function build_quest_detail(mission_id: text, set_id: text): Json
@@ -736,7 +767,7 @@ function links_for(row: integer, col: integer): Json
   if row - 1 >= 0 then
   set links = append(links, vec2(row - 1, 1))
 end
-  if row + 1 < 3 then
+  if row + 1 < quest_dim() then
   set links = append(links, vec2(row + 1, 1))
 end
 end
@@ -768,9 +799,11 @@ end
 public function build_quest_map(qid: text): Json
   intent: build
   mutable grid: a list of Json = []
-  for row in [0, 1, 2] do
+  mutable row: integer = 0
+  while row < quest_dim() do
     mutable tiles: a list of Json = []
-    for col in [0, 1, 2] do
+    mutable col: integer = 0
+    while col < quest_dim() do
       if col != quest_path_col() then
   set tiles = append(tiles, filler_tile())
 else
@@ -783,11 +816,19 @@ else
   set tiles = append(tiles, middle_tile(row, links))
 end
 end
+      set col = col + 1
     end
     set grid = append(grid, jsonout.json_list(tiles))
+    set row = row + 1
   end
-  let path: Json = jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
-  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(quest_dim())), jsonout.json_pair("grid", jsonout.json_list(grid)), jsonout.json_pair("walkableCount", jsonout.json_int(3)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(3)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
+  mutable path_points: a list of Json = []
+  mutable path_row: integer = 0
+  while path_row < quest_dim() do
+    set path_points = append(path_points, vec2(path_row, quest_path_col()))
+    set path_row = path_row + 1
+  end
+  let path: Json = jsonout.json_list(path_points)
+  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(quest_dim())), jsonout.json_pair("grid", jsonout.json_list(grid)), jsonout.json_pair("walkableCount", jsonout.json_int(quest_dim())), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(quest_dim())), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
 end
 
 public function build_quest_enemy_for(map_override: text, tod_index: integer, key: text, is_final_boss: boolean): Json
@@ -829,7 +870,13 @@ end
 
 function revealed_tiles(): Json
   intent: build
-  jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
+  mutable tiles: a list of Json = []
+  mutable row: integer = 0
+  while row < quest_dim() do
+    set tiles = append(tiles, vec2(row, quest_path_col()))
+    set row = row + 1
+  end
+  jsonout.json_list(tiles)
 end
 
 public function build_quest_progression(qid: text, start_x: integer, start_y: integer, team: a list of text): Json
@@ -899,7 +946,7 @@ function dump_arena(): nothing
   intent: print
   let enemy: Json = build_quest_enemy("", -1)
   let map: Json = build_quest_map("1.1.1")
-  let row: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(map, "grid")), 2), jsonout.json_list([]))
+  let row: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(map, "grid")), quest_dim() - 1), jsonout.json_list([]))
   let tile: Json = unwrap_or(get(jsonout.list_items(row), 1), jsonout.json_obj([]))
   let boss: Json = jsonout.obj_get(jsonout.obj_get(tile, "entities"), boss_blueprint())
   print("ARENA_LEVEL " ++ arena_level())
