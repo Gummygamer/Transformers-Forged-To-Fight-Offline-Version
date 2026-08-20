@@ -147,13 +147,32 @@ screen in this build was brought up that way.
 The cosmetic base-builder workarounds can leave their activated objects alive when a screen is
 opened without taking `BaseBoard.LeaveBoard`. The squad-screen cleanup uses slots 122–132
 (`TSHIDE`). The matching BOTS-roster cleanup is arm64 slots 133 `RSENTER`
-(`HeroesScreen.WindowEnter`, `0xC587B8`) and 134 `RSEXIT`
-(`HeroesScreen.WindowExit`, `0xC595AC`): entry hides the tracked residual objects and exit
-restores exactly that set. Tapping a roster tile opens `HeroActionPopup`, layered over
-`HeroesScreen`, so the roster hide set remains active in the action/detail modal and needs no
-second slot pair. The armv7 implementation is deliberately deferred; these slots are arm64-only.
+(`HeroesScreen.WindowEnter`, `0xC587B8`), 134 `RSEXIT`
+(`HeroesScreen.WindowExit`, `0xC595AC`), and 144 `RSHOME`
+(`TransformersHomeScreen.WindowEnter`, `0xE746B8`). `RSENTER` hides the tracked residual
+objects. `RSEXIT` deliberately retains that hidden set through `HeroActionPopup`, which is
+layered over `HeroesScreen`; restoring there produces a base-wall occluder in the detail view.
+`RSHOME` restores exactly the recorded set only when the home screen returns. The armv7
+implementation is deliberately deferred; these slots are arm64-only.
 The temporary read-only special/transform and popup probes used to verify this were removed from
 the shipped hook.
+
+### Level-3 cinematic alternate-form rendering
+
+The arm64 level-3 cinematic needed a chain of visual repairs, not a new server response or an
+asset. Its usable cinematic transform move is absent from the normal `MoveSet` lookup, and the
+client's `Renderer.enabled` calls do not visibly change these props. The robot-body props are
+also reasserted during the cinematic, while the alternate prop never receives its own animation.
+
+Slots 138 `PROPGOACT` (`0xEA023C`) mirror every requested prop state to its renderer GameObjects;
+slot 139 `SP3MOVE` (`0x100A76C`) resolves the missing usable transform move; slots 140 `SP3XNEW`,
+141 `SP3XHOLD`, 142 `SP3XIN`, and 143 `SP3XOUT` maintain the cinematic latch, capture body props,
+start the scheduled form window, and restore robot form on exit. `PROPGOACT` forces only
+`character_model` and `transformed` while that window is active, directly drives
+`SpecialAttack03` on the alternate prop, and leaves weapons/effects mirrored normally. Slot 145
+`SP3BEAT` (`0xDE8750`) applies one authored alternate-form block from 1000 ms to 2500 ms, with a
+timeout safety bound; it does not repeatedly alternate forms. As with the roster hooks, this
+implementation is arm64-only and remains unported to ARMv7.
 
 ### Roster-scroll crash guard
 

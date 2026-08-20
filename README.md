@@ -30,6 +30,9 @@ team selection, and battle model IDs are generated from the same original data s
 so combat uses the matching 3D mesh instead of a generic placeholder.
 During a STORY fight, the special-attack meter is no longer locked: it charges from landed
 and received hits, and a special attack can be fired for real damage.
+On arm64, BOTS roster and detail views suppress residual base geometry, and level-3 cinematics
+render and animate the shipped alternate form before restoring robot form. These visual hooks
+are not ported to ARMv7.
 
 
 ## What does not work, and why

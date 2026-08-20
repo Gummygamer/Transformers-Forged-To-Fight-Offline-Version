@@ -37,11 +37,11 @@
 //      bleed into the pre-battle squad screen and restores the ones it hid on
 //      exit. Porting needs 11 armv7 RVAs and armv7 field offsets that have not
 //      been harvested, and no 32-bit device or AVD was available to verify them.
-//      The arm64 BOTS-roster counterpart, RSHIDE slots 133-134, is likewise
-//      deliberately deferred: its armv7 HeroesScreen lifecycle RVAs and live
-//      device verification have not been collected.
-//      A 32-bit build therefore still shows base buildings bleeding into the
-//      pre-battle squad screen.
+//      The arm64 BOTS-roster counterpart, RSHIDE slots 133 RSENTER, 134 RSEXIT,
+//      and 144 RSHOME, is likewise deliberately deferred: its armv7 lifecycle
+//      RVAs and live device verification have not been collected. A 32-bit build
+//      therefore still shows base buildings bleeding into both the pre-battle
+//      squad screen and the BOTS roster/detail pages.
 //
 //      A porter must translate every arm64 RVA with
 //      `patches/abi_map.lbl method <arm64 rva>` and every field offset with
