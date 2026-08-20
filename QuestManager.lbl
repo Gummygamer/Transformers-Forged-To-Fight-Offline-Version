@@ -1,0 +1,80 @@
+
+record Quest
+  id: text
+  name: text
+  completed: boolean
+end
+
+mutable active_quests: a list of Quest = []
+
+function init_quest_manager(): nothing
+  intent: Initialize the quest manager with some dummy quests
+  set active_quests = [
+    Quest { id: "quest_1", name: "Defeat the Decepticons", completed: false },
+    Quest { id: "quest_2", name: "Retrieve the Allspark", completed: false }
+  ]
+end
+
+function complete_quest(quest_id: text): boolean
+  intent: Mark a quest as completed
+  let found: an optional Quest = find(active_quests, fn(q: Quest): boolean => q.id == quest_id)
+  if is_some(found) then
+    let updated_quest: Quest = unwrap(found) with { completed: true }
+    set active_quests = map(active_quests, fn(q: Quest): Quest => if q.id == quest_id then updated_quest else q end)
+    handle_quest_completion(updated_quest)
+    true
+  else
+    false
+  end
+end
+
+function get_quest_status(quest_id: text): an optional Quest
+  intent: Get the status of a quest
+  find(active_quests, fn(q: Quest): boolean => q.id == quest_id)
+end
+
+function all_quests_completed(): boolean
+  intent: Check if all quests are completed
+  let incomplete_quests: a list of Quest = filter(active_quests, fn(q: Quest): boolean => not q.completed)
+  length(incomplete_quests) == 0
+end
+
+function handle_quest_completion(quest: Quest): nothing
+  intent: Handle logic after a quest is completed, including re-entry logic
+  print("Quest '" ++ quest.name ++ "' completed!")
+  if all_quests_completed() then
+    print("All quests completed! Initiating story mode re-entry...")
+    initiate_story_mode_reentry()
+  end
+end
+
+function initiate_story_mode_reentry(): nothing
+  intent: Simulate re-entering story mode
+  print("Re-entering story mode with updated game state...")
+  -- In a real game, this would involve loading a new scene,
+  -- updating player position, enabling new features, etc.
+end
+
+public function start_game(): nothing
+  intent: Entry point for the game to start and manage quests
+  init_quest_manager()
+  print("Game started. Initial quest status:")
+  for quest in active_quests do
+    print("- " ++ quest.name ++ ": " ++ to_text(quest.completed))
+  end
+
+  -- Simulate quest completion
+  print("\nSimulating quest completion...")
+  if complete_quest("quest_1") then
+    print("Quest 1 successfully completed.")
+  else
+    print("Quest 1 not found or already completed.")
+  end
+
+  print("\nSimulating quest completion for quest_2...")
+  if complete_quest("quest_2") then
+    print("Quest 2 successfully completed.")
+  else
+    print("Quest 2 not found or already completed.")
+  end
+end
