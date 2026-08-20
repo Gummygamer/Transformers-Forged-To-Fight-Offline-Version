@@ -189,7 +189,7 @@ function move_body(qid: text, sx: integer, sy: integer, dx: integer, dy: integer
   mutable actual_dy: integer = dy
   let nx: integer = sx + dx
   let ny: integer = sy + dy
-  if nx < 0 or nx >= 3 or ny != 1 then
+  if nx < 0 or nx >= gamedata.quest_dim() or ny != gamedata.quest_path_col() then
     set actual_dx = 0
     set actual_dy = 0
   end
@@ -259,16 +259,18 @@ function add_quests(entries: Entries): Entries
     set output = add(output, "POST /quests/quest-begin/" ++ qid, quest_begin_template(qid, set_id))
     set output = add(output, "@quest:start:" ++ qid, "0 1")
     mutable legal: a list of text = []
-    for sx in [0, 1, 2] do
+    mutable sx: integer = 0
+    while sx < gamedata.quest_dim() do
       for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1"] do
         let bits: a list of text = split(direction, ",")
         let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
         let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
         let nx: integer = sx + dx
         let ny: integer = 1 + dy
-        if nx >= 0 and nx < 3 and ny == 1 then set legal = append(legal, to_text(sx) ++ " 1 " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
+        if nx >= 0 and nx < gamedata.quest_dim() and ny == 1 then set legal = append(legal, to_text(sx) ++ " 1 " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
         set output = add(output, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":1:" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, 1, dx, dy))
       end
+      set sx = sx + 1
     end
     set output = add(output, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
   end
@@ -477,10 +479,10 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9325 then fail("payload entry count is not 9325: " ++ to_text(length(keys))) end
+  if length(keys) != 9365 then fail("payload entry count is not 9365: " ++ to_text(length(keys))) end
   if length(pref.keys) != 1 or length(pref.bodies) != 1 then fail("payload prefix count is not 1") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4500632 then fail("payload total size is not 4500632: " ++ to_text(total)) end
+  if total != 4570804 then fail("payload total size is not 4570804: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)
