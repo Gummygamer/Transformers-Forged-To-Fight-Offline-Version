@@ -240,8 +240,8 @@ combat balance table. All numbers are original; none are recovered Kabam data (s
 so the roster grid, hero details, and team select populate offline. The blueprint,
 character, and owned-hero JSON keys are exactly the shapes proven to parse (the same ones
 the original three-entry seed used); `entity_type`/`et` stays `bot` per the roster gotcha
-above, and the msa values of the three original seed entries are preserved so the intro
-fight is not regressed. `fakeserver.lbl`'s `/bcg/getBaseHeroData` handler computes stats
+above, and every blueprint now exposes its three authored special attacks. `fakeserver.lbl`'s
+`/bcg/getBaseHeroData` handler computes stats
 from the same curve. Normal combat damage requires case-sensitive `attackValues` rows named
 `Light`, `Medium`, `Heavy`, and `Ranged`; `PlayerAttributes.GetAttackPercent` returns zero
 when a row is absent and does not fall back to `default`. The table now carries an authored
@@ -402,11 +402,13 @@ clamp. It then becomes `HudScreen.FighterInitData.NumSpecials@0x30`; at
 `HudSpecialMeter.Init@0xFEFD4C` a zero makes every segment render locked through
 `_lockIcons` and `LockUnfilledColor`. The same zero reached
 `BCGHeroDetails.AttributeData@0x40` through `POST /bcg/getBaseHeroData`
-(`BCGHeroDetails..ctor@0xA5AA14` to `BCGAttributeData..ctor@0xC14864`). Emitting the
-existing authored `max_special_attacks(bid, star)` rarity curve, which returns one through
-three, fixes the padlocks.
+(`BCGHeroDetails..ctor@0xA5AA14` to `BCGAttributeData..ctor@0xC14864`). This preservation
+build emits the authored uniform value of three through `max_special_attacks(bid, star)` for
+every bot. Rarity remains independent presentation/stat data; the build has no functional
+rank-up path that would otherwise unlock later special segments.
 
-That count also determines capacity. `PlayerAttributes.Init@0xDAB16C` computes
+The `special_attacks` count controls both unlocked meter segments and capacity.
+`PlayerAttributes.Init@0xDAB16C` computes
 `maxMana` as `TuningGameplay.ManaPerSpecial` (`SafeFloat@0x18`, loaded at `0xDABF88`)
 times `SpecialAttackCount@0x28` (loaded at `0xDABF3C`); the `scvtf`/`fmul` pair at
 `0xDAC044`/`0xDAC048` feeds argument two of `ResourceAttribute.Init@0xE2FC8C`. A count

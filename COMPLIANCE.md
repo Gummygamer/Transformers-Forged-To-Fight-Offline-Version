@@ -20,8 +20,10 @@ from the same authored curve, so on-screen numbers stay consistent with the rost
 The special-attack-meter work adds only newly authored original values, invented for this
 revival and never transcribed from recovered Kabam data: `_MANA_GAIN_RATE = 1.0` for wire
 `mana_gain`; `attackValues[*].m` values of 50, 75, 120, and 55 for Light, Medium, Heavy,
-and Ranged; and per-hero `special_attacks` counts of one through three from the pre-existing
-original `max_special_attacks` rarity curve. The `bcg-combat` config also carries
+and Ranged; and the authored uniform per-hero `special_attacks` value of three. This changes
+an original server-side scalar and references attacks already present in the operator-supplied
+client; it adds no APK, asset, captured audiovisual content, credentials, or recovered server
+dataset. The `bcg-combat` config also carries
 `manaPerSpecial: 300.0`, deliberately mirroring the client's built-in default so the
 absolute unit of `m` is self-documenting.
 

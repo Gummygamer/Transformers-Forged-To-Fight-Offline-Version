@@ -204,9 +204,29 @@ function test_base_stats_spot_checks(): boolean
   optimus.hp == 5200 and optimus.atk == 430 and unknown.hp == 2200 and unknown.atk == 210
 end
 
-function test_max_special_attacks_honours_override(): boolean
+function has_three_special_attacks(node: Json): boolean
+  intent: check
+  jsonout.as_int(jsonout.obj_get(node, "special_attacks")) == 3
+end
+
+function test_max_special_attacks_are_three_for_every_bot_and_wire_builder(): boolean
   intent: test
-  gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 1 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 1 and gamedata.max_special_attacks("grimlock_gs_mp08", 5) == 3 and gamedata.max_special_attacks("ironhide_gs_kabam", 3) == 3 and gamedata.max_special_attacks("cliffjumper_gs_kabam", 2) == 2
+  let blueprints: Json = gamedata.build_blueprints()
+  mutable requests: a list of Json = []
+  mutable passed: boolean = gamedata.max_special_attacks("waspinator_gs_deluxe", 2) == 3 and gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 3 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 3 and gamedata.max_special_attacks("fte_optimus_gs_t3", 3) == 3 and gamedata.max_special_attacks("fte_stars_gs_t3", 3) == 3
+  for entry in gamedata.roster() do
+    let bp: Json = jsonout.obj_get(blueprints, entry.bid)
+    set requests = append(requests, jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(entry.bid))]))
+    set passed = passed and jsonout.as_int(jsonout.obj_get(bp, "msa")) == 3 and has_three_special_attacks(gamedata.build_hero_base(entry.bid, 1)) and has_three_special_attacks(gamedata.build_hero_entry(entry.bid, 1, 1))
+  end
+  for bid in gamedata.default_team() do
+    set requests = append(requests, jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid))]))
+    set passed = passed and has_three_special_attacks(gamedata.build_hero_entry(bid, 1, 1))
+  end
+  for detail in jsonout.list_items(gamedata.build_base_hero_details(requests)) do
+    set passed = passed and has_three_special_attacks(detail)
+  end
+  passed
 end
 
 function encoded_field(node: Json, key: text): text
@@ -240,6 +260,46 @@ function test_generated_user_data_has_mana_gain_for_every_owned_bot(): boolean
     if encoded_field(hero, "entity_type") == "\"bot\"" then
   set passed = passed and encoded_field(hero, "mana_gain") == "1.0" and encoded_field(hero, "mana_start") == "0"
 end
+  end
+  passed
+end
+
+function test_generated_login_snapshot_has_three_specials_for_every_bot(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getLoginData.json")))
+  let result: Json = jsonout.obj_get(response, "result")
+  let blueprints: Json = jsonout.obj_get(result, "blueprints")
+  let heroes: Json = jsonout.obj_get(result, "heroes")
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    let blueprint_record: Json = jsonout.obj_get(blueprints, entry.bid)
+    let hero_record: Json = jsonout.obj_get(jsonout.obj_get(heroes, entry.bid), "1")
+    set passed = passed and jsonout.as_int(jsonout.obj_get(blueprint_record, "msa")) == 3 and has_three_special_attacks(hero_record)
+  end
+  passed
+end
+
+function test_generated_user_data_snapshot_has_three_specials_for_every_bot(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getUserData.json")))
+  let updates: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "updates")
+  let owned: a list of Json = jsonout.list_items(jsonout.obj_get(updates, "heroes"))
+  let saved_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
+  let saved: a list of Json = jsonout.list_items(jsonout.obj_get(saved_team, "heroes"))
+  let active_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
+  let active: Json = jsonout.obj_get(active_team, "heroes")
+  let defaults: a list of text = gamedata.default_team()
+  mutable passed: boolean = length(owned) == length(gamedata.owned()) and length(saved) == length(defaults)
+  for hero in owned do
+    set passed = passed and encoded_field(hero, "entity_type") == "\"bot\"" and has_three_special_attacks(hero)
+  end
+  mutable index: integer = 0
+  while index < length(defaults) do
+    let bid: text = unwrap_or(get(defaults, index), "")
+    let saved_hero: Json = unwrap_or(get(saved, index), jsonout.json_obj([]))
+    let active_hero: Json = jsonout.obj_get(active, bid)
+    set passed = passed and field_text(saved_hero, "bid") == bid and has_three_special_attacks(saved_hero) and has_three_special_attacks(active_hero)
+    set index = index + 1
   end
   passed
 end
@@ -335,11 +395,13 @@ function main(): nothing
   set failed = failed + report("test_all_roster_portraits_ship_both_sizes", test_all_roster_portraits_ship_both_sizes(), "a portrait size was missing")
   set failed = failed + report("test_art_base_overrides_cover_only_irregular_roster_bots", test_art_base_overrides_cover_only_irregular_roster_bots(), "override coverage was wrong")
   set failed = failed + report("base_stats spot checks", test_base_stats_spot_checks(), "stat arithmetic differed")
-  set failed = failed + report("max_special_attacks honours override", test_max_special_attacks_honours_override(), "override did not win")
+  set failed = failed + report("test_max_special_attacks_are_three_for_every_bot_and_wire_builder", test_max_special_attacks_are_three_for_every_bot_and_wire_builder(), "a bot or wire builder did not expose three specials")
   set failed = failed + report("test_default_mana_start_is_zero", test_default_mana_start_is_zero(), "default mana start was not zero")
   set failed = failed + report("test_mana_start_diagnostic_can_be_enabled", test_mana_start_diagnostic_can_be_enabled(), "mana start diagnostic did not reload")
   set failed = failed + report("test_combat_attribute_builders_carry_authored_mana_fields", test_combat_attribute_builders_carry_authored_mana_fields(), "hero entry mana fields were wrong")
   set failed = failed + report("test_generated_user_data_has_mana_gain_for_every_owned_bot", test_generated_user_data_has_mana_gain_for_every_owned_bot(), "generated user data mana fields were wrong")
+  set failed = failed + report("test_generated_login_snapshot_has_three_specials_for_every_bot", test_generated_login_snapshot_has_three_specials_for_every_bot(), "generated login special counts were wrong")
+  set failed = failed + report("test_generated_user_data_snapshot_has_three_specials_for_every_bot", test_generated_user_data_snapshot_has_three_specials_for_every_bot(), "generated user-data special counts were wrong")
   set failed = failed + report("test_normal_attack_levels_have_nonzero_damage_rows", test_normal_attack_levels_have_nonzero_damage_rows(), "attack values were wrong")
   set failed = failed + report("test_generated_login_response_contains_current_attack_rows", test_generated_login_response_contains_current_attack_rows(), "login attack values differed")
   set failed = failed + report("test_generated_login_response_uses_current_special_ratios", test_generated_login_response_uses_current_special_ratios(), "login special ratios differed")
@@ -354,7 +416,7 @@ function main(): nothing
   set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
   set failed = failed + run_slice3_tests()
   set failed = failed + run_slice4_tests()
-  print(to_text(55 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(58 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
