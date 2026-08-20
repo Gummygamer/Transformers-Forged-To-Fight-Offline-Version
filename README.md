@@ -143,7 +143,7 @@ tools/
   hook_dot.js
   nativehook/
     hook.c                    source of libdothook.so, the runtime hook (arm64)
-    libdothook.so             prebuilt hook, arm64
+    libdothook.so             locally built hook, arm64 (ignored)
     hook_arm32.c              armeabi-v7a hook: the behaviour fixes, no key logging
     libdothook-armeabi-v7a.so locally built hook, armeabi-v7a (ignored)
     deploy.sh                 build and deploy the hook
@@ -214,7 +214,7 @@ root and writable system), the `legible` interpreter on the PC, and the items fr
    means the wrong interpreter was used, not a bug in the script.
 2. Build the patched library once: `legible run patches/patch_il2cpp.lbl path/to/original/libil2cpp.so --apply`.
    That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
-3. Build the arm64 hook once if you want to rebuild it, otherwise use the prebuilt one:
+3. Build the arm64 hook locally:
    `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
    `tools/nativehook/deploy.sh` has historical Windows paths and is not the current command.
 4. Start the fake server on the PC: `legible run Server/fakeserver.lbl --https 443` and
