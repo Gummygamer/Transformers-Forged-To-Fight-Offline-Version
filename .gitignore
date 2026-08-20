@@ -15,7 +15,6 @@
 
 # Locally built ARM32 hook; binaries must not be committed.
 /tools/nativehook/libdothook-armeabi-v7a.so
-/tools/nativehook/libdothook.so
 
 # Generated local-server artifacts; certificates and request logs can contain
 # private keys and session data and must remain local.
