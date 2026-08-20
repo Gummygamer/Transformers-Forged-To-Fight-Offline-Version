@@ -179,6 +179,46 @@ function test_checked_in_hooks_contain_server_marker(): TestResult
   end
 end
 
+function test_checked_in_hook_matches_hook_source_tags(): TestResult
+  intent: test
+  let path: text = build_phone_apk.abi_hook_path(build_phone_apk.arm64())
+  let source_path: text = replace(path, "libdothook.so", "hook.c")
+  if not file_exists(source_path) then
+    print("[skip] test_checked_in_hook_matches_hook_source_tags: hook source is missing: " ++ source_path)
+    ok()
+  else
+    let source: text = read_file(source_path)
+    let data: integer = read_file_bytes(path)
+    mutable tag_count: integer = 0
+    mutable result: TestResult = ok()
+    mutable in_table: boolean = false
+    for line in split(source, "\n") do
+      if text_contains(line, "H[] =") then
+        set in_table = true
+      else if in_table and trim(line) == "};" then
+        set in_table = false
+      else if in_table and text_contains(line, "0x") then
+        let fields: a list of text = split(line, "\"")
+        if length(fields) >= 3 then
+          let tag: text = unwrap_or(get(fields, 1), "")
+          if tag != "" then
+            set tag_count = tag_count + 1
+            if result.passed and not bytes_contain(data, tag) then
+              set result = failed("prebuilt libdothook.so is stale: hook.c tag \"" ++ tag ++ "\" is missing; rebuild it with the aarch64 NDK clang command in README.md")
+            end
+          end
+        end
+      end
+    end
+    bytes_free(data)
+    if tag_count < 140 then
+      failed("hook.c tag parsing found only " ++ to_text(tag_count) ++ " tags (expected ~147); the H[] table format changed and this guard needs updating")
+    else
+      result
+    end
+  end
+end
+
 record BuildFixture
   archive: ZipArchive
   result: BuildResult
@@ -467,8 +507,8 @@ function main(): nothing
   intent: run
   let base: text = path_join("..", "build", "legible-phone-apk-tests-" ++ to_text(random_int(1000000000)))
   create_dir(base)
-  let cases: a list of text = ["test_validate_server_host", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_checked_in_hooks_contain_server_marker", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation"]
-  let results: a list of TestResult = [test_validate_server_host(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_checked_in_hooks_contain_server_marker(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base)]
+  let cases: a list of text = ["test_validate_server_host", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_checked_in_hooks_contain_server_marker", "test_checked_in_hook_matches_hook_source_tags", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation"]
+  let results: a list of TestResult = [test_validate_server_host(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_checked_in_hooks_contain_server_marker(), test_checked_in_hook_matches_hook_source_tags(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base)]
   mutable failures: integer = 0
   mutable index: integer = 0
   while index < length(cases) do
@@ -476,7 +516,7 @@ function main(): nothing
     set index = index + 1
   end
   shell_exec("rm -rf -- " ++ base)
-  print(to_text(22 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(23 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 
