@@ -316,9 +316,11 @@ It also accepts a patched `libil2cpp.so` path, or can auto-patch one with
 
 Pressing **Build APK** runs the same pipeline documented below: optional
 `patch_il2cpp.lbl`, then `legible run Server/build_phone_apk.lbl`, then
-`zipalign -f -p 4`, then `apksigner sign` with the debug keystore, and optionally
-`adb install -r --no-incremental`. Each command's output streams live into the page, and
-the build can be cancelled.
+`zipalign -f -p 4`, then `apksigner sign` with the debug keystore, followed by
+`zipalign -c -p 4` and `apksigner verify --verbose` against the final signed APK, and
+optionally `adb install -r --no-incremental`. Each command's output streams live into
+the page, and the build can be cancelled. **Build succeeded** means the final signed APK
+passed both Android signature and page-alignment checks.
 
 Before starting the multi-minute, multi-hundred-megabyte build, the UI catches a bundled
 server configured with `https` or a non-loopback host (that mode only accepts `http` plus

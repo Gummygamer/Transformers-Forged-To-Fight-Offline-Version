@@ -92,7 +92,7 @@ function command_order_test(fix: Fixture): boolean
   intent: test
   let full: BuildRequest = fix.request with { do_install: true }
   let steps: a list of Step = pipeline.plan_steps(full)
-  length(steps) == 4 and unwrap(get(steps, 0)).name == "build APK" and unwrap(get(steps, 1)).name == "zipalign APK" and unwrap(get(steps, 2)).name == "sign APK" and unwrap(get(steps, 3)).name == "install APK" and contains(unwrap(get(steps, 3)).argv, "--no-incremental")
+  length(steps) == 6 and unwrap(get(steps, 0)).name == "build APK" and unwrap(get(steps, 1)).name == "zipalign APK" and unwrap(get(steps, 2)).name == "sign APK" and unwrap(get(steps, 3)).name == "verify APK alignment" and unwrap(get(steps, 4)).name == "verify APK signature" and unwrap(get(steps, 5)).name == "install APK" and contains(unwrap(get(steps, 5)).argv, "--no-incremental")
 end
 
 function automatic_patch_command_test(fix: Fixture): boolean
@@ -101,7 +101,43 @@ function automatic_patch_command_test(fix: Fixture): boolean
   let armv7_command: a list of text = unwrap(get(armv7_steps, 0)).argv
   let arm64_steps: a list of Step = pipeline.plan_steps(fix.request with { abi: pipeline.arm64(), auto_patch_il2cpp: true })
   let arm64_command: a list of text = unwrap(get(arm64_steps, 0)).argv
-  length(armv7_steps) == 4 and unwrap(get(armv7_steps, 0)).name == "patch il2cpp" and contains(armv7_command, "--needed") and contains(armv7_command, "inplace") and contains(armv7_command, "--apply") and length(arm64_steps) == 4 and contains(arm64_command, "--needed") and contains(arm64_command, "byte") and not contains(arm64_command, "inplace")
+  length(armv7_steps) == 6 and unwrap(get(armv7_steps, 0)).name == "patch il2cpp" and contains(armv7_command, "--needed") and contains(armv7_command, "inplace") and contains(armv7_command, "--apply") and unwrap(get(armv7_steps, 1)).name == "build APK" and unwrap(get(armv7_steps, 2)).name == "zipalign APK" and unwrap(get(armv7_steps, 3)).name == "sign APK" and unwrap(get(armv7_steps, 4)).name == "verify APK alignment" and unwrap(get(armv7_steps, 5)).name == "verify APK signature" and length(arm64_steps) == 6 and contains(arm64_command, "--needed") and contains(arm64_command, "byte") and not contains(arm64_command, "inplace")
+end
+
+function final_verification_command_test(fix: Fixture): boolean
+  intent: test final verification commands
+  let paths: IntermediatePaths = pipeline.intermediate_paths(fix.request)
+  let alignment: a list of text = pipeline.verify_alignment_command(fix.request)
+  let signature: a list of text = pipeline.verify_signature_command(fix.request)
+  length(alignment) == 5 and unwrap_or(get(alignment, 0), "") == fix.request.zipalign and unwrap_or(get(alignment, 1), "") == "-c" and unwrap_or(get(alignment, 2), "") == "-p" and unwrap_or(get(alignment, 3), "") == "4" and unwrap_or(get(alignment, 4), "") == fix.request.dest_apk and not contains(alignment, paths.unsigned) and not contains(alignment, paths.aligned) and length(signature) == 4 and unwrap_or(get(signature, 0), "") == fix.request.apksigner and unwrap_or(get(signature, 1), "") == "verify" and unwrap_or(get(signature, 2), "") == "--verbose" and unwrap_or(get(signature, 3), "") == fix.request.dest_apk and not contains(signature, paths.unsigned) and not contains(signature, paths.aligned)
+end
+
+function final_steps_for(request: BuildRequest): boolean
+  intent: test verification plan for one ABI and server mode
+  let steps: a list of Step = pipeline.plan_steps(request)
+  let alignment: Step = unwrap(get(steps, 3))
+  let signature: Step = unwrap(get(steps, 4))
+  length(steps) == 5 and alignment.name == "verify APK alignment" and unwrap_or(get(alignment.argv, 4), "") == request.dest_apk and signature.name == "verify APK signature" and unwrap_or(get(signature.argv, 3), "") == request.dest_apk and signature.java == request.java
+end
+
+function verification_abi_and_server_mode_test(fix: Fixture): boolean
+  intent: test verification for every ABI and server mode
+  let arm64_bundled: BuildRequest = fix.request with { abi: pipeline.arm64(), server_mode: pipeline.bundled() }
+  let arm64_separate: BuildRequest = fix.request with { abi: pipeline.arm64(), server_mode: pipeline.separate() }
+  let armv7_bundled: BuildRequest = fix.request with { abi: pipeline.armv7(), server_mode: pipeline.bundled() }
+  let armv7_separate: BuildRequest = fix.request with { abi: pipeline.armv7(), server_mode: pipeline.separate() }
+  final_steps_for(arm64_bundled) and final_steps_for(arm64_separate) and final_steps_for(armv7_bundled) and final_steps_for(armv7_separate)
+end
+
+function arm64_bundled_auto_patch_plan_test(fix: Fixture): boolean
+  intent: test complete arm64 bundled auto-patch plan
+  let request: BuildRequest = fix.request with { auto_patch_il2cpp: true, do_install: true }
+  let steps: a list of Step = pipeline.plan_steps(request)
+  let patch: Step = unwrap(get(steps, 0))
+  let build: Step = unwrap(get(steps, 1))
+  let signature: Step = unwrap(get(steps, 5))
+  let install: Step = unwrap(get(steps, 6))
+  length(steps) == 7 and patch.name == "patch il2cpp" and contains(patch.argv, "--needed") and contains(patch.argv, "byte") and build.name == "build APK" and contains(build.argv, "--bundle-server") and contains(build.argv, "--patched-il2cpp") and contains(build.argv, pipeline.auto_patch_output(request)) and unwrap(get(steps, 2)).name == "zipalign APK" and unwrap(get(steps, 3)).name == "sign APK" and unwrap(get(steps, 4)).name == "verify APK alignment" and signature.name == "verify APK signature" and signature.java == request.java and install.name == "install APK"
 end
 
 function elf_test(fix: Fixture): boolean
@@ -157,6 +193,9 @@ function main(): nothing
   set counts = add(counts, report("armv7 patch requirement", armv7_patch_test(fix)))
   set counts = add(counts, report("pipeline command order", command_order_test(fix)))
   set counts = add(counts, report("automatic patch command", automatic_patch_command_test(fix)))
+  set counts = add(counts, report("final verification commands", final_verification_command_test(fix)))
+  set counts = add(counts, report("verification ABI and server modes", verification_abi_and_server_mode_test(fix)))
+  set counts = add(counts, report("arm64 bundled auto-patch plan", arm64_bundled_auto_patch_plan_test(fix)))
   set counts = add(counts, report("ELF ABI detection", elf_test(fix)))
   set counts = add(counts, report("ELF mismatch validation", elf_mismatch_test(fix)))
   set counts = add(counts, report("pristine ELF mismatch validation", pristine_elf_mismatch_test(fix)))
