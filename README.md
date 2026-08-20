@@ -30,6 +30,7 @@ team selection, and battle model IDs are generated from the same original data s
 so combat uses the matching 3D mesh instead of a generic placeholder.
 During a STORY fight, the special-attack meter is no longer locked: it charges from landed
 and received hits, and a special attack can be fired for real damage.
+On arm64, STORY opponents can also fire their basic ranged attack while outside melee range.
 On arm64, BOTS roster and detail views suppress residual base geometry, and level-3 cinematics
 render and animate the shipped alternate form before restoring robot form. These visual hooks
 are not ported to ARMv7.
@@ -431,6 +432,8 @@ were verified firing during that run.
 One difference from the arm64 build is deliberate: `hook_arm32.c` carries only the
 behaviour fixes, not the `EB.Dot.*` key logging. The data authoring loop runs on arm64,
 and both builds parse the same JSON, so keys discovered there apply unchanged.
+The arm64 distant-opponent ranged-attack nudge is also not yet ported to ARMv7: its mapped
+methods, fields, A32 prologue relocation, and hard-float `dT` ABI still require verification.
 
 A [self-contained bundled-server build](#building-a-self-contained-apk-bundled-server-no-pc)
 also works for ARMv7.

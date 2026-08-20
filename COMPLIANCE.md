@@ -303,3 +303,10 @@ interception or certificate bypass. Evidence recordings are local-only captures 
 committed; the repository ignores `media/`. Temporary read-only diagnostic hooks added during the
 investigation were removed before shipping, so the earlier statements about their removal remain
 accurate.
+
+## Distant opponent ranged-attack nudge
+
+The distant-opponent ranged-attack change is original local hook-shim code. It asks the
+owner-operated client's existing controller to select its existing basic `Attack` behavior when
+the client's own ranged gate permits it. It adds no assets, binaries, recovered server data,
+network interception, credential access, or third-party targeting.

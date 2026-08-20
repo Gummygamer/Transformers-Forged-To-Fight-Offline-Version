@@ -25,14 +25,21 @@
 //
 // PORT STATUS vs hook.c (arm64) -- READ BEFORE PORTING ANYTHING:
 //
-//   3. SETACTFIX. hook_11 carries the maxQueuedActionTime fallback change: keep
+//   3. AIRANGE. arm64 slot 146 (AIController.Simulate) is deliberately absent.
+//      Its matching ARMv7 method/field mappings and this A32 prologue relocator were
+//      not cross-checked. A port must first pass `patches/abi_map.lbl ... verify`, use
+//      mapped RVAs and fields rather than copied arm64 values, inspect the target's
+//      first eight A32 bytes, and preserve the hard-float dT argument instead of
+//      calling the relocated original through the generic fn8 thunk.
+//
+//   4. SETACTFIX. hook_11 carries the maxQueuedActionTime fallback change: keep
 //      the window computed by the game when it exists, and use
 //      SETACT_FALLBACK_WINDOW only when it does not. The real source of that
 //      window is bcg-combat.maxQueuedActionTime, authored in Server/gamedata.lbl;
 //      keep SETACT_FALLBACK_WINDOW in step with it. This armv7 source change has
 //      not been compiled or run on a 32-bit device. It is verified on arm64 only.
 //
-//   4. TSHIDE. The arm64 squad-screen-occlusion workaround in hook.c slots
+//   5. TSHIDE. The arm64 squad-screen-occlusion workaround in hook.c slots
 //      122-132 is deliberately not ported. It hides the base buildings that
 //      bleed into the pre-battle squad screen and restores the ones it hid on
 //      exit. Porting needs 11 armv7 RVAs and armv7 field offsets that have not

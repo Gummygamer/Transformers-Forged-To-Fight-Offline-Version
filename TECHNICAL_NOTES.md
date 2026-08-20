@@ -266,6 +266,29 @@ sufficient: the native trace recorded non-null `CONFIGDATA`, then `TUNECHANGE` f
 `bcg-combat`. The per-bot ability definitions are still the open frontier — the balance table
 has numbers, but individual special-move effects remain to be authored.
 
+### Distant opponent ranged attacks
+
+The AI profile data comes from `/autorefresh/ai/refresh`, consumed by `AIProfilesManager`;
+`GET__tuning.json` is unrelated generic tuning. The authored enemy values `aiString: "Default"`
+and `aiPer: "Ranged"` name valid shipped assets, but live testing proved that data attempt alone
+does not make the offline opponent choose the ranged branch. A player diagnostic established that
+the shared basic `Attack` action already selects the ranged path and damages at distance, so the
+missing piece is the opponent's action selection rather than damage balance or a separate move.
+
+Arm64 hook slot 146 intercepts `AIController.Simulate` at `0xDB1D30` using the specialized
+`(self, float dT, MethodInfo*)` ABI (the float remains in `s0`, so the generic `fn8` thunk is not
+used). It first runs the original simulation, then requires `PlayerController` at `0x90`,
+`_inited` at `0x88`, active/not-paused state (`get_IsActive` `0xDB07A4`, `get_IsPaused`
+`0xDB025C`), no
+current attack (`get_IsAttacking` `0x11752C8`), and the stock ranged gate (`get_CanShoot`
+`0x1174FEC`). It then calls `TryExecuteAction(Attack)` at `0x1179AF4`; the controller retains
+its normal melee-range, hit-stun, recovery, and blocked-action checks. A bounded successful
+trigger diagnostic is logged as `AIRANGE fired=1`.
+
+This is arm64-v8a only. ARMv7 must not copy these RVAs or fields: a future port must pass
+`patches/abi_map.lbl ... verify`, use mapped values, inspect the first eight A32 bytes before
+relocation, and preserve hard-float `dT` rather than using the generic thunk.
+
 ### Transform damage and hit reactions (playtest feedback)
 
 Two combat-feel reports were checked against the current build:

@@ -662,7 +662,7 @@ else
 end
 end
 
--- These exact names must match the AIProfile and AIPersonality assets shipped in the client; lowercase "default" matched no asset and left the opponent melee-only.
+-- These exact names must match the AIProfile and AIPersonality assets shipped in the client. Live testing proved valid names alone do not make the offline opponent select the ranged branch.
 public function enemy_ai_profile(): text
   intent: name
   "Default"
