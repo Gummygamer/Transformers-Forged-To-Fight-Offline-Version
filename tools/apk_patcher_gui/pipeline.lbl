@@ -436,6 +436,16 @@ public function apksigner_command(request: BuildRequest, aligned: text): a list 
   [request.apksigner, "sign", "--ks", request.keystore, "--ks-pass", "pass:" ++ request.ks_pass, "--key-pass", "pass:" ++ request.key_pass, "--out", request.dest_apk, aligned]
 end
 
+public function verify_alignment_command(request: BuildRequest): a list of text
+  intent: verify final APK alignment
+  [request.zipalign, "-c", "-p", "4", request.dest_apk]
+end
+
+public function verify_signature_command(request: BuildRequest): a list of text
+  intent: verify final APK signature
+  [request.apksigner, "verify", "--verbose", request.dest_apk]
+end
+
 public function adb_install_command(request: BuildRequest): a list of text
   intent: build install command
   [request.adb, "install", "-r", "--no-incremental", "--abi", request.abi, request.dest_apk]
@@ -463,6 +473,8 @@ public function plan_steps(request: BuildRequest): a list of Step
   set steps = append(steps, Step { name: "build APK", argv: build_apk_command(request, paths.unsigned), cwd: project_root(), java: "" })
   set steps = append(steps, Step { name: "zipalign APK", argv: zipalign_command(request, paths.unsigned, paths.aligned), cwd: "", java: "" })
   set steps = append(steps, Step { name: "sign APK", argv: apksigner_command(request, paths.aligned), cwd: "", java: request.java })
+  set steps = append(steps, Step { name: "verify APK alignment", argv: verify_alignment_command(request), cwd: "", java: "" })
+  set steps = append(steps, Step { name: "verify APK signature", argv: verify_signature_command(request), cwd: "", java: request.java })
   if request.do_install then set steps = append(steps, Step { name: "install APK", argv: adb_install_command(request), cwd: "", java: "" }) end
   steps
 end
