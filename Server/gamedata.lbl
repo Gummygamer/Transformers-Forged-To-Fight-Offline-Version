@@ -12,11 +12,6 @@ record TextEntry
   value: text
 end
 
-record IntEntry
-  key: text
-  value: integer
-end
-
 record Stats
   hp: integer
   atk: integer
@@ -228,28 +223,11 @@ public function base_stats(bid: text, rank: integer, level: integer): Stats
   Stats { hp: to_integer(to_decimal(star_hp(entry.star)) * class_hp_mult(entry.klass) * factor), atk: to_integer(to_decimal(star_atk(entry.star)) * class_atk_mult(entry.klass) * factor) }
 end
 
-public function msa_override(): a list of IntEntry
-  intent: return
-  [IntEntry { key: "bumblebee_gs_kabam", value: 1 }, IntEntry { key: "fte_optimus_gs_t3", value: 3 }, IntEntry { key: "fte_stars_gs_t3", value: 3 }]
-end
-
 public function max_special_attacks(bid: text, star: integer): integer
   intent: return
-  mutable found: boolean = false
-  mutable result: integer = if star <= 1 then
-  1
-else if star <= 2 then
-  2
-else
+  -- Rarity still drives stats and presentation, but this preservation build has no
+  -- functional rank-up path, so every bot exposes its three authored attacks immediately.
   3
-end
-  for entry in msa_override() do
-    if entry.key == bid then
-  set found = true
-  set result = entry.value
-end
-  end
-  result
 end
 
 public function special_damage_ratios(bid: text, star: integer): a list of decimal
