@@ -38,7 +38,7 @@ function options() {
     keep_other_abi: String(value("keep_other_abi")), patched_il2cpp: value("patched_il2cpp"),
     auto_patch_il2cpp: String(value("auto_patch_il2cpp")), il2cpp_source: value("il2cpp_source"),
     keystore: value("keystore"), ks_pass: value("ks_pass"), key_pass: value("key_pass"),
-    do_install: String(value("do_install")), legible: defaults.legible || "", zipalign: defaults.zipalign || "",
+    do_install: String(value("do_install")), rebuild_hook: String(value("rebuild_hook")), legible: defaults.legible || "", zipalign: defaults.zipalign || "",
     apksigner: defaults.apksigner || "", java: defaults.java || "", adb: defaults.adb || ""
   };
 }

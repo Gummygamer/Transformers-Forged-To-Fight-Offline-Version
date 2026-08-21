@@ -316,11 +316,13 @@ separate (a PC-hosted fake server, with a host, port, and `http`/`https` supplie
 It also accepts a patched `libil2cpp.so` path, or can auto-patch one with
 `patches/patch_il2cpp.lbl` from the pristine library.
 
-Pressing **Build APK** runs the same pipeline documented below: optional
+Pressing **Build APK** runs the same pipeline documented below: native-hook compilation
+from `hook.c`/`hook_arm32.c` plus `inapk_server.c` when its default checkbox is enabled, optional
 `patch_il2cpp.lbl`, then `legible run Server/build_phone_apk.lbl`, then
 `zipalign -f -p 4`, then `apksigner sign` with the debug keystore, followed by
 `zipalign -c -p 4` and `apksigner verify --verbose` against the final signed APK, and
-optionally `adb install -r --no-incremental`. Each command's output streams live into
+optionally `adb install -r --no-incremental` followed by `adb shell pm path` to confirm
+the package is installed. Each command's output streams live into
 the page, and the build can be cancelled. **Build succeeded** means the final signed APK
 passed both Android signature and page-alignment checks.
 

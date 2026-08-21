@@ -16,11 +16,13 @@ record BuildRequest
   ks_pass: text
   key_pass: text
   do_install: boolean
+  rebuild_hook: boolean
   legible: text
   zipalign: text
   apksigner: text
   java: text
   adb: text
+  clang: text
 end
 
 record Step
@@ -46,6 +48,7 @@ record ToolStatus
   apksigner: boolean
   java: boolean
   adb: boolean
+  clang: boolean
 end
 
 record DefaultsResponse
@@ -199,6 +202,20 @@ public function find_java(): text
   command_output("find /usr/lib/jvm -mindepth 3 -maxdepth 3 -type f -path '*/bin/java' -perm -u+x -print 2>/dev/null | sort -V | tail -n 1")
 end
 
+public function find_ndk_clang(abi: text): text
+  intent: find newest Android NDK compiler for ABI
+  let name: text = if abi == arm64() then "aarch64-linux-android28-clang" else "armv7a-linux-androideabi21-clang" end
+  for root in sdk_roots() do
+    let ndk: text = path_join(root, "ndk")
+    if is_dir(ndk) then
+      let command: text = "find " ++ shell_quote(ndk) ++ " -type f -name " ++ shell_quote(name) ++ " -perm -u+x -print 2>/dev/null | sort -V | tail -n 1"
+      let candidate: text = command_output(command)
+      if candidate != "" then return candidate end
+    end
+  end
+  executable_in_path(name)
+end
+
 public function default_patched_il2cpp(): text
   intent: return patched library path
   path_join(path_join(project_root(), "build"), "libil2cpp-armv7-patched.so")
@@ -229,11 +246,13 @@ public function default_request_for(abi: text): BuildRequest
     ks_pass: "android",
     key_pass: "android",
     do_install: false,
+    rebuild_hook: true,
     legible: executable_in_path("legible"),
     zipalign: find_build_tool("zipalign"),
     apksigner: find_build_tool("apksigner"),
     java: find_java(),
-    adb: find_adb()
+    adb: find_adb(),
+    clang: find_ndk_clang(abi)
   }
 end
 
@@ -253,7 +272,8 @@ public function defaults_response(): DefaultsResponse
       zipalign: request.zipalign != "",
       apksigner: request.apksigner != "",
       java: request.java != "",
-      adb: request.adb != ""
+      adb: request.adb != "",
+      clang: request.clang != ""
     }
   }
 end
@@ -297,11 +317,13 @@ public function request_from_mapping(values: a mapping from text to text): Build
     ks_pass: mapped(values, "ks_pass", defaults.ks_pass),
     key_pass: mapped(values, "key_pass", defaults.key_pass),
     do_install: mapped_bool(values, "do_install", defaults.do_install),
+    rebuild_hook: mapped_bool(values, "rebuild_hook", defaults.rebuild_hook),
     legible: mapped(values, "legible", defaults.legible),
     zipalign: mapped(values, "zipalign", defaults.zipalign),
     apksigner: mapped(values, "apksigner", defaults.apksigner),
     java: mapped(values, "java", defaults.java),
-    adb: mapped(values, "adb", defaults.adb)
+    adb: mapped(values, "adb", defaults.adb),
+    clang: mapped(values, "clang", defaults.clang)
   }
 end
 
@@ -395,8 +417,22 @@ function validate_tools(request: BuildRequest): Validation
   if trim(request.apksigner) == "" then set errors = append(errors, "Required tool apksigner was not found; install it or provide its path.") end
   if trim(request.java) == "" then set errors = append(errors, "apksigner requires Java, but no JRE/JDK was found; install one or set JAVA_HOME.") end
   if request.do_install and trim(request.adb) == "" then set errors = append(errors, "adb was not found, but installation to a connected device was requested.") end
+  if request.rebuild_hook and trim(request.clang) == "" then set errors = append(errors, "Android NDK clang was not found, but rebuilding the native hook was requested.") end
   if trim(request.keystore) == "" or not file_exists(request.keystore) then set errors = append(errors, "Signing keystore is missing or is not a file.") end
   Validation { errors: errors, warnings: [] }
+end
+
+public function native_hook_output(abi: text): text
+  intent: return native hook output path
+  let filename: text = if abi == arm64() then "libdothook.so" else "libdothook-armeabi-v7a.so" end
+  path_join(path_join(path_join(project_root(), "tools"), "nativehook"), filename)
+end
+
+public function build_hook_command(request: BuildRequest): a list of text
+  intent: build native hook from current sources
+  let nativehook: text = path_join(path_join(project_root(), "tools"), "nativehook")
+  let source: text = if request.abi == arm64() then path_join(nativehook, "hook.c") else path_join(nativehook, "hook_arm32.c") end
+  [request.clang, "-shared", "-O2", "-fPIC", "-Wl,-soname,libdothook.so", "-o", native_hook_output(request.abi), source, path_join(nativehook, "inapk_server.c"), "-llog"]
 end
 
 public function validate(request: BuildRequest): Validation
@@ -451,6 +487,11 @@ public function adb_install_command(request: BuildRequest): a list of text
   [request.adb, "install", "-r", "--no-incremental", "--abi", request.abi, request.dest_apk]
 end
 
+public function adb_verify_install_command(request: BuildRequest): a list of text
+  intent: verify installed package
+  [request.adb, "shell", "pm", "path", "com.kabam.bigrobot"]
+end
+
 function file_stem(path: text): text
   intent: return
   let parent: text = directory_name(path)
@@ -469,12 +510,16 @@ public function plan_steps(request: BuildRequest): a list of Step
   intent: plan build steps
   let paths: IntermediatePaths = intermediate_paths(request)
   mutable steps: a list of Step = []
+  if request.rebuild_hook then set steps = append(steps, Step { name: "build native hook", argv: build_hook_command(request), cwd: project_root(), java: "" }) end
   if request.auto_patch_il2cpp then set steps = append(steps, Step { name: "patch il2cpp", argv: patch_il2cpp_command(request), cwd: project_root(), java: "" }) end
   set steps = append(steps, Step { name: "build APK", argv: build_apk_command(request, paths.unsigned), cwd: project_root(), java: "" })
   set steps = append(steps, Step { name: "zipalign APK", argv: zipalign_command(request, paths.unsigned, paths.aligned), cwd: "", java: "" })
   set steps = append(steps, Step { name: "sign APK", argv: apksigner_command(request, paths.aligned), cwd: "", java: request.java })
   set steps = append(steps, Step { name: "verify APK alignment", argv: verify_alignment_command(request), cwd: "", java: "" })
   set steps = append(steps, Step { name: "verify APK signature", argv: verify_signature_command(request), cwd: "", java: request.java })
-  if request.do_install then set steps = append(steps, Step { name: "install APK", argv: adb_install_command(request), cwd: "", java: "" }) end
+  if request.do_install then
+    set steps = append(steps, Step { name: "install APK", argv: adb_install_command(request), cwd: "", java: "" })
+    set steps = append(steps, Step { name: "verify installed package", argv: adb_verify_install_command(request), cwd: "", java: "" })
+  end
   steps
 end
