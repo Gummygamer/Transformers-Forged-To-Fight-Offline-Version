@@ -59,10 +59,24 @@ function fixture(): Fixture
       server_mode: pipeline.bundled(), server_host: "127.0.0.1", server_port: 8080,
       scheme: "http", keep_other_abi: false, patched_il2cpp: "", auto_patch_il2cpp: false,
       il2cpp_source: pristine, keystore: keystore, ks_pass: "android", key_pass: "android",
-      do_install: false, legible: "legible", zipalign: "zipalign", apksigner: "apksigner",
-      java: "/jdk/bin/java", adb: "adb"
+      do_install: false, rebuild_hook: false, legible: "legible", zipalign: "zipalign", apksigner: "apksigner",
+      java: "/jdk/bin/java", adb: "adb", clang: "ndk-clang"
     }
   }
+end
+
+function native_hook_command_test(fix: Fixture): boolean
+  intent: test native hook rebuild command and ordering
+  let request: BuildRequest = fix.request with { rebuild_hook: true }
+  let command: a list of text = pipeline.build_hook_command(request)
+  let steps: a list of Step = pipeline.plan_steps(request)
+  length(command) == 10 and unwrap_or(get(command, 0), "") == request.clang and contains(command, "-Wl,-soname,libdothook.so") and contains(command, pipeline.native_hook_output(pipeline.arm64())) and contains(command, path_join(path_join(path_join(pipeline.project_root(), "tools"), "nativehook"), "hook.c")) and contains(command, path_join(path_join(path_join(pipeline.project_root(), "tools"), "nativehook"), "inapk_server.c")) and length(steps) == 6 and unwrap(get(steps, 0)).name == "build native hook" and unwrap(get(steps, 1)).name == "build APK"
+end
+
+function native_hook_compiler_validation_test(fix: Fixture): boolean
+  intent: validate
+  let checked: Validation = pipeline.validate(fix.request with { rebuild_hook: true, clang: "" })
+  contains_text(join(checked.errors, "\n"), "NDK clang")
 end
 
 function bundled_command_test(fix: Fixture): boolean
@@ -92,7 +106,7 @@ function command_order_test(fix: Fixture): boolean
   intent: test
   let full: BuildRequest = fix.request with { do_install: true }
   let steps: a list of Step = pipeline.plan_steps(full)
-  length(steps) == 6 and unwrap(get(steps, 0)).name == "build APK" and unwrap(get(steps, 1)).name == "zipalign APK" and unwrap(get(steps, 2)).name == "sign APK" and unwrap(get(steps, 3)).name == "verify APK alignment" and unwrap(get(steps, 4)).name == "verify APK signature" and unwrap(get(steps, 5)).name == "install APK" and contains(unwrap(get(steps, 5)).argv, "--no-incremental")
+  length(steps) == 7 and unwrap(get(steps, 0)).name == "build APK" and unwrap(get(steps, 1)).name == "zipalign APK" and unwrap(get(steps, 2)).name == "sign APK" and unwrap(get(steps, 3)).name == "verify APK alignment" and unwrap(get(steps, 4)).name == "verify APK signature" and unwrap(get(steps, 5)).name == "install APK" and contains(unwrap(get(steps, 5)).argv, "--no-incremental") and unwrap(get(steps, 6)).name == "verify installed package" and contains(unwrap(get(steps, 6)).argv, "com.kabam.bigrobot")
 end
 
 function automatic_patch_command_test(fix: Fixture): boolean
@@ -137,7 +151,7 @@ function arm64_bundled_auto_patch_plan_test(fix: Fixture): boolean
   let build: Step = unwrap(get(steps, 1))
   let signature: Step = unwrap(get(steps, 5))
   let install: Step = unwrap(get(steps, 6))
-  length(steps) == 7 and patch.name == "patch il2cpp" and contains(patch.argv, "--needed") and contains(patch.argv, "byte") and build.name == "build APK" and contains(build.argv, "--bundle-server") and contains(build.argv, "--patched-il2cpp") and contains(build.argv, pipeline.auto_patch_output(request)) and unwrap(get(steps, 2)).name == "zipalign APK" and unwrap(get(steps, 3)).name == "sign APK" and unwrap(get(steps, 4)).name == "verify APK alignment" and signature.name == "verify APK signature" and signature.java == request.java and install.name == "install APK"
+  length(steps) == 8 and patch.name == "patch il2cpp" and contains(patch.argv, "--needed") and contains(patch.argv, "byte") and build.name == "build APK" and contains(build.argv, "--bundle-server") and contains(build.argv, "--patched-il2cpp") and contains(build.argv, pipeline.auto_patch_output(request)) and unwrap(get(steps, 2)).name == "zipalign APK" and unwrap(get(steps, 3)).name == "sign APK" and unwrap(get(steps, 4)).name == "verify APK alignment" and signature.name == "verify APK signature" and signature.java == request.java and install.name == "install APK" and unwrap(get(steps, 7)).name == "verify installed package"
 end
 
 function elf_test(fix: Fixture): boolean
@@ -169,7 +183,7 @@ function defaults_test(): boolean
   intent: test
   let request: BuildRequest = pipeline.default_request()
   let home: text = unwrap_or(env_get("HOME"), "")
-  request.abi == pipeline.arm64() and request.patched_il2cpp == "" and contains_text(request.il2cpp_source, "/arm64-v8a/libil2cpp.so") and request.keystore == path_join(path_join(home, ".android"), "debug.keystore") and contains(pipeline.sdk_roots(), path_join(path_join(home, "Android"), "Sdk"))
+  request.abi == pipeline.arm64() and request.rebuild_hook and request.patched_il2cpp == "" and contains_text(request.il2cpp_source, "/arm64-v8a/libil2cpp.so") and request.keystore == path_join(path_join(home, ".android"), "debug.keystore") and contains(pipeline.sdk_roots(), path_join(path_join(home, "Android"), "Sdk"))
 end
 
 function mapping_test(fix: Fixture): boolean
@@ -189,6 +203,8 @@ function main(): nothing
   let fix: Fixture = fixture()
   mutable counts: Counts = Counts { passed: 0, failed: 0 }
   set counts = add(counts, report("bundled build command", bundled_command_test(fix)))
+  set counts = add(counts, report("native hook build command", native_hook_command_test(fix)))
+  set counts = add(counts, report("native hook compiler validation", native_hook_compiler_validation_test(fix)))
   set counts = add(counts, report("bundled validation", server_validation_test(fix)))
   set counts = add(counts, report("armv7 patch requirement", armv7_patch_test(fix)))
   set counts = add(counts, report("pipeline command order", command_order_test(fix)))
