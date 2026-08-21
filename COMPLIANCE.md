@@ -80,6 +80,30 @@ server value, external audiovisual material, network interception, binary patch 
 content, or new capability. `Server/gamedata.lbl` remains unchanged. The regression tests merely
 lock already-documented interoperability addresses and the existing authored timings.
 
+## Expanded STORY board and authored dialogue
+
+The expanded `1.1.1` STORY board grows from a 3x3 map to an 11x11 single-column path, and
+from two fights to ten. Every tile label and every assignment of an enemy to a tile is an
+original authoring choice for this revival, not recovered Kabam mission data. The choices form
+nine escalating encounters followed by the final boss.
+
+The identifiers `sharkticon_gs_scout`, `sharkticon_gs_tech`,
+`sharkticon_gs_demolition`, `sharkticon_gs_tactician`, `sharkticon_gs_kabam`,
+`kickback_gs_kabam`, `waspinator_gs_deluxe`, `soundwave_gs`, and
+`sharkticon_gs_brawler` already exist in the shipped client roster. Referencing an existing
+identifier follows the same precedent as the other authored content in this repository. What
+is new is the original choice of which existing enemy occupies each authored tile and the
+original tile labels; `sharkticon_gs_warrior` remains the first Patrol's existing roster id.
+
+The four dialogue sets contain ten lines of 100% original writing. They were never transcribed
+or paraphrased from the Transformers: Forged to Fight script, its cutscenes, or any other
+copyrighted Transformers media. For example: “Sensors read a cold beachhead ahead. Whatever
+landed here is already moving.” and “Then we walk it to the end. Steady spark, higher guard.”
+The character identifiers in those entries are existing client roster ids, not newly supplied
+assets or recovered text.
+
+Nothing under `media/`, no APK, no game asset, and no recovered Kabam server data was added.
+
 ## Why this is copyright-compliant
 
 - **Everything authored here is original.** Kabam's real balance data (the roster

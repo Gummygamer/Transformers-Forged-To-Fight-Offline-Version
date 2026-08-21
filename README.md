@@ -40,10 +40,12 @@ are not ported to ARMv7.
 ## What does not work, and why
 
 This is a playable preservation sandbox, not a complete replacement for the original game.
-Only one small STORY path and one boss encounter are authored. Match resolution currently
-uses the minimal success response required to return to the board; completed progression,
-rewards, and quest state are not persisted. Per-bot ability effects, additional missions
-and enemy lineups, the economy, and most progression systems remain to be authored.
+The single STORY mission, `1.1.1` "Arrival", now walks an 11-tile path with ten authored
+encounters: nine escalating enemy lineups and a final boss. The mission also carries
+authored dialogue sets. Match resolution currently uses the minimal success response required
+to return to the board; completed progression, rewards, and quest state are not persisted.
+Per-bot ability effects, additional missions and enemy lineups beyond Arrival, the economy,
+and most progression systems remain to be authored.
 
 Forged to Fight was fully server authoritative. The app on the phone is essentially a
 screen with controls. Almost nothing about the game lived in the app. Every mission, every
@@ -575,7 +577,8 @@ shape of each structure before you even run, because it lists every field the cl
 
 A sane order to attack it:
 
-1. Persist quest completion and author the reward contract for the existing STORY fight.
+1. Persist quest completion and author the reward contract for the ten authored STORY
+   encounters.
 2. Add original per-bot ability definitions and test their in-fight effects. The normal attack
    and special-damage data already have a working generated path in `Server/gamedata.lbl`.
 3. Add missions, maps, and opponent lineups one small path at a time, using the runtime hook

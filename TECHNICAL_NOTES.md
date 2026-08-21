@@ -338,6 +338,63 @@ The live client has accepted consecutive moves from `(0,1)` to `(1,1)` and then 
 animated the bot between nodes, refreshed reachability, and changed explored progress from
 0% through 33% to 66%. See `media/story-board-second-move.mp4`.
 
+## Expanded STORY board
+
+The one STORY mission remains `1.1.1`, friendly name `Arrival`, in set `story_act1`; its
+board is now an 11x11 grid. `quest_dim()` returns 11 and `quest_path_col()` returns 1, so
+column 1 is the only walkable column. Row 0 is the Start tile. `quest_has_encounter(row)`
+returns true for rows 1 through 10, giving the path ten fights rather than the earlier Patrol
+and Boss pair.
+
+`quest_encounter(row)` owns the encounter order:
+
+| Row | Tile label | Enemy blueprint | Final boss |
+| --- | --- | --- | --- |
+| 1 | Patrol | `sharkticon_gs_warrior` | no |
+| 2 | Scouting Party | `sharkticon_gs_scout` | no |
+| 3 | Signal Jammer | `sharkticon_gs_tech` | no |
+| 4 | Demolition Crew | `sharkticon_gs_demolition` | no |
+| 5 | Ambush | `sharkticon_gs_tactician` | no |
+| 6 | Gilded Enforcer | `sharkticon_gs_kabam` | no |
+| 7 | Insecticon Raid | `kickback_gs_kabam` | no |
+| 8 | Buzzsaw Swarm | `waspinator_gs_deluxe` | no |
+| 9 | Interceptor | `soundwave_gs` | no |
+| 10 | Boss | `sharkticon_gs_brawler` | yes |
+
+`links_for(row, col)` connects each walkable tile to its row-1 and row+1 neighbours;
+`encounter_tile(row, links)` builds the labelled encounter tile; and `build_quest_map(qid)`
+places that column in the otherwise hidden grid. The coordinate order is easy to reverse:
+in `build_quest_movedir(qid, offx, offy, start_x, start_y, team)`, the first coordinate is
+the row and the second is the fixed walkable column. A legal step along the path is therefore
+`dx = +/-1, dy = 0`.
+
+## STORY dialogue data
+
+`build_dialogue_sets()` adds four dialogue sets to the `dialogueSets` field emitted by
+`build_quest_summary()`. The shape is the client's declared deserialization target:
+`EB.Missions.Summary` at `re_notes/dump.cs:309520` has
+`dialogueSets: Dictionary<string, DialogueSet>` at line 309561;
+`EB.Missions.DialogueSet` at line 308658 is `{ id: string, entries: List<DialogueEntry> }`;
+and `EB.Missions.DialogueEntry` at line 308584 is
+`{ inShadow: bool, character: string, side: string, style: string, line: string }`.
+Previously the server emitted no dialogue-set data.
+
+The authored set ids are `arrival_intro` (three entries), `midpoint_rally` (three),
+`final_stand` (two), and `shore_secured` (two). They use the existing client roster ids
+`optimusprime_cin_tf`, `sharkticon_gs_warrior`, `optimusprimal_bw_mp32`,
+`soundwave_gs`, and `sharkticon_gs_brawler`; the right-side Sharkticon, Soundwave, and
+Brawler entries are authored with `inShadow: true` as appropriate.
+
+**SHIPPED DATA, TRIGGER UNCONFIRMED.** The data shape is authored to match the client's
+declared deserialization target, but the client-side trigger that makes a `DialogueSet` play
+(mission begin, tile entry, pre-fight, or another path) has not yet been pinned down. The
+`DialogueOverlay.Parameters` shape holds a `dialogSet` at `dump.cs:438461`, and the dump lists
+`DisplayDialogEntry`, `PresetBotDisplay`, `InsertDialogEntry`, and
+`Config.GetDialogueSetById(string id)` at `dump.cs:544978`; it has no method bodies. In
+addition, `retools.py xrefs` matches only direct `bl #imm` branches, so a missing xref is not
+evidence that a virtual or delegate-dispatch trigger does not exist. Do not treat this as
+evidence that dialogue visibly plays in-game yet.
+
 ## STORY encounter / live-combat milestone
 
 ### Arena authoring
@@ -443,6 +500,27 @@ showed three unlocked segments, about one full 300-mana segment per six landed l
 all three segments full and lit. Tapping the SP hexagon fired the special, drained the meter,
 and took the enemy from 52% to a 0% KO. Both fighters gain mana, confirming the defender path;
 the normal fighting-game pace leaves the authored `attackValues[*].m` values unchanged.
+
+### Current padlock verdict
+
+`max_special_attacks(bid, star)` at `Server/gamedata.lbl:226` unconditionally returns `3`.
+It does not branch on either `bid` or `star`. Every payload builder that emits this meter cap
+reaches that one function: the roster/blueprint listing in `build_hero_entry` (line 299),
+`build_hero_base` (line 449), the quest-team/hero listing (line 477), and
+`build_base_hero_details` (line 1157); line 314 is the `MSA` diagnostic print. A player bot
+therefore cannot receive a below-three cap from server data.
+
+The expanded board changes only the enemy side of its encounters. Player bots still use the
+same unconditional path, so no player robot can show a padlocked special-attack bar from
+server data. This is covered by the passing regression suites: `legible run
+Server/test_gamedata.lbl` reports 64 passed and 0 failed, `legible run
+Server/test_quest_walk.lbl` reports 2 passed and 0 failed, and `legible run
+Server/test_export_payload.lbl` reports 6 passed and 0 failed. Live emulator confirmation of
+an unlocked, chargeable SP bar inside one of the new fights remains outstanding.
+
+This expansion did not reintroduce either earlier meter defect: some payload builders once
+wired the meter as zero, and star-2/star-3 bots were once capped at two; the latter was fixed
+in `3f1a64e` (`Unlock level-3 specials for every bot`).
 
 ## Hit-stun
 
@@ -555,6 +633,13 @@ quest movement transitions. `_quest_positions` is the only cross-request server 
 C implementation needs to retain: `quest-begin` resets it and `quest-movedir` looks up a
 baked transition/body pair before updating it.
 
+The static export hardcodes the board width in `move_body`'s bounds check and the
+`add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
+updating those two places and both exact constants in `Server/export_payload.lbl` and
+`Server/test_export_payload.lbl`: the current values are 9365 entries and 4570804 bytes
+(formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
+the whole test binary before it can print a test summary.
+
 ### In-app C server
 
 `tools/nativehook/inapk_server.c` is the process-local HTTP server shared by both ABIs. It is
@@ -601,3 +686,6 @@ sessions or implement the full reward contract.
 
 3. The wider server content database: more quests and maps, opponent lineups, per-bot
 abilities, rewards, persistence, and the economy.
+
+4. Identify the client-side trigger that plays a mission `DialogueSet`. The data is shipped,
+but its live invocation path is still unconfirmed.
