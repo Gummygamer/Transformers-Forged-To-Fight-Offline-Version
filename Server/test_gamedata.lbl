@@ -467,9 +467,8 @@ end
 
 function dialogue_set_is_authored(sets: Json, id: text): boolean
   intent: check
-  let dialogue: Json = jsonout.obj_get(sets, id)
-  let entries: a list of Json = jsonout.list_items(jsonout.obj_get(dialogue, "entries"))
-  mutable passed: boolean = jsonout.obj_has(sets, id) and text_length(jsonout.as_text(jsonout.obj_get(dialogue, "id"))) > 0 and length(entries) >= 2
+  let entries: a list of Json = jsonout.list_items(jsonout.obj_get(sets, id))
+  mutable passed: boolean = jsonout.obj_has(sets, id) and length(entries) >= 2
   for entry in entries do
     set passed = passed and jsonout.obj_has(entry, "inShadow") and jsonout.obj_has(entry, "character") and jsonout.obj_has(entry, "side") and jsonout.obj_has(entry, "style") and jsonout.obj_has(entry, "line") and text_length(jsonout.as_text(jsonout.obj_get(entry, "line"))) > 0
   end
@@ -479,8 +478,8 @@ end
 function test_quest_summary_exposes_authored_dialogue_sets(): boolean
   intent: test
   let summary: Json = gamedata.build_quest_summary("1.1.1", "story_act1")
-  let sets: Json = jsonout.obj_get(summary, "dialogueSets")
-  jsonout.obj_has(summary, "dialogueSets") and dialogue_set_is_authored(sets, "arrival_intro") and dialogue_set_is_authored(sets, "midpoint_rally") and dialogue_set_is_authored(sets, "final_stand") and dialogue_set_is_authored(sets, "shore_secured")
+  let sets: Json = jsonout.obj_get(summary, "dialogueTable")
+  jsonout.obj_has(summary, "dialogueTable") and dialogue_set_is_authored(sets, "arrival_intro") and dialogue_set_is_authored(sets, "midpoint_rally") and dialogue_set_is_authored(sets, "final_stand") and dialogue_set_is_authored(sets, "shore_secured")
 end
 
 function main(): nothing

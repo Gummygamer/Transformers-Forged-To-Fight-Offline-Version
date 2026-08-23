@@ -213,6 +213,16 @@ end
   result
 end
 
+public function final_boss_bid(): text
+  intent: return
+  "nemesisprime_gs_voyager2015"
+end
+
+public function final_boss_stats(): Stats
+  intent: build
+  Stats { hp: 28000, atk: 3000 }
+end
+
 public function base_stats(bid: text, rank: integer, level: integer): Stats
   intent: build
   let entry: RosterEntry = roster_entry(bid)
@@ -220,7 +230,11 @@ public function base_stats(bid: text, rank: integer, level: integer): Stats
   let level_add: decimal = to_decimal(max(1, level) - 1) / 100
   let level_factor: decimal = 1 + level_add
   let factor: decimal = rank_mult * level_factor
+  if bid == final_boss_bid() then
+  final_boss_stats()
+else
   Stats { hp: to_integer(to_decimal(star_hp(entry.star)) * class_hp_mult(entry.klass) * factor), atk: to_integer(to_decimal(star_atk(entry.star)) * class_atk_mult(entry.klass) * factor) }
+end
 end
 
 public function max_special_attacks(bid: text, star: integer): integer
@@ -484,7 +498,7 @@ end
 
 public function boss_blueprint(): text
   intent: return
-  "sharkticon_gs_brawler"
+  "nemesisprime_gs_voyager2015"
 end
 
 public function minion_blueprint(): text
@@ -512,21 +526,21 @@ public function quest_encounter(row: integer): QuestEncounter
   if row == 1 then
   QuestEncounter { key: minion_blueprint(), final_boss: false, label: "Patrol" }
 else if row == 2 then
-  QuestEncounter { key: "sharkticon_gs_scout", final_boss: false, label: "Scouting Party" }
+  QuestEncounter { key: "kickback_gs_kabam", final_boss: false, label: "Insecticon Scouts" }
 else if row == 3 then
-  QuestEncounter { key: "sharkticon_gs_tech", final_boss: false, label: "Signal Jammer" }
+  QuestEncounter { key: "waspinator_gs_deluxe", final_boss: false, label: "Buzzsaw Swarm" }
 else if row == 4 then
   QuestEncounter { key: "sharkticon_gs_demolition", final_boss: false, label: "Demolition Crew" }
 else if row == 5 then
-  QuestEncounter { key: "sharkticon_gs_tactician", final_boss: false, label: "Ambush" }
-else if row == 6 then
-  QuestEncounter { key: "sharkticon_gs_kabam", final_boss: false, label: "Gilded Enforcer" }
-else if row == 7 then
-  QuestEncounter { key: "kickback_gs_kabam", final_boss: false, label: "Insecticon Raid" }
-else if row == 8 then
-  QuestEncounter { key: "waspinator_gs_deluxe", final_boss: false, label: "Buzzsaw Swarm" }
-else if row == 9 then
   QuestEncounter { key: "soundwave_gs", final_boss: false, label: "Interceptor" }
+else if row == 6 then
+  QuestEncounter { key: "cyclonus_gs_uw06", final_boss: false, label: "Sweep Patrol" }
+else if row == 7 then
+  QuestEncounter { key: "motormaster_gs_voyager2015", final_boss: false, label: "Highway Blockade" }
+else if row == 8 then
+  QuestEncounter { key: "bludgeon_gs_rd20", final_boss: false, label: "Blade Duel" }
+else if row == 9 then
+  QuestEncounter { key: "necrotronus_gs_kabam", final_boss: false, label: "Siege Breaker" }
 else
   QuestEncounter { key: boss_blueprint(), final_boss: true, label: "Boss" }
 end
@@ -736,14 +750,14 @@ function dialogue_entry(in_shadow: boolean, character: text, side: text, style: 
   jsonout.json_obj([jsonout.json_pair("inShadow", jsonout.json_bool(in_shadow)), jsonout.json_pair("character", jsonout.json_text(character)), jsonout.json_pair("side", jsonout.json_text(side)), jsonout.json_pair("style", jsonout.json_text(style)), jsonout.json_pair("line", jsonout.json_text(line))])
 end
 
-function dialogue_set(id: text, entries: a list of Json): Json
+function dialogue_set(entries: a list of Json): Json
   intent: build
-  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(id)), jsonout.json_pair("entries", jsonout.json_list(entries))])
+  jsonout.json_list(entries)
 end
 
 public function build_dialogue_sets(): Json
   intent: build
-  jsonout.json_obj([jsonout.json_pair("arrival_intro", dialogue_set("arrival_intro", [dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Sensors read a cold beachhead ahead. Whatever landed here is already moving."), dialogue_entry(true, "sharkticon_gs_warrior", "right", "default", "The tide brought us in. The tide will bury you."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we hold this line, and we hold it together.")])), jsonout.json_pair("midpoint_rally", dialogue_set("midpoint_rally", [dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."), dialogue_entry(true, "soundwave_gs", "right", "default", "Every step you take is recorded. Every step you take is counted."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we walk it to the end. Steady spark, higher guard.")])), jsonout.json_pair("final_stand", dialogue_set("final_stand", [dialogue_entry(true, "sharkticon_gs_brawler", "right", "default", "You climbed a long way just to break at the top."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "We climbed a long way to end this. Stand down or fall down.")])), jsonout.json_pair("shore_secured", dialogue_set("shore_secured", [dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "The shore is quiet. Log the coordinates and get the wounded home."), dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Quiet today. We will be back before it gets loud again.")]))])
+  jsonout.json_obj([jsonout.json_pair("arrival_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Sensors read a cold beachhead ahead. Whatever landed here is already moving."), dialogue_entry(true, "sharkticon_gs_warrior", "right", "default", "The tide brought us in. The tide will bury you."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we hold this line, and we hold it together.")])), jsonout.json_pair("midpoint_rally", dialogue_set([dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."), dialogue_entry(true, "soundwave_gs", "right", "default", "Every step you take is recorded. Every step you take is counted."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we walk it to the end. Steady spark, higher guard.")])), jsonout.json_pair("final_stand", dialogue_set([dialogue_entry(true, "nemesisprime_gs_voyager2015", "right", "default", "You climbed all this way just to meet the shape of your own ending."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "We climbed a long way to end this. Stand down or fall down.")])), jsonout.json_pair("shore_secured", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "The shore is quiet. Log the coordinates and get the wounded home."), dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Quiet today. We will be back before it gets loud again.")]))])
 end
 
 public function build_quest_summary(mission_id: text, set_id: text): Json
@@ -752,7 +766,7 @@ public function build_quest_summary(mission_id: text, set_id: text): Json
   let act: integer = mission_part(parts, 0)
   let chapter: integer = mission_part(parts, 1)
   let mission: integer = mission_part(parts, 2)
-  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueSets", build_dialogue_sets())])
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
 end
 
 public function build_quest_detail(mission_id: text, set_id: text): Json
@@ -789,11 +803,42 @@ function middle_tile(row: integer, links: Json): Json
   jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("lab", jsonout.json_text("Node " ++ to_text(row))), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links)])
 end
 
+public function tile_dialogue_id(row: integer): text
+  intent: get
+  if row == 1 then
+  "arrival_intro"
+else if row == 5 then
+  "midpoint_rally"
+else if row == quest_dim() - 1 then
+  "final_stand"
+else
+  ""
+end
+end
+
+public function tile_dialogue_pe_id(row: integer): text
+  intent: get
+  if row == quest_dim() - 1 then
+  "shore_secured"
+else
+  ""
+end
+end
+
 function encounter_tile(row: integer, links: Json): Json
   intent: build
   let encounter: QuestEncounter = quest_encounter(row)
   let enemy: Json = build_quest_enemy_for("", -1, encounter.key, encounter.final_boss)
-  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("lab", jsonout.json_text(encounter.label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(encounter.key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(encounter.key, enemy)]))])
+  mutable pairs: a list of Pair = [jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("lab", jsonout.json_text(encounter.label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(encounter.key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(encounter.key, enemy)]))]
+  let pre_dialogue: text = tile_dialogue_id(row)
+  if pre_dialogue != "" then
+  set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text(pre_dialogue)))
+end
+  let post_dialogue: text = tile_dialogue_pe_id(row)
+  if post_dialogue != "" then
+  set pairs = append(pairs, jsonout.json_pair("dialoguePE", jsonout.json_text(post_dialogue)))
+end
+  jsonout.json_obj(pairs)
 end
 
 public function build_quest_map(qid: text): Json
