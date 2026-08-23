@@ -336,3 +336,37 @@ The distant-opponent ranged-attack change is original local hook-shim code. It a
 owner-operated client's existing controller to select its existing basic `Attack` behavior when
 the client's own ranged gate permits it. It adds no assets, binaries, recovered server data,
 network interception, credential access, or third-party targeting.
+
+## STORY enemy variety, the Nemesis Prime boss, and dialogue delivery
+
+The revised encounter order for the `1.1.1` STORY path is an original authoring choice for
+this revival, not recovered Kabam mission data. Seven of the nine non-boss tiles were
+reassigned so that Sharkticons are no longer the majority, and the new tile labels
+"Insecticon Scouts", "Buzzsaw Swarm", "Interceptor", "Sweep Patrol", "Highway Blockade",
+"Blade Duel", and "Siege Breaker" are original writing.
+
+The blueprint identifiers used for those tiles — `kickback_gs_kabam`,
+`waspinator_gs_deluxe`, `sharkticon_gs_demolition`, `soundwave_gs`, `cyclonus_gs_uw06`,
+`motormaster_gs_voyager2015`, `bludgeon_gs_rd20`, `necrotronus_gs_kabam`, and
+`nemesisprime_gs_voyager2015` — already exist in the owner-operated client's shipped
+roster, with art already resolved by `art_overrides()`. Referencing an existing identifier
+follows the same precedent as the rest of the authored content here. No asset, portrait,
+model, or recovered server record was added.
+
+The final boss's statline, 28000 max HP and 3000 attack for a displayed power of 31000, is
+an original balance choice invented for this revival to satisfy a request for a roughly
+31000-power final boss. It is not a recovered Kabam value.
+
+One dialogue line changed. The `final_stand` set's antagonist speaker moved from the
+retired Sharkticon Brawler to Nemesis Prime, and its line is new, 100% original writing for
+this repository: "You climbed all this way just to meet the shape of your own ending." It
+was not transcribed or paraphrased from Transformers: Forged to Fight or any other
+copyrighted Transformers media. Optimus Prime's existing reply, "We climbed a long way to
+end this. Stand down or fall down.", is unchanged and equally original. No other authored
+line was edited.
+
+The dialogue-delivery work is a JSON shape and key-name correction on this project's own
+server plus a read-only diagnostic hook slot (`DIALOGDIAG`) that logs the client's own
+dialogue state before calling the original method. It adds no assets, no binaries, no
+recovered server data, no network interception, and no credential access. Nothing under
+`media/`, no APK, and no game asset was added to the repository.
