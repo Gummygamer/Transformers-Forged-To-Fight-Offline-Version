@@ -207,6 +207,14 @@ should generate your own.
 You need the APK installed on an ARM translation capable emulator (LDPlayer 9 was used, with
 root and writable system), the `legible` interpreter on the PC, and the items from the section above.
 
+To get the `legible` interpreter and launch the [APK patcher GUI](#patching-the-apk-from-a-gui)
+without doing any of that setup by hand, run `./launch_linux.sh` (Linux) or
+`launch_windows.bat` (Windows) from the repository root. Either script installs `legible`
+and the build tools it needs (Rust via rustup, git, a C compiler) only if they are missing,
+then launches the GUI; re-running it later is fast because it finds `legible` already
+installed. This does not replace the manual steps below, which are still needed for
+everything the GUI does not cover (certs, the native hook, the emulator/device setup).
+
 1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
    Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
    real shell (Git Bash on Windows). Do not run it with `python`/`python3` and do not
