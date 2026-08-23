@@ -600,3 +600,21 @@ patches, the recovered data shapes, and the specific findings, in more detail th
 README. Then run the loop.
 
 Good luck. It is a real machine now. It just needs its content rebuilt.
+
+## STORY board: varied encounters and the Nemesis Prime boss
+
+The ten fights on the `1.1.1` STORY path are no longer a wall of Sharkticons. Only rows 1
+and 4 keep one; the rest of the path is Kickback, Waspinator, Soundwave, Cyclonus,
+Motormaster, Bludgeon, and Necrotronus, in that order, each with its own tile label. Every
+one of those blueprints was already in the shipped roster with working art, so the variety
+needed no new assets.
+
+Row 10 is now **Nemesis Prime** (`nemesisprime_gs_voyager2015`) rather than a Sharkticon
+Brawler, authored with 28000 max HP and 3000 attack so the pre-fight screen shows a power
+of 31000. `TECHNICAL_NOTES.md` explains which server field that number comes from and why
+that is the field the client actually displays.
+
+The mission's four authored dialogue sets ship under the `dialogueTable` key, and each set
+is a bare array of entries. Tiles carry the ids: row 1 plays `arrival_intro`, row 5 plays
+`midpoint_rally`, and row 10 plays `final_stand` before the boss and `shore_secured` after
+it. Entering a tile that carries an id opens the cinematic overlay in game.

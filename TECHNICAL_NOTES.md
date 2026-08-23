@@ -351,15 +351,15 @@ and Boss pair.
 | Row | Tile label | Enemy blueprint | Final boss |
 | --- | --- | --- | --- |
 | 1 | Patrol | `sharkticon_gs_warrior` | no |
-| 2 | Scouting Party | `sharkticon_gs_scout` | no |
-| 3 | Signal Jammer | `sharkticon_gs_tech` | no |
+| 2 | Insecticon Scouts | `kickback_gs_kabam` | no |
+| 3 | Buzzsaw Swarm | `waspinator_gs_deluxe` | no |
 | 4 | Demolition Crew | `sharkticon_gs_demolition` | no |
-| 5 | Ambush | `sharkticon_gs_tactician` | no |
-| 6 | Gilded Enforcer | `sharkticon_gs_kabam` | no |
-| 7 | Insecticon Raid | `kickback_gs_kabam` | no |
-| 8 | Buzzsaw Swarm | `waspinator_gs_deluxe` | no |
-| 9 | Interceptor | `soundwave_gs` | no |
-| 10 | Boss | `sharkticon_gs_brawler` | yes |
+| 5 | Interceptor | `soundwave_gs` | no |
+| 6 | Sweep Patrol | `cyclonus_gs_uw06` | no |
+| 7 | Highway Blockade | `motormaster_gs_voyager2015` | no |
+| 8 | Blade Duel | `bludgeon_gs_rd20` | no |
+| 9 | Siege Breaker | `necrotronus_gs_kabam` | no |
+| 10 | Boss | `nemesisprime_gs_voyager2015` | yes |
 
 `links_for(row, col)` connects each walkable tile to its row-1 and row+1 neighbours;
 `encounter_tile(row, links)` builds the labelled encounter tile; and `build_quest_map(qid)`
@@ -370,30 +370,56 @@ the row and the second is the fixed walkable column. A legal step along the path
 
 ## STORY dialogue data
 
-`build_dialogue_sets()` adds four dialogue sets to the `dialogueSets` field emitted by
-`build_quest_summary()`. The shape is the client's declared deserialization target:
-`EB.Missions.Summary` at `re_notes/dump.cs:309520` has
-`dialogueSets: Dictionary<string, DialogueSet>` at line 309561;
-`EB.Missions.DialogueSet` at line 308658 is `{ id: string, entries: List<DialogueEntry> }`;
-and `EB.Missions.DialogueEntry` at line 308584 is
-`{ inShadow: bool, character: string, side: string, style: string, line: string }`.
-Previously the server emitted no dialogue-set data.
+`build_dialogue_sets()` builds four dialogue sets. They are emitted by
+`build_quest_summary()` under the JSON key **`dialogueTable`**, not `dialogueSets`. The
+client's own string-literal table in `assets/bin/Data/Managed/Metadata/global-metadata.dat`
+carries `dialogueTable` next to `dialogue`, `dialoguePE`, and `dialogueIdsSeen`, and the
+overlay only resolves authored sets when the summary ships them under that name.
+
+Each value is a **bare JSON array of entry objects**. An earlier revision wrapped each set
+as `{"id": ..., "entries": [...]}`, matching the field list of `EB.Missions.DialogueSet`
+at `re_notes/dump.cs:308658`; that shape deserialized into an empty set, so the overlay
+opened with no text and no portrait. Emitting the bare array fixed it. `dialogue_set()`
+therefore takes only the entry list and returns `jsonout.json_list(entries)`. An entry is
+still `{ inShadow, character, side, style, line }`, per `EB.Missions.DialogueEntry` at
+`re_notes/dump.cs:308584`.
 
 The authored set ids are `arrival_intro` (three entries), `midpoint_rally` (three),
 `final_stand` (two), and `shore_secured` (two). They use the existing client roster ids
-`optimusprime_cin_tf`, `sharkticon_gs_warrior`, `optimusprimal_bw_mp32`,
-`soundwave_gs`, and `sharkticon_gs_brawler`; the right-side Sharkticon, Soundwave, and
-Brawler entries are authored with `inShadow: true` as appropriate.
+`optimusprime_cin_tf`, `sharkticon_gs_warrior`, `optimusprimal_bw_mp32`, `soundwave_gs`,
+and `nemesisprime_gs_voyager2015`. The `final_stand` set now speaks as the new final boss,
+Nemesis Prime, instead of the retired Sharkticon Brawler.
 
-**SHIPPED DATA, TRIGGER UNCONFIRMED.** The data shape is authored to match the client's
-declared deserialization target, but the client-side trigger that makes a `DialogueSet` play
-(mission begin, tile entry, pre-fight, or another path) has not yet been pinned down. The
-`DialogueOverlay.Parameters` shape holds a `dialogSet` at `dump.cs:438461`, and the dump lists
-`DisplayDialogEntry`, `PresetBotDisplay`, `InsertDialogEntry`, and
-`Config.GetDialogueSetById(string id)` at `dump.cs:544978`; it has no method bodies. In
-addition, `retools.py xrefs` matches only direct `bl #imm` branches, so a missing xref is not
-evidence that a virtual or delegate-dispatch trigger does not exist. Do not treat this as
-evidence that dialogue visibly plays in-game yet.
+**The trigger is per map tile, and it is data-only — no native patch is needed.**
+`MapTile.MapTileJSONKeys` (`re_notes/dump.cs:309089`) lists `dialogue` and `dialoguePE`
+alongside the tile keys the server already emits, and `EB.Missions.MapTile`
+(`re_notes/dump.cs:309111`) backs them with `dialogue` and `dialoguePostEncounter`. A
+tile's string id is resolved against the shipped table by
+`GetDialogueSetById(string id)` (`re_notes/dump.cs:544978`). The post-encounter id is
+played after a quest fight by `FightFlow.PlayDialogSequence` (`re_notes/dump.cs:389287`),
+fed from `FightFlow.QuestFightData.postFightDialogue` (`re_notes/dump.cs:388675`).
+`EB.Missions.Summary` has no mission-level dialogue field, so per-tile is the only hook —
+there was never a "mission begin" trigger to find.
+
+`tile_dialogue_id(row)` and `tile_dialogue_pe_id(row)` supply the mapping, and
+`encounter_tile(row, links)` emits the keys:
+
+| Row | `dialogue` | `dialoguePE` |
+| --- | --- | --- |
+| 1 | `arrival_intro` | none |
+| 5 | `midpoint_rally` | none |
+| 10 | `final_stand` | `shore_secured` |
+
+**Status: trigger CONFIRMED live; on-screen text not yet re-confirmed after the fix.**
+Stepping onto row 1 on the emulator letterboxes the view and opens the cinematic dialogue
+overlay with its SKIP and "TAP ANYWHERE TO CONTINUE" affordances, which settles the
+previous "SHIPPED DATA, TRIGGER UNCONFIRMED" verdict: the trigger fires, and it fires from
+the tile key. The empty-panel defect observed at the same time was diagnosed as the
+object-vs-array shape bug described above and fixed on the server. A live capture of the
+overlay rendering real text after that fix is still outstanding. Slot 147 `DIALOGDIAG` in
+`tools/nativehook/hook.c` is a read-only diagnostic on `DialogueOverlay.Skip` that dumps
+the overlay's dialogue state before calling the original; it is instrumentation for that
+investigation, not a fix, and it changes no behaviour.
 
 ## STORY encounter / live-combat milestone
 
@@ -687,5 +713,39 @@ sessions or implement the full reward contract.
 3. The wider server content database: more quests and maps, opponent lineups, per-bot
 abilities, rewards, persistence, and the economy.
 
-4. Identify the client-side trigger that plays a mission `DialogueSet`. The data is shipped,
-but its live invocation path is still unconfirmed.
+4. Re-confirm on a live device that the mission dialogue overlay renders its authored text
+after the `dialogueTable` bare-array fix. The trigger itself is confirmed: entering a tile that
+carries a `dialogue` id opens the overlay.
+
+## Nemesis Prime final boss and the displayed power number
+
+`boss_blueprint()` returns `nemesisprime_gs_voyager2015`, so row 10 of the STORY path is a
+Nemesis Prime fight. The blueprint was already in `roster()` and already had an
+`art_overrides()` entry (`nemesis_p`), so no new art plumbing was needed.
+
+The boss is authored to show a power of about 31000. The number a player reads on the
+pre-fight SELECT YOUR BOT screen comes from `POST /bcg/getBaseHeroData`, answered by
+`build_base_hero_details`, which emits `rating_hp: stats.hp` and `rating_attack: stats.atk`
+unhalved. `build_login_data` ships `heroRatingMaxHPWeight: 1` and
+`heroRatingAttackWeight: 1`, and `BCGUpgradeAttributesBase` (`re_notes/dump.cs:381816`)
+exposes a read-only computed `Rating` over settable `RatingHP` and `RatingAttack` — that
+is, the client derives the displayed rating from the HP and attack components rather than
+echoing the server's own `rating` field. So the displayed power is `hp + atk`.
+
+`final_boss_bid()` and `final_boss_stats()` supply `hp: 28000`, `atk: 3000`, and
+`base_stats(bid, rank, level)` returns them directly for that blueprint. 28000 + 3000 is
+**31000 exactly**. Overriding inside `base_stats` rather than at one call site keeps every
+server surface consistent: pre-fight details, in-battle health, the login hero catalog, and
+the quest-team power index all agree. `build_quest_enemy_for` still passes `rank: 1,
+level: 1`, so no absurd rank or level readout appears anywhere in the UI.
+
+One deliberate side effect: `nemesisprime_gs_voyager2015` is also in `owned()`, so a player
+who fields Nemesis Prime gets the same 28000/3000 statline. That is self-consistent with
+the override living in `base_stats`, and it is intentional rather than a defect.
+
+Two other numbers move with this change. `Server/responses/GET__bcg_getLoginData.json` and
+`GET__bcg_getUserData.json` bake the hero stat catalog and are regenerated by
+`legible run Server/gamedata.lbl`. The exported static payload's asserted byte total in
+`Server/export_payload.lbl` and `Server/test_export_payload.lbl` also shifts whenever the
+quest JSON shape changes; read the actual size out of that suite's failure message and put
+it in both places.
