@@ -109,7 +109,7 @@ function test_begin_then_walks_through_patrol_to_scout(base: text, port: integer
   let patrol: Json = item(item(grid, 1), 1)
   let boss: Json = item(item(grid, gamedata.quest_dim() - 1), 1)
   let minion: text = gamedata.minion_blueprint()
-  let scout: text = "sharkticon_gs_scout"
+  let scout: text = "kickback_gs_kabam"
   let link_zero: text = "\{\"x\":0,\"y\":1\}"
   let link_boss: text = "\{\"x\":2,\"y\":1\}"
   mutable links_have_zero: boolean = false
@@ -130,7 +130,7 @@ function test_begin_then_walks_through_patrol_to_scout(base: text, port: integer
   begun_reply.status == "200" and jsonout.as_bool(jsonout.obj_get(start, "start")) and jsonout.as_bool(jsonout.obj_get(patrol, "walkable")) and (not jsonout.obj_has(patrol, "final") or not jsonout.as_bool(jsonout.obj_get(patrol, "final"))) and jsonout.as_text(jsonout.obj_get(patrol, "boss")) == minion and jsonout.obj_has(jsonout.obj_get(patrol, "entities"), minion) and not jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(patrol, "entities"), minion) |> jsonout.obj_get("isFinalBoss")) and links_have_zero and links_have_boss and jsonout.as_bool(jsonout.obj_get(boss, "final")) and first_reply.status == "200" and length(jsonout.list_items(first_results)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(first_results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(first_battle, "x")) == 1 and jsonout.as_int(jsonout.obj_get(first_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(first_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(first_battle, "battleEnemy"), "key")) == minion and jsonout.as_text(jsonout.obj_get(progression, "currentBattleId")) == minion and encoded(jsonout.obj_get(progression, "currentBattleEnemy"), "\{\"id\":\"" ++ minion ++ "\"\}") and encoded(jsonout.obj_get(progression, "currentBattlePos"), "\{\"x\":1,\"y\":1\}") and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid()), "currentBattleState")) == "activated" and second_reply.status == "200" and encoded(jsonout.obj_get(jsonout.obj_get(item(second_results, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(second_battle, "x")) == 2 and jsonout.as_int(jsonout.obj_get(second_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(second_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(second_battle, "battleEnemy"), "key")) == scout
 end
 
-function test_both_quest_enemies_resolve_to_their_sharkticon_assets(base: text, port: integer): boolean
+function test_both_quest_enemies_resolve_to_their_shipped_assets(base: text, port: integer): boolean
   intent: test
   let minion: text = gamedata.minion_blueprint()
   let boss: text = gamedata.boss_blueprint()
@@ -139,7 +139,7 @@ function test_both_quest_enemies_resolve_to_their_sharkticon_assets(base: text, 
   let heroes: Json = result(reply)
   let first: Json = item(heroes, 0)
   let second: Json = item(heroes, 1)
-  reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == minion and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "npc_shark_warr" and jsonout.as_text(jsonout.obj_get(second, "img")) == "npc_shark_braw" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
+  reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == minion and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "npc_shark_warr" and jsonout.as_text(jsonout.obj_get(second, "img")) == "nemesis_p" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
 end
 
 function last_slash(path: text): integer
@@ -190,12 +190,12 @@ function main(): nothing
       exit_process(1)
     else
       let walk: boolean = test_begin_then_walks_through_patrol_to_scout(base, port)
-      let assets: boolean = test_both_quest_enemies_resolve_to_their_sharkticon_assets(base, port)
+      let assets: boolean = test_both_quest_enemies_resolve_to_their_shipped_assets(base, port)
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
       shell_exec("rm -rf -- " ++ base)
-      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_sharkticon_assets", assets)
+      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets)
       print(to_text(2 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
       if failed > 0 then exit_process(1) end
     end

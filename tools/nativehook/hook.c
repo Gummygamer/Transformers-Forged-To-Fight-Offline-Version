@@ -485,6 +485,12 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // that walks the alternation schedule while the cinematic latch is up.
     { 0xDE8750, "SP3BEAT", 2, 0 }, // 145 Simulation.FixedUpdate -> drive the alt/robot beat schedule
     { 0xDB1D30, "AIRANGE", 2, 0 }, // 146 AIController.Simulate -> basic Attack while the AI can shoot at range
+    // DIALOGDIAG (dialogue diagnostic): tapping SKIP on the first STORY dialogue throws
+    // NullReferenceException at DialogueOverlay.Skip (managed stack confirmed live), and the
+    // opened overlay never shows entry text/portraits either. Skip's null check is an explicit
+    // il2cpp NullCheck call, not a raw pointer dereference, so the existing SIGSEGV/FAULT logger
+    // never fires for it. Dump every field Skip touches right before the original runs.
+    { 0xBC17B4, "DIALOGDIAG", 2, 0 }, // 147 DialogueOverlay.Skip -> dump state before the NRE
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -3458,6 +3464,25 @@ void hook_146(void* self, float dT, void* method){
         }
     });
 }
+// DIALOGDIAG (slot 147): dump DialogueOverlay's dialogue-state fields before Skip's original
+// body runs, so we can see which one is null when the managed NRE fires. dialogueState@0x90,
+// _presentation@0x98, _model@0xA0, currentDialogueIndex@0xA8, _parameters@0xB8;
+// Parameters.dialogSet@0x10; DialogueSet.entries@0x18 (a List<DialogueEntry>, _size@0x18).
+void* hook_147(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        int32_t state = obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0x90) : -1;
+        void* presentation = fld_p(a0, 0x98);
+        void* model = fld_p(a0, 0xA0);
+        int32_t idx = obj_ok(a0) ? *(int32_t*)((uintptr_t)a0+0xA8) : -1;
+        void* params_ = fld_p(a0, 0xB8);
+        void* dialogSet = fld_p(params_, 0x10);
+        void* entries = fld_p(dialogSet, 0x18);
+        int32_t count = obj_ok(entries) ? *(int32_t*)((uintptr_t)entries+0x18) : -1;
+        flog("DIALOGDIAG this=%p state=%d idx=%d presentation=%p model=%p params=%p dialogSet=%p entries=%p count=%d",
+             a0, state, idx, presentation, model, params_, dialogSet, entries, count);
+    });
+    return H[147].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -3473,7 +3498,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
     hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
-    hook_145,hook_146 };
+    hook_145,hook_146,hook_147 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
