@@ -145,7 +145,7 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4570896 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4570960 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
@@ -302,9 +302,9 @@ function check_hero_and_saved_templates(payload: Payload): text
   let hero_request: text = "\{\"heroes\":[\{\"bid\":\"optimusprime_cin_tf\",\"rank\":2,\"level\":3,\"sig_lvl\":7\}]\}"
   if detail == "" and not same_json(hero_response, fakeserver.dynamic("/bcg/getBaseHeroData", hero_request)) then set detail = "hero-data template differs" end
   if detail == "" and count_occurrences(hero_template, "%SIG%") != 1 then set detail = "hero signature token count differs" end
-  let selected: a list of text = ["megatron_cin_rotf", "optimusprimal_bw_mp32"]
+  let selected: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
   let saved: text = expand_team_template(payload, entry_body(payload, "@savedteam:template"), selected, "42")
-  let saved_request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("42")), jsonout.json_pair("heroes", jsonout.json_list([jsonout.json_text("megatron_cin_rotf"), jsonout.json_text("optimusprimal_bw_mp32")]))])
+  let saved_request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("42")), jsonout.json_pair("heroes", jsonout.json_list([jsonout.json_text("optimusprime_cin_tf"), jsonout.json_text("optimusprimal_bw_mp32"), jsonout.json_text("megatron_gs_leader2015"), jsonout.json_text("grimlock_gs_mp08"), jsonout.json_text("megatron_cin_rotf")]))])
   let saved_actual: text = fakeserver.dynamic("/bcg/setSavedTeam", jsonout.encode_spaced(saved_request))
   if detail == "" and not same_json(saved, saved_actual) then set detail = "saved-team template differs" end
   let saved_json: Json = jsonout.parse_json(saved)
@@ -330,6 +330,7 @@ function check_team_fragments(payload: Payload): text
   end
   let user_data: text = expand_team_template(payload, entry_body(payload, "@userdata:template"), [], "0")
   if detail == "" and user_data != read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json")) then set detail = "user-data template differs" end
+  if detail == "" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(user_data), "result"), "userData"), "teamSizeMax")) != 5 then set detail = "user-data teamSizeMax differs" end
   detail
 end
 

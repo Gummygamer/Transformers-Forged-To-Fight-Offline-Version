@@ -9,7 +9,7 @@
  "availableQuests":[
    {
      "id":"1.1.1",
-     "act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,
+     "act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,
      "friendlyName":"Arrival","description":"The first battle.",
      "category":"story","difficulty":"normal",
      "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
