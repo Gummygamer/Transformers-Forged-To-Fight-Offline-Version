@@ -176,6 +176,15 @@ and `Animator.GetCurrentAnimatorStateInfo` (`0x219B470`). It uses the original o
 1000–2500 ms schedule when that state does not resolve, and caps a measured window at 11000 ms
 below the 12 s safety bound. `PropsController.GetProp` (`0xEA16C0`) verifies ownership before
 suppressing only Primal's `shoulderguns` prop during beast form and restoring its latest requested state.
+The auxiliary-prop suppression is intentionally rig-scoped even though the window measurement is
+not. Live capture on two player rigs shows why. `cha_optimusprimal_bw_mp32_00` reports
+`aux_rig=1` and logs the `SP3AUXF` suppress/restore pair around its measured 8833 ms block, and
+its beast body renders with no detached geometry. `cha_optimus_cin_tf_00` reports `aux_rig=0`,
+measures its own independent 5000 ms block, and shows no leftover geometry during it at all; the
+`leftSword`, `rightSword`, `gun` and `Sword` props it owns are ones the client is entitled to
+keep requesting. Forcing every fighter's auxiliary props off would therefore break correct
+behaviour in order to fix a defect one rig exhibits, so the ownership-checked name test stays. A
+fighter later found to need it is a one-line addition to that test, not a policy change.
 Broad investigation probes were removed before shipping; bounded lifecycle, rig, length, and
 auxiliary-state diagnostics remain. This implementation is arm64-only and remains unported to ARMv7.
 
