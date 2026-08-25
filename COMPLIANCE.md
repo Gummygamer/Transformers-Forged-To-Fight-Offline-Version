@@ -306,6 +306,16 @@ at `0xEA16C0`, `Animator.StringToHash` at `0x219B864`, and
 `Animator.GetCurrentAnimatorStateInfo` at `0x219B470`. The existing auxiliary-prop exception
 remains limited to the already documented Primal/`shoulderguns` identifiers.
 
+That limit is deliberate and was confirmed against the user's own installed client rather than
+assumed. Two fighters' level-3 blocks were observed live: one whose alternate-body block leaves
+an auxiliary prop still requested and visibly detached, and one whose block leaves none. Only the
+first needs the exception; for the second the ownership check finds no matching prop and the path
+stays inert. Widening the exception to every prop a fighter owns would suppress the swords, guns
+and effects the client legitimately requests during the block, so it is not done. This observation
+authors no game values, names, balance data or strings of game content, adds no assets or binaries
+to the repository, and introduces no new capability; the recordings it rests on are local-only
+captures under the ignored `media/` path and are not committed.
+
 ## Special-attack prop visibility
 
 During special attacks, the fighter's energy swords and other props its moves activate previously
