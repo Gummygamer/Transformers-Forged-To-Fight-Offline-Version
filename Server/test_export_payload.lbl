@@ -145,7 +145,7 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4570960 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4571204 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
@@ -296,6 +296,8 @@ function check_hero_and_saved_templates(payload: Payload): text
   mutable detail: text = ""
   let rounding_stats: Stats = gamedata.payload_base_stats("cyclonus_gs_uw06", 5, 26)
   if rounding_stats.hp != 14820 or rounding_stats.atk != 1547 then set detail = "payload stats do not preserve Python evaluation order" end
+  let nemesis_detail: Json = jsonout.parse_json(replace(entry_body(payload, "@hero:nemesisprime_gs_voyager2015:1:1"), "%SIG%", "0"))
+  if detail == "" and (jsonout.as_int(jsonout.obj_get(nemesis_detail, "rating_hp")) != 28000 or jsonout.as_int(jsonout.obj_get(nemesis_detail, "rating_attack")) != 3000) then set detail = "Nemesis Prime payload rating differs" end
   let bid: text = "optimusprime_cin_tf"
   let hero_template: text = entry_body(payload, "@hero:" ++ bid ++ ":2:3")
   let hero_response: text = entry_body(payload, "@herodata:open") ++ replace(hero_template, "%SIG%", "7") ++ entry_body(payload, "@herodata:close")
