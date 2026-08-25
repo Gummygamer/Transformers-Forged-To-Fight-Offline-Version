@@ -316,6 +316,10 @@ authors no game values, names, balance data or strings of game content, adds no 
 to the repository, and introduces no new capability; the recordings it rests on are local-only
 captures under the ignored `media/` path and are not committed.
 
+Additional local capture records `aux_rig=0` for Sharkticon, Kickback, Waspinator, and Grimlock;
+the retained-weapon observations (`Sword` on Sharkticon and `sword` on Grimlock) are a
+visual-verification follow-up, not a broadened suppression rule.
+
 ## Special-attack prop visibility
 
 During special attacks, the fighter's energy swords and other props its moves activate previously

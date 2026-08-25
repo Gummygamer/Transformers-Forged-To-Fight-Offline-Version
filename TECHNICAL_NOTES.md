@@ -182,9 +182,15 @@ not. Live capture on two player rigs shows why. `cha_optimusprimal_bw_mp32_00` r
 its beast body renders with no detached geometry. `cha_optimus_cin_tf_00` reports `aux_rig=0`,
 measures its own independent 5000 ms block, and shows no leftover geometry during it at all; the
 `leftSword`, `rightSword`, `gun` and `Sword` props it owns are ones the client is entitled to
-keep requesting. Forcing every fighter's auxiliary props off would therefore break correct
-behaviour in order to fix a defect one rig exhibits, so the ownership-checked name test stays. A
-fighter later found to need it is a one-line addition to that test, not a policy change.
+keep requesting. The later captured `cha_sharkticon_gs_warrior_00` (8500 ms),
+`cha_kickback_gs_kabam_00` (9333 ms), `cha_waspinator_bw_deluxe_00` (8000 ms), and
+`cha_grimlock_gs_mp08_00` (7633 ms) blocks likewise report `aux_rig=0` and independently resolve
+their own lengths. Grimlock's `sword` remains requested active through one captured alternate
+window (and Sharkticon's `Sword` through another), so visual confirmation of those named props is
+a follow-up; the current ownership-checked Primal exception is not broadened on that evidence.
+Forcing every fighter's auxiliary props off would therefore break correct behaviour in order to
+fix a defect one rig exhibits, so the ownership-checked name test stays. A fighter later found to
+need it is a one-line addition to that test, not a policy change.
 Broad investigation probes were removed before shipping; bounded lifecycle, rig, length, and
 auxiliary-state diagnostics remain. This implementation is arm64-only and remains unported to ARMv7.
 
