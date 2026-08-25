@@ -1288,6 +1288,9 @@ main()
 -- whose serialized bytes must match the Python payload exactly.
 public function payload_base_stats(bid: text, rank: integer, level: integer): Stats
   intent: build
+  if bid == final_boss_bid() then
+  final_boss_stats()
+else
   let entry: RosterEntry = roster_entry(bid)
   let rank_mult: decimal = 1 + 0.35 * to_decimal(max(1, rank) - 1)
   let level_factor: decimal = 1 + to_decimal(max(1, level) - 1) / 100
@@ -1296,4 +1299,5 @@ public function payload_base_stats(bid: text, rank: integer, level: integer): St
   let atk_classed: decimal = to_decimal(star_atk(entry.star)) * class_atk_mult(entry.klass)
   let atk_ranked: decimal = atk_classed * rank_mult
   Stats { hp: to_integer(hp_ranked * level_factor), atk: to_integer(atk_ranked * level_factor) }
+end
 end

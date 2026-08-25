@@ -771,10 +771,14 @@ echoing the server's own `rating` field. So the displayed power is `hp + atk`.
 
 `final_boss_bid()` and `final_boss_stats()` supply `hp: 28000`, `atk: 3000`, and
 `base_stats(bid, rank, level)` returns them directly for that blueprint. 28000 + 3000 is
-**31000 exactly**. Overriding inside `base_stats` rather than at one call site keeps every
-server surface consistent: pre-fight details, in-battle health, the login hero catalog, and
-the quest-team power index all agree. `build_quest_enemy_for` still passes `rank: 1,
-level: 1`, so no absurd rank or level readout appears anywhere in the UI.
+**31000 exactly**. `build_quest_enemy_for` still passes `rank: 1, level: 1`, so no absurd
+rank or level readout appears anywhere in the UI.
+
+The bundled-server payload takes a separate path: `export_payload.lbl`'s `detail_for`
+overwrites the rating and combat fields with `payload_base_stats`. Before that function
+applied the final-boss override, every `--bundle-server` APK shipped
+`rating_hp: 7800` and `rating_attack: 610` (8410 power) for this entry. It now applies the
+same override, so the baked payload also returns 28000 and 3000.
 
 One deliberate side effect: `nemesisprime_gs_voyager2015` is also in `owned()`, so a player
 who fields Nemesis Prime gets the same 28000/3000 statline. That is self-consistent with
