@@ -170,9 +170,14 @@ slot 139 `SP3MOVE` (`0x100A76C`) resolves the missing usable transform move; slo
 start the scheduled form window, and restore robot form on exit. `PROPGOACT` forces only
 `character_model` and `transformed` while that window is active, directly drives
 `SpecialAttack03` on the alternate prop, and leaves weapons/effects mirrored normally. Slot 145
-`SP3BEAT` (`0xDE8750`) applies one authored alternate-form block from 1000 ms to 2500 ms, with a
-timeout safety bound; it does not repeatedly alternate forms. As with the roster hooks, this
-implementation is arm64-only and remains unported to ARMv7.
+`SP3BEAT` (`0xDE8750`) measures the existing `SpecialAttack03` Animator state on the alternate
+body of whichever fighter is running the cinematic through `Animator.StringToHash` (`0x219B864`)
+and `Animator.GetCurrentAnimatorStateInfo` (`0x219B470`). It uses the original one-block
+1000–2500 ms schedule when that state does not resolve, and caps a measured window at 11000 ms
+below the 12 s safety bound. `PropsController.GetProp` (`0xEA16C0`) verifies ownership before
+suppressing only Primal's `shoulderguns` prop during beast form and restoring its latest requested state.
+Broad investigation probes were removed before shipping; bounded lifecycle, rig, length, and
+auxiliary-state diagnostics remain. This implementation is arm64-only and remains unported to ARMv7.
 
 ### Roster-scroll crash guard
 
