@@ -74,8 +74,10 @@ The earlier level-3 cinematic-special negative verdict is historical and superse
 measured arm64 implementation. The shipped hook now resolves the missing usable cinematic move,
 mirrors ineffective renderer visibility onto renderer GameObjects, constrains body forcing to the
 existing `character_model` and `transformed` props, directly starts the alternate prop's existing
-`SpecialAttack03` animation, schedules one original 1000–2500 ms alternate-form window, applies a
-timeout, and restores robot form on cinematic exit. These hooks introduce no game asset, recovered
+`SpecialAttack03` animation, measures the currently playing fighter's own existing
+`SpecialAttack03` Animator state length and uses it when it resolves while retaining the original
+1000–2500 ms alternate-form block as a fallback, before restoring robot form on cinematic exit.
+These hooks introduce no game asset, recovered
 server value, external audiovisual material, network interception, binary patch of shipped
 content, or new capability. `Server/gamedata.lbl` remains unchanged. The regression tests merely
 lock already-documented interoperability addresses and the existing authored timings.
@@ -276,15 +278,11 @@ into the alternate form, holds that form, changes once back to the robot, and fi
 cinematic as a robot. For the player this means one clean transformation out and one clean
 transformation back where there used to be a rapid flutter.
 
-The two boundary values that define the block are original authored constants for this revival:
-the alternate form turns on at 1.0 seconds into the cinematic and turns off at 2.5 seconds into the
-cinematic, the thresholds measured to reproduce the observed shape of the sequence. A constant was
-authored here rather than read from shipped data for a direct reason: this build ships no real
-level-3 special move for any character, so the substituted move's own transform-event duration is
-not authentic beat data for the level-3 cinematic. The previous section's statement that the
-alternation period is read at runtime from the character's own already-shipped move data is
-therefore superseded for this schedule, and the shipped duration that informed it is now retained
-only as a diagnostic value that is logged but drives nothing.
+The window length is read at runtime, per cinematic, from whichever fighter's own already-shipped
+alternate-body `SpecialAttack03` animation state is running. No fixed long window is applied to
+any fighter: a rig whose state does not resolve retains the original authored 1.0–2.5 second
+fallback. The measured window is capped below the existing 12-second safety bound. Optimus
+Primal's approximately 8.833-second state is one observed example of this per-rig measurement.
 
 Two publicly posted recordings of the original game were consulted as an observational timing
 reference only. They were downloaded to a local, version-ignored working directory, decomposed to
@@ -302,15 +300,18 @@ assurances the existing sections make. Both the alternate-form body and the robo
 that already ship inside the user's own installed client; nothing was extracted, added, or
 redistributed. Screen recordings made as evidence are local-only captures and are not committed;
 the repository ignores `media/`. The change adds no capability: it introduces no network
-interception, no certificate bypass, and no patching of shipped content bundles. No new externally
-derived IL2CPP addresses were needed for this change; it reuses the entry points already recorded
-in the previous section.
+interception, no certificate bypass, and no patching of shipped content bundles. New
+interoperability observations are limited to the user's installed client: `PropsController.GetProp`
+at `0xEA16C0`, `Animator.StringToHash` at `0x219B864`, and
+`Animator.GetCurrentAnimatorStateInfo` at `0x219B470`. The existing auxiliary-prop exception
+remains limited to the already documented Primal/`shoulderguns` identifiers.
 
 ## Special-attack prop visibility
 
 During special attacks, the fighter's energy swords and other props its moves activate previously
-did not appear even when the client requested them. They now appear when requested, including the
-vehicle's own parts during the level-3 cinematic.
+did not appear even when the client requested them. They now appear when requested, except that
+Primal's player-owned `shoulderguns` is temporarily suppressed during its beast-form level-3 block
+and restored to the latest authored requested state afterward.
 
 This change authors no game values, names, balance data, or strings of game content. It contains
 no numbers or text of game content.
@@ -318,16 +319,16 @@ no numbers or text of game content.
 The prop names `LeftToe_ebrb`, `Neck_ebrb`, `RightToe_ebrb`, `Sword`, `character_model`,
 `doublesword`, `gun`, `leftSword`, `leftsword`, `rightSword`, `rightsword`, `shoulderguns`, and
 `transformed` are the client's own object names, observed in the user's own installed client for
-interoperability and diagnostic purposes, and are not redistributed game content. No new
-externally-derived IL2CPP address was needed; this change reuses the `PropData.SetActiveInternal`
-entry point already recorded in the earlier sections.
+interoperability and diagnostic purposes, and are not redistributed game content. The ownership
+check additionally uses the installed client's `PropsController.GetProp` entry point at `0xEA16C0`.
 
 No game assets or binaries were added to the repository, and no shipped content bundle was
 patched. The props are assets that already ship inside the user's own installed client; nothing
 was extracted, added, or redistributed. The change adds no capability: it introduces no network
 interception or certificate bypass. Evidence recordings are local-only captures and are not
-committed; the repository ignores `media/`. Temporary read-only diagnostic hooks added during the
-investigation were removed before shipping, so the earlier statements about their removal remain
+committed; the repository ignores `media/`. Broad temporary diagnostic probes added during the
+investigation were removed before shipping; only bounded production lifecycle diagnostics remain,
+so the earlier statements about their removal remain
 accurate.
 
 ## Distant opponent ranged-attack nudge
