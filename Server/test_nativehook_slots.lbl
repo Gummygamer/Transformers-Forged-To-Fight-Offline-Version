@@ -419,7 +419,10 @@ function test_source_invariants(source: text): TestResult
     "staticuint64_tsp3_alt_end_ms(void)", "cha_optimusprimal_bw_mp32", "if(g_sp3_alt_len_ms<=0)return(uint64_t)g_sp3_alt_off_ms;",
     "if(g_sp3_beat_form&&!g_sp3_alt_len_ms)", "if(end>11000u)end=11000u;", "g_base+0xEA16C0", "shoulderguns",
     "sp3_aux_was_active[i]", "sp3_beat_apply(0);/*bodiesandplayer-ownedauxiliarypropsrestorebeforeclear*/sp3_xf_remove(pc);",
-    "((void(*)(void*,int,void*))(g_base+0x117A67C))(pc,0,NULL);"]
+    "((void(*)(void*,int,void*))(g_base+0x117A67C))(pc,0,NULL);",
+    "uint64_tend=g_sp3_alt_on_ms+g_sp3_alt_len_ms;", "g_base+0x219B864", "g_base+0x219B470", "if(si.m_Name==g_sp3sinfo_hash&&si.m_Length>0.05f&&si.m_Length<10.1f)",
+    "g_sp3_alt_len_ms=(int)(si.m_Length*1000.0f);", "if(want!=g_sp3_beat_form)", "g_sp3_beat_form=want;sp3_beat_apply(want);",
+    "if(g_sp3_xf_since_ms&&g_sp3_aux_rig&&!strcmp(name,\"shoulderguns\")&&sp3_player_owns_prop(a0))"]
   let names: a list of text = [
     "RSENTER activates the hide gate and hides", "RSEXIT handler exists", "RSEXIT defers restoring through detail", "RSHOME handler exists",
     "RSHOME clears the gate and restores", "every prop reaches sp3_prop_mirror", "body forcing checks prop names", "body forcing includes character_model",
@@ -427,7 +430,9 @@ function test_source_invariants(source: text): TestResult
     "alternate form fallback end is 2500 ms", "per-cinematic alternate clip length is reset", "per-rig alternate end helper exists",
     "auxiliary prop suppression is rig scoped", "measured clip length drives the window for any rig", "alternate clip length is measured for whichever rig plays",
     "measured window is capped below the 12 s timeout", "auxiliary ownership uses PropsController.GetProp", "shoulderguns suppression exists",
-    "auxiliary requested state is retained", "auxiliary state restores before clearing", "SP3 exit restores robot form"]
+    "auxiliary requested state is retained", "auxiliary state restores before clearing", "SP3 exit restores robot form",
+    "measured length starts at the authored alternate offset", "Animator.StringToHash RVA is retained", "Animator.GetCurrentAnimatorStateInfo RVA is retained", "only a valid SpecialAttack03 state length is accepted",
+    "measured Animator seconds become the alternate length", "form application happens only on a transition", "a transition applies the scheduled form exactly once", "only player-owned Primal shoulderguns are suppressed"]
   mutable passed: boolean = true
   mutable detail: text = ""
   mutable index: integer = 0

@@ -520,11 +520,10 @@ static int g_sp3_aux_rig = 0;
    diagnostics only - it is logged by sp3_beat_capture() but no longer drives the schedule. */
 static int g_sp3_beat_du_ms = 800;
 /* SP3BEAT (shipped): the level-3 cinematic shows ONE contiguous alternate-form block, not an
-   alternation. Boundaries are measured off reference recordings of the original game: the
-   character is visibly a robot for the first ~1.0 s of the cinematic, holds the alternate
-   (vehicle) body for ~1.5 s, and finishes the cinematic in robot form. These are original
-   authored constants: this build ships no real SpecialAttack03 move, so the substituted
-   move's own event data (66 ms start / 800 ms duration) is not authentic beat data for it. */
+   alternation. The authored 1000 ms robot wind-up starts that block. 2500 ms is only the
+   fallback end when this rig's alternate-body SpecialAttack03 state cannot be measured; a
+   valid measured length extends the same single block for that rig. The substituted
+   TransformMoveEvent remains diagnostic-only and does not supply this schedule. */
 static int g_sp3_alt_on_ms  = 1000;   /* alternate form appears at this offset */
 static int g_sp3_alt_off_ms = 2500;   /* fallback end when a rig has no measured alternate clip */
 static int g_sp3_alt_len_ms = 0;      /* measured SpecialAttack03 length for this cinematic */
@@ -3201,7 +3200,7 @@ static void sp3_aux_add(void* prop, int requested){
 }
 static uint64_t sp3_alt_end_ms(void){
     if(g_sp3_alt_len_ms<=0) return (uint64_t)g_sp3_alt_off_ms;
-    uint64_t end=(uint64_t)g_sp3_alt_on_ms+(uint64_t)g_sp3_alt_len_ms;
+    uint64_t end=g_sp3_alt_on_ms+g_sp3_alt_len_ms;
     if(end<(uint64_t)g_sp3_alt_off_ms) end=(uint64_t)g_sp3_alt_off_ms;
     if(end>11000u) end=11000u;
     return end;
