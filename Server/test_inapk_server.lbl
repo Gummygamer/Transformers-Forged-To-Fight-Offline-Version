@@ -228,16 +228,18 @@ function selected_squad_checks(base: text, port: integer): boolean
   intent: test
   let path: text = "/bcg/getUserData"
   let default_reply: HttpReply = request(base, port, "GET", path, "", true, false)
-  let selected: text = "\{\"heroes\":[\"megatron_cin_rotf\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}"
+  let selected: text = "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\"],\"teamID\":\"0\"\}"
   let selected_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", selected, true, true)
   let after_selected: HttpReply = request(base, port, "GET", path, "", true, false)
   let set_id: text = "\{\"setId\":\"story_act1\"\}"
   let simple_begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", set_id, true, true)
   let empty_move: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "", true, false)
-  let switched: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"megatron_g1_mp10\"\}"
+  let switched: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\"\}"
   let switched_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", switched, true, true)
   let unknown: text = "\{\"heroes\":[\"not_a_real_bot\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}"
   let unknown_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", unknown, true, true)
+  let overcap: text = "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\",\"soundwave_gs\"],\"teamID\":\"0\"\}"
+  let overcap_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", overcap, true, true)
   let final_reply: HttpReply = request(base, port, "GET", path, "", true, false)
   let decoded: Json = jsonout.parse_json(final_reply.body)
   let saved_teams: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(decoded, "result"), "updates"), "savedTeams")
@@ -246,7 +248,7 @@ function selected_squad_checks(base: text, port: integer): boolean
   let first_hero: Json = unwrap_or(get(jsonout.list_items(heroes), 0), jsonout.json_obj([]))
   let bid: text = jsonout.as_text(jsonout.obj_get(first_hero, "bid"))
   let team: a list of text = gamedata.default_team()
-  expect("default user", default_reply.body, fakeserver.dynamic(path, "")) and expect("default canned", default_reply.body, read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))) and expect("selected", selected_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", selected)) and expect("after selected", after_selected.body, fakeserver.dynamic(path, "")) and expect("simple begin", simple_begin.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", set_id)) and expect("empty move", empty_move.body, fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) and expect("switched", switched_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", switched)) and expect("unknown", unknown_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", unknown)) and expect("final", final_reply.body, fakeserver.dynamic(path, "")) and expect("fallback", bid, unwrap_or(get(team, 0), ""))
+  expect("default user", default_reply.body, fakeserver.dynamic(path, "")) and expect("default canned", default_reply.body, read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))) and expect("selected", selected_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", selected)) and expect("after selected", after_selected.body, fakeserver.dynamic(path, "")) and expect("simple begin", simple_begin.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", set_id)) and expect("empty move", empty_move.body, fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) and expect("switched", switched_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", switched)) and expect("unknown", unknown_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", unknown)) and expect("overcap", overcap_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", overcap)) and expect("final", final_reply.body, fakeserver.dynamic(path, "")) and expect("fallback", bid, unwrap_or(get(team, 0), ""))
 end
 
 function test_selected_squad_session_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult

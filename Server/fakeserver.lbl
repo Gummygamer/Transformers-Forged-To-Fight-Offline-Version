@@ -157,7 +157,7 @@ end
 function set_saved_team(team: a list of text): nothing
   intent: save
   let state: ServerState = load_state()
-  save_state(ServerState { team: team, positions: state.positions })
+  save_state(ServerState { team: gamedata.resolve_team(team), positions: state.positions })
 end
 
 function position_for(qid: text): Position
@@ -398,18 +398,14 @@ function quest_begin_response(p: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
   mutable posted: a list of text = []
-  let tm0: text = json_text_or(req, "tm0", "")
-  let tm1: text = json_text_or(req, "tm1", "")
-  let tm2: text = json_text_or(req, "tm2", "")
-  if tm0 != "" then
-  set posted = append(posted, tm0)
+  mutable index: integer = 0
+  while index < gamedata.team_size_max() do
+  let member: text = json_text_or(req, "tm" ++ to_text(index), "")
+  if member != "" then set posted = append(posted, member) end
+  set index = index + 1
 end
-  if tm1 != "" then
-  set posted = append(posted, tm1)
-end
-  if tm2 != "" then
-  set posted = append(posted, tm2)
-end
+  let overflow: text = json_text_or(req, "tm" ++ to_text(gamedata.team_size_max()), "")
+  if overflow != "" then set posted = append(posted, overflow) end
   if length(posted) > 0 then
   set_saved_team(posted)
 end

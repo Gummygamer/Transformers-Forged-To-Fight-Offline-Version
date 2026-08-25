@@ -48,20 +48,31 @@ end
 
 function test_set_saved_team_updates_active_team_and_remembered_quest_squad(): boolean
   intent: test
-  let team: a list of text = ["grimlock_gs_mp08", "megatron_cin_rotf"]
+  let team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  let saved: Json = result(fakeserver.dynamic("/bcg/setSavedTeam", "\{\"teamID\":\"0\",\"heroes\":[\"grimlock_gs_mp08\",\"megatron_cin_rotf\"]\}"))
+  let saved: Json = result(fakeserver.dynamic("/bcg/setSavedTeam", "\{\"teamID\":\"0\",\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\"]\}"))
   let updates: Json = jsonout.obj_get(saved, "updates")
   let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
   let refreshed: Json = result(fakeserver.dynamic("/bcg/getUserData", ""))
   let refresh_updates: Json = jsonout.obj_get(refreshed, "updates")
   let saved_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(refresh_updates, "savedTeams")), 0), jsonout.json_obj([]))
-  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}"))
+  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\"\}"))
   let active_quest: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "1.1.1")
   let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active_quest, "instances")), 0), jsonout.json_obj([]))
   let users: Json = jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users")
-  fakeserver.get_saved_team() == team and length(object_keys(jsonout.obj_get(active, "heroes"))) == 2 and hero_bids(jsonout.obj_get(saved_team, "heroes")) == team and object_keys(jsonout.obj_get(active, "heroes")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")) == team
+  let moved: Json = result(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}"))
+  fakeserver.get_saved_team() == team and length(object_keys(jsonout.obj_get(active, "heroes"))) == 5 and hero_bids(jsonout.obj_get(saved_team, "heroes")) == team and object_keys(jsonout.obj_get(active, "heroes")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == team
+end
+
+function test_sparse_and_overflow_quest_team_fields_follow_capacity_rules(): boolean
+  intent: test
+  let sparse: a list of text = ["optimusprime_cin_tf", "megatron_gs_leader2015", "megatron_cin_rotf"]
+  fakeserver.reset_saved_team()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"tm0\":\"optimusprime_cin_tf\",\"tm2\":\"megatron_gs_leader2015\",\"tm4\":\"megatron_cin_rotf\"\}")
+  let sparse_ok: boolean = fakeserver.get_saved_team() == sparse
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\",\"tm5\":\"soundwave_gs\"\}")
+  sparse_ok and fakeserver.get_saved_team() == gamedata.default_team()
 end
 
 function test_resp_path_for_maps_routes_to_response_files(): boolean
@@ -108,13 +119,14 @@ function main(): nothing
   intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_set_saved_team_updates_active_team_and_remembered_quest_squad", test_set_saved_team_updates_active_team_and_remembered_quest_squad())
+  set failed = failed + report("test_sparse_and_overflow_quest_team_fields_follow_capacity_rules", test_sparse_and_overflow_quest_team_fields_follow_capacity_rules())
   set failed = failed + report("test_resp_path_for_maps_routes_to_response_files", test_resp_path_for_maps_routes_to_response_files())
   set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_movedir_advances_then_refuses_off_map", test_movedir_advances_then_refuses_off_map())
   set failed = failed + report("test_resolve_response_prefers_canned_then_rule_then_default", test_resolve_response_prefers_canned_then_rule_then_default())
   set failed = failed + report("test_encode_spacing_matches_python", test_encode_spacing_matches_python())
-  print(to_text(7 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(8 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

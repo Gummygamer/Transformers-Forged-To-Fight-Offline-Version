@@ -84,6 +84,14 @@ activeTeams: []}, deletes: {}}`. The update handler reads `userData.blueprintsMa
 `teamSizeMax`, and `teamCountMax`. Owned heroes arrive through `updates` and are processed
 by the user data update handler, not through `userData` directly.
 
+The client already has five `TeamSlot` prefabs and five podium positions. The offline account
+and mission summaries now both advertise `teamSizeMax: 5`, while `default_team()` deliberately
+remains three members. `teamCountMax` is separate: it remains the count of saved-team records,
+not the number of members in one squad. Host and in-APK servers share the same five-member
+limit, preserve submitted member order (including duplicates), and fall back to the default
+for empty, unknown, or over-cap squads. This supersedes earlier historical verification that
+covered only three selected members.
+
 `/bcg/getLoginData` carries the config blob: `characters`, `blueprints`, `heroes`, and
 `evoBlueprints`.
 
@@ -691,7 +699,7 @@ baked transition/body pair before updating it.
 The static export hardcodes the board width in `move_body`'s bounds check and the
 `add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
 updating those two places and both exact constants in `Server/export_payload.lbl` and
-`Server/test_export_payload.lbl`: the current values are 9365 entries and 4570804 bytes
+`Server/test_export_payload.lbl`: the current values are 9365 entries and 4570960 bytes
 (formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
 the whole test binary before it can print a test summary.
 

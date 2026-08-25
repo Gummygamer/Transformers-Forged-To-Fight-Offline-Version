@@ -61,6 +61,10 @@ already-shipped local loopback server compute the same response bodies the Pytho
 produced, so the bundled build behaves like the host-server build. It adds no network
 interception, no new binary patch, and no new hook.
 
+The five-slot change exposes two existing pre-mission client slots and echoes only locally
+selected roster identifiers. It adds no game assets, interception, certificate bypass, or
+client-binary patch.
+
 The BOTS-roster navigation fix likewise introduces no authored game values: `Server/gamedata.lbl`
 is unchanged, so it adds no invented numbers, names, or content. Its arm64 `RSENTER`, `RSEXIT`,
 and `RSHOME` hooks only call `GameObject.SetActive` on base-builder objects that the client's own base-board

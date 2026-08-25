@@ -557,9 +557,14 @@ end
   found
 end
 
+public function team_size_max(): integer
+  intent: return
+  5
+end
+
 public function resolve_team(team: a list of text): a list of text
   intent: return
-  if length(team) == 0 then
+  if length(team) == 0 or length(team) > team_size_max() then
   default_team()
 else
   mutable valid: boolean = true
@@ -732,7 +737,7 @@ end
 
 public function build_user_data(team: a list of text): Json
   intent: build
-  jsonout.json_obj([jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("blueprintsMax", jsonout.json_int(500)), jsonout.json_pair("teamSizeMax", jsonout.json_int(3)), jsonout.json_pair("teamCountMax", jsonout.json_int(5))])), jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("heroes", jsonout.json_list(json_hero_entries(owned()))), jsonout.json_pair("savedTeams", jsonout.json_list([build_saved_team("0", team)])), jsonout.json_pair("activeTeams", jsonout.json_list([build_active_team("1.1.1-0", team)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))])
+  jsonout.json_obj([jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("blueprintsMax", jsonout.json_int(500)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("teamCountMax", jsonout.json_int(5))])), jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("heroes", jsonout.json_list(json_hero_entries(owned()))), jsonout.json_pair("savedTeams", jsonout.json_list([build_saved_team("0", team)])), jsonout.json_pair("activeTeams", jsonout.json_list([build_active_team("1.1.1-0", team)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))])
 end
 
 function mission_part(parts: a list of text, index: integer): integer
@@ -766,7 +771,7 @@ public function build_quest_summary(mission_id: text, set_id: text): Json
   let act: integer = mission_part(parts, 0)
   let chapter: integer = mission_part(parts, 1)
   let mission: integer = mission_part(parts, 2)
-  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
 end
 
 public function build_quest_detail(mission_id: text, set_id: text): Json

@@ -28,6 +28,8 @@ return to the board. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attac
 and combat armor tuning allow landed hits to reduce health. The roster, hero details,
 team selection, and battle model IDs are generated from the same original data source,
 so combat uses the matching 3D mesh instead of a generic placeholder.
+Pre-mission squad selection exposes all five client slots; the initial saved squad remains
+the original three bots, leaving the fourth and fifth slots available to fill.
 During a STORY fight, the special-attack meter is no longer locked: it charges from landed
 and received hits, and a special attack can be fired for real damage. Every bot has all three
 special-meter segments available immediately.
@@ -513,8 +515,7 @@ The Python original `Server/gamedata.py` was removed once `Server/gamedata.lbl` 
 verified to regenerate `Server/responses/` byte-identically; it remains recoverable from
 git history at commit `23950a3`, for example `git show 23950a3:Server/gamedata.py`. With
 the Python gone, the committed artifacts are the oracle: `Server/responses/` and the baked
-payload (4,500,632 bytes, 9325 entries; md5 `9e21419042d65e38ecf763d96460f215` at listen
-port 8080 and `761b18bc9590ec1035662fefe2f11c4e` at 18080).
+payload (4,570,960 bytes, 9365 entries at listen port 8080).
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
