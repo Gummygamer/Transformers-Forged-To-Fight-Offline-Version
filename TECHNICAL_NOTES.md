@@ -305,6 +305,15 @@ current attack (`get_IsAttacking` `0x11752C8`), and the stock ranged gate (`get_
 its normal melee-range, hit-stun, recovery, and blocked-action checks. A bounded successful
 trigger diagnostic is logged as `AIRANGE fired=1`.
 
+The hook was live-verified on the persistent arm64 emulator on 2026-08-25; the earlier
+writeup was static reverse-engineering only because its install was ARMv7-only and could not
+load the arm64 hook. The `com.kabam.bigrobot` install was then `arm64-v8a`, so
+`tools/nativehook/deploy_emulator.sh` deployed the hook to a `lib/arm64` directory that it
+loaded from. In the STORY 1.1.1 Sharkticon fight, after the player retreated beyond melee
+range, `dotkeys.log` recorded three `AIRANGE fired=1` lines and the opponent was seen firing
+its basic ranged projectile across the arena. No source change was needed: the committed arm64
+hook was already correct, and the previous blocker was purely the device ABI.
+
 This is arm64-v8a only. ARMv7 must not copy these RVAs or fields: a future port must pass
 `patches/abi_map.lbl ... verify`, use mapped values, inspect the first eight A32 bytes before
 relocation, and preserve hard-float `dT` rather than using the generic thunk.
