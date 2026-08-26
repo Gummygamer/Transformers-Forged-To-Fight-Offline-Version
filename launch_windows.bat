@@ -15,8 +15,10 @@ setlocal enabledelayedexpansion
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
 
-set "LEGIBLE_REPO=https://github.com/darabat/legible"
-set "LEGIBLE_SRC=%LOCALAPPDATA%\legible-lang\src"
+set "LEGIBLE_REPO=https://github.com/Gummygamer/legible-lang.git"
+set "LEGIBLE_BRANCH=development"
+set "LEGIBLE_ROOT=%LOCALAPPDATA%\legible-lang"
+set "LEGIBLE_SRC=%LEGIBLE_ROOT%\src"
 
 where legible >nul 2>nul
 if not %errorlevel%==0 (
@@ -88,14 +90,53 @@ if not %errorlevel%==0 (
   exit /b 1
 )
 
-if exist "%LEGIBLE_SRC%\.git" (
+if not exist "%LEGIBLE_ROOT%" mkdir "%LEGIBLE_ROOT%"
+if not !errorlevel!==0 (
+  echo Could not create the Legible source cache at "%LEGIBLE_ROOT%".
+  exit /b 1
+)
+
+rem A cancelled or failed clone can leave a .git entry behind without a usable
+rem worktree. Validate both Git metadata and Cargo.toml before attempting an
+rem update; otherwise preserve the broken cache and clone a clean copy.
+set "LEGIBLE_SRC_VALID="
+if exist "%LEGIBLE_SRC%\Cargo.toml" (
+  git -C "%LEGIBLE_SRC%" rev-parse --is-inside-work-tree >nul 2>nul
+  if !errorlevel!==0 set "LEGIBLE_SRC_VALID=1"
+)
+
+if defined LEGIBLE_SRC_VALID (
   echo ==^> Updating Legible interpreter source...
-  git -C "%LEGIBLE_SRC%" pull --ff-only
+  git -C "%LEGIBLE_SRC%" remote set-url origin "%LEGIBLE_REPO%"
+  if not !errorlevel!==0 (
+    echo Could not configure the Legible source repository.
+    exit /b 1
+  )
+  git -C "%LEGIBLE_SRC%" pull --ff-only origin "%LEGIBLE_BRANCH%"
+  if not !errorlevel!==0 (
+    echo Could not update the Legible source checkout. Resolve any local changes
+    echo in "%LEGIBLE_SRC%" or remove that directory, then re-run this script.
+    exit /b 1
+  )
 ) else (
+  if exist "%LEGIBLE_SRC%" (
+    set "LEGIBLE_BACKUP=%LEGIBLE_ROOT%\src.invalid-!RANDOM!-!RANDOM!"
+    echo ==^> Found an incomplete Legible source cache; preserving it as:
+    echo     !LEGIBLE_BACKUP!
+    move "%LEGIBLE_SRC%" "!LEGIBLE_BACKUP!" >nul
+    if not !errorlevel!==0 (
+      echo Could not move the incomplete cache out of the way.
+      exit /b 1
+    )
+  )
   echo ==^> Cloning Legible interpreter source...
-  if not exist "%LOCALAPPDATA%\legible-lang" mkdir "%LOCALAPPDATA%\legible-lang"
-  git clone --depth 1 "%LEGIBLE_REPO%" "%LEGIBLE_SRC%"
+  git clone --depth 1 --branch "%LEGIBLE_BRANCH%" "%LEGIBLE_REPO%" "%LEGIBLE_SRC%"
   if not !errorlevel!==0 exit /b 1
+)
+
+if not exist "%LEGIBLE_SRC%\Cargo.toml" (
+  echo The Legible source checkout is missing Cargo.toml; installation cannot continue.
+  exit /b 1
 )
 
 rem --no-default-features skips the optional SDL2 build (window/graphics
