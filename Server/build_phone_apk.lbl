@@ -274,7 +274,7 @@ function valid_ipv4(value: text): boolean
   let parts: a list of text = split(value, ".")
   mutable valid: boolean = length(parts) == 4
   for part in parts do
-    let parsed: integer = to_integer(part)
+    let parsed: integer = unwrap_or(to_integer(part), -1)
     if part == "" or (text_length(part) > 1 and starts_with(part, "0")) or parsed < 0 or parsed > 255 then set valid = false end
     mutable index: integer = 0
     while index < text_length(part) do
