@@ -699,7 +699,7 @@ baked transition/body pair before updating it.
 The static export hardcodes the board width in `move_body`'s bounds check and the
 `add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
 updating those two places and both exact constants in `Server/export_payload.lbl` and
-`Server/test_export_payload.lbl`: the current values are 9365 entries and 4570960 bytes
+`Server/test_export_payload.lbl`: the current values are 9365 entries and 4571204 bytes
 (formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
 the whole test binary before it can print a test summary.
 
@@ -753,6 +753,22 @@ abilities, rewards, persistence, and the economy.
 4. Re-confirm on a live device that the mission dialogue overlay renders its authored text
 after the `dialogueTable` bare-array fix. The trigger itself is confirmed: entering a tile that
 carries a `dialogue` id opens the overlay.
+
+## STORY encounter retry gate
+
+`POST /matches/resolve-match/quests_fight` reports its outcome as the nested
+`results.result` string (for example, `{"results":{"result":"WON"},"qid":"1.1.1-0"}`).
+The top-level `result` spelling is accepted only as a compatibility fallback. The Legible
+server persists a pending-encounter bit with each quest position. Entering an encounter arms
+that bit; only a case-insensitive `WON` clears it. `LOST`, `QUIT`, missing, and non-text
+outcomes deliberately leave it armed.
+
+While armed, a board movement request is rendered with a zero offset at the stored position.
+The existing move payload for that offset re-emits the encounter action and its activated
+`currentBattleId` / `currentBattleState`, so the player is sent back into the same fight.
+`quest-begin` and quest-position resets clear the bit. The bundled C server keeps the same
+state process-locally under its position mutex; its state naturally resets when the game
+process restarts, whereas the Legible development server writes it to its state file.
 
 ## Nemesis Prime final boss and the displayed power number
 

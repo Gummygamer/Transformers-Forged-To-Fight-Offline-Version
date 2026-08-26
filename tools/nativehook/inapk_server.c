@@ -35,7 +35,7 @@
 
 typedef struct { uint32_t ko, kl, bo, bl; } Rec;
 typedef struct { const unsigned char *p; size_t n; uint32_t count, eo, pc, po, dfo, dfl, port; } Blob;
-typedef struct { char qid[64]; int x, y; } Position;
+typedef struct { char qid[64]; int x, y, pending; } Position;
 typedef struct { unsigned char *p; size_t n, cap; } Out;
 typedef struct { char bid[TEAM_SIZE_MAX][64]; int count; } Team;
 typedef struct { const char *token; const unsigned char *p; size_t n; } TemplateArg;
@@ -152,6 +152,29 @@ static int json_string(const char *s, const char *end, const char *want, char *o
     while (p < end) { const char *q=strstr(p,"\""); if(!q||q>=end)return 0; q++; if((size_t)(end-q)<wl+1||memcmp(q,want,wl)||q[wl]!='\"'){p=q;continue;} q+=wl+1; while(q<end&&isspace((unsigned char)*q))q++; if(q>=end||*q!=':') {p=q;continue;} q++;while(q<end&&isspace((unsigned char)*q))q++; if(q>=end||*q!='\"')return 0; q++; size_t n=0; while(q<end&&*q!='\"'){if(*q=='\\'||n+1>=cap)return 0;out[n++]=*q++;} if(q>=end)return 0;out[n]=0;return 1; }
     return 0;
 }
+static const char *json_object_end(const char *p, const char *end) {
+    int depth=0, quoted=0, escaped=0;
+    if(!p || p>=end || *p!='{') return NULL;
+    for(;p<end;p++) { char c=*p;
+        if(quoted) { if(escaped) escaped=0; else if(c=='\\') escaped=1; else if(c=='"') quoted=0; }
+        else if(c=='"') quoted=1;
+        else if(c=='{') depth++;
+        else if(c=='}' && --depth==0) return p+1;
+    }
+    return NULL;
+}
+static void normalize_qid(const char *submitted, char out[64]) {
+    char *dash;
+    snprintf(out,64,"%.63s",submitted ? submitted : "");
+    dash=strrchr(out,'-');
+    if(dash && dash[1]) *dash=0;
+}
+static int contains_bytes(const unsigned char *s, size_t n, const char *needle) {
+    size_t i, l=strlen(needle);
+    if(!l || l>n) return 0;
+    for(i=0;i+l<=n;i++) if(!memcmp(s+i,needle,l)) return 1;
+    return 0;
+}
 static int json_int(const char *s, const char *end, const char *want, int def) {
     const char *p=s; size_t wl=strlen(want);
     while(p<end){const char*q=strstr(p,"\"");char *stop; long v;if(!q||q>=end)break;q++;if((size_t)(end-q)<wl+1||memcmp(q,want,wl)||q[wl]!='\"'){p=q;continue;}q+=wl+1;while(q<end&&isspace((unsigned char)*q))q++;if(q>=end||*q!=':'){p=q;continue;}q++;while(q<end&&isspace((unsigned char)*q))q++;errno=0;v=strtol(q,&stop,10);if(stop==q||errno)return def;return (int)v;}return def;
@@ -224,6 +247,17 @@ static void store_quest_team(const char *s, const char *end) {
 }
 static const char *path_last(const char *p) { const char *x=strrchr(p,'/'); return x?x+1:p; }
 static int has_suffix(const char *p, const char *s) { size_t a=strlen(p),b=strlen(s);return a>=b&&!memcmp(p+a-b,s,b); }
+static void resolve_match(const char *body, const char *end) {
+    char outcome[64]="", submitted[64]="", qid[64]; const char *results=json_value(body,end,"results"), *results_end;
+    results_end=json_object_end(results,end);
+    if(!results_end || !json_string(results,results_end,"result",outcome,sizeof outcome)) json_string(body,end,"result",outcome,sizeof outcome);
+    if(strcasecmp(outcome,"WON")) return;
+    json_string(body,end,"qid",submitted,sizeof submitted);
+    normalize_qid(submitted,qid);
+    pthread_mutex_lock(&g_pos_lock);
+    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && (!submitted[0] || !strcmp(g_pos[i].qid,qid))) g_pos[i].pending=0;
+    pthread_mutex_unlock(&g_pos_lock);
+}
 static const unsigned char *dynamic(const char *method, const char *p, const char *query, const char *body, size_t bn, Out *o, size_t *outn) {
     char key[256], tid[64]="", bid[64]="", mid[64], qid[64]; const unsigned char *v; size_t n; const char *end=body+bn;
     /* This ordering deliberately mirrors fakeserver.H._dynamic. */
@@ -251,11 +285,33 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         v=lookup("@herodata:close",&n);if(!v||!out_add(o,v,n))return NULL; Out compact=*o; o->p=NULL;o->n=o->cap=0; v=json_default_spaces(compact.p,compact.n,o,outn);free(compact.p);return v;
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
+    if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
     if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); /* reset even if response is absent */
-        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
-    if(strstr(p,"/quests/quest-movedir/")) { int dx=1,dy=0,sx=0,sy=1,nx,ny;
-        const char *z=strrchr(p,'/'); const char *yseg=z?z+1:""; const char *z2=z?NULL:NULL; if(z){z2=z-1;while(z2>p&&*z2!='/')z2--; if(*z2=='/')z2++;} if(!z||!z2)return NULL; char xs[32], ys[32], seg[96];snprintf(ys,sizeof ys,"%.31s",yseg);snprintf(xs,sizeof xs,"%.*s",(int)(z-z2),z2); const char *z3=z2-2;while(z3>p&&*z3!='/')z3--;if(*z3=='/')z3++;snprintf(seg,sizeof seg,"%.*s",(int)(z2-z3-1),z3);char *dash=strrchr(seg,'-');if(!dash)return NULL;*dash=0;snprintf(qid,sizeof qid,"%.63s",seg);char *ep;long lx=strtol(xs,&ep,10);if(*ep)lx=1;long ly=strtol(ys,&ep,10);if(*ep){lx=1;ly=0;}dx=(int)lx;dy=(int)ly;
-        pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}}snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);int found=0;if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}if(found&&slot>=0){g_pos[slot].x=nx;g_pos[slot].y=ny;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}return NULL; }
+        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
+    if(strstr(p,"/quests/quest-movedir/")) {
+        int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0;
+        const char *z=strrchr(p,'/'), *yseg=z?z+1:"", *z2=z?NULL:NULL;
+        char xs[32], ys[32], seg[96], *ep; long lx,ly;
+        if(z){z2=z-1;while(z2>p&&*z2!='/')z2--;if(*z2=='/')z2++;}
+        if(!z||!z2)return NULL;
+        snprintf(ys,sizeof ys,"%.31s",yseg);snprintf(xs,sizeof xs,"%.*s",(int)(z-z2),z2);
+        const char *z3=z2-2;while(z3>p&&*z3!='/')z3--;if(*z3=='/')z3++;
+        snprintf(seg,sizeof seg,"%.*s",(int)(z2-z3-1),z3);char *dash=strrchr(seg,'-');if(!dash)return NULL;*dash=0;
+        snprintf(qid,sizeof qid,"%.63s",seg);lx=strtol(xs,&ep,10);if(*ep)lx=1;ly=strtol(ys,&ep,10);if(*ep){lx=1;ly=0;}dx=(int)lx;dy=(int)ly;
+        pthread_mutex_lock(&g_pos_lock);
+        for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
+        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
+        if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
+        snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
+        if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}
+        if(found&&slot>=0){g_pos[slot].x=nx;g_pos[slot].y=ny;}
+        pthread_mutex_unlock(&g_pos_lock);
+        snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
+        if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}
+        if(v&&found&&contains_bytes(v,n,"\"currentBattleState\"")){pthread_mutex_lock(&g_pos_lock);if(slot>=0&&!strcmp(g_pos[slot].qid,qid))g_pos[slot].pending=1;pthread_mutex_unlock(&g_pos_lock);}
+        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
+        return NULL;
+    }
     if(has_suffix(p,"/bcg/setSavedTeam")) { char teamid[64]="0",bids[TEAM_SIZE_MAX][64];int count,invalid;Team team;Out steam={0},ateam={0};TemplateArg args[3];json_string(body,end,"teamID",teamid,sizeof teamid);json_heroes(body,end,bids,&count,&invalid);store_saved_team(bids,count,invalid);v=lookup("@savedteam:template",&n);if(!v||!resolve_team(&team)||!render_steam(&steam,&team)||!render_ateam(&ateam,&team)){free(steam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%TID%",(const unsigned char*)teamid,strlen(teamid)};args[1]=(TemplateArg){"%STEAM%",steam.p,steam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(steam.p);free(ateam.p);return v; }
     return NULL;
 }

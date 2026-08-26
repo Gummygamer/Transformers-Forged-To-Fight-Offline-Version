@@ -201,9 +201,38 @@ function payload_session_checks(base: text, port: integer): boolean
     let path: text = "/quests/quest-movedir/1.1.1-0/1/0"
     let moved: HttpReply = request(base, port, "POST", path, "\{\}", false, true)
     if not expect("movedir " ++ to_text(index), moved.body, fakeserver.dynamic(path, "\{\}")) then set good = false end
+    let resolve_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}"
+    let resolved: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", resolve_body, false, true)
+    if resolved.status != "200" or resolved.body != "\{\"error\":null,\"result\":\{\}\}" or fakeserver.dynamic("/matches/resolve-match/quests_fight", resolve_body) != "" then set good = false end
     set index = index + 1
   end
   good
+end
+
+function native_retry_gate_checks(base: text, port: integer): boolean
+  intent: test
+  let begin_path: text = "/quests/quest-begin/1.1.1"
+  let move_path: text = "/quests/quest-movedir/1.1.1-0/1/0"
+  let begin_body: text = "\{\"setId\":\"story_act1\"\}"
+  let lost_body: text = "\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}"
+  let won_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}"
+  let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
+  let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
+  let first: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+  let expected_first: text = fakeserver.dynamic(move_path, "\{\}")
+  let lost: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", lost_body, false, true)
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", lost_body)
+  let replay: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+  let expected_replay: text = fakeserver.dynamic(move_path, "\{\}")
+  let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
+  let advanced: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+  let expected_advanced: text = fakeserver.dynamic(move_path, "\{\}")
+  let missing: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", "\{\}", false, true)
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\}")
+  let held: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+  let expected_held: text = fakeserver.dynamic(move_path, "\{\}")
+  expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
 end
 
 function test_payload_server_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
@@ -219,8 +248,9 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
     let b: boolean = payload_dynamic_checks(base, port)
     let c: boolean = payload_tutorial_checks(base, port)
     let d: boolean = payload_session_checks(base, port)
+    let e: boolean = native_retry_gate_checks(base, port)
     stop_harness(started.pid)
-    if a and b and c and d then ok() else failed("wire regressions") end
+    if a and b and c and d and e then ok() else failed("wire regressions") end
   end
 end
 

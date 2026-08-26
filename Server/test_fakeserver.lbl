@@ -46,6 +46,44 @@ function hero_bids(node: Json): a list of text
   bids
 end
 
+function current_pos(body: text): Json
+  intent: get
+  jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "currentPos")
+end
+
+function move_to(body: text): Json
+  intent: get
+  let results: Json = jsonout.obj_get(result(body), "results")
+  jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(results), 0), jsonout.json_obj([])), "action"), "moveto")
+end
+
+function battle(body: text): Json
+  intent: get
+  let results: Json = jsonout.obj_get(result(body), "results")
+  jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(results), 1), jsonout.json_obj([])), "action"), "battle")
+end
+
+function current_battle_id(body: text): text
+  intent: get
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "currentBattleId"))
+end
+
+function current_battle_state(body: text): text
+  intent: get
+  let users: Json = jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "users")
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "currentBattleState"))
+end
+
+function pos_x(body: text): integer
+  intent: get
+  jsonout.as_int(jsonout.obj_get(current_pos(body), "x"))
+end
+
+function resolve(body: text): text
+  intent: resolve
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", body)
+end
+
 function test_set_saved_team_updates_active_team_and_remembered_quest_squad(): boolean
   intent: test
   let team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
@@ -93,15 +131,95 @@ function test_tutorial_branches_block_live_and_complete(): boolean
   blocked == "\{\"err\": \"unavailable\", \"error\": \"unavailable\", \"retry\": false, \"fatal\": false, \"result\": \{\}\}" and contains_text(live, "\"s\": \"started\"") and contains_text(complete, "\"s\": \"completed\"") and fakeserver.dynamic("/tutorial/start-tutorial", "") == ""
 end
 
-function test_movedir_advances_then_refuses_off_map(): boolean
+function test_movedir_walks_full_board_after_wins(): boolean
   intent: test
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
-  let one: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  let two: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  let three: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  contains_text(one, "\"x\": 1") and contains_text(two, "\"x\": 2") and contains_text(three, "\"x\": 2")
+  mutable row: integer = 1
+  mutable good: boolean = true
+  while row < gamedata.quest_dim() do
+  let moved: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  if pos_x(moved) != row or jsonout.as_int(jsonout.obj_get(move_to(moved), "x")) != row or jsonout.as_int(jsonout.obj_get(battle(moved), "x")) != row then set good = false end
+  resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}")
+  set row = row + 1
+end
+  let final_move: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  good and pos_x(final_move) == gamedata.quest_dim() - 1 and jsonout.as_int(jsonout.obj_get(move_to(final_move), "x")) == gamedata.quest_dim() - 1
+end
+
+function test_lost_replays_pending_battle(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}")
+  let replay: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  pos_x(replay) == 1 and jsonout.as_int(jsonout.obj_get(move_to(replay), "x")) == 1 and jsonout.as_int(jsonout.obj_get(battle(replay), "x")) == 1 and current_battle_id(replay) == gamedata.minion_blueprint() and current_battle_state(replay) == "activated"
+end
+
+function test_nested_won_with_board_qid_advances(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  let reply: text = resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}")
+  let moved: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  reply == "" and pos_x(moved) == 2
+end
+
+function test_quit_and_empty_keep_pending(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"QUIT\"\},\"qid\":\"1.1.1-0\"\}")
+  let quit: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  resolve("\{\}")
+  let empty: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  pos_x(quit) == 1 and pos_x(empty) == 1
+end
+
+function test_qidless_won_clears_only_pending_quest(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"WON\"\}\}")
+  pos_x(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) == 2
+end
+
+function test_plain_and_board_qids_normalize(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1\"\}")
+  let plain: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}")
+  pos_x(plain) == 2 and pos_x(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) == 2
+end
+
+function test_quest_resets_and_legacy_state_disarm_pending(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  write_file(fakeserver.log_dir() ++ "/.fakeserver-state", "S|\nQ|1.1.1|1|1")
+  let legacy: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  let reset_by_begin: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  fakeserver.reset_quest_positions()
+  let reset_positions: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  pos_x(legacy) == 2 and pos_x(reset_by_begin) == 1 and pos_x(reset_positions) == 1
 end
 
 function test_resolve_response_prefers_canned_then_rule_then_default(): boolean
@@ -123,10 +241,18 @@ function main(): nothing
   set failed = failed + report("test_resp_path_for_maps_routes_to_response_files", test_resp_path_for_maps_routes_to_response_files())
   set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
-  set failed = failed + report("test_movedir_advances_then_refuses_off_map", test_movedir_advances_then_refuses_off_map())
+  set failed = failed + report("test_movedir_walks_full_board_after_wins", test_movedir_walks_full_board_after_wins())
+  set failed = failed + report("test_lost_replays_pending_battle", test_lost_replays_pending_battle())
+  set failed = failed + report("test_nested_won_with_board_qid_advances", test_nested_won_with_board_qid_advances())
+  set failed = failed + report("test_quit_and_empty_keep_pending", test_quit_and_empty_keep_pending())
+  set failed = failed + report("test_qidless_won_clears_only_pending_quest", test_qidless_won_clears_only_pending_quest())
+  set failed = failed + report("test_plain_and_board_qids_normalize", test_plain_and_board_qids_normalize())
+  set failed = failed + report("test_quest_resets_and_legacy_state_disarm_pending", test_quest_resets_and_legacy_state_disarm_pending())
   set failed = failed + report("test_resolve_response_prefers_canned_then_rule_then_default", test_resolve_response_prefers_canned_then_rule_then_default())
   set failed = failed + report("test_encode_spacing_matches_python", test_encode_spacing_matches_python())
-  print(to_text(8 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  print(to_text(14 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

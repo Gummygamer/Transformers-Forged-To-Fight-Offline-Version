@@ -10,6 +10,7 @@ record Position
   qid: text
   x: integer
   y: integer
+  pending: boolean
 end
 
 record ServerState
@@ -118,8 +119,9 @@ else if kind == "Q" then
   let qid: text = unwrap_or(get(fields, 1), "")
   let x: integer = unwrap_or(to_integer(unwrap_or(get(fields, 2), "0")), 0)
   let y: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "1")), 1)
+  let pending: boolean = unwrap_or(get(fields, 5), "0") == "1"
   if qid != "" then
-  set positions = append(positions, Position { qid: qid, x: x, y: y })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending })
 end
 end
   end
@@ -132,7 +134,7 @@ function save_state(state: ServerState): nothing
   create_dir(log_dir())
   mutable lines: a list of text = ["S|" ++ join(state.team, ",")]
   for position in state.positions do
-    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y))
+    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y) ++ "|1|" ++ if position.pending then "1" else "0" end)
   end
   write_file(state_file(), join(lines, "\n"))
 end
@@ -168,24 +170,24 @@ function position_for(qid: text): Position
   return position
 end
   end
-  Position { qid: qid, x: 0, y: 1 }
+  Position { qid: qid, x: 0, y: 1, pending: false }
 end
 
-function set_position(qid: text, x: integer, y: integer): nothing
+function set_position(qid: text, x: integer, y: integer, pending: boolean): nothing
   intent: save
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   mutable replaced: boolean = false
   for position in state.positions do
     if position.qid == qid then
-  set positions = append(positions, Position { qid: qid, x: x, y: y })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending })
   set replaced = true
 else
   set positions = append(positions, position)
 end
   end
   if not replaced then
-  set positions = append(positions, Position { qid: qid, x: x, y: y })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending })
 end
   save_state(ServerState { team: state.team, positions: positions })
 end
@@ -322,10 +324,28 @@ function movedir_qid(path: text): text
     if index > 0 then
   set out = out ++ "-"
 end
+
     set out = out ++ unwrap_or(get(bits, index), "")
     set index = index + 1
   end
   out
+end
+
+function normalize_qid(qid: text): text
+  intent: get
+  let bits: a list of text = split(qid, "-")
+  if length(bits) < 2 then
+  qid
+else
+  mutable out: text = ""
+  mutable index: integer = 0
+  while index < length(bits) - 1 do
+    if index > 0 then set out = out ++ "-" end
+    set out = out ++ unwrap_or(get(bits, index), "")
+    set index = index + 1
+  end
+  out
+end
 end
 
 function movedir_offset(path: text, index: integer): integer
@@ -410,7 +430,7 @@ end
   set_saved_team(posted)
 end
   let qid: text = last_segment(p)
-  set_position(qid, 0, 1)
+  set_position(qid, 0, 1, false)
   spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", "story_act1"), get_saved_team()))
 end
 
@@ -422,17 +442,40 @@ function movedir_response(p: text): text
   if offx == 999999 or offy == 999999 then
   set offx = 1
   set offy = 0
-end
+  end
   let start: Position = position_for(qid)
+  if start.pending then
+  set offx = 0
+  set offy = 0
+  else
   let candidate_x: integer = start.x + offx
   let candidate_y: integer = start.y + offy
   if candidate_x >= 0 and candidate_x < gamedata.quest_dim() and candidate_y == gamedata.quest_path_col() then
-  set_position(qid, candidate_x, candidate_y)
+  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter(candidate_x))
   else
     set offx = 0
     set offy = 0
   end
+  end
   spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, get_saved_team()))
+end
+
+function resolve_match_response(btxt: text): text
+  intent: resolve
+  let req: Json = request_object(btxt)
+  let nested: Json = if jsonout.obj_has(req, "results") and jsonout.type_name(jsonout.obj_get(req, "results")) == "object" then jsonout.obj_get(req, "results") else jsonout.json_obj([]) end
+  let outcome: text = json_text_or(nested, "result", json_text_or(req, "result", ""))
+  if uppercase(outcome) == "WON" then
+  let submitted: text = json_text_or(req, "qid", "")
+  let state: ServerState = load_state()
+  mutable positions: a list of Position = []
+  for position in state.positions do
+    let clears: boolean = if submitted == "" then true else position.qid == normalize_qid(submitted) end
+    set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end })
+  end
+  save_state(ServerState { team: state.team, positions: positions })
+end
+  ""
 end
 
 function saved_team_envelope(team_id: text, heroes: a list of text): text
@@ -461,6 +504,7 @@ function quest_dynamic(p: text, btxt: text): text
   intent: encode
   if contains_text(p, "/quests/quest-begin/") then quest_begin_response(p, btxt)
   else if contains_text(p, "/quests/quest-movedir/") then movedir_response(p)
+  else if contains_text(p, "/matches/resolve-match/") then resolve_match_response(btxt)
   else if ends_with(p, "/bcg/setSavedTeam") then saved_team_response(btxt)
   else ""
   end

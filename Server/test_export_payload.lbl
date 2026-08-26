@@ -259,6 +259,7 @@ function test_movedir_state_machine_parity(blob: integer, payload: Payload): Tes
       if not same_json(expected, actual) then
         set detail = "movedir response differs: " ++ key
       else
+        fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"" ++ qid ++ "-0\"\}")
         let transition_key: text = to_text(x) ++ " " ++ to_text(y) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy)
         let next: a list of text = split(unwrap_or(get(transitions, transition_key), to_text(x) ++ " " ++ to_text(y)), " ")
         set x = unwrap_or(to_integer(unwrap_or(get(next, 0), "0")), x)
