@@ -24,7 +24,8 @@ tutorial, with live 3D characters and combat controls.
 The local server also supplies a complete, authored STORY 1.1.1 loop: select a squad,
 enter the primordial board, move between reachable nodes, trigger the final boss,
 choose a bot on the native pre-fight screen, fight the Sharkticon, resolve a win, and
-return to the board. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attack rows
+return to the board. Movement from an encounter is gated on a submitted win, so a loss
+or quit reopens that same fight. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attack rows
 and combat armor tuning allow landed hits to reduce health. The roster, hero details,
 team selection, and battle model IDs are generated from the same original data source,
 so combat uses the matching 3D mesh instead of a generic placeholder.
@@ -44,8 +45,9 @@ are not ported to ARMv7.
 This is a playable preservation sandbox, not a complete replacement for the original game.
 The single STORY mission, `1.1.1` "Arrival", now walks an 11-tile path with ten authored
 encounters: nine escalating enemy lineups and a final boss. The mission also carries
-authored dialogue sets. Match resolution currently uses the minimal success response required
-to return to the board; completed progression, rewards, and quest state are not persisted.
+authored dialogue sets. Match resolution uses the minimal success response required to return
+to the board and only unlocks the next node after a win; completed progression, rewards, and
+the broader quest state are not persisted.
 Per-bot ability effects, additional missions and enemy lineups beyond Arrival, the economy,
 and most progression systems remain to be authored.
 
@@ -515,7 +517,7 @@ The Python original `Server/gamedata.py` was removed once `Server/gamedata.lbl` 
 verified to regenerate `Server/responses/` byte-identically; it remains recoverable from
 git history at commit `23950a3`, for example `git show 23950a3:Server/gamedata.py`. With
 the Python gone, the committed artifacts are the oracle: `Server/responses/` and the baked
-payload (4,570,960 bytes, 9365 entries at listen port 8080).
+payload (4,571,204 bytes, 9365 entries at listen port 8080).
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
