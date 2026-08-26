@@ -2,8 +2,9 @@
 rem Windows launcher for the APK patcher GUI.
 rem
 rem Installs the `legible` interpreter (and the build tools it needs: Rust,
-rem a C++ linker, git) if it is not already on PATH, makes Git's POSIX shell
-rem available to Legible's process builtins, then runs
+rem a C++ linker, git), Java, and the Android SDK/NDK if they are not already
+rem available, makes Git's POSIX shell available to Legible's process builtins,
+rem then runs
 rem `legible run tools\apk_patcher_gui\server.lbl` from the repository root.
 rem Re-running this script after the first successful run is fast: it finds
 rem `legible` already installed and skips straight to launching the GUI.
@@ -34,6 +35,20 @@ if not %errorlevel%==0 (
   exit /b 1
 )
 
+call :enable_java_path
+where java >nul 2>nul
+if not %errorlevel%==0 (
+  call :install_java
+  if not !errorlevel!==0 exit /b 1
+)
+
+call :enable_android_path
+where zipalign >nul 2>nul
+if not %errorlevel%==0 (
+  call :install_android_sdk
+  if not !errorlevel!==0 exit /b 1
+)
+
 call :enable_git_shell
 if not !errorlevel!==0 exit /b 1
 
@@ -52,6 +67,29 @@ echo     Windows it will not open automatically -- copy the printed URL below
 echo     into your browser once the server is listening.
 legible run tools\apk_patcher_gui\server.lbl --port !GUI_PORT! --no-browser %*
 exit /b %errorlevel%
+
+:enable_java_path
+where java >nul 2>nul
+if %errorlevel%==0 exit /b 0
+
+if defined JAVA_HOME if exist "%JAVA_HOME%\bin\java.exe" set "PATH=%JAVA_HOME%\bin;!PATH!"
+exit /b 0
+
+:enable_android_path
+if not defined ANDROID_HOME if defined ANDROID_SDK_ROOT set "ANDROID_HOME=!ANDROID_SDK_ROOT!"
+if not defined ANDROID_SDK_ROOT if defined ANDROID_HOME set "ANDROID_SDK_ROOT=!ANDROID_HOME!"
+if not defined ANDROID_HOME exit /b 0
+
+if exist "!ANDROID_HOME!\platform-tools\adb.exe" set "PATH=!ANDROID_HOME!\platform-tools;!PATH!"
+
+set "ANDROID_BUILD_TOOLS_DIR="
+for /f "delims=" %%B in ('dir /b /ad /o-n "!ANDROID_HOME!\build-tools" 2^>nul') do if not defined ANDROID_BUILD_TOOLS_DIR set "ANDROID_BUILD_TOOLS_DIR=!ANDROID_HOME!\build-tools\%%B"
+if defined ANDROID_BUILD_TOOLS_DIR if exist "!ANDROID_BUILD_TOOLS_DIR!\zipalign.exe" set "PATH=!ANDROID_BUILD_TOOLS_DIR!;!PATH!"
+
+set "ANDROID_NDK_DIR="
+for /f "delims=" %%N in ('dir /b /ad /o-n "!ANDROID_HOME!\ndk" 2^>nul') do if not defined ANDROID_NDK_DIR set "ANDROID_NDK_DIR=!ANDROID_HOME!\ndk\%%N"
+if defined ANDROID_NDK_DIR if exist "!ANDROID_NDK_DIR!\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android28-clang.cmd" set "PATH=!ANDROID_NDK_DIR!\toolchains\llvm\prebuilt\windows-x86_64\bin;!PATH!"
+exit /b 0
 
 :enable_git_shell
 where sh >nul 2>nul
@@ -77,6 +115,91 @@ if %errorlevel%==0 exit /b 0
 echo Could not find the POSIX shell included with Git for Windows.
 echo Repair or reinstall Git from https://git-scm.com/download/win and re-run this script.
 exit /b 1
+
+:install_java
+where winget >nul 2>nul
+if not %errorlevel%==0 goto :no_winget
+
+echo ==^> Installing JDK 21 via winget...
+winget install --id Microsoft.OpenJDK.21 -e --silent --accept-package-agreements --accept-source-agreements --override "/quiet /norestart ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJarFileRunWith,FeatureJavaHome"
+
+rem Do not rely on winget's installer override having registered JAVA_HOME.
+set "JAVA_HOME="
+for /f "delims=" %%J in ('dir /b /ad /o-n "%ProgramFiles%\Microsoft\jdk-21*-hotspot" 2^>nul') do if not defined JAVA_HOME set "JAVA_HOME=%ProgramFiles%\Microsoft\%%J"
+if not defined JAVA_HOME (
+  echo Could not locate the JDK 21 installation under "%ProgramFiles%\Microsoft".
+  exit /b 1
+)
+
+set "PATH=!JAVA_HOME!\bin;!PATH!"
+setx JAVA_HOME "!JAVA_HOME!" >nul
+where java >nul 2>nul
+if not !errorlevel!==0 (
+  echo JDK 21 was installed but java is not on PATH in this shell.
+  exit /b 1
+)
+exit /b 0
+
+:install_android_sdk
+if not defined ANDROID_HOME if defined ANDROID_SDK_ROOT set "ANDROID_HOME=!ANDROID_SDK_ROOT!"
+if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
+set "ANDROID_SDK_ROOT=!ANDROID_HOME!"
+
+set "SDKMANAGER=!ANDROID_HOME!\cmdline-tools\latest\bin\sdkmanager.bat"
+if not exist "!SDKMANAGER!" (
+  echo ==^> Downloading Android SDK command-line tools...
+  if not exist "!ANDROID_HOME!" (
+    mkdir "!ANDROID_HOME!"
+    if not !errorlevel!==0 (
+      echo Could not create the Android SDK directory at "!ANDROID_HOME!".
+      exit /b 1
+    )
+  )
+  if not exist "!ANDROID_HOME!\cmdline-tools" (
+    mkdir "!ANDROID_HOME!\cmdline-tools"
+    if not !errorlevel!==0 (
+      echo Could not create the Android SDK command-line-tools directory.
+      exit /b 1
+    )
+  )
+
+  set "CMDLINE_TOOLS_ZIP=%TEMP%\commandlinetools-win-15859902_latest.zip"
+  set "CMDLINE_TOOLS_TMP=%TEMP%\commandlinetools-win-!RANDOM!-!RANDOM!"
+  powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip' -OutFile $env:CMDLINE_TOOLS_ZIP"
+  if not !errorlevel!==0 (
+    echo Failed to download the Android SDK command-line tools.
+    exit /b 1
+  )
+  if not exist "!CMDLINE_TOOLS_ZIP!" (
+    echo The Android SDK command-line-tools download is missing.
+    exit /b 1
+  )
+
+  powershell -NoProfile -Command "Expand-Archive -LiteralPath $env:CMDLINE_TOOLS_ZIP -DestinationPath $env:CMDLINE_TOOLS_TMP -Force"
+  if not !errorlevel!==0 (
+    echo Failed to extract the Android SDK command-line tools.
+    exit /b 1
+  )
+  move "!CMDLINE_TOOLS_TMP!\cmdline-tools" "!ANDROID_HOME!\cmdline-tools\latest" >nul
+  if not !errorlevel!==0 (
+    echo Failed to install the Android SDK command-line tools.
+    exit /b 1
+  )
+)
+
+set "SDKMANAGER=!ANDROID_HOME!\cmdline-tools\latest\bin\sdkmanager.bat"
+echo ==^> Installing Android platform-tools, build-tools 35.0.0, and NDK 26.1.10909125...
+echo     This first-time download can take several minutes and use 1-2 GB.
+(for /l %%Y in (1,1,20) do @echo y) | call "!SDKMANAGER!" "--sdk_root=!ANDROID_HOME!" "platform-tools" "build-tools;35.0.0" "ndk;26.1.10909125"
+if not !errorlevel!==0 (
+  echo Android SDK package installation did not complete successfully.
+  exit /b 1
+)
+
+setx ANDROID_HOME "!ANDROID_HOME!" >nul
+setx ANDROID_SDK_ROOT "!ANDROID_HOME!" >nul
+call :enable_android_path
+exit /b 0
 
 :install_legible
 where git >nul 2>nul
@@ -199,4 +322,9 @@ echo   - git:                   https://git-scm.com/download/win
 echo   - Visual Studio Build Tools ^("Desktop development with C++"^):
 echo                            https://visualstudio.microsoft.com/visual-cpp-build-tools/
 echo   - Rust:                  https://rustup.rs
+echo   - JDK 21:                https://learn.microsoft.com/java/openjdk/download
+echo   - Android command-line tools:
+echo                            https://developer.android.com/studio#command-tools
+echo     Use sdkmanager to install platform-tools, "build-tools;35.0.0", and
+echo     "ndk;26.1.10909125", then set JAVA_HOME and ANDROID_HOME or ANDROID_SDK_ROOT.
 exit /b 1
