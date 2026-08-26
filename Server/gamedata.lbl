@@ -94,9 +94,35 @@ public function classes(): a list of text
   ["braw", "tact", "scou", "demo", "warr", "tech"]
 end
 
+public function build_advertised_base_url(host: text, scheme: text, port: text): text
+  intent: build
+  let selected_scheme: text = if scheme == "" then "https" else scheme end
+  if selected_scheme != "https" and selected_scheme != "http" then
+  print("[!] gamedata: Invalid TFTF_SERVER_SCHEME '" ++ selected_scheme ++ "'; valid schemes: https, http")
+  exit_process(1)
+  ""
+else if port != "" and (not is_digits(port) or to_integer(port) < 1 or to_integer(port) > 65535) then
+  print("[!] gamedata: Invalid TFTF_SERVER_PORT '" ++ port ++ "'; valid ports: 1..65535")
+  exit_process(1)
+  ""
+else
+  selected_scheme ++ "://" ++ host ++ if port == "" then "" else ":" ++ port end
+end
+end
+
+public function advertised_base_url(): text
+  intent: get
+  let host: text = unwrap_or(env_get("TFTF_SERVER_HOST"), "")
+  if host == "" then
+  "https://tform-0901-hzlhiniyfcwf.tf-cdn.net"
+else
+  build_advertised_base_url(host, unwrap_or(env_get("TFTF_SERVER_SCHEME"), ""), unwrap_or(env_get("TFTF_SERVER_PORT"), ""))
+end
+end
+
 public function cdn(): text
   intent: return
-  "https://tform-0901-hzlhiniyfcwf.tf-cdn.net"
+  advertised_base_url()
 end
 
 function roster_part_1(): a list of RosterEntry

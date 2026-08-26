@@ -796,6 +796,17 @@ applied the final-boss override, every `--bundle-server` APK shipped
 `rating_hp: 7800` and `rating_attack: 610` (8410 power) for this entry. It now applies the
 same override, so the baked payload also returns 28000 and 3000.
 
+## Virtual-LAN listener and advertised host
+
+`http_start(port)` takes one argument and always binds `0.0.0.0`; there is no bind-address
+knob, and none is needed for LAN or tunnel adapters. `--bundle-server` is loopback-only, so it
+is mutually exclusive with a tunnel host. `TFTF_SERVER_HOST`, `TFTF_SERVER_SCHEME`, and
+`TFTF_SERVER_PORT` override the advertised base URL in generated and canned served content;
+with no host override the original CDN URL and response bytes remain unchanged.
+
+`TFTF_ARENA_LEVEL` and `TFTF_ARENA_TOD` name the physical fight battleground scene and its
+time of day, not the online Arena mode.
+
 One deliberate side effect: `nemesisprime_gs_voyager2015` is also in `owned()`, so a player
 who fields Nemesis Prime gets the same 28000/3000 statline. That is self-consistent with
 the override living in `base_stats`, and it is intentional rather than a defect.

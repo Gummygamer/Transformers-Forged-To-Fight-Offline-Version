@@ -526,11 +526,21 @@ function file_name(path: text): text
   last_segment(path)
 end
 
+function advertised_canned_body(body: text): text
+  intent: rewrite
+  let host: text = unwrap_or(env_get("TFTF_SERVER_HOST"), "")
+  if host == "" then
+  body
+else
+  replace(body, "https://tform-0901-hzlhiniyfcwf.tf-cdn.net", gamedata.advertised_base_url())
+end
+end
+
 public function resolve_response(method: text, path: text): ResponseChoice
   intent: response
   let exact: text = resp_path_for(method, path)
   if file_exists(exact) then
-  ResponseChoice { source: "canned " ++ file_name(exact), body: read_file(exact) }
+  ResponseChoice { source: "canned " ++ file_name(exact), body: advertised_canned_body(read_file(exact)) }
 else
   let rules_path: text = path_join(resp_dir(), "_prefix_rules.json")
   if file_exists(rules_path) then
@@ -542,7 +552,7 @@ else
     let filename: text = jsonout.as_text(unwrap_or(get(pair, 1), jsonout.json_text("")))
     let response: text = path_join(resp_dir(), filename)
     if starts_with(p, prefix) and file_exists(response) then
-  return ResponseChoice { source: "rule " ++ prefix ++ " -> " ++ filename, body: read_file(response) }
+  return ResponseChoice { source: "rule " ++ prefix ++ " -> " ++ filename, body: advertised_canned_body(read_file(response)) }
 end
   end
 end
