@@ -182,7 +182,7 @@ end
 function defaults_test(): boolean
   intent: test
   let request: BuildRequest = pipeline.default_request()
-  let home: text = unwrap_or(env_get("HOME"), "")
+  let home: text = unwrap_or(env_get("HOME"), unwrap_or(env_get("USERPROFILE"), ""))
   request.abi == pipeline.arm64() and request.rebuild_hook and request.patched_il2cpp == "" and contains_text(request.il2cpp_source, "/arm64-v8a/libil2cpp.so") and request.keystore == path_join(path_join(home, ".android"), "debug.keystore") and contains(pipeline.sdk_roots(), path_join(path_join(home, "Android"), "Sdk"))
 end
 
@@ -191,6 +191,11 @@ function mapping_test(fix: Fixture): boolean
   let values: a mapping from text to text = {"source_apk": fix.request.source_apk, "dest_apk": fix.request.dest_apk, "keep_other_abi": "true", "do_install": "false", "server_port": "8123"}
   let request: BuildRequest = pipeline.request_from_mapping(values)
   request.keep_other_abi and not request.do_install and request.server_port == 8123
+end
+
+function windows_directory_name_test(): boolean
+  intent: test
+  pipeline.directory_name("C:\\Users\\Acer\\Downloads\\revival\\patched.apk") == "C:\\Users\\Acer\\Downloads\\revival"
 end
 
 function add(counts: Counts, result: Counts): Counts
@@ -217,6 +222,7 @@ function main(): nothing
   set counts = add(counts, report("pristine ELF mismatch validation", pristine_elf_mismatch_test(fix)))
   set counts = add(counts, report("user-specific defaults", defaults_test()))
   set counts = add(counts, report("browser mapping", mapping_test(fix)))
+  set counts = add(counts, report("Windows directory names", windows_directory_name_test()))
   shell_exec("rm -rf -- " ++ pipeline.shell_quote(fix.root))
   print(to_text(counts.passed) ++ " passed, " ++ to_text(counts.failed) ++ " failed")
   if counts.failed > 0 then exit_process(1) end

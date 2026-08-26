@@ -2,7 +2,8 @@
 rem Windows launcher for the APK patcher GUI.
 rem
 rem Installs the `legible` interpreter (and the build tools it needs: Rust,
-rem a C++ linker, git) if it is not already on PATH, then runs
+rem a C++ linker, git) if it is not already on PATH, makes Git's POSIX shell
+rem available to Legible's process builtins, then runs
 rem `legible run tools\apk_patcher_gui\server.lbl` from the repository root.
 rem Re-running this script after the first successful run is fast: it finds
 rem `legible` already installed and skips straight to launching the GUI.
@@ -33,12 +34,49 @@ if not %errorlevel%==0 (
   exit /b 1
 )
 
+call :enable_git_shell
+if not !errorlevel!==0 exit /b 1
+
+rem server.lbl normally checks random ports with the Linux-only `ss` command.
+rem Select an available port with PowerShell so Windows skips that probe.
+set "GUI_PORT="
+for /f "delims=" %%P in ('powershell -NoProfile -Command "$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0); $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop(); $port"') do set "GUI_PORT=%%P"
+if not defined GUI_PORT (
+  echo Could not choose an available port for the APK patcher GUI.
+  exit /b 1
+)
+
 echo ==^> Launching APK patcher GUI...
 echo     Note: this app auto-opens the browser via a Linux-only command, so on
 echo     Windows it will not open automatically -- copy the printed URL below
 echo     into your browser once the server is listening.
-legible run tools\apk_patcher_gui\server.lbl --no-browser %*
+legible run tools\apk_patcher_gui\server.lbl --port !GUI_PORT! --no-browser %*
 exit /b %errorlevel%
+
+:enable_git_shell
+where sh >nul 2>nul
+if %errorlevel%==0 exit /b 0
+
+rem Git for Windows keeps sh.exe beside its Unix tools rather than in the
+rem `cmd` directory that its installer normally adds to PATH. Locate that
+rem sibling directory from git.exe first, then try the standard install roots.
+set "GIT_EXE="
+for /f "delims=" %%G in ('where git 2^>nul') do if not defined GIT_EXE set "GIT_EXE=%%G"
+if defined GIT_EXE (
+  for %%G in ("!GIT_EXE!") do set "GIT_CMD_DIR=%%~dpG"
+  for %%S in ("!GIT_CMD_DIR!..\bin\sh.exe") do if exist "%%~fS" set "PATH=%%~dpS;!PATH!"
+)
+
+if exist "%ProgramFiles%\Git\bin\sh.exe" set "PATH=%ProgramFiles%\Git\bin;!PATH!"
+if defined ProgramFiles(x86) if exist "%ProgramFiles(x86)%\Git\bin\sh.exe" set "PATH=%ProgramFiles(x86)%\Git\bin;!PATH!"
+if exist "%LOCALAPPDATA%\Programs\Git\bin\sh.exe" set "PATH=%LOCALAPPDATA%\Programs\Git\bin;!PATH!"
+
+where sh >nul 2>nul
+if %errorlevel%==0 exit /b 0
+
+echo Could not find the POSIX shell included with Git for Windows.
+echo Repair or reinstall Git from https://git-scm.com/download/win and re-run this script.
+exit /b 1
 
 :install_legible
 where git >nul 2>nul

@@ -82,7 +82,8 @@ public function directory_name(path: text): text
   mutable slash: integer = -1
   mutable index: integer = 0
   while index < text_length(path) do
-    if substring(path, index, 1) == "/" then set slash = index end
+    let separator: text = substring(path, index, 1)
+    if separator == "/" or separator == "\\" then set slash = index end
     set index = index + 1
   end
   if slash < 0 then "." else if slash == 0 then "/" else substring(path, 0, slash) end
@@ -146,7 +147,7 @@ end
 
 function home_dir(): text
   intent: return active home directory
-  unwrap_or(env_get("HOME"), "")
+  unwrap_or(env_get("HOME"), unwrap_or(env_get("USERPROFILE"), ""))
 end
 
 function add_root(roots: a list of text, root: text): a list of text
