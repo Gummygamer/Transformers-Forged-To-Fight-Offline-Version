@@ -101,7 +101,7 @@ public function build_advertised_base_url(host: text, scheme: text, port: text):
   print("[!] gamedata: Invalid TFTF_SERVER_SCHEME '" ++ selected_scheme ++ "'; valid schemes: https, http")
   exit_process(1)
   ""
-else if port != "" and (not is_digits(port) or to_integer(port) < 1 or to_integer(port) > 65535) then
+else if port != "" and (not is_digits(port) or unwrap_or(to_integer(port), 0) < 1 or unwrap_or(to_integer(port), 0) > 65535) then
   print("[!] gamedata: Invalid TFTF_SERVER_PORT '" ++ port ++ "'; valid ports: 1..65535")
   exit_process(1)
   ""
