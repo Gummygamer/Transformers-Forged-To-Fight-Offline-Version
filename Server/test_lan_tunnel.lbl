@@ -1,0 +1,152 @@
+use build_phone_apk
+use gamedata
+use jsonout
+
+record HttpReply
+  status: text
+  body: text
+end
+
+record ServerStart
+  pid: text
+  ready: boolean
+end
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+  print("[ok] " ++ name)
+  0
+else
+  print("[!] " ++ name)
+  1
+end
+end
+
+function command_output(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stdout"), "")
+end
+
+function command_failed(result: a mapping from text to text): boolean
+  intent: check
+  unwrap_or(get(result, "exit_code"), -1) != 0
+end
+
+function first_non_loopback_ipv4(): text
+  intent: find
+  let listed: a mapping from text to text = shell_exec("hostname -I 2>/dev/null")
+  mutable address: text = ""
+  for candidate in split(trim(command_output(listed)), " ") do
+    let checked: TextResult = build_phone_apk.validate_server_host(candidate)
+    if address == "" and candidate != "127.0.0.1" and checked.error == "" then
+  set address = candidate
+end
+  end
+  address
+end
+
+function stop_server(pid: text): nothing
+  intent: stop
+  if pid != "" then shell_exec("kill " ++ pid ++ " 2>/dev/null; sleep 0.3; kill -9 " ++ pid ++ " 2>/dev/null; true") end
+end
+
+function start_server(base: text, port: integer): ServerStart
+  intent: start
+  let out: text = path_join(base, "server-" ++ to_text(port) ++ ".out")
+  let err: text = path_join(base, "server-" ++ to_text(port) ++ ".err")
+  let command: text = "nohup env HTTP_PORT=" ++ to_text(port) ++ " legible run /projects/transformers-forged-to-fight-revival/Server/run_local.lbl > " ++ out ++ " 2> " ++ err ++ " & echo $!"
+  let started: a mapping from text to text = shell_exec(command)
+  let pid: text = trim(command_output(started))
+  mutable attempts: integer = 0
+  mutable ready: boolean = false
+  while attempts < 50 and not ready do
+    if file_exists(out) and contains_text(read_file(out), "listening on") then
+  set ready = true
+else
+  shell_exec("sleep 0.1")
+end
+    set attempts = attempts + 1
+  end
+  ServerStart { pid: pid, ready: ready and pid != "" }
+end
+
+function fetch(base: text, name: text, host: text, port: integer): HttpReply
+  intent: request
+  let response: text = path_join(base, name ++ ".json")
+  let url: text = "http://" ++ host ++ ":" ++ to_text(port) ++ "/bcg/getUserData"
+  let command: text = "curl -sS --noproxy '*' --max-time 10 -o " ++ response ++ " -w \"%\{http_code\}\" '" ++ url ++ "'"
+  let ran: a mapping from text to text = shell_exec(command)
+  HttpReply { status: trim(command_output(ran)), body: if file_exists(response) then read_file(response) else "" end }
+end
+
+function is_success_envelope(body: text): boolean
+  intent: validate
+  if body == "" then false else
+    let parsed: Json = jsonout.parse_json(body)
+    jsonout.encode_compact(jsonout.obj_get(parsed, "error")) == "null" and jsonout.encode_compact(jsonout.obj_get(parsed, "result")) != "null"
+  end
+end
+
+function test_tunnel_host_validation(): boolean
+  intent: test
+  mutable valid: boolean = true
+  for host in ["25.13.240.7", "10.147.17.42", "100.101.102.103", "192.168.0.139", "host.tunnel.local"] do
+    if build_phone_apk.validate_server_host(host).error != "" then set valid = false end
+  end
+  for host in ["", "999.1.1.1", "1.2.3", "not a host"] do
+    if build_phone_apk.validate_server_host(host).error == "" then set valid = false end
+  end
+  valid
+end
+
+function test_advertised_base_url(): boolean
+  intent: test
+  gamedata.advertised_base_url() == "https://tform-0901-hzlhiniyfcwf.tf-cdn.net" and gamedata.build_advertised_base_url("25.13.240.7", "", "") == "https://25.13.240.7" and gamedata.build_advertised_base_url("25.13.240.7", "", "8443") == "https://25.13.240.7:8443" and gamedata.build_advertised_base_url("25.13.240.7", "http", "8443") == "http://25.13.240.7:8443"
+end
+
+function test_real_server_reaches_all_interfaces(): boolean
+  intent: test
+  let curl: a mapping from text to text = shell_exec("command -v curl")
+  let address: text = first_non_loopback_ipv4()
+  if command_failed(curl) then
+  print("skipping: curl is not on PATH")
+  true
+else if address == "" then
+  print("skipping: no non-loopback IPv4 address")
+  true
+else
+  let base: text = "/tmp/tftf-lan-tunnel-" ++ to_text(random_int(1000000000))
+  shell_exec("mkdir -p " ++ base)
+  mutable attempts: integer = 0
+  mutable passed: boolean = false
+  while attempts < 10 and not passed do
+    let port: integer = 30000 + random_int(20000)
+    let started: ServerStart = start_server(base, port)
+    if started.ready then
+  let tunnel: HttpReply = fetch(base, "tunnel-" ++ to_text(port), address, port)
+  let loopback: HttpReply = fetch(base, "loopback-" ++ to_text(port), "127.0.0.1", port)
+  if tunnel.status == "200" and loopback.status == "200" and is_success_envelope(tunnel.body) and is_success_envelope(loopback.body) then set passed = true end
+end
+    stop_server(started.pid)
+    set attempts = attempts + 1
+  end
+  shell_exec("rm -rf -- " ++ base)
+  passed
+end
+end
+
+function main(): nothing
+  intent: run
+  mutable failures: integer = 0
+  print("running tunnel host validation")
+  set failures = failures + report("tunnel-range hosts validate for APK builds", test_tunnel_host_validation())
+  print("running advertised URL checks")
+  set failures = failures + report("advertised base URL default and overrides", test_advertised_base_url())
+  print("running live listener checks")
+  set failures = failures + report("real server reaches non-loopback and loopback interfaces", test_real_server_reaches_all_interfaces())
+  print(to_text(3 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  if failures != 0 then exit_process(1) end
+end
+
+main()

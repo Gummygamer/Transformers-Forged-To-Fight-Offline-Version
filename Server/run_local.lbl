@@ -1,4 +1,5 @@
 use fakeserver
+use gamedata
 
 function port_from_env(): integer
   intent: get
@@ -10,11 +11,36 @@ function https_port_from_env(): integer
   unwrap_or(to_integer(unwrap_or(env_get("HTTPS_PORT"), "8443")), 8443)
 end
 
+function non_loopback_ipv4_addresses(): text
+  intent: get
+  let listed: a mapping from text to text = shell_exec("hostname -I 2>/dev/null")
+  let raw: text = trim(unwrap_or(get(listed, "stdout"), ""))
+  if raw == "" then "" else
+    mutable addresses: a list of text = []
+    for address in split(raw, " ") do
+      if address != "" and address != "127.0.0.1" and not contains_text(address, ":") then
+  set addresses = append(addresses, address)
+end
+    end
+    join(addresses, ", ")
+  end
+end
+
 function main(): nothing
   intent: serve
   create_dir(fakeserver.log_dir())
   let command: text = unwrap_or(get(get_args(), 1), "")
   print("[*] Running the fake Sparx server on unprivileged host ports for adb reverse.")
+  print("[*] The listener binds all interfaces (0.0.0.0), including physical LAN and tunnel adapters (Hamachi, ZeroTier, Tailscale, WireGuard).")
+  let addresses: text = non_loopback_ipv4_addresses()
+  if addresses == "" then
+  print("[*] Could not list non-loopback IPv4 addresses; use your tunnel adapter's IPv4 address for remote clients.")
+else
+  print("[*] Non-loopback IPv4 addresses: " ++ addresses)
+end
+  if unwrap_or(env_get("TFTF_SERVER_HOST"), "") != "" then
+  print("[*] Advertised base URL: " ++ gamedata.advertised_base_url())
+end
   print("[*] One listener per process. Run both:")
   print("      legible run Server/run_local.lbl            # HTTP  on $HTTP_PORT (default 8080)")
   print("      legible run Server/run_local.lbl --https    # HTTPS on $HTTPS_PORT (default 8443)")

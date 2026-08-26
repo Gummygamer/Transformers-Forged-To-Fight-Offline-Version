@@ -268,6 +268,39 @@ if the address changes, rebuild and update the APK with the new address. Guest W
 often isolate clients from one another and will not work. The native validation patches accept
 the local server certificate, so installing a CA on the phone is not required.
 
+### Playing over a virtual LAN or tunnel
+
+Players who are not on the same physical network can join one virtual LAN with a tunnel such
+as Hamachi, ZeroTier, Tailscale, or WireGuard. This project does not bundle or ship any of
+those tools; the operator must install and configure one separately. One player is the host and
+runs the fake server. The other players are clients.
+
+The host finds the IPv4 address assigned to their tunnel adapter and gives it to the clients.
+Hamachi addresses are in the `25.x.x.x` range, ZeroTier commonly uses `10.147.x.x`, and
+Tailscale uses `100.x.x.x`. `Server/run_local.lbl` prints the machine's non-loopback IPv4
+addresses at startup to help identify it. Start the server in two terminals:
+`legible run Server/run_local.lbl` and `legible run Server/run_local.lbl --https`.
+Both listeners bind all interfaces, so no additional bind configuration is needed. The host's
+firewall must allow TCP 8080 and 8443 on the tunnel adapter. On Windows, tunnel adapters are
+often classified as a Public network and blocked by default; this is the most common failure.
+
+Each client builds an APK against the host's tunnel address, for example:
+`legible run Server/build_phone_apk.lbl --server-host 25.13.240.7 "Transformers 9.2 offline.apk" build/phone-tunnel-unsigned.apk`.
+Then align and sign it exactly as described in the preceding Wi-Fi section.
+
+A phone cannot normally join a Hamachi network directly. The usual arrangement is for each
+player's phone to use the same physical Wi-Fi as that player's PC while the PCs join the
+tunnel. Alternatively, use a tunnel client that runs on Android; ZeroTier and Tailscale both
+provide Android apps, while Hamachi does not.
+
+`--bundle-server` cannot be combined with a tunnel host: the bundled in-APK server binds only
+to loopback, and `build_phone_apk.lbl` enforces `--server-host 127.0.0.1` in that mode. If the
+host needs served content to advertise the tunnel address, set `TFTF_SERVER_HOST`, optionally
+with `TFTF_SERVER_SCHEME` and `TFTF_SERVER_PORT`, before starting the server.
+
+This subsection covers transport only. Support for the game's online modes over that transport
+is still in progress.
+
 ### Running on a non-rooted phone over USB
 
 Retail phones cannot use the emulator's root-only hosts and system-CA bind mounts. Build a
