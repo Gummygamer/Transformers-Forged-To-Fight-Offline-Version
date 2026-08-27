@@ -68,9 +68,61 @@ function pid_value(): integer
   if not file_exists(pipeline.pid_file()) then 0 else unwrap_or(to_integer(trim(read_file(pipeline.pid_file()))), 0) end
 end
 
+function powershell_quote(value: text): text
+  intent: quote a PowerShell literal
+  "'" ++ replace(value, "'", "''") ++ "'"
+end
+
+function powershell_command(script: text): text
+  intent: invoke PowerShell through the Legible POSIX shell
+  "powershell.exe -NoProfile -NonInteractive -Command " ++ pipeline.shell_quote(script)
+end
+
+function windows_argument(value: text): text
+  intent: preserve one Start-Process argument including spaces
+  powershell_quote("\"" ++ value ++ "\"")
+end
+
+public function worker_launch_command(request: BuildRequest, worker: text, launch_log: text, windows: boolean): text
+  intent: build the detached worker launch command
+  if windows then
+    let error_log: text = launch_log ++ ".err"
+    let script: text = "$worker = Start-Process -FilePath " ++ powershell_quote(pipeline.windows_native_executable(request.legible)) ++ " -ArgumentList @(" ++ powershell_quote("run") ++ ", " ++ windows_argument(pipeline.windows_native_path(worker)) ++ ", " ++ windows_argument(pipeline.windows_native_path(pipeline.request_file())) ++ ") -RedirectStandardOutput " ++ powershell_quote(pipeline.windows_native_path(launch_log)) ++ " -RedirectStandardError " ++ powershell_quote(pipeline.windows_native_path(error_log)) ++ " -WindowStyle Hidden -PassThru; $worker.Id"
+    powershell_command(script)
+  else
+    "nohup setsid " ++ pipeline.shell_quote(request.legible) ++ " run " ++ pipeline.shell_quote(worker) ++ " " ++ pipeline.shell_quote(pipeline.request_file()) ++ " > " ++ pipeline.shell_quote(launch_log) ++ " 2>&1 & echo $!"
+  end
+end
+
+public function process_check_command(pid: integer, windows: boolean): text
+  intent: build process liveness probe
+  if windows then
+    powershell_command("if (Get-Process -Id " ++ to_text(pid) ++ " -ErrorAction SilentlyContinue) \{ exit 0 \} else \{ exit 1 \}")
+  else
+    "kill -0 " ++ to_text(pid) ++ " 2>/dev/null"
+  end
+end
+
+public function cancel_command(pid: integer, windows: boolean): text
+  intent: build worker cancellation command
+  if windows then
+    "taskkill.exe /PID " ++ to_text(pid) ++ " /T /F >/dev/null 2>&1 || true"
+  else
+    "kill -TERM -- -" ++ to_text(pid) ++ " 2>/dev/null || kill -TERM " ++ to_text(pid) ++ " 2>/dev/null || true"
+  end
+end
+
 function process_alive(pid: integer): boolean
   intent: check
-  pid > 1 and unwrap_or(to_integer(unwrap_or(get(shell_exec("kill -0 " ++ to_text(pid) ++ " 2>/dev/null"), "exit_code"), "1")), 1) == 0
+  pid > 1 and unwrap_or(to_integer(unwrap_or(get(shell_exec(process_check_command(pid, pipeline.windows_host())), "exit_code"), "1")), 1) == 0
+end
+
+function append_worker_start_log(): nothing
+  intent: preserve worker startup diagnostics
+  let launch_log: text = path_join(pipeline.state_dir(), "worker-start.log")
+  let error_log: text = launch_log ++ ".err"
+  if file_exists(launch_log) and trim(read_file(launch_log)) != "" then append_log("Worker startup output:\n" ++ trim(read_file(launch_log))) end
+  if file_exists(error_log) and trim(read_file(error_log)) != "" then append_log("Worker startup error:\n" ++ trim(read_file(error_log))) end
 end
 
 function refresh_stale_state(): RunnerState
@@ -78,6 +130,7 @@ function refresh_stale_state(): RunnerState
   let state: RunnerState = read_state()
   if state.status == "running" and not process_alive(pid_value()) then
     let failed: RunnerState = state with { status: "failed", exit_code: 127 }
+    append_worker_start_log()
     append_log("ERROR: build worker exited unexpectedly.")
     write_state(failed)
     failed
@@ -169,15 +222,20 @@ public function start(request_body: text, request: BuildRequest, steps: a list o
     ensure_state_dir()
     write_file(pipeline.log_file(), "")
     write_file(pipeline.request_file(), request_body)
-    write_state(RunnerState { status: "running", step: "", step_index: 0, step_total: length(steps), exit_code: 0 })
+    write_state(RunnerState { status: "running", step: "start build worker", step_index: 0, step_total: length(steps), exit_code: 0 })
     let worker: text = path_join(pipeline.module_dir(), "worker.lbl")
     let launch_log: text = path_join(pipeline.state_dir(), "worker-start.log")
-    let command: text = "nohup setsid " ++ pipeline.shell_quote(request.legible) ++ " run " ++ pipeline.shell_quote(worker) ++ " " ++ pipeline.shell_quote(pipeline.request_file()) ++ " > " ++ pipeline.shell_quote(launch_log) ++ " 2>&1 & echo $!"
+    write_file(launch_log, "")
+    write_file(launch_log ++ ".err", "")
+    let command: text = worker_launch_command(request, worker, launch_log, pipeline.windows_host())
     let result: a mapping from text to text = shell_exec(command)
     let pid: integer = unwrap_or(to_integer(trim(unwrap_or(get(result, "stdout"), ""))), 0)
     if pid <= 1 then
+      append_worker_start_log()
+      let launch_error: text = trim(unwrap_or(get(result, "stderr"), ""))
+      if launch_error != "" then append_log("Worker launcher error:\n" ++ launch_error) end
       append_log("ERROR: could not start the build worker.")
-      write_state(RunnerState { status: "failed", step: "", step_index: 0, step_total: length(steps), exit_code: 127 })
+      write_state(RunnerState { status: "failed", step: "start build worker", step_index: 0, step_total: length(steps), exit_code: 127 })
       StartResult { started: false, error: "could not start the build worker" }
     else
       write_file(pipeline.pid_file(), to_text(pid))
@@ -193,6 +251,6 @@ public function cancel(): nothing
     write_state(state with { status: "cancelled" })
     append_log("Run cancelled by the user.")
     let pid: integer = pid_value()
-    if pid > 1 then shell_exec("kill -TERM -- -" ++ to_text(pid) ++ " 2>/dev/null || kill -TERM " ++ to_text(pid) ++ " 2>/dev/null || true") end
+    if pid > 1 then shell_exec(cancel_command(pid, pipeline.windows_host())) end
   end
 end

@@ -204,6 +204,11 @@ function windows_executable_variants_test(): boolean
   contains(variants, "apksigner") and contains(variants, "apksigner.bat") and contains(variants, "apksigner.exe") and contains(variants, "apksigner.cmd")
 end
 
+function windows_native_path_test(): boolean
+  intent: test MSYS drive path conversion for native process launchers
+  pipeline.windows_native_path("/c/Users/Acer/My Project/legible.exe") == "c:\\Users\\Acer\\My Project\\legible.exe" and pipeline.windows_native_path("C:\\Tools\\legible.exe") == "C:\\Tools\\legible.exe" and pipeline.windows_native_path("legible") == "legible" and pipeline.windows_native_executable("/c/Users/Acer/.cargo/bin/legible") == "c:\\Users\\Acer\\.cargo\\bin\\legible.exe" and pipeline.windows_native_executable("/c/Tools/legible.exe") == "c:\\Tools\\legible.exe" and pipeline.windows_native_executable("C:\\Tools\\legible") == "C:\\Tools\\legible.exe" and pipeline.windows_native_executable("legible") == "legible"
+end
+
 function add(counts: Counts, result: Counts): Counts
   intent: add test counts
   Counts { passed: counts.passed + result.passed, failed: counts.failed + result.failed }
@@ -230,6 +235,7 @@ function main(): nothing
   set counts = add(counts, report("browser mapping", mapping_test(fix)))
   set counts = add(counts, report("Windows directory names", windows_directory_name_test()))
   set counts = add(counts, report("Windows executable variants", windows_executable_variants_test()))
+  set counts = add(counts, report("Windows native executable paths", windows_native_path_test()))
   shell_exec("rm -rf -- " ++ pipeline.shell_quote(fix.root))
   print(to_text(counts.passed) ++ " passed, " ++ to_text(counts.failed) ++ " failed")
   if counts.failed > 0 then exit_process(1) end

@@ -77,6 +77,28 @@ public function separate(): text
   "separate"
 end
 
+public function windows_host(): boolean
+  intent: detect native Windows
+  lowercase(trim(unwrap_or(env_get("OS"), ""))) == "windows_nt"
+end
+
+public function windows_native_path(path: text): text
+  intent: convert an MSYS drive path for native Windows tools
+  if text_length(path) >= 3 and starts_with(path, "/") and substring(path, 2, 1) == "/" then
+    substring(path, 1, 1) ++ ":\\" ++ replace(substring(path, 3, text_length(path) - 3), "/", "\\")
+  else
+    path
+  end
+end
+
+public function windows_native_executable(path: text): text
+  intent: convert an MSYS executable path for native Windows launch
+  let native: text = windows_native_path(path)
+  let lowered: text = lowercase(native)
+  let drive_path: boolean = text_length(native) >= 3 and substring(native, 1, 1) == ":" and (substring(native, 2, 1) == "\\" or substring(native, 2, 1) == "/")
+  if drive_path and not ends_with(lowered, ".exe") and not ends_with(lowered, ".com") and not ends_with(lowered, ".bat") and not ends_with(lowered, ".cmd") then native ++ ".exe" else native end
+end
+
 public function directory_name(path: text): text
   intent: return
   mutable slash: integer = -1
