@@ -298,8 +298,46 @@ to loopback, and `build_phone_apk.lbl` enforces `--server-host 127.0.0.1` in tha
 host needs served content to advertise the tunnel address, set `TFTF_SERVER_HOST`, optionally
 with `TFTF_SERVER_SCHEME` and `TFTF_SERVER_PORT`, before starting the server.
 
-This subsection covers transport only. Support for the game's online modes over that transport
-is still in progress.
+### Online modes over the tunnel
+
+The fake server can serve the game's online PVP/Arena screens over that tunnel. It works in an
+async store-and-serve form rather than as live multiplayer: each player's authored team is
+stored on the host, and another player's stored team is later served back as the opponent.
+There is no realtime netcode, so the opponent's characters are fought as AI, but the team,
+name, and faction on the other side belong to a real second player.
+
+1. The host starts the server with the tunnel address advertised, in two terminals:
+   `TFTF_SERVER_HOST=25.13.240.7 legible run Server/run_local.lbl` and
+   `TFTF_SERVER_HOST=25.13.240.7 legible run Server/run_local.lbl --https`.
+   Substitute the host's own tunnel address for `25.13.240.7`.
+2. Each player builds and signs an APK against that same address with
+   `legible run Server/build_phone_apk.lbl --server-host 25.13.240.7 ...`, exactly as in the
+   preceding subsection.
+3. Each player opens the team screen once and saves a team. The client posts it to
+   `/bcg/setSavedTeam`, and that is what registers the player's roster on the host; no other
+   action is required. Rosters are kept in `Server/logs/.fakeserver-rosters`, one line per
+   peer, and survive a server restart. Saving again replaces that player's entry.
+4. Any player then opens the Versus/Arena screen. `GET /pvp/get-login-data` supplies the arena
+   state, and the opponent endpoints serve the most recently stored team that belongs to a
+   different peer. Until a second player has saved a team, a built-in house team called
+   `Autobot Garrison` is served instead, so single-player play is unaffected.
+
+Two limits are worth understanding before trying this.
+
+First, only `GET /pvp/get-login-data` is confirmed against a real captured client session. The
+opponent endpoints `/pvp/find-arena-opponent`, `/pvp/get-new-arena-opponent` and
+`/pvp/get-opponents`, along with the field names in their responses, are derived from the
+game's IL2CPP metadata rather than from an observed server response. A run against a real
+device may need them adjusted; `TECHNICAL_NOTES.md` records the derivation.
+
+Second, every client currently receives the same session token, because `POST /auth/login` is
+answered from a canned file. Players are keyed by that token, so two phones map onto one
+roster slot and the second team saved overwrites the first. To keep peers apart today, seed a
+distinct slot by hand against the host, for example
+`curl -X POST 'http://25.13.240.7:8080/bcg/setSavedTeam?peer=alice' -d '{"heroes":["..."]}'`,
+which stores that roster under the peer name `alice` where the other player's live session
+cannot overwrite it. Minting a unique session token per login is the proper fix and is not
+implemented yet.
 
 ### Running on a non-rooted phone over USB
 
