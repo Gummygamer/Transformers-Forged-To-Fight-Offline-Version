@@ -817,3 +817,89 @@ Two other numbers move with this change. `Server/responses/GET__bcg_getLoginData
 `Server/export_payload.lbl` and `Server/test_export_payload.lbl` also shifts whenever the
 quest JSON shape changes; read the actual size out of that suite's failure message and put
 it in both places.
+
+## Online mode (PVP / Arena) recon
+
+The online-mode entry point is `GET /pvp/get-login-data`. There are five occurrences in
+`probe/seg02_server.log` (the first at line 111), and each logged `-> default 200 envelope`.
+The client was therefore previously handed an empty result and had no arena state.
+
+The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
+
+- `GetLoginData`
+- `GetUserData(arenaID)`
+- `GetActivePVPData(arenaIDs)`
+- `FindArenaOpponent(arenaID, heroes, numOpponents, type)`
+- `QuitArena(arenaID)`
+- `GetNewArenaOpponent(arenaID, type)`
+- `SelectOpponent(arenaID, index, opponentID)`
+- `FightLoaded(fightID)`
+- `RetryFight(fightID)`
+- `LockIn(arenaID, heroes)`
+- `ClearInvalidTeams`
+
+`GetLoginData` is confirmed by capture to be `/pvp/get-login-data`. The remaining methods
+are DERIVED and UNCONFIRMED kebab-cased siblings, such as `/pvp/get-user-data`,
+`/pvp/find-arena-opponent`, `/pvp/select-opponent`, and `/pvp/lock-in`; only
+`get-login-data` is observed in a real capture.
+
+The relevant data model is:
+
+- `PVPArenaUserData` (`dump.cs` line 417311): `Pid`, `WinStreak`, `Wins`, `Losses`,
+  `LongestStreak`, `FindAttempts`.
+- `PVPMatchData` (417213): `PVPID`, `State`, `Opponents`, `OpponentIndex`, `FightRewards`,
+  `SeriesRewards`, `Milestones`.
+- `PVPOpponent` (417082): `Uid`, `Team`, `Matchups`, `UserData`.
+- `PVPOpponentUserData` (416985): `Name`, `Tag`, `Level`, `Portrait`, `FactionId`,
+  `ArenaStats`.
+- `PVPMatchup` (416884): `UserHero`, `OpponentHero`, `AIDifficulty`, `State`, `Outcome`,
+  `BasePoints`, `ActualPoints`, `FightId`.
+- `ePVPState` (416857): `none=0`, `active=2`, `rewarding=4`, `claimed=8`,
+  `newOpponent=16`, `completed=32`, `quit=64`, `selecting=128`, `locking_in=256`,
+  `ACTIVE_STATES=398`.
+- `ePVPMatchupState` (416874): `none=0`, `inprogress=1`, `resolved=2`.
+
+`ArenaEvent : EventsEvent` (`dump.cs` line 387731) has `IsQuickMatch`, `TeamSize`,
+`WinStreakMax`, `WinStreakPointsModifiers`, `FindOpponentCost`, `NewOpponentCost`,
+`FightRewards`, `SeriesCompleteRewards`, and `Filters`. Arena DEFINITIONS therefore arrive
+through the events system: the same capture shows `GET /events/refresh` also receiving only
+the default envelope, while `/pvp/get-login-data` carries only the player's per-arena state.
+Answering both is required before the Versus UI can be fully populated.
+
+`PVPOpponentUserData` is the hook for this project's multi-player plan: an opponent is a
+second real player's name, tag, level, portrait, faction, and team, so a store-and-serve
+roster from another tunnel peer can be served as the opponent.
+
+`Server/responses/GET__pvp_get-login-data.json`, added by this chunk, uses key names derived
+from IL2CPP property names, NOT from a captured server response, and has not yet been
+confirmed against a live device. A device run may require adjusting the `arenas` and
+`matches` container key names.
+
+The existing naming trap remains: `TFTF_ARENA_LEVEL` and `TFTF_ARENA_TOD` name the physical
+battleground scene, not the online Arena mode.
+
+## Async multi-player roster store
+
+`Server/fakeserver.lbl` keeps a per-peer roster store so one shared host can serve a second
+real player's team as a PVP opponent. The store is a line-oriented file at
+`Server/logs/.fakeserver-rosters` (git-ignored, and deliberately separate from
+`.fakeserver-state`), one `R|peer|name|hero,hero,...` record per peer, newest last.
+
+`peer_key(path)` derives the peer identity from the request line only: the `peer` query
+parameter if present, else the `stoken` query parameter, else `"local"`. The Legible HTTP
+`Request` record exposes only `method`, `path`, `body`, `query` and `headers`, with no
+remote-address field, so a peer key cannot come from the socket and must come from the query
+string or body.
+
+`POST /bcg/setSavedTeam` calls `store_roster(peer_key(path), ...)`, so every player's authored
+team is captured with no extra client action, and a repeat save replaces that peer's record
+rather than appending a second one. `opponent_roster(peer)` returns the most recently stored
+roster belonging to a different peer, falling back to a house roster of
+`Autobot Garrison` with `gamedata.default_team()` when no other peer has ever stored one.
+`GET`/`POST` on `/pvp/find-arena-opponent`, `/pvp/get-new-arena-opponent` and
+`/pvp/get-opponents` are answered dynamically from that roster in a `PVPMatchData`-shaped
+envelope.
+
+Because `POST /auth/login` is canned, every client receives the same `stoken`, so two real
+devices currently share one peer slot. The `peer` query override is the interim workaround; a
+dynamic `/auth/login` handler that mints a fresh token per login is the proper fix.
