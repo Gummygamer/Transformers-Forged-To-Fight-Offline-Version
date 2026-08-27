@@ -31,6 +31,44 @@ record Session
   name: text
 end
 
+record Presence
+  peer: text
+  name: text
+  seen_ms: integer
+end
+
+record Match
+  match_id: text
+  arena: text
+  peer_a: text
+  peer_b: text
+  created_ms: integer
+end
+
+record FightEvent
+  match_id: text
+  peer: text
+  seq: integer
+  kind: text
+  payload: text
+  sent_ms: integer
+end
+
+record MatchReport
+  match_id: text
+  peer: text
+  outcome: text
+  reported_ms: integer
+end
+
+record Reconciliation
+  match_id: text
+  status: text
+  winner: text
+  loser: text
+  reports: integer
+end
+
 record Request
   method: text
   path: text
@@ -220,6 +258,37 @@ function session_file(): text
   path_join(log_dir(), ".fakeserver-sessions")
 end
 
+function presence_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-presence")
+end
+
+function match_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-matches")
+end
+
+function fight_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-fights")
+end
+
+function report_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-results")
+end
+
+function relay_safe(value: text): text
+  intent: clean
+  replace(replace(replace(value, "|", "_"), "\n", "_"), "\r", "_")
+end
+
+public function presence_ttl_ms(): integer
+  intent: get
+  let configured: integer = unwrap_or(to_integer(unwrap_or(env_get("TFTF_PRESENCE_TTL_MS"), "")), 0)
+  if configured > 0 then configured else 15000 end
+end
+
 public function load_sessions(): a list of Session
   intent: load
   if not file_exists(session_file()) then
@@ -258,6 +327,407 @@ end
 public function has_session_for_token(stoken: text): boolean
   intent: check
   session_for_token(stoken).stoken != ""
+end
+
+public function load_presence(): a list of Presence
+  intent: load
+  if not file_exists(presence_file()) then
+  []
+else
+  mutable presence: a list of Presence = []
+  for line in split(read_file(presence_file()), "\n") do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    let peer: text = unwrap_or(get(fields, 1), "")
+    let name: text = unwrap_or(get(fields, 2), "")
+    let seen_ms: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "0")), 0)
+    if kind == "P" and peer != "" then
+  set presence = append(presence, Presence { peer: peer, name: name, seen_ms: seen_ms })
+end
+  end
+  presence
+end
+end
+
+public function reset_presence(): nothing
+  intent: reset
+  create_dir(log_dir())
+  write_file(presence_file(), "")
+end
+
+public function touch_presence_at(peer: text, name: text, now_ms: integer): Presence
+  intent: save
+  create_dir(log_dir())
+  let key: text = roster_safe(peer)
+  mutable previous_name: text = ""
+  mutable lines: a list of text = []
+  for presence in load_presence() do
+    if presence.peer == key then
+  set previous_name = presence.name
+else
+  set lines = append(lines, "P|" ++ roster_safe(presence.peer) ++ "|" ++ roster_safe(presence.name) ++ "|" ++ roster_safe(to_text(presence.seen_ms)))
+end
+  end
+  let session: Session = session_for_token(key)
+  let selected_name: text = if name != "" then name else if previous_name != "" then previous_name else if session.name != "" then session.name else "Commander" end
+  let touched: Presence = Presence { peer: key, name: roster_safe(selected_name), seen_ms: now_ms }
+  set lines = append(lines, "P|" ++ roster_safe(touched.peer) ++ "|" ++ roster_safe(touched.name) ++ "|" ++ roster_safe(to_text(touched.seen_ms)))
+  write_file(presence_file(), join(lines, "\n"))
+  touched
+end
+
+public function touch_presence(peer: text, name: text): Presence
+  intent: save
+  touch_presence_at(peer, name, current_time_ms())
+end
+
+public function live_peers_at(now_ms: integer): a list of Presence
+  intent: get
+  mutable peers: a list of Presence = []
+  for presence in load_presence() do
+    let age: integer = now_ms - presence.seen_ms
+    if age >= 0 and age < presence_ttl_ms() then
+  set peers = append(peers, presence)
+end
+  end
+  peers
+end
+
+public function live_peers(): a list of Presence
+  intent: get
+  live_peers_at(current_time_ms())
+end
+
+public function load_matches(): a list of Match
+  intent: load
+  if not file_exists(match_file()) then
+  []
+else
+  mutable matches: a list of Match = []
+  for line in split(read_file(match_file()), "\n") do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    let match_id: text = unwrap_or(get(fields, 1), "")
+    let arena: text = unwrap_or(get(fields, 2), "")
+    let peer_a: text = unwrap_or(get(fields, 3), "")
+    let peer_b: text = unwrap_or(get(fields, 4), "")
+    let created_ms: integer = unwrap_or(to_integer(unwrap_or(get(fields, 5), "0")), 0)
+    if kind == "M" and match_id != "" then
+  set matches = append(matches, Match { match_id: match_id, arena: arena, peer_a: peer_a, peer_b: peer_b, created_ms: created_ms })
+end
+  end
+  matches
+end
+end
+
+function save_matches(matches: a list of Match): nothing
+  intent: save
+  create_dir(log_dir())
+  mutable lines: a list of text = []
+  for m in matches do
+    set lines = append(lines, "M|" ++ roster_safe(m.match_id) ++ "|" ++ roster_safe(m.arena) ++ "|" ++ roster_safe(m.peer_a) ++ "|" ++ roster_safe(m.peer_b) ++ "|" ++ roster_safe(to_text(m.created_ms)))
+  end
+  write_file(match_file(), join(lines, "\n"))
+end
+
+public function reset_matches(): nothing
+  intent: reset
+  save_matches([])
+end
+
+public function match_for_peer(peer: text): Match
+  intent: get
+  let key: text = roster_safe(peer)
+  for m in load_matches() do
+    if m.peer_a == key or m.peer_b == key then return m end
+  end
+  Match { match_id: "", arena: "", peer_a: "", peer_b: "", created_ms: 0 }
+end
+
+public function match_opponent(m: Match, peer: text): text
+  intent: get
+  let key: text = roster_safe(peer)
+  if m.peer_a == key then m.peer_b else if m.peer_b == key then m.peer_a else "" end
+end
+
+public function end_match(match_id: text): nothing
+  intent: save
+  mutable remaining: a list of Match = []
+  for m in load_matches() do
+    if m.match_id != match_id then set remaining = append(remaining, m) end
+  end
+  save_matches(remaining)
+end
+
+public function pair_peers_at(peer: text, arena: text, now_ms: integer): Match
+  intent: pair
+  let caller: Presence = touch_presence_at(peer, "", now_ms)
+  let existing: Match = match_for_peer(caller.peer)
+  if existing.match_id != "" then return existing end
+  mutable candidate: Presence = Presence { peer: "", name: "", seen_ms: -1 }
+  for live in live_peers_at(now_ms) do
+    if live.peer != caller.peer and match_for_peer(live.peer).match_id == "" and live.seen_ms > candidate.seen_ms then
+  set candidate = live
+end
+  end
+  if candidate.peer == "" then
+  Match { match_id: "", arena: "", peer_a: "", peer_b: "", created_ms: 0 }
+else
+  let matches: a list of Match = load_matches()
+  let base_id: text = roster_safe(arena) ++ "-" ++ to_text(now_ms)
+  mutable collides: boolean = false
+  for m in matches do
+    if m.match_id == base_id then set collides = true end
+  end
+  let match_id: text = if collides then base_id ++ "-" ++ to_text(length(matches)) else base_id end
+  let created: Match = Match { match_id: match_id, arena: roster_safe(arena), peer_a: caller.peer, peer_b: candidate.peer, created_ms: now_ms }
+  save_matches(append(matches, created))
+  created
+end
+end
+
+public function pair_peers(peer: text, arena: text): Match
+  intent: pair
+  pair_peers_at(peer, arena, current_time_ms())
+end
+
+public function load_fight_events(): a list of FightEvent
+  intent: load
+  if not file_exists(fight_file()) then
+  []
+else
+  mutable events: a list of FightEvent = []
+  for line in split(read_file(fight_file()), "\n") do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    let match_id: text = unwrap_or(get(fields, 1), "")
+    let peer: text = unwrap_or(get(fields, 2), "")
+    let seq: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "0")), 0)
+    let event_kind: text = unwrap_or(get(fields, 4), "")
+    let payload: text = unwrap_or(get(fields, 5), "")
+    let sent_ms: integer = unwrap_or(to_integer(unwrap_or(get(fields, 6), "0")), 0)
+    if kind == "F" and match_id != "" then
+  set events = append(events, FightEvent { match_id: match_id, peer: peer, seq: seq, kind: event_kind, payload: payload, sent_ms: sent_ms })
+end
+  end
+  events
+end
+end
+
+function save_fight_events(events: a list of FightEvent): nothing
+  intent: save
+  create_dir(log_dir())
+  mutable lines: a list of text = []
+  for event in events do
+    set lines = append(lines, "F|" ++ roster_safe(event.match_id) ++ "|" ++ roster_safe(event.peer) ++ "|" ++ to_text(event.seq) ++ "|" ++ relay_safe(event.kind) ++ "|" ++ relay_safe(event.payload) ++ "|" ++ to_text(event.sent_ms))
+  end
+  write_file(fight_file(), join(lines, "\n"))
+end
+
+public function reset_fight_events(): nothing
+  intent: reset
+  save_fight_events([])
+end
+
+public function next_fight_seq(match_id: text): integer
+  intent: get
+  let key: text = roster_safe(match_id)
+  mutable highest: integer = 0
+  for event in load_fight_events() do
+    if event.match_id == key and event.seq > highest then set highest = event.seq end
+  end
+  highest + 1
+end
+
+public function append_fight_event_at(match_id: text, peer: text, kind: text, payload: text, now_ms: integer): FightEvent
+  intent: save
+  let event: FightEvent = FightEvent { match_id: roster_safe(match_id), peer: roster_safe(peer), seq: next_fight_seq(match_id), kind: relay_safe(kind), payload: relay_safe(payload), sent_ms: now_ms }
+  save_fight_events(append(load_fight_events(), event))
+  event
+end
+
+public function append_fight_event(match_id: text, peer: text, kind: text, payload: text): FightEvent
+  intent: save
+  append_fight_event_at(match_id, peer, kind, payload, current_time_ms())
+end
+
+function append_event_in_seq_order(events: a list of FightEvent, candidate: FightEvent): a list of FightEvent
+  intent: sort
+  mutable ordered: a list of FightEvent = []
+  mutable inserted: boolean = false
+  for event in events do
+    if not inserted and candidate.seq < event.seq then
+  set ordered = append(ordered, candidate)
+  set inserted = true
+end
+    set ordered = append(ordered, event)
+  end
+  if not inserted then set ordered = append(ordered, candidate) end
+  ordered
+end
+
+public function fight_events_since(match_id: text, after_seq: integer): a list of FightEvent
+  intent: get
+  let key: text = roster_safe(match_id)
+  mutable events: a list of FightEvent = []
+  for event in load_fight_events() do
+    if event.match_id == key and event.seq > after_seq then set events = append_event_in_seq_order(events, event) end
+  end
+  events
+end
+
+public function purge_fight_events(match_id: text): nothing
+  intent: save
+  let key: text = roster_safe(match_id)
+  mutable remaining: a list of FightEvent = []
+  for event in load_fight_events() do
+    if event.match_id != key then set remaining = append(remaining, event) end
+  end
+  save_fight_events(remaining)
+end
+
+public function load_reports(): a list of MatchReport
+  intent: load
+  if not file_exists(report_file()) then
+  []
+else
+  mutable reports: a list of MatchReport = []
+  for line in split(read_file(report_file()), "\n") do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    let match_id: text = unwrap_or(get(fields, 1), "")
+    let peer: text = unwrap_or(get(fields, 2), "")
+    let outcome: text = unwrap_or(get(fields, 3), "")
+    let reported_ms: integer = unwrap_or(to_integer(unwrap_or(get(fields, 4), "0")), 0)
+    if kind == "R" and match_id != "" then
+  set reports = append(reports, MatchReport { match_id: match_id, peer: peer, outcome: outcome, reported_ms: reported_ms })
+end
+  end
+  reports
+end
+end
+
+function save_reports(reports: a list of MatchReport): nothing
+  intent: save
+  create_dir(log_dir())
+  mutable lines: a list of text = []
+  for report in reports do
+    set lines = append(lines, "R|" ++ roster_safe(report.match_id) ++ "|" ++ roster_safe(report.peer) ++ "|" ++ relay_safe(report.outcome) ++ "|" ++ to_text(report.reported_ms))
+  end
+  write_file(report_file(), join(lines, "\n"))
+end
+
+public function reset_reports(): nothing
+  intent: reset
+  save_reports([])
+end
+
+public function normalize_outcome(value: text): text
+  intent: normalize
+  let upper: text = uppercase(value)
+  if upper == "WIN" or upper == "WON" or upper == "VICTORY" then
+  "WON"
+else if upper == "LOSE" or upper == "LOST" or upper == "LOSS" or upper == "DEFEAT" then
+  "LOST"
+else if upper == "DRAW" or upper == "TIE" then
+  "DRAW"
+else
+  "UNKNOWN"
+end
+end
+
+function report_is_more_recent(first: MatchReport, second: MatchReport): boolean
+  intent: compare
+  first.reported_ms > second.reported_ms or (first.reported_ms == second.reported_ms and first.peer < second.peer)
+end
+
+function latest_report_for_peer(match_id: text, peer: text): MatchReport
+  intent: get
+  let key: text = roster_safe(match_id)
+  let reporter: text = roster_safe(peer)
+  mutable latest: MatchReport = MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 }
+  for report in load_reports() do
+    if report.match_id == key and report.peer == reporter and (latest.peer == "" or report_is_more_recent(report, latest)) then
+  set latest = report
+end
+  end
+  latest
+end
+
+function reports_for_reconciliation(match_id: text): a list of MatchReport
+  intent: get
+  let key: text = roster_safe(match_id)
+  mutable first: MatchReport = MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 }
+  mutable second: MatchReport = MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 }
+  for report in load_reports() do
+    let latest: MatchReport = latest_report_for_peer(key, report.peer)
+    if report.match_id == key and report.reported_ms == latest.reported_ms and report.outcome == latest.outcome then
+  if report.peer != first.peer and (first.peer == "" or report_is_more_recent(report, first)) then
+  set second = first
+  set first = report
+else if report.peer != first.peer and (second.peer == "" or report_is_more_recent(report, second)) then
+  set second = report
+end
+end
+  end
+  mutable selected: a list of MatchReport = []
+  if first.peer != "" then set selected = append(selected, first) end
+  if second.peer != "" and second.peer != first.peer then set selected = append(selected, second) end
+  selected
+end
+
+public function reconcile_match(match_id: text): Reconciliation
+  intent: reconcile
+  let reports: a list of MatchReport = reports_for_reconciliation(match_id)
+  let count: integer = length(reports)
+  if count == 0 then
+  Reconciliation { match_id: roster_safe(match_id), status: "pending", winner: "", loser: "", reports: 0 }
+else if count == 1 then
+  Reconciliation { match_id: roster_safe(match_id), status: "pending", winner: "", loser: "", reports: 1 }
+else
+  let first: MatchReport = unwrap_or(get(reports, 0), MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 })
+  let second: MatchReport = unwrap_or(get(reports, 1), MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 })
+  if first.outcome == "WON" and second.outcome == "LOST" then
+  Reconciliation { match_id: roster_safe(match_id), status: "agreed", winner: first.peer, loser: second.peer, reports: 2 }
+else if first.outcome == "LOST" and second.outcome == "WON" then
+  Reconciliation { match_id: roster_safe(match_id), status: "agreed", winner: second.peer, loser: first.peer, reports: 2 }
+else if first.outcome == "DRAW" and second.outcome == "DRAW" then
+  Reconciliation { match_id: roster_safe(match_id), status: "agreed", winner: "", loser: "", reports: 2 }
+else
+  let tiebreak: MatchReport = if first.reported_ms < second.reported_ms or (first.reported_ms == second.reported_ms and first.peer < second.peer) then first else second end
+  let other: MatchReport = if tiebreak.peer == first.peer then second else first end
+  if tiebreak.outcome == "WON" then
+  Reconciliation { match_id: roster_safe(match_id), status: "disputed", winner: tiebreak.peer, loser: other.peer, reports: 2 }
+else if tiebreak.outcome == "LOST" then
+  Reconciliation { match_id: roster_safe(match_id), status: "disputed", winner: other.peer, loser: tiebreak.peer, reports: 2 }
+else
+  Reconciliation { match_id: roster_safe(match_id), status: "disputed", winner: "", loser: "", reports: 2 }
+end
+end
+end
+end
+
+public function report_result_at(match_id: text, peer: text, outcome: text, now_ms: integer): Reconciliation
+  intent: save
+  let key: text = roster_safe(match_id)
+  let reporter: text = roster_safe(peer)
+  mutable reports: a list of MatchReport = []
+  for report in load_reports() do
+    if report.match_id != key or report.peer != reporter then set reports = append(reports, report) end
+  end
+  set reports = append(reports, MatchReport { match_id: key, peer: reporter, outcome: normalize_outcome(outcome), reported_ms: now_ms })
+  save_reports(reports)
+  let reconciliation: Reconciliation = reconcile_match(key)
+  if reconciliation.status == "agreed" or reconciliation.status == "disputed" then
+  end_match(key)
+  purge_fight_events(key)
+end
+  reconciliation
+end
+
+public function report_result(match_id: text, peer: text, outcome: text): Reconciliation
+  intent: save
+  report_result_at(match_id, peer, outcome, current_time_ms())
 end
 
 function token_characters(value: text): text
@@ -497,6 +967,27 @@ else
 end
 end
 
+function pvp_caller_name(path: text, btxt: text): text
+  intent: get
+  let session: Session = session_for_token(query_value(path, "stoken"))
+  if session.name != "" then
+  session.name
+else
+  let req: Json = request_object(btxt)
+  let supplied: text = json_text_first(req, "name", "playerName", "")
+  if supplied != "" then supplied else peer_key(path) end
+end
+end
+
+function json_int_or(node: Json, key: text, fallback: integer): integer
+  intent: get
+  if jsonout.obj_has(node, key) and jsonout.type_name(jsonout.obj_get(node, key)) == "int" then
+  jsonout.as_int(jsonout.obj_get(node, key))
+else
+  fallback
+end
+end
+
 function endpoint_is_tutorial(path: text): boolean
   intent: check
   ends_with(path, "/tutorial/start-tutorial") or ends_with(path, "/tutorial/start-branch") or ends_with(path, "/tutorial/early-start-branch") or ends_with(path, "/tutorial/complete-tutorial")
@@ -620,17 +1111,274 @@ end
 end
 end
 
+function live_presence_name(peer: text): text
+  intent: get
+  let key: text = roster_safe(peer)
+  for presence in live_peers() do
+    if presence.peer == key and presence.name != "" then return presence.name end
+  end
+  let session: Session = session_for_token(key)
+  if session.name != "" then session.name else "Commander" end
+end
+
+function pvp_lobby_result(peer: text, include_self: boolean, now_ms: integer): Json
+  intent: build
+  let key: text = roster_safe(peer)
+  mutable peers: a list of Json = []
+  for presence in live_peers_at(now_ms) do
+    if include_self or presence.peer != key then
+  let m: Match = match_for_peer(presence.peer)
+  set peers = append(peers, jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(presence.peer)), jsonout.json_pair("name", jsonout.json_text(presence.name)), jsonout.json_pair("ageMs", jsonout.json_int(now_ms - presence.seen_ms)), jsonout.json_pair("inMatch", jsonout.json_text(m.match_id))]))
+end
+  end
+  let own_match: Match = match_for_peer(key)
+  jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(key)), jsonout.json_pair("now", jsonout.json_int(now_ms)), jsonout.json_pair("ttl", jsonout.json_int(presence_ttl_ms())), jsonout.json_pair("peers", jsonout.json_list(peers)), jsonout.json_pair("match", jsonout.json_text(own_match.match_id))])
+end
+
+function pvp_heartbeat_response(path: text, btxt: text): text
+  intent: encode
+  let peer: Presence = touch_presence(peer_key(path), json_text_or(request_object(btxt), "name", ""))
+  let now_ms: integer = current_time_ms()
+  spaced_envelope(pvp_lobby_result(peer.peer, false, now_ms))
+end
+
+function pvp_lobby_response(path: text): text
+  intent: encode
+  let now_ms: integer = current_time_ms()
+  spaced_envelope(pvp_lobby_result(peer_key(path), true, now_ms))
+end
+
+function pvp_leave_match_response(path: text): text
+  intent: encode
+  let peer: text = roster_safe(peer_key(path))
+  let m: Match = match_for_peer(peer)
+  let left: boolean = m.match_id != ""
+  if left then end_match(m.match_id) end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("left", jsonout.json_bool(left))]))
+end
+
+function relay_match_id(path: text, req: Json, peer: text): text
+  intent: get
+  let body_match_id: text = json_text_or(req, "matchID", "")
+  let query_match_id: text = query_value(path, "matchID")
+  if body_match_id != "" then
+  roster_safe(body_match_id)
+else if query_match_id != "" then
+  roster_safe(query_match_id)
+else
+  match_for_peer(peer).match_id
+end
+end
+
+function match_by_id(match_id: text): Match
+  intent: get
+  let key: text = roster_safe(match_id)
+  for m in load_matches() do
+    if m.match_id == key then return m end
+  end
+  Match { match_id: "", arena: "", peer_a: "", peer_b: "", created_ms: 0 }
+end
+
+function relay_member(m: Match, peer: text): boolean
+  intent: check
+  let key: text = roster_safe(peer)
+  m.match_id != "" and (m.peer_a == key or m.peer_b == key)
+end
+
+function pvp_fight_post_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let peer: text = roster_safe(peer_key(path))
+  let match_id: text = relay_match_id(path, req, peer)
+  let m: Match = match_by_id(match_id)
+  let accepted: boolean = match_id != "" and relay_member(m, peer)
+  let error: text = if match_id == "" then "no active match" else if not relay_member(m, peer) then "peer is not in match" else "" end
+  let event: FightEvent = if accepted then
+  append_fight_event(match_id, peer, json_text_or(req, "kind", "input"), json_text_or(req, "payload", ""))
+else
+  FightEvent { match_id: match_id, peer: peer, seq: 0, kind: "", payload: "", sent_ms: 0 }
+end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("matchID", jsonout.json_text(match_id)), jsonout.json_pair("seq", jsonout.json_int(event.seq)), jsonout.json_pair("accepted", jsonout.json_bool(accepted)), jsonout.json_pair("error", jsonout.json_text(error))]))
+end
+
+function requested_since(path: text, req: Json): integer
+  intent: get
+  let body_since: text = if jsonout.obj_has(req, "since") then json_value_text(jsonout.obj_get(req, "since"), "") else "" end
+  let raw: text = if body_since != "" then body_since else query_value(path, "since") end
+  let parsed: integer = unwrap_or(to_integer(raw), 0)
+  if parsed < 0 then 0 else parsed end
+end
+
+function pvp_fight_poll_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let peer: text = roster_safe(peer_key(path))
+  let match_id: text = relay_match_id(path, req, peer)
+  let since: integer = requested_since(path, req)
+  let events: a list of FightEvent = fight_events_since(match_id, since)
+  let m: Match = match_by_id(match_id)
+  mutable rows: a list of Json = []
+  mutable next_seq: integer = since
+  for event in events do
+    set rows = append(rows, jsonout.json_obj([jsonout.json_pair("seq", jsonout.json_int(event.seq)), jsonout.json_pair("peer", jsonout.json_text(event.peer)), jsonout.json_pair("kind", jsonout.json_text(event.kind)), jsonout.json_pair("payload", jsonout.json_text(event.payload)), jsonout.json_pair("sentMs", jsonout.json_int(event.sent_ms)), jsonout.json_pair("mine", jsonout.json_bool(event.peer == peer))]))
+    if event.seq > next_seq then set next_seq = event.seq end
+  end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("matchID", jsonout.json_text(match_id)), jsonout.json_pair("since", jsonout.json_int(since)), jsonout.json_pair("nextSeq", jsonout.json_int(next_seq)), jsonout.json_pair("opponent", jsonout.json_text(match_opponent(m, peer))), jsonout.json_pair("events", jsonout.json_list(rows))]))
+end
+
+function reconciliation_json(peer: text, reconciliation: Reconciliation): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("matchID", jsonout.json_text(reconciliation.match_id)), jsonout.json_pair("status", jsonout.json_text(reconciliation.status)), jsonout.json_pair("winner", jsonout.json_text(reconciliation.winner)), jsonout.json_pair("loser", jsonout.json_text(reconciliation.loser)), jsonout.json_pair("reports", jsonout.json_int(reconciliation.reports))])
+end
+
+function pvp_report_result_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let peer: text = roster_safe(peer_key(path))
+  let match_id: text = relay_match_id(path, req, peer)
+  let posted_result: text = json_text_or(req, "result", "")
+  let outcome: text = if posted_result != "" then posted_result else json_text_or(req, "outcome", "") end
+  let reconciliation: Reconciliation = report_result_at(match_id, peer, outcome, current_time_ms())
+  let base: Json = reconciliation_json(peer, reconciliation)
+  spaced_envelope(jsonout.obj_set(base, "outcome", jsonout.json_text(normalize_outcome(outcome))))
+end
+
+function pvp_match_result_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let peer: text = roster_safe(peer_key(path))
+  spaced_envelope(reconciliation_json(peer, reconcile_match(relay_match_id(path, req, peer))))
+end
+
+function pvp_arena_state_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  let peer: text = caller.peer
+  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  mutable wins: integer = 0
+  mutable losses: integer = 0
+  mutable win_streak: integer = 0
+  for report in load_reports() do
+    if report.peer == peer and report.outcome == "WON" then
+  set wins = wins + 1
+  set win_streak = win_streak + 1
+else if report.peer == peer and report.outcome == "LOST" then
+  set losses = losses + 1
+  set win_streak = 0
+else if report.peer == peer then
+  set win_streak = 0
+end
+  end
+  let m: Match = match_for_peer(peer)
+  mutable other_live_peers: integer = 0
+  for presence in live_peers() do
+    if presence.peer != peer then set other_live_peers = other_live_peers + 1 end
+  end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(peer)), jsonout.json_pair("winStreak", jsonout.json_int(win_streak)), jsonout.json_pair("wins", jsonout.json_int(wins)), jsonout.json_pair("losses", jsonout.json_int(losses)), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("livePeers", jsonout.json_int(other_live_peers))]))
+end
+
+function pvp_lock_in_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  let posted: a list of Json = json_list_or_empty(req, "heroes")
+  let hero_nodes: a list of Json = if length(posted) > 0 then posted else json_list_or_empty(req, "team") end
+  let heroes: a list of text = text_list_from_json(jsonout.json_list(hero_nodes))
+  if length(heroes) == 0 then
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("locked", jsonout.json_bool(false)), jsonout.json_pair("matchID", jsonout.json_text(match_for_peer(caller.peer).match_id)), jsonout.json_pair("live", jsonout.json_bool(match_for_peer(caller.peer).match_id != "")), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("error", jsonout.json_text("heroes are required"))]))
+else
+  store_roster(caller.peer, caller.name, heroes)
+  let m: Match = pair_peers(caller.peer, arena)
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("locked", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("error", jsonout.json_text(""))]))
+end
+end
+
+function pvp_select_opponent_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  let m: Match = pair_peers(caller.peer, arena)
+  let fallback_opponent: text = if m.match_id != "" then match_opponent(m, caller.peer) else "" end
+  let opponent_id: text = json_text_or(req, "opponentID", fallback_opponent)
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("selected", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("opponentIndex", jsonout.json_int(json_int_or(req, "index", 0))), jsonout.json_pair("opponentID", jsonout.json_text(opponent_id))]))
+end
+
+function pvp_quit_arena_response(path: text, btxt: text): text
+  intent: encode
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  let m: Match = match_for_peer(caller.peer)
+  if m.match_id != "" then
+  end_match(m.match_id)
+  purge_fight_events(m.match_id)
+end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("quit", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id))]))
+end
+
 function pvp_opponent_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
   let arena: text = json_text_or(req, "arenaID", "arena_versus")
-  let opponent: Roster = opponent_roster(peer_key(path))
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  let peer: text = caller.peer
+  let m: Match = pair_peers(peer, arena)
+  mutable opponent: Roster = opponent_roster(peer)
+  if m.match_id != "" then
+  let opponent_peer: text = match_opponent(m, peer)
+  mutable found: boolean = false
+  for roster in load_rosters() do
+    if roster.peer == opponent_peer then
+  set opponent = roster
+  set found = true
+end
+  end
+  if not found then
+  set opponent = Roster { peer: opponent_peer, name: live_presence_name(opponent_peer), heroes: gamedata.default_team() }
+end
+end
   mutable team: a list of Json = []
   for hero in opponent.heroes do
     set team = append(team, jsonout.json_text(hero))
   end
   let portrait: text = unwrap_or(get(opponent.heroes, 0), "")
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("pvpid", jsonout.json_text(arena ++ "-1")), jsonout.json_pair("state", jsonout.json_int(128)), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(opponent.peer)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list([])), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("arenaStats", jsonout.json_obj([]))]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_list([])), jsonout.json_pair("milestones", jsonout.json_list([]))]))
+  let pvpid: text = if m.match_id != "" then m.match_id else arena ++ "-1" end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("pvpid", jsonout.json_text(pvpid)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("state", jsonout.json_int(128)), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(opponent.peer)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list([])), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("arenaStats", jsonout.json_obj([]))]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_list([])), jsonout.json_pair("milestones", jsonout.json_list([]))]))
+end
+
+function pvp_static_dynamic(path: text, p: text, btxt: text): text
+  intent: encode
+  if ends_with(p, "/pvp/heartbeat") then
+  pvp_heartbeat_response(path, btxt)
+else if ends_with(p, "/pvp/lobby") then
+  pvp_lobby_response(path)
+else if ends_with(p, "/pvp/leave-match") then
+  pvp_leave_match_response(path)
+else if ends_with(p, "/pvp/fight-post") then
+  pvp_fight_post_response(path, btxt)
+else if ends_with(p, "/pvp/fight-poll") then
+  pvp_fight_poll_response(path, btxt)
+else if ends_with(p, "/pvp/report-result") then
+  pvp_report_result_response(path, btxt)
+else if ends_with(p, "/pvp/match-result") then
+  pvp_match_result_response(path, btxt)
+else if ends_with(p, "/pvp/get-login-data") then
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  ""
+else if ends_with(p, "/pvp/get-user-data") or ends_with(p, "/pvp/get-active-pvp-data") then
+  pvp_arena_state_response(path, btxt)
+else if ends_with(p, "/pvp/lock-in") then
+  pvp_lock_in_response(path, btxt)
+else if ends_with(p, "/pvp/select-opponent") then
+  pvp_select_opponent_response(path, btxt)
+else if ends_with(p, "/pvp/quit-arena") then
+  pvp_quit_arena_response(path, btxt)
+else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
+  pvp_opponent_response(path, btxt)
+else
+  ""
+end
 end
 
 function static_dynamic(path: text, p: text, btxt: text): text
@@ -648,8 +1396,8 @@ end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
 else if ends_with(p, "/base/active") then
   compact_envelope(gamedata.build_base_active())
-else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
-  pvp_opponent_response(path, btxt)
+else if contains_text(p, "/pvp/") then
+  pvp_static_dynamic(path, p, btxt)
 else if endpoint_is_tutorial(p) then
   tutorial_response(p, btxt)
 else if ends_with(p, "/bcg/getBaseHeroData") then
@@ -709,7 +1457,7 @@ function movedir_response(p: text): text
   spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, get_saved_team()))
 end
 
-function resolve_match_response(btxt: text): text
+function resolve_match_response(path: text, btxt: text): text
   intent: resolve
   let req: Json = request_object(btxt)
   let nested: Json = if jsonout.obj_has(req, "results") and jsonout.type_name(jsonout.obj_get(req, "results")) == "object" then jsonout.obj_get(req, "results") else jsonout.json_obj([]) end
@@ -723,6 +1471,11 @@ function resolve_match_response(btxt: text): text
     set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end })
   end
   save_state(ServerState { team: state.team, positions: positions })
+end
+  let peer: text = peer_key(path)
+  let m: Match = match_for_peer(peer)
+  if m.match_id != "" and outcome != "" then
+  report_result_at(m.match_id, peer, normalize_outcome(outcome), current_time_ms())
 end
   ""
 end
@@ -758,7 +1511,7 @@ function quest_dynamic(path: text, p: text, btxt: text): text
   intent: encode
   if contains_text(p, "/quests/quest-begin/") then quest_begin_response(p, btxt)
   else if contains_text(p, "/quests/quest-movedir/") then movedir_response(p)
-  else if contains_text(p, "/matches/resolve-match/") then resolve_match_response(btxt)
+  else if contains_text(p, "/matches/resolve-match/") then resolve_match_response(path, btxt)
   else if ends_with(p, "/bcg/setSavedTeam") then saved_team_response(path, btxt)
   else ""
   end

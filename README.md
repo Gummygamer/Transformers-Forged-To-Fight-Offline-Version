@@ -300,11 +300,10 @@ with `TFTF_SERVER_SCHEME` and `TFTF_SERVER_PORT`, before starting the server.
 
 ### Online modes over the tunnel
 
-The fake server can serve the game's online PVP/Arena screens over that tunnel. It works in an
-async store-and-serve form rather than as live multiplayer: each player's authored team is
-stored on the host, and another player's stored team is later served back as the opponent.
-There is no realtime netcode, so the opponent's characters are fought as AI, but the team,
-name, and faction on the other side belong to a real second player.
+The fake server can serve the game's online PVP/Arena screens over that tunnel. Two devices that
+are active in the same arena become live peers: the server records their presence, pairs them
+into one shared match ID, and serves each player the other player's currently saved team. Their
+reported results are reconciled by the host, so both devices read the same final result.
 
 1. The host starts the server with the tunnel address advertised, in two terminals:
    `TFTF_SERVER_HOST=25.13.240.7 legible run Server/run_local.lbl` and
@@ -317,20 +316,35 @@ name, and faction on the other side belong to a real second player.
    `/bcg/setSavedTeam`, and that is what registers the player's roster on the host; no other
    action is required. Rosters are kept in `Server/logs/.fakeserver-rosters`, one line per
    peer, and survive a server restart. Saving again replaces that player's entry.
-4. Any player then opens the Versus/Arena screen. `GET /pvp/get-login-data` supplies the arena
-   state, and the opponent endpoints serve the most recently stored team that belongs to a
-   different peer. Until a second player has saved a team, a built-in house team called
+4. Both players open the Versus/Arena screen at about the same time. The server refreshes their
+   presence and, when it sees two available peers in the same arena, gives both one shared
+   `matchID`. The opponent endpoints then serve the paired player's actual saved team rather
+   than a stale roster. Until another live player has saved a team, a built-in house team called
    `Autobot Garrison` is served instead, so single-player play is unaffected.
+5. Play the offered fight and report the result through the Arena flow. The server keeps the two
+   reports and reconciles them authoritatively: complementary win/loss reports and matching draws
+   agree; conflicting reports are resolved deterministically, so both players see the same
+   winner. Presence expires after 15 seconds by default. Set `TFTF_PRESENCE_TTL_MS` on the host
+   to use a different positive timeout; a player idle past it is no longer eligible for a new
+   live pairing until the client next touches the Arena service.
 
 Two limits are worth understanding before trying this.
 
-First, only `GET /pvp/get-login-data` is confirmed against a real captured client session. The
-opponent endpoints `/pvp/find-arena-opponent`, `/pvp/get-new-arena-opponent` and
-`/pvp/get-opponents`, along with the field names in their responses, are derived from the
-game's IL2CPP metadata rather than from an observed server response. A run against a real
-device may need them adjusted; `TECHNICAL_NOTES.md` records the derivation.
+First, retail TFTF Arena is asynchronous by design. The client fights a local AI copy of the
+opponent's stored team; it has no realtime fight netcode. Relaying real-time input would require
+rewriting the IL2CPP fight simulation, which this project does not do. The genuinely reachable
+LAN path on an unmodified retail client is live presence, two-device matchmaking into a shared
+`matchID`, a live opponent team, and two-sided result reconciliation--not a frame-by-frame fight
+between phones.
 
-Second, `POST /auth/login` identifies each device by `credentials.udid` and gives it a stable,
+Second, `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP network surface.
+Only `GET /pvp/get-login-data` is confirmed against a real captured client session; the other
+PVP paths are derived as unconfirmed kebab-case mappings from its API methods and may need
+adjustment after further device captures. The server also exposes heartbeat, lobby, fight-relay,
+and result endpoints for tools and companion clients, but a retail device will never call those
+invented endpoints. `TECHNICAL_NOTES.md` records the endpoint split and derivation.
+
+Finally, `POST /auth/login` identifies each device by `credentials.udid` and gives it a stable,
 device-specific session token. Two phones therefore become separate peers automatically, and
 the manual `?peer=alice` curl workaround is no longer required. The `peer` query override
 remains available as a testing escape hatch.
