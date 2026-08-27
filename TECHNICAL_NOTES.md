@@ -900,6 +900,14 @@ roster belonging to a different peer, falling back to a house roster of
 `/pvp/get-opponents` are answered dynamically from that roster in a `PVPMatchData`-shaped
 envelope.
 
-Because `POST /auth/login` is canned, every client receives the same `stoken`, so two real
-devices currently share one peer slot. The `peer` query override is the interim workaround; a
-dynamic `/auth/login` handler that mints a fresh token per login is the proper fix.
+`POST /auth/login` now keeps a separate session store at
+`Server/logs/.fakeserver-sessions`, which is git-ignored through `/Server/logs/` and deliberately
+separate from `.fakeserver-rosters` and `.fakeserver-state`. Each line is
+`S|fingerprint|stoken|uid|name`. The fingerprint is chosen in order from `credentials.udid`,
+`bid`, `credentials.deviceName`, `credentials.deviceModel`, then `"local"`. Its token is
+`"sess"` plus that fingerprint reduced to ASCII alphanumerics, truncated to 32 characters and
+disambiguated by session count on collision; it must remain URL-safe because clients send it in
+query strings. A device that logs in again receives its existing token, so its stored roster is
+not orphaned. `dynamic()` takes precedence over the retained
+`POST__auth_login.json` canned fallback shape. The `peer` query override remains as a testing
+escape hatch.
