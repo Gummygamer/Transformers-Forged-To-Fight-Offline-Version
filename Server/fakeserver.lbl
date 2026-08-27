@@ -18,6 +18,12 @@ record ServerState
   positions: a list of Position
 end
 
+record Roster
+  peer: text
+  name: text
+  heroes: a list of text
+end
+
 record Request
   method: text
   path: text
@@ -192,6 +198,71 @@ end
   save_state(ServerState { team: state.team, positions: positions })
 end
 
+function roster_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-rosters")
+end
+
+function roster_safe(value: text): text
+  intent: clean
+  replace(replace(replace(value, "|", "_"), ",", "_"), "\n", "_")
+end
+
+public function load_rosters(): a list of Roster
+  intent: load
+  if not file_exists(roster_file()) then
+  []
+else
+  mutable rosters: a list of Roster = []
+  for line in split(read_file(roster_file()), "\n") do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    let peer: text = unwrap_or(get(fields, 1), "")
+    if kind == "R" and peer != "" then
+  let joined: text = unwrap_or(get(fields, 3), "")
+  let heroes: a list of text = if joined == "" then [] else split(joined, ",") end
+  set rosters = append(rosters, Roster { peer: peer, name: unwrap_or(get(fields, 2), ""), heroes: heroes })
+end
+  end
+  rosters
+end
+end
+
+public function store_roster(peer: text, name: text, heroes: a list of text): nothing
+  intent: save
+  create_dir(log_dir())
+  let key: text = roster_safe(peer)
+  let heroes_resolved: a list of text = gamedata.resolve_team(heroes)
+  mutable lines: a list of text = []
+  for roster in load_rosters() do
+    if roster.peer != key then
+  set lines = append(lines, "R|" ++ roster.peer ++ "|" ++ roster.name ++ "|" ++ join(roster.heroes, ","))
+end
+  end
+  set lines = append(lines, "R|" ++ key ++ "|" ++ roster_safe(name) ++ "|" ++ join(heroes_resolved, ","))
+  write_file(roster_file(), join(lines, "\n"))
+end
+
+public function reset_rosters(): nothing
+  intent: reset
+  create_dir(log_dir())
+  write_file(roster_file(), "")
+end
+
+public function opponent_roster(peer: text): Roster
+  intent: get
+  let key: text = roster_safe(peer)
+  mutable found: boolean = false
+  mutable opponent: Roster = Roster { peer: "house", name: "Autobot Garrison", heroes: gamedata.default_team() }
+  for roster in load_rosters() do
+    if roster.peer != key then
+  set opponent = roster
+  set found = true
+end
+  end
+  if found then opponent else Roster { peer: "house", name: "Autobot Garrison", heroes: gamedata.default_team() } end
+end
+
 public function resp_path_for(method: text, path: text): text
   intent: get
   let stripped: text = trim_path(path)
@@ -298,6 +369,35 @@ end
   found
 end
 
+public function query_value(path: text, name: text): text
+  intent: get
+  let pieces: a list of text = split(path, "?")
+  let query: text = unwrap_or(get(pieces, 1), "")
+  mutable result: text = ""
+  for item in split(query, "&") do
+    let pair: a list of text = split(item, "=")
+    let key: text = url_decode(unwrap_or(get(pair, 0), ""))
+    let value: text = url_decode(unwrap_or(get(pair, 1), ""))
+    if key == name then
+  set result = value
+end
+  end
+  result
+end
+
+public function peer_key(path: text): text
+  intent: get
+  let peer: text = query_value(path, "peer")
+  let stoken: text = query_value(path, "stoken")
+  if peer != "" then
+  peer
+else if stoken != "" then
+  stoken
+else
+  "local"
+end
+end
+
 function endpoint_is_tutorial(path: text): boolean
   intent: check
   ends_with(path, "/tutorial/start-tutorial") or ends_with(path, "/tutorial/start-branch") or ends_with(path, "/tutorial/early-start-branch") or ends_with(path, "/tutorial/complete-tutorial")
@@ -388,6 +488,19 @@ end
 end
 end
 
+function pvp_opponent_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  let opponent: Roster = opponent_roster(peer_key(path))
+  mutable team: a list of Json = []
+  for hero in opponent.heroes do
+    set team = append(team, jsonout.json_text(hero))
+  end
+  let portrait: text = unwrap_or(get(opponent.heroes, 0), "")
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("pvpid", jsonout.json_text(arena ++ "-1")), jsonout.json_pair("state", jsonout.json_int(128)), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(opponent.peer)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list([])), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("arenaStats", jsonout.json_obj([]))]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_list([])), jsonout.json_pair("milestones", jsonout.json_list([]))]))
+end
+
 function static_dynamic(path: text, p: text, btxt: text): text
   intent: encode
   if ends_with(p, "/bcg/getUserData") then
@@ -401,6 +514,8 @@ end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
 else if ends_with(p, "/base/active") then
   compact_envelope(gamedata.build_base_active())
+else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
+  pvp_opponent_response(path, btxt)
 else if endpoint_is_tutorial(p) then
   tutorial_response(p, btxt)
 else if ends_with(p, "/bcg/getBaseHeroData") then
@@ -483,7 +598,7 @@ function saved_team_envelope(team_id: text, heroes: a list of text): text
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list([gamedata.build_active_team("1.1.1-" ++ team_id, heroes)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
 end
 
-function saved_team_response(btxt: text): text
+function saved_team_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
   let team_id: text = if jsonout.obj_has(req, "teamID") then
@@ -497,15 +612,16 @@ else
   jsonout.json_list([])
 end)
   set_saved_team(heroes)
+  store_roster(peer_key(path), json_text_or(req, "name", "Commander"), heroes)
   saved_team_envelope(team_id, heroes)
 end
 
-function quest_dynamic(p: text, btxt: text): text
+function quest_dynamic(path: text, p: text, btxt: text): text
   intent: encode
   if contains_text(p, "/quests/quest-begin/") then quest_begin_response(p, btxt)
   else if contains_text(p, "/quests/quest-movedir/") then movedir_response(p)
   else if contains_text(p, "/matches/resolve-match/") then resolve_match_response(btxt)
-  else if ends_with(p, "/bcg/setSavedTeam") then saved_team_response(btxt)
+  else if ends_with(p, "/bcg/setSavedTeam") then saved_team_response(path, btxt)
   else ""
   end
 end
@@ -517,7 +633,7 @@ public function dynamic(path: text, btxt: text): text
   if static != "" then
   static
 else
-  quest_dynamic(p, btxt)
+  quest_dynamic(path, p, btxt)
 end
 end
 
