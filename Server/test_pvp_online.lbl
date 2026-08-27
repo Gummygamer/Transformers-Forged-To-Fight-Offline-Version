@@ -1,0 +1,134 @@
+use fakeserver
+use jsonout
+use gamedata
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+  print("[ok] " ++ name)
+  0
+else
+  print("[!] " ++ name)
+  1
+end
+end
+
+function test_pvp_path_mapping(): boolean
+  intent: test
+  ends_with(fakeserver.resp_path_for("GET", "/pvp/get-login-data?sig=x&api=5"), "Server/responses/GET__pvp_get-login-data.json")
+end
+
+function test_pvp_login_data_is_canned(): boolean
+  intent: test
+  let choice: ResponseChoice = fakeserver.resolve_response("GET", "/pvp/get-login-data?api=5")
+  starts_with(choice.source, "canned ") and choice.body != "\{\"error\":null,\"result\":\{\}\}"
+end
+
+function test_pvp_login_data_shape(): boolean
+  intent: test
+  let choice: ResponseChoice = fakeserver.resolve_response("GET", "/pvp/get-login-data?api=5")
+  let top: Json = jsonout.parse_json(choice.body)
+  if jsonout.type_name(top) != "object" then
+  false
+else if not jsonout.obj_has(top, "result") then
+  false
+else
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" then
+  false
+else if not jsonout.obj_has(result, "arenas") or not jsonout.obj_has(result, "matches") then
+  false
+else
+  let arenas: Json = jsonout.obj_get(result, "arenas")
+  if jsonout.type_name(arenas) != "object" then
+  false
+else if not jsonout.obj_has(arenas, "arena_versus") then
+  false
+else
+  let arena: Json = jsonout.obj_get(arenas, "arena_versus")
+  if jsonout.type_name(arena) != "object" then
+  false
+else if not jsonout.obj_has(arena, "pid") then
+  false
+else
+  jsonout.as_text(jsonout.obj_get(arena, "pid")) == "arena_versus" and jsonout.obj_has(arena, "winStreak") and jsonout.obj_has(arena, "wins") and jsonout.obj_has(arena, "losses") and jsonout.obj_has(arena, "longestStreak") and jsonout.obj_has(arena, "findAttempts")
+end
+end
+end
+end
+end
+
+function test_peer_key_prefers_peer_then_stoken(): boolean
+  intent: test
+  fakeserver.peer_key("/pvp/find-arena-opponent?stoken=sess1&peer=alice") == "alice" and fakeserver.peer_key("/pvp/find-arena-opponent?sig=x&stoken=sess1&api=5") == "sess1" and fakeserver.peer_key("/pvp/find-arena-opponent") == "local"
+end
+
+function test_roster_store_round_trips_two_peers(): boolean
+  intent: test
+  fakeserver.reset_rosters()
+  fakeserver.store_roster("sessA", "Alice", ["optimusprime_cin_tf", "optimusprimal_bw_mp32"])
+  fakeserver.store_roster("sessB", "Bob", ["grimlock_gs_mp08"])
+  let rosters: a list of Roster = fakeserver.load_rosters()
+  let first: Roster = unwrap_or(get(rosters, 0), Roster { peer: "", name: "", heroes: [] })
+  length(rosters) == 2 and first.peer == "sessA" and first.name == "Alice" and join(first.heroes, ",") == join(gamedata.resolve_team(["optimusprime_cin_tf", "optimusprimal_bw_mp32"]), ",")
+end
+
+function test_storing_same_peer_twice_replaces_not_duplicates(): boolean
+  intent: test
+  fakeserver.reset_rosters()
+  fakeserver.store_roster("sessA", "Alice", ["optimusprime_cin_tf"])
+  fakeserver.store_roster("sessA", "Alice", ["grimlock_gs_mp08"])
+  length(fakeserver.load_rosters()) == 1
+end
+
+function test_opponent_is_the_other_peer_and_falls_back_to_house(): boolean
+  intent: test
+  fakeserver.reset_rosters()
+  fakeserver.store_roster("sessA", "Alice", ["optimusprime_cin_tf"])
+  fakeserver.store_roster("sessB", "Bob", ["grimlock_gs_mp08"])
+  let peers_ok: boolean = fakeserver.opponent_roster("sessA").peer == "sessB" and fakeserver.opponent_roster("sessB").peer == "sessA"
+  fakeserver.reset_rosters()
+  peers_ok and fakeserver.opponent_roster("sessA").peer == "house" and length(fakeserver.opponent_roster("sessA").heroes) > 0
+end
+
+function test_find_arena_opponent_serves_the_other_peers_team(): boolean
+  intent: test
+  fakeserver.reset_rosters()
+  fakeserver.store_roster("sessB", "Bob", ["optimusprime_cin_tf"])
+  let body: text = fakeserver.dynamic("/pvp/find-arena-opponent?stoken=sessA&sver=3", "\{\"arenaID\":\"arena_versus\"\}")
+  let top: Json = jsonout.parse_json(body)
+  if body == "" or jsonout.type_name(top) != "object" or not jsonout.obj_has(top, "result") then
+  false
+else
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "opponents") then
+  false
+else
+  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(result, "opponents"))
+  let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
+  if length(opponents) != 1 or jsonout.type_name(opponent) != "object" or not jsonout.obj_has(opponent, "uid") or not jsonout.obj_has(opponent, "userData") or not jsonout.obj_has(opponent, "team") then
+  false
+else
+  let user_data: Json = jsonout.obj_get(opponent, "userData")
+  jsonout.as_text(jsonout.obj_get(opponent, "uid")) == "sessB" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob" and length(jsonout.list_items(jsonout.obj_get(opponent, "team"))) > 0
+end
+end
+end
+end
+
+function main(): nothing
+  intent: run
+  mutable failures: integer = 0
+  set failures = failures + report("test_pvp_path_mapping", test_pvp_path_mapping())
+  set failures = failures + report("test_pvp_login_data_is_canned", test_pvp_login_data_is_canned())
+  set failures = failures + report("test_pvp_login_data_shape", test_pvp_login_data_shape())
+  set failures = failures + report("test_peer_key_prefers_peer_then_stoken", test_peer_key_prefers_peer_then_stoken())
+  set failures = failures + report("test_roster_store_round_trips_two_peers", test_roster_store_round_trips_two_peers())
+  set failures = failures + report("test_storing_same_peer_twice_replaces_not_duplicates", test_storing_same_peer_twice_replaces_not_duplicates())
+  set failures = failures + report("test_opponent_is_the_other_peer_and_falls_back_to_house", test_opponent_is_the_other_peer_and_falls_back_to_house())
+  set failures = failures + report("test_find_arena_opponent_serves_the_other_peers_team", test_find_arena_opponent_serves_the_other_peers_team())
+  print(to_text(8 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  if failures != 0 then exit_process(1) end
+end
+
+main()
