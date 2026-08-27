@@ -212,6 +212,12 @@ function session_token(): text
   to_text(random_int(1000000000)) ++ "-" ++ to_text(random_int(1000000000)) ++ "-" ++ to_text(random_int(1000000000)) ++ "-" ++ to_text(random_int(1000000000))
 end
 
+function browser_opener(): text
+  intent: select browser opener command
+  let opener: text = trim(unwrap_or(env_get("APK_PATCHER_GUI_OPENER"), ""))
+  if opener != "" then opener else "xdg-open" end
+end
+
 function main(): nothing
   intent: start APK patcher GUI
   let options: ServerOptions = parse_options()
@@ -222,7 +228,7 @@ function main(): nothing
   http_start(options.port)
   print("APK patcher GUI listening at " ++ url)
   print("Requests require the per-launch session token shown in this URL.")
-  if not options.no_browser then shell_exec("xdg-open " ++ pipeline.shell_quote(url) ++ " >/dev/null 2>&1 &") end
+  if not options.no_browser then shell_exec(browser_opener() ++ " " ++ pipeline.shell_quote(url) ++ " >/dev/null 2>&1 &") end
   request_loop(token)
 end
 

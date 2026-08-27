@@ -62,10 +62,9 @@ if not defined GUI_PORT (
 )
 
 echo ==^> Launching APK patcher GUI...
-echo     Note: this app auto-opens the browser via a Linux-only command, so on
-echo     Windows it will not open automatically -- copy the printed URL below
-echo     into your browser once the server is listening.
-legible run tools\apk_patcher_gui\server.lbl --port !GUI_PORT! --no-browser %*
+echo     The GUI will open in your default browser; use the printed URL if it does not.
+set "APK_PATCHER_GUI_OPENER=powershell -NoProfile -Command Start-Process"
+legible run tools\apk_patcher_gui\server.lbl --port !GUI_PORT! %*
 exit /b %errorlevel%
 
 :enable_java_path
