@@ -74,6 +74,7 @@ function main(): nothing
   set failed = failed + report("decimal formatting", decimal_ok, "whole decimals lost .0 or integer changed")
   let escaped: text = "\{\"s\":\"\\\"\\\\\\n\\t\\u0001\"\}"
   set failed = failed + report("string escaping", compact(escaped) == escaped, "escaped characters changed")
+  set failed = failed + report("non-ASCII unicode escape", compact("\{\"name\":\"Andr\\u00e9\"\}") == "\{\"name\":\"Andr?\"\}", "non-ASCII escape did not use the ASCII placeholder")
   let object: Json = jsonout.parse_json(order_source)
   let replaced: Json = jsonout.obj_set(object, "a", jsonout.json_int(3))
   let appended: Json = jsonout.obj_set(replaced, "c", jsonout.json_int(4))
@@ -82,7 +83,7 @@ function main(): nothing
   set failed = failed + report("nesting and empties", compact(nested) == "\{\"x\":[[],\{\},[null,true,false,-2,1000.0]]\}", "nested values did not compact correctly")
   let spaced: Json = jsonout.json_obj([jsonout.json_pair("a", jsonout.json_list([jsonout.json_int(1), jsonout.json_int(2)])), jsonout.json_pair("b", jsonout.json_bool(true))])
   set failed = failed + report("spaced encoding", jsonout.encode_spaced(spaced) == "\{\"a\": [1, 2], \"b\": true\}", "spaced separators changed")
-  let total: integer = 23
+  let total: integer = 24
   let passed: integer = total - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then exit_process(1) end

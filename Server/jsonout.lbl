@@ -201,11 +201,11 @@ function unicode_byte(hex: text): text
     byte_text(0)
   else
     let decoded: integer = high * 4096 + next * 256 + third * 16 + low
-    if decoded >= 128 then
-      print("[!] jsonout: non-ASCII text is not supported: unicode escape")
-      exit_process(1)
-    end
-    byte_text(decoded)
+    -- JSON input from retail clients may contain non-ASCII \u escapes in fields
+    -- the offline server does not use (for example, a phone's display name).
+    -- The encoder remains ASCII-only, so retain a safe ASCII placeholder instead
+    -- of terminating the whole listener for one descriptive field.
+    if decoded >= 128 then byte_text(63) else byte_text(decoded) end
   end
 end
 
