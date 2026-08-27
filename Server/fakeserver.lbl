@@ -289,6 +289,12 @@ public function presence_ttl_ms(): integer
   if configured > 0 then configured else 15000 end
 end
 
+public function account_level(): integer
+  intent: get
+  let configured: integer = unwrap_or(to_integer(unwrap_or(env_get("TFTF_ACCOUNT_LEVEL"), "")), 0)
+  if configured > 0 then configured else 40 end
+end
+
 public function load_sessions(): a list of Session
   intent: load
   if not file_exists(session_file()) then
@@ -1084,7 +1090,7 @@ else
 end
   let name: text = if device_name != "" then device_name else if device_model != "" then device_model else "Commander" end
   let session: Session = ensure_session(fingerprint, name)
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("stoken", jsonout.json_text(session.stoken)), jsonout.json_pair("server_tag", jsonout.json_text("prod")), jsonout.json_pair("userToken", jsonout.json_text("")), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(unwrap_or(to_integer(session.uid), 1000000000001))), jsonout.json_pair("name", jsonout.json_text(session.name)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("email", jsonout.json_text("")), jsonout.json_pair("fbid", jsonout.json_text("")), jsonout.json_pair("geo", jsonout.json_text("US")), jsonout.json_pair("naid", jsonout.json_text("")), jsonout.json_pair("cohort", jsonout.json_int(0)), jsonout.json_pair("revenue", jsonout.json_int(0))]))]))
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("stoken", jsonout.json_text(session.stoken)), jsonout.json_pair("server_tag", jsonout.json_text("prod")), jsonout.json_pair("userToken", jsonout.json_text("")), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(unwrap_or(to_integer(session.uid), 1000000000001))), jsonout.json_pair("name", jsonout.json_text(session.name)), jsonout.json_pair("level", jsonout.json_int(account_level())), jsonout.json_pair("email", jsonout.json_text("")), jsonout.json_pair("fbid", jsonout.json_text("")), jsonout.json_pair("geo", jsonout.json_text("US")), jsonout.json_pair("naid", jsonout.json_text("")), jsonout.json_pair("cohort", jsonout.json_int(0)), jsonout.json_pair("revenue", jsonout.json_int(0))]))]))
 end
 
 function tutorial_response(p: text, btxt: text): text
