@@ -140,9 +140,40 @@ function command_output(command: text): text
   trim(unwrap_or(get(shell_exec(command), "stdout"), ""))
 end
 
+public function executable_name_variants(name: text): a list of text
+  intent: list platform executable filename variants
+  -- On Windows the Android SDK ships wrappers as .bat/.cmd (apksigner.bat,
+  -- the NDK clang .cmd shims) and real binaries as .exe (zipalign.exe,
+  -- adb.exe, java.exe). Git Bash's `command -v` only auto-resolves .exe, so
+  -- the bare name alone misses apksigner entirely. Probe every variant.
+  [name, name ++ ".exe", name ++ ".bat", name ++ ".cmd"]
+end
+
+function find_name_alternation(name: text): text
+  intent: build a find(1) -name alternation across executable extensions
+  mutable parts: a list of text = []
+  for candidate in executable_name_variants(name) do
+    set parts = append(parts, "-name " ++ shell_quote(candidate))
+  end
+  join(parts, " -o ")
+end
+
+function first_existing_variant(directory: text, name: text): text
+  intent: return the first executable variant that exists in a directory
+  for candidate in executable_name_variants(name) do
+    let full: text = path_join(directory, candidate)
+    if file_exists(full) then return full end
+  end
+  ""
+end
+
 function executable_in_path(name: text): text
   intent: find
-  command_output("command -v " ++ shell_quote(name) ++ " 2>/dev/null")
+  for candidate in executable_name_variants(name) do
+    let found: text = command_output("command -v " ++ shell_quote(candidate) ++ " 2>/dev/null")
+    if found != "" then return found end
+  end
+  ""
 end
 
 function home_dir(): text
@@ -172,7 +203,7 @@ public function find_build_tool(name: text): text
   for root in sdk_roots() do
     let build_tools: text = path_join(root, "build-tools")
     if is_dir(build_tools) then
-      let command: text = "find " ++ shell_quote(build_tools) ++ " -mindepth 2 -maxdepth 2 -type f -name " ++ shell_quote(name) ++ " -perm -u+x -print 2>/dev/null | sort -V | tail -n 1"
+      let command: text = "find " ++ shell_quote(build_tools) ++ " -mindepth 2 -maxdepth 2 -type f \\( " ++ find_name_alternation(name) ++ " \\) -print 2>/dev/null | sort -V | tail -n 1"
       let candidate: text = command_output(command)
       if candidate != "" then return candidate end
     end
@@ -183,8 +214,8 @@ end
 public function find_adb(): text
   intent: find
   for root in sdk_roots() do
-    let candidate: text = path_join(path_join(root, "platform-tools"), "adb")
-    if file_exists(candidate) then return candidate end
+    let candidate: text = first_existing_variant(path_join(root, "platform-tools"), "adb")
+    if candidate != "" then return candidate end
   end
   executable_in_path("adb")
 end
@@ -192,13 +223,15 @@ end
 public function find_java(): text
   intent: find Java executable
   let java_home: text = unwrap_or(env_get("JAVA_HOME"), "")
-  if java_home != "" and file_exists(path_join(path_join(java_home, "bin"), "java")) then
-    return path_join(path_join(java_home, "bin"), "java")
+  if java_home != "" then
+    let from_home: text = first_existing_variant(path_join(java_home, "bin"), "java")
+    if from_home != "" then return from_home end
   end
   let from_path: text = executable_in_path("java")
   if from_path != "" then return from_path end
-  if home_dir() != "" and file_exists(path_join(path_join(path_join(home_dir(), "jdk17"), "bin"), "java")) then
-    return path_join(path_join(path_join(home_dir(), "jdk17"), "bin"), "java")
+  if home_dir() != "" then
+    let from_jdk17: text = first_existing_variant(path_join(path_join(home_dir(), "jdk17"), "bin"), "java")
+    if from_jdk17 != "" then return from_jdk17 end
   end
   command_output("find /usr/lib/jvm -mindepth 3 -maxdepth 3 -type f -path '*/bin/java' -perm -u+x -print 2>/dev/null | sort -V | tail -n 1")
 end
@@ -209,7 +242,7 @@ public function find_ndk_clang(abi: text): text
   for root in sdk_roots() do
     let ndk: text = path_join(root, "ndk")
     if is_dir(ndk) then
-      let command: text = "find " ++ shell_quote(ndk) ++ " -type f -name " ++ shell_quote(name) ++ " -perm -u+x -print 2>/dev/null | sort -V | tail -n 1"
+      let command: text = "find " ++ shell_quote(ndk) ++ " -type f \\( " ++ find_name_alternation(name) ++ " \\) -print 2>/dev/null | sort -V | tail -n 1"
       let candidate: text = command_output(command)
       if candidate != "" then return candidate end
     end
