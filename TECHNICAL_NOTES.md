@@ -824,6 +824,17 @@ The online-mode entry point is `GET /pvp/get-login-data`. There are five occurre
 `probe/seg02_server.log` (the first at line 111), and each logged `-> default 200 envelope`.
 The client was therefore previously handed an empty result and had no arena state.
 
+### Arena account-level gate
+
+`LevelLockManager` compares a lock's minimum level from `_tuningData` with `_playerLevel`.
+The minimum level comes from `TuningLevelLocks.LevelLockData`, serialized into the Unity assets,
+while `_playerLevel` comes from `LevelRewardsStatus.Level`. No capture shows the client fetching a
+standalone `/tuning` document, so the minimum-level side is not server-reachable. The server now
+reports account level 40 from `POST /auth/login`, clearing the level-10 Arena gate for a fresh
+session. This has not yet been confirmed on a device; if the gate survives on hardware, investigate
+the `LevelRewardsManager` status fetch (`LevelRewardsAPI.FetchStatus`, `re_notes/dump.cs` line
+320631), whose endpoint path has never appeared in a capture.
+
 The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
 
 - `GetLoginData`

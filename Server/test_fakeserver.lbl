@@ -233,6 +233,14 @@ function test_encode_spacing_matches_python(): boolean
   jsonout.encode_compact(value) == "\{\"a\":[1,2],\"b\":\{\"c\":true\}\}" and jsonout.encode_spaced(value) == "\{\"a\": [1, 2], \"b\": \{\"c\": true\}\}"
 end
 
+function test_login_reports_arena_capable_account_level(): boolean
+  intent: test
+  let dynamic_user: Json = jsonout.obj_get(result(fakeserver.dynamic("/auth/login", "\{\}")), "user")
+  let canned_user: Json = jsonout.obj_get(result(fakeserver.resolve_response("POST", "/auth/login").body), "user")
+  let level: integer = jsonout.as_int(jsonout.obj_get(dynamic_user, "level"))
+  level == fakeserver.account_level() and level >= 10 and jsonout.as_int(jsonout.obj_get(canned_user, "level")) == level
+end
+
 function main(): nothing
   intent: run
   mutable failed: integer = 0
@@ -250,9 +258,10 @@ function main(): nothing
   set failed = failed + report("test_quest_resets_and_legacy_state_disarm_pending", test_quest_resets_and_legacy_state_disarm_pending())
   set failed = failed + report("test_resolve_response_prefers_canned_then_rule_then_default", test_resolve_response_prefers_canned_then_rule_then_default())
   set failed = failed + report("test_encode_spacing_matches_python", test_encode_spacing_matches_python())
+  set failed = failed + report("test_login_reports_arena_capable_account_level", test_login_reports_arena_capable_account_level())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(14 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(15 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
