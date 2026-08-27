@@ -83,6 +83,8 @@ end
 
 function test_opponent_is_the_other_peer_and_falls_back_to_house(): boolean
   intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
   fakeserver.reset_rosters()
   fakeserver.store_roster("sessA", "Alice", ["optimusprime_cin_tf"])
   fakeserver.store_roster("sessB", "Bob", ["grimlock_gs_mp08"])
@@ -93,6 +95,8 @@ end
 
 function test_find_arena_opponent_serves_the_other_peers_team(): boolean
   intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
   fakeserver.reset_rosters()
   fakeserver.store_roster("sessB", "Bob", ["optimusprime_cin_tf"])
   let body: text = fakeserver.dynamic("/pvp/find-arena-opponent?stoken=sessA&sver=3", "\{\"arenaID\":\"arena_versus\"\}")
@@ -220,6 +224,324 @@ function test_saved_team_uses_session_name_unless_overridden(): boolean
   stored.name == "A52 de Andre" and overridden.name == "Override"
 end
 
+function reset_endpoint_pvp_state(): nothing
+  intent: reset
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.reset_fight_events()
+  fakeserver.reset_reports()
+end
+
+function pvp_result(path: text, body: text): Json
+  intent: get
+  jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic(path, body)), "result")
+end
+
+function test_get_login_data_touches_session_named_presence_and_falls_through(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  let login: Json = login_result("\{\"credentials\":\{\"udid\":\"login-presence\",\"deviceName\":\"Login Alice\"\}\}")
+  let token: text = jsonout.as_text(jsonout.obj_get(login, "stoken"))
+  let response: text = fakeserver.dynamic("/pvp/get-login-data?peer=login-peer&stoken=" ++ token, "")
+  let presence: Presence = unwrap_or(get(fakeserver.live_peers(), 0), Presence { peer: "", name: "", seen_ms: 0 })
+  response == "" and length(fakeserver.live_peers()) == 1 and presence.peer == "login-peer" and presence.name == "Login Alice"
+end
+
+function test_arena_data_reports_live_state_and_stats(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  fakeserver.touch_presence("sessB", "Bob")
+  fakeserver.report_result_at("old-one", "sessA", "WON", 1000)
+  fakeserver.report_result_at("old-two", "sessA", "LOST", 1001)
+  fakeserver.report_result_at("old-three", "sessA", "WON", 1002)
+  let user_data: Json = pvp_result("/pvp/get-user-data?peer=sessA", "\{\"arenaID\":\"arena_live\",\"playerName\":\"Alice\"\}")
+  let active_data: Json = pvp_result("/pvp/get-active-pvp-data?peer=sessA", "\{\"arenaID\":\"arena_live\"\}")
+  jsonout.as_text(jsonout.obj_get(user_data, "pid")) == "sessA" and jsonout.as_int(jsonout.obj_get(user_data, "wins")) == 2 and jsonout.as_int(jsonout.obj_get(user_data, "losses")) == 1 and jsonout.as_int(jsonout.obj_get(user_data, "winStreak")) == 1 and jsonout.as_text(jsonout.obj_get(user_data, "arenaID")) == "arena_live" and jsonout.as_int(jsonout.obj_get(user_data, "livePeers")) == 1 and jsonout.as_text(jsonout.obj_get(active_data, "pid")) == "sessA"
+end
+
+function test_lock_in_publishes_team_pairs_and_preserves_roster_on_empty_team(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  fakeserver.touch_presence("sessB", "Bob")
+  let locked: Json = pvp_result("/pvp/lock-in?peer=sessA", "\{\"arenaID\":\"arena_versus\",\"heroes\":[\"optimusprime_cin_tf\"]\}")
+  let roster: Roster = unwrap_or(get(fakeserver.load_rosters(), 0), Roster { peer: "", name: "", heroes: [] })
+  let rejected: Json = pvp_result("/pvp/lock-in?peer=sessA", "\{\"team\":[]\}")
+  jsonout.as_bool(jsonout.obj_get(locked, "locked")) and jsonout.as_bool(jsonout.obj_get(locked, "live")) and jsonout.as_text(jsonout.obj_get(locked, "matchID")) != "" and roster.peer == "sessA" and length(roster.heroes) == 1 and not jsonout.as_bool(jsonout.obj_get(rejected, "locked")) and jsonout.as_text(jsonout.obj_get(rejected, "error")) != "" and length(fakeserver.load_rosters()) == 1
+end
+
+function test_select_opponent_confirms_a_live_pair(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  fakeserver.dynamic("/pvp/get-login-data?peer=sessB", "\{\"name\":\"Bob\"\}")
+  let selected: Json = pvp_result("/pvp/select-opponent?peer=sessA", "\{\"arenaID\":\"arena_versus\",\"index\":2,\"name\":\"Alice\"\}")
+  jsonout.as_bool(jsonout.obj_get(selected, "selected")) and jsonout.as_bool(jsonout.obj_get(selected, "live")) and jsonout.as_int(jsonout.obj_get(selected, "opponentIndex")) == 2 and jsonout.as_text(jsonout.obj_get(selected, "opponentID")) == "sessB"
+end
+
+function test_quit_arena_ends_match_purges_events_and_is_harmless_without_match(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  fakeserver.touch_presence("sessA", "Alice")
+  fakeserver.touch_presence("sessB", "Bob")
+  let m: Match = fakeserver.pair_peers("sessA", "arena_versus")
+  fakeserver.append_fight_event(m.match_id, "sessA", "input", "one")
+  let quit: Json = pvp_result("/pvp/quit-arena?peer=sessA", "")
+  let no_match: Json = pvp_result("/pvp/quit-arena?peer=sessA", "")
+  jsonout.as_bool(jsonout.obj_get(quit, "quit")) and jsonout.as_text(jsonout.obj_get(quit, "matchID")) == m.match_id and fakeserver.match_for_peer("sessB").match_id == "" and length(fakeserver.load_fight_events()) == 0 and jsonout.as_bool(jsonout.obj_get(no_match, "quit")) and jsonout.as_text(jsonout.obj_get(no_match, "matchID")) == ""
+end
+
+function test_opponent_search_touches_the_callers_presence(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  fakeserver.dynamic("/pvp/get-login-data?peer=sessB", "\{\"name\":\"Bob\"\}")
+  let response: text = fakeserver.dynamic("/pvp/find-arena-opponent?peer=sessA", "\{\"arenaID\":\"arena_versus\",\"playerName\":\"Alice\"\}")
+  let peers: a list of Presence = fakeserver.live_peers()
+  let alice: Presence = unwrap_or(get(peers, 0), Presence { peer: "", name: "", seen_ms: 0 })
+  let bob: Presence = unwrap_or(get(peers, 1), Presence { peer: "", name: "", seen_ms: 0 })
+  response != "" and length(peers) == 2 and ((alice.peer == "sessA" and alice.name == "Alice") or (bob.peer == "sessA" and bob.name == "Alice"))
+end
+
+function test_heartbeat_registers_a_live_peer(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.dynamic("/pvp/heartbeat?stoken=sessA", "\{\"name\":\"Alice\"\}")
+  let peers: a list of Presence = fakeserver.live_peers()
+  length(peers) == 1 and unwrap_or(get(peers, 0), Presence { peer: "", name: "", seen_ms: 0 }).peer == "sessA"
+end
+
+function test_presence_expires_after_ttl(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  length(fakeserver.live_peers_at(1000 + fakeserver.presence_ttl_ms() - 1)) == 1 and length(fakeserver.live_peers_at(1000 + fakeserver.presence_ttl_ms() + 1)) == 0
+end
+
+function test_heartbeat_lists_other_live_peers_not_self(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.dynamic("/pvp/heartbeat?stoken=sessB", "\{\"name\":\"Bob\"\}")
+  let body: text = fakeserver.dynamic("/pvp/heartbeat?stoken=sessA", "\{\"name\":\"Alice\"\}")
+  let result: Json = jsonout.obj_get(jsonout.parse_json(body), "result")
+  let peers: a list of Json = jsonout.list_items(jsonout.obj_get(result, "peers"))
+  let peer: Json = unwrap_or(get(peers, 0), jsonout.json_obj([]))
+  length(peers) == 1 and jsonout.as_text(jsonout.obj_get(peer, "peer")) == "sessB"
+end
+
+function test_two_live_peers_pair_into_one_shared_match(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  fakeserver.touch_presence_at("sessB", "Bob", 1000)
+  let first: Match = fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  let second: Match = fakeserver.pair_peers_at("sessB", "arena_versus", 1000)
+  first.match_id != "" and first.match_id == second.match_id and fakeserver.match_opponent(first, "sessA") == "sessB" and fakeserver.match_opponent(second, "sessB") == "sessA"
+end
+
+function test_pairing_is_idempotent_for_the_same_peer(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  fakeserver.touch_presence_at("sessB", "Bob", 1000)
+  let first: Match = fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  let second: Match = fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  first.match_id != "" and first.match_id == second.match_id and length(fakeserver.load_matches()) == 1
+end
+
+function test_a_third_peer_does_not_steal_an_existing_pair(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  fakeserver.touch_presence_at("sessB", "Bob", 1000)
+  fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  let third: Match = fakeserver.pair_peers_at("sessC", "arena_versus", 1000)
+  third.match_id == "" and length(fakeserver.load_matches()) == 1
+end
+
+function test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.store_roster("sessB", "Bob", ["optimusprime_cin_tf"])
+  fakeserver.store_roster("sessC", "Cara", ["grimlock_gs_mp08"])
+  fakeserver.touch_presence_at("sessC", "Cara", current_time_ms())
+  let body: text = fakeserver.dynamic("/pvp/find-arena-opponent?stoken=sessA&sver=3", "\{\"arenaID\":\"arena_versus\"\}")
+  let result: Json = jsonout.obj_get(jsonout.parse_json(body), "result")
+  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(result, "opponents"))
+  let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(opponent, "uid")) == "sessC" and jsonout.as_bool(jsonout.obj_get(result, "live")) and jsonout.as_text(jsonout.obj_get(result, "pvpid")) == jsonout.as_text(jsonout.obj_get(result, "matchID"))
+end
+
+function test_leave_match_frees_both_peers(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  fakeserver.touch_presence_at("sessB", "Bob", 1000)
+  fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  fakeserver.dynamic("/pvp/leave-match?peer=sessA", "")
+  let freed: boolean = fakeserver.match_for_peer("sessA").match_id == "" and fakeserver.match_for_peer("sessB").match_id == ""
+  let replacement: Match = fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  freed and replacement.match_id != ""
+end
+
+function test_presence_and_matches_persist_to_disk(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  fakeserver.touch_presence_at("sessB", "Bob", 1000)
+  fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+  length(fakeserver.load_presence()) == 2 and length(fakeserver.load_matches()) == 1
+end
+
+function prepare_relay_match(): Match
+  intent: setup
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_fight_events()
+  fakeserver.reset_reports()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  fakeserver.touch_presence_at("sessA", "Alice", 1000)
+  fakeserver.touch_presence_at("sessB", "Bob", 1000)
+  fakeserver.pair_peers_at("sessA", "arena_versus", 1000)
+end
+
+function test_fight_post_assigns_monotonic_sequences(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  let first: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/fight-post?peer=sessA", "\{\"kind\":\"input\",\"payload\":\"first\"\}")), "result")
+  let second: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/fight-post?peer=sessA", "\{\"kind\":\"input\",\"payload\":\"second\"\}")), "result")
+  m.match_id != "" and jsonout.as_int(jsonout.obj_get(first, "seq")) == 1 and jsonout.as_int(jsonout.obj_get(second, "seq")) == 2
+end
+
+function test_fight_sequences_are_independent_per_match(): boolean
+  intent: test
+  fakeserver.reset_presence()
+  fakeserver.reset_matches()
+  fakeserver.reset_fight_events()
+  fakeserver.reset_reports()
+  fakeserver.reset_rosters()
+  fakeserver.reset_sessions()
+  let first: FightEvent = fakeserver.append_fight_event_at("match-one", "sessA", "input", "one", 1000)
+  let second: FightEvent = fakeserver.append_fight_event_at("match-two", "sessB", "input", "two", 1001)
+  let third: FightEvent = fakeserver.append_fight_event_at("match-one", "sessA", "input", "three", 1002)
+  first.seq == 1 and second.seq == 1 and third.seq == 2
+end
+
+function test_fight_post_rejects_a_non_member(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  let body: text = "\{\"matchID\":\"" ++ m.match_id ++ "\",\"kind\":\"input\"\}"
+  let result: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/fight-post?peer=sessC", body)), "result")
+  not jsonout.as_bool(jsonout.obj_get(result, "accepted")) and jsonout.as_int(jsonout.obj_get(result, "seq")) == 0 and jsonout.as_text(jsonout.obj_get(result, "error")) != "" and length(fakeserver.load_fight_events()) == 0
+end
+
+function test_fight_poll_returns_events_then_catches_up(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  fakeserver.append_fight_event_at(m.match_id, "sessA", "input", "one", 1000)
+  fakeserver.append_fight_event_at(m.match_id, "sessB", "state", "two", 1001)
+  let first: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/fight-poll?peer=sessA", "\{\"matchID\":\"" ++ m.match_id ++ "\",\"since\":0\}")), "result")
+  let next_seq: integer = jsonout.as_int(jsonout.obj_get(first, "nextSeq"))
+  let second: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/fight-poll?peer=sessA", "\{\"matchID\":\"" ++ m.match_id ++ "\",\"since\":" ++ to_text(next_seq) ++ "\}")), "result")
+  length(jsonout.list_items(jsonout.obj_get(first, "events"))) == 2 and next_seq == 2 and length(jsonout.list_items(jsonout.obj_get(second, "events"))) == 0 and jsonout.as_int(jsonout.obj_get(second, "nextSeq")) == next_seq
+end
+
+function test_fight_poll_marks_own_events(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  fakeserver.append_fight_event_at(m.match_id, "sessA", "input", "one", 1000)
+  fakeserver.append_fight_event_at(m.match_id, "sessB", "input", "two", 1001)
+  let result: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/fight-poll?peer=sessA", "\{\"matchID\":\"" ++ m.match_id ++ "\"\}")), "result")
+  let events: a list of Json = jsonout.list_items(jsonout.obj_get(result, "events"))
+  let mine: Json = unwrap_or(get(events, 0), jsonout.json_obj([]))
+  let theirs: Json = unwrap_or(get(events, 1), jsonout.json_obj([]))
+  jsonout.as_bool(jsonout.obj_get(mine, "mine")) and not jsonout.as_bool(jsonout.obj_get(theirs, "mine"))
+end
+
+function test_one_sided_result_stays_pending_and_keeps_match(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  let result: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/report-result?peer=sessA", "\{\"matchID\":\"" ++ m.match_id ++ "\",\"result\":\"won\"\}")), "result")
+  jsonout.as_text(jsonout.obj_get(result, "status")) == "pending" and jsonout.as_int(jsonout.obj_get(result, "reports")) == 1 and fakeserver.match_for_peer("sessA").match_id == m.match_id
+end
+
+function test_agreed_results_end_match_and_purge_events(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  fakeserver.append_fight_event_at(m.match_id, "sessA", "input", "one", 1000)
+  fakeserver.report_result_at(m.match_id, "sessA", "WON", 1000)
+  let reconciliation: Reconciliation = fakeserver.report_result_at(m.match_id, "sessB", "LOST", 1001)
+  reconciliation.status == "agreed" and reconciliation.winner == "sessA" and reconciliation.loser == "sessB" and fakeserver.match_for_peer("sessA").match_id == "" and length(fakeserver.fight_events_since(m.match_id, 0)) == 0
+end
+
+function test_disputed_results_are_identical_for_both_peers(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  fakeserver.report_result_at(m.match_id, "sessA", "WON", 1000)
+  fakeserver.report_result_at(m.match_id, "sessB", "WON", 1001)
+  let first: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/match-result?peer=sessA&matchID=" ++ m.match_id, "")), "result")
+  let second: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/match-result?peer=sessB&matchID=" ++ m.match_id, "")), "result")
+  jsonout.as_text(jsonout.obj_get(first, "status")) == "disputed" and jsonout.as_text(jsonout.obj_get(first, "winner")) == "sessA" and jsonout.as_text(jsonout.obj_get(first, "winner")) == jsonout.as_text(jsonout.obj_get(second, "winner")) and jsonout.as_text(jsonout.obj_get(first, "loser")) == jsonout.as_text(jsonout.obj_get(second, "loser"))
+end
+
+function test_match_result_survives_after_match_ends(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  fakeserver.report_result_at(m.match_id, "sessA", "WON", 1000)
+  fakeserver.report_result_at(m.match_id, "sessB", "LOST", 1001)
+  let result: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/pvp/match-result?peer=sessA&matchID=" ++ m.match_id, "")), "result")
+  fakeserver.match_for_peer("sessA").match_id == "" and jsonout.as_text(jsonout.obj_get(result, "status")) == "agreed" and jsonout.as_text(jsonout.obj_get(result, "winner")) == "sessA"
+end
+
+function test_fight_events_and_reports_persist_to_disk(): boolean
+  intent: test
+  let m: Match = prepare_relay_match()
+  fakeserver.append_fight_event_at(m.match_id, "sessA", "input", "\{\"frame\":1\}", 1000)
+  fakeserver.report_result_at(m.match_id, "sessA", "WON", 1001)
+  let event: FightEvent = unwrap_or(get(fakeserver.load_fight_events(), 0), FightEvent { match_id: "", peer: "", seq: 0, kind: "", payload: "", sent_ms: 0 })
+  let report: MatchReport = unwrap_or(get(fakeserver.load_reports(), 0), MatchReport { match_id: "", peer: "", outcome: "", reported_ms: 0 })
+  length(fakeserver.load_fight_events()) == 1 and event.payload == "\{\"frame\":1\}" and length(fakeserver.load_reports()) == 1 and report.outcome == "WON"
+end
+
+function run_pvp_endpoint_tests(): integer
+  intent: test
+  mutable failures: integer = 0
+  set failures = failures + report("test_get_login_data_touches_session_named_presence_and_falls_through", test_get_login_data_touches_session_named_presence_and_falls_through())
+  set failures = failures + report("test_arena_data_reports_live_state_and_stats", test_arena_data_reports_live_state_and_stats())
+  set failures = failures + report("test_lock_in_publishes_team_pairs_and_preserves_roster_on_empty_team", test_lock_in_publishes_team_pairs_and_preserves_roster_on_empty_team())
+  set failures = failures + report("test_select_opponent_confirms_a_live_pair", test_select_opponent_confirms_a_live_pair())
+  set failures = failures + report("test_quit_arena_ends_match_purges_events_and_is_harmless_without_match", test_quit_arena_ends_match_purges_events_and_is_harmless_without_match())
+  set failures = failures + report("test_opponent_search_touches_the_callers_presence", test_opponent_search_touches_the_callers_presence())
+  failures
+end
+
 function main(): nothing
   intent: run
   mutable failures: integer = 0
@@ -238,7 +560,27 @@ function main(): nothing
   set failures = failures + report("test_login_without_credentials_or_json_still_responds", test_login_without_credentials_or_json_still_responds())
   set failures = failures + report("test_logged_in_devices_keep_separate_peer_rosters", test_logged_in_devices_keep_separate_peer_rosters())
   set failures = failures + report("test_saved_team_uses_session_name_unless_overridden", test_saved_team_uses_session_name_unless_overridden())
-  print(to_text(15 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  set failures = failures + run_pvp_endpoint_tests()
+  set failures = failures + report("test_heartbeat_registers_a_live_peer", test_heartbeat_registers_a_live_peer())
+  set failures = failures + report("test_presence_expires_after_ttl", test_presence_expires_after_ttl())
+  set failures = failures + report("test_heartbeat_lists_other_live_peers_not_self", test_heartbeat_lists_other_live_peers_not_self())
+  set failures = failures + report("test_two_live_peers_pair_into_one_shared_match", test_two_live_peers_pair_into_one_shared_match())
+  set failures = failures + report("test_pairing_is_idempotent_for_the_same_peer", test_pairing_is_idempotent_for_the_same_peer())
+  set failures = failures + report("test_a_third_peer_does_not_steal_an_existing_pair", test_a_third_peer_does_not_steal_an_existing_pair())
+  set failures = failures + report("test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster", test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster())
+  set failures = failures + report("test_leave_match_frees_both_peers", test_leave_match_frees_both_peers())
+  set failures = failures + report("test_presence_and_matches_persist_to_disk", test_presence_and_matches_persist_to_disk())
+  set failures = failures + report("test_fight_post_assigns_monotonic_sequences", test_fight_post_assigns_monotonic_sequences())
+  set failures = failures + report("test_fight_sequences_are_independent_per_match", test_fight_sequences_are_independent_per_match())
+  set failures = failures + report("test_fight_post_rejects_a_non_member", test_fight_post_rejects_a_non_member())
+  set failures = failures + report("test_fight_poll_returns_events_then_catches_up", test_fight_poll_returns_events_then_catches_up())
+  set failures = failures + report("test_fight_poll_marks_own_events", test_fight_poll_marks_own_events())
+  set failures = failures + report("test_one_sided_result_stays_pending_and_keeps_match", test_one_sided_result_stays_pending_and_keeps_match())
+  set failures = failures + report("test_agreed_results_end_match_and_purge_events", test_agreed_results_end_match_and_purge_events())
+  set failures = failures + report("test_disputed_results_are_identical_for_both_peers", test_disputed_results_are_identical_for_both_peers())
+  set failures = failures + report("test_match_result_survives_after_match_ends", test_match_result_survives_after_match_ends())
+  set failures = failures + report("test_fight_events_and_reports_persist_to_disk", test_fight_events_and_reports_persist_to_disk())
+  print(to_text(40 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 

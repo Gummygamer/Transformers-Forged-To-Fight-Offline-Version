@@ -911,3 +911,88 @@ query strings. A device that logs in again receives its existing token, so its s
 not orphaned. `dynamic()` takes precedence over the retained
 `POST__auth_login.json` canned fallback shape. The `peer` query override remains as a testing
 escape hatch.
+
+## LAN live-match netcode
+
+The fake server persists LAN state as line-oriented, git-ignored files under `Server/logs/`.
+They survive a server restart. The pre-existing `.fakeserver-state` stores the local server
+state, and `.fakeserver-rosters` stores `R|peer|name|hero,hero,...` records, newest last. The
+per-device session store is `.fakeserver-sessions`, with `S|fingerprint|stoken|uid|name` lines.
+The live-presence store is `.fakeserver-presence`, with `P|peer|name|seen_ms` lines. Shared
+matches are `.fakeserver-matches`, with `M|match_id|arena|peer_a|peer_b|created_ms` lines.
+Fight relay events are `.fakeserver-fights`, with
+`F|match_id|peer|seq|kind|payload|sent_ms` lines. Result reports are `.fakeserver-results`,
+with `R|match_id|peer|outcome|reported_ms` lines. `/Server/logs/` is ignored, so none of these
+runtime files belong in Git.
+
+Presence is live when its `seen_ms` age is below the 15000 ms default TTL. A positive
+`TFTF_PRESENCE_TTL_MS` environment value overrides that default. Presence and pairing helpers
+take an explicit `now_ms` deliberately; their no-suffix wrappers call Legible's
+`current_time_ms()`. This makes TTL and expiry behaviour testable without depending on wall
+clock timing. Two available live peers looking in the same arena are paired into a shared ID
+formed from `arena ++ "-" ++ to_text(now_ms)` (with a collision suffix if necessary). Once
+paired, both peers retain that match until it is ended.
+
+### Endpoints the retail client calls
+
+| Path | Behaviour |
+| --- | --- |
+| `/pvp/get-login-data` | Touches presence, then returns `""` so the canned `Server/responses/GET__pvp_get-login-data.json` response still reaches the client. |
+| `/pvp/get-user-data` | Returns live arena state: `pid`, wins/losses/winStreak from results, `arenaID`, `matchID`, `live`, and `livePeers`. |
+| `/pvp/get-active-pvp-data` | Uses the same handler as `/pvp/get-user-data`. |
+| `/pvp/lock-in` | Publishes the caller's real team to the roster store and attempts pairing. |
+| `/pvp/select-opponent` | Confirms the pairing. |
+| `/pvp/quit-arena` | Ends the match and purges that match's fight events; it is a harmless no-op without an active match. |
+| `/pvp/find-arena-opponent` | Touches presence, prefers pairing live peers, then serves the opponent; falls back to the stored-roster behaviour. |
+| `/pvp/get-new-arena-opponent` | Uses the same live-peer-first opponent handler. |
+| `/pvp/get-opponents` | Uses the same live-peer-first opponent handler. |
+
+`static_dynamic()` uses suffix matching for these paths. In `request_loop`, `dynamic()` is
+consulted before `resolve_response()`, so a `static_dynamic` branch shadows any canned
+`Server/responses/` file for the same path. The deliberate empty result for
+`/pvp/get-login-data` therefore falls through to its canned file after touching presence.
+
+### Invented endpoints (tool/companion surface only)
+
+| Path | Behaviour |
+| --- | --- |
+| `/pvp/heartbeat` | Touches presence and lists the other live peers. |
+| `/pvp/lobby` | Read-only peer list, including self. |
+| `/pvp/leave-match` | Ends the caller's active match. |
+| `/pvp/fight-post` | Appends a fight event and rejects peers that are not match members. |
+| `/pvp/fight-poll` | Returns events after a sequence number, `nextSeq`, and a `mine: true|false` tag per event. |
+| `/pvp/report-result` | Records the caller's claimed outcome and reconciles it. |
+| `/pvp/match-result` | Reads the reconciled outcome. |
+
+For `/pvp/fight-post`, `/pvp/fight-poll`, `/pvp/report-result`, and `/pvp/match-result`, the
+match ID resolves in this order: body `matchID`, query `matchID`, then the caller's currently
+active match. Fight events use per-match, 1-based sequence numbers. They are purged when a
+match is concluded by `/pvp/quit-arena` or result reconciliation. Result rows deliberately
+survive the end of a match, so a late result query still returns its outcome.
+
+Each peer reports an outcome. With zero or one report the result is `pending`; `WON` plus `LOST`,
+or two `DRAW` reports, is `agreed`; any other two-sided claim is `disputed`. A dispute is broken
+deterministically by the earliest `reported_ms`, then the lexicographically smaller peer when
+times tie. The selected report determines the winner, so both devices can read the identical
+answer without a second round trip.
+
+### Limits and retail-client reachability
+
+Retail TFTF Arena is asynchronous by design: the client fights a local AI copy of the opponent's
+stored team. There is no realtime fight netcode in the retail client. Real-time input relay is
+therefore impossible without rewriting the IL2CPP fight simulation, which this project does not
+do. `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP surface, with eight
+network methods relevant to these endpoint mappings. Only `GetLoginData` is confirmed by a real
+capture to be `/pvp/get-login-data`; the remaining paths are derived, unconfirmed kebab-case
+mappings.
+
+Consequently `/pvp/heartbeat`, `/pvp/lobby`, `/pvp/leave-match`, `/pvp/fight-post`,
+`/pvp/fight-poll`, `/pvp/report-result`, and `/pvp/match-result` will never be called by a
+retail device. They are a working relay for tools and companion clients, not a retail-client
+path. What is genuinely reachable over LAN with an unmodified retail client is live peer
+presence with TTL expiry, live two-device matchmaking into one shared `matchID`, serving the
+opponent's actual live team rather than a stale stored roster, and authoritative two-sided
+result reconciliation that both devices read identically.
+
+`tools/nativehook/` is not a netcode surface: its hooks are offline fight mechanics.
+`inapk_server.c` binds only `127.0.0.1:8080`, so it does not enable LAN play.
