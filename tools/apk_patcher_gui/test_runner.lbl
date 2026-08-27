@@ -19,6 +19,30 @@ function java_environment_test(): boolean
   starts_with(command, "env JAVA_HOME='/opt/jdk'") and contains_text(command, "PATH='/opt/jdk/bin:") and ends_with(command, " 'apksigner' 'sign'")
 end
 
+function worker_launch_command_test(): boolean
+  intent: test platform-specific detached worker launch commands
+  let request: BuildRequest = pipeline.default_request() with { legible: "/c/Users/Acer/.cargo/bin/legible" }
+  let worker: text = "C:\\Users\\Acer\\My Project\\worker.lbl"
+  let launch_log: text = "C:\\Users\\Acer\\My Project\\worker-start.log"
+  let windows: text = runner.worker_launch_command(request, worker, launch_log, true)
+  let unix: text = runner.worker_launch_command(request, "/tmp/worker.lbl", "/tmp/worker.log", false)
+  starts_with(windows, "powershell.exe -NoProfile -NonInteractive -Command ") and contains_text(windows, "Start-Process") and contains_text(windows, "c:\\Users\\Acer\\.cargo\\bin\\legible.exe") and contains_text(windows, "-RedirectStandardError") and not contains_text(windows, "nohup") and starts_with(unix, "nohup setsid ")
+end
+
+function process_check_command_test(): boolean
+  intent: test platform-specific process probes
+  let windows: text = runner.process_check_command(4321, true)
+  let unix: text = runner.process_check_command(4321, false)
+  contains_text(windows, "Get-Process -Id 4321") and unix == "kill -0 4321 2>/dev/null"
+end
+
+function cancel_command_test(): boolean
+  intent: test platform-specific worker cancellation
+  let windows: text = runner.cancel_command(4321, true)
+  let unix: text = runner.cancel_command(4321, false)
+  contains_text(windows, "taskkill.exe /PID 4321 /T /F") and contains_text(unix, "kill -TERM -- -4321") and contains_text(unix, "kill -TERM 4321")
+end
+
 function state_roundtrip_test(): boolean
   intent: test runner state storage
   let wanted: RunnerState = RunnerState { status: "failed", step: "sign APK", step_index: 3, step_total: 4, exit_code: 7 }
@@ -48,10 +72,13 @@ function main(): nothing
   mutable failed: integer = 0
   set failed = failed + report("command quoting", command_quoting_test())
   set failed = failed + report("Java environment", java_environment_test())
+  set failed = failed + report("worker launch commands", worker_launch_command_test())
+  set failed = failed + report("process check commands", process_check_command_test())
+  set failed = failed + report("cancel commands", cancel_command_test())
   set failed = failed + report("state roundtrip", state_roundtrip_test())
   set failed = failed + report("snapshot offsets", snapshot_offset_test())
   set failed = failed + report("idle cancellation", cancel_test())
-  print(to_text(5 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(8 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then exit_process(1) end
 end
 
