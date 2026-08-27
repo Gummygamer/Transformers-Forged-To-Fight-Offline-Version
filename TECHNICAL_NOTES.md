@@ -699,7 +699,7 @@ baked transition/body pair before updating it.
 The static export hardcodes the board width in `move_body`'s bounds check and the
 `add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
 updating those two places and both exact constants in `Server/export_payload.lbl` and
-`Server/test_export_payload.lbl`: the current values are 9365 entries and 4571204 bytes
+`Server/test_export_payload.lbl`: the current values are 9366 entries and 4571404 bytes
 (formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
 the whole test binary before it can print a test summary.
 
