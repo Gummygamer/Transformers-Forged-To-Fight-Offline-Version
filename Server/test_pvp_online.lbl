@@ -116,6 +116,110 @@ end
 end
 end
 
+function login_response(body: text): Json
+  intent: get
+  jsonout.parse_json(fakeserver.dynamic("/auth/login?sig=x&api=6", body))
+end
+
+function login_result(body: text): Json
+  intent: get
+  jsonout.obj_get(login_response(body), "result")
+end
+
+function ascii_alphanumeric(value: text): boolean
+  intent: check
+  mutable index: integer = 0
+  mutable valid: boolean = true
+  while index < text_length(value) do
+    set valid = valid and contains_text("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", substring(value, index, 1))
+    set index = index + 1
+  end
+  valid
+end
+
+function valid_login_envelope(body: text): boolean
+  intent: check
+  let top: Json = login_response(body)
+  if jsonout.type_name(top) != "object" or not jsonout.obj_has(top, "error") or not jsonout.obj_has(top, "result") then
+  false
+else
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "stoken") or not jsonout.obj_has(result, "user") then
+  false
+else
+  let user: Json = jsonout.obj_get(result, "user")
+  jsonout.type_name(user) == "object" and jsonout.obj_has(user, "uid") and jsonout.obj_has(user, "name")
+end
+end
+end
+
+function test_login_mints_distinct_sessions_for_distinct_udids(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  let first: Json = login_result("\{\"credentials\":\{\"udid\":\"device-a\",\"deviceName\":\"Alice Phone\"\}\}")
+  let second: Json = login_result("\{\"credentials\":\{\"udid\":\"device-b\",\"deviceName\":\"Bob Phone\"\}\}")
+  let first_user: Json = jsonout.obj_get(first, "user")
+  let second_user: Json = jsonout.obj_get(second, "user")
+  jsonout.as_text(jsonout.obj_get(first, "stoken")) != jsonout.as_text(jsonout.obj_get(second, "stoken")) and jsonout.as_int(jsonout.obj_get(first_user, "uid")) != jsonout.as_int(jsonout.obj_get(second_user, "uid"))
+end
+
+function test_login_reuses_a_udid_without_duplicate_session(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  let first: Json = login_result("\{\"credentials\":\{\"udid\":\"device-a\",\"deviceName\":\"Alice Phone\"\}\}")
+  let count_after_first: integer = length(fakeserver.load_sessions())
+  let second: Json = login_result("\{\"credentials\":\{\"udid\":\"device-a\",\"deviceName\":\"Renamed Alice Phone\"\}\}")
+  jsonout.as_text(jsonout.obj_get(first, "stoken")) == jsonout.as_text(jsonout.obj_get(second, "stoken")) and count_after_first == 1 and length(fakeserver.load_sessions()) == count_after_first
+end
+
+function test_login_token_is_url_safe_and_bounded(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  let result: Json = login_result("\{\"credentials\":\{\"udid\":\"A! b@c#d$e%f^g&h*i(j)k-l_m+n=o[p]q\",\"deviceName\":\"Token Phone\"\}\}")
+  let stoken: text = jsonout.as_text(jsonout.obj_get(result, "stoken"))
+  text_length(stoken) <= 32 and ascii_alphanumeric(stoken)
+end
+
+function test_login_response_is_a_named_envelope(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  let body: text = "\{\"credentials\":\{\"udid\":\"device-a\",\"deviceName\":\"A52 de Andre\"\}\}"
+  let result: Json = login_result(body)
+  valid_login_envelope(body) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result, "user"), "name")) == "A52 de Andre"
+end
+
+function test_login_without_credentials_or_json_still_responds(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  valid_login_envelope("\{\"bid\":\"fallback-bid\"\}") and valid_login_envelope("") and valid_login_envelope("not json")
+end
+
+function test_logged_in_devices_keep_separate_peer_rosters(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  fakeserver.reset_rosters()
+  let first: Json = login_result("\{\"credentials\":\{\"udid\":\"device-a\",\"deviceName\":\"Alice Phone\"\}\}")
+  let second: Json = login_result("\{\"credentials\":\{\"udid\":\"device-b\",\"deviceName\":\"Bob Phone\"\}\}")
+  let first_token: text = jsonout.as_text(jsonout.obj_get(first, "stoken"))
+  let second_token: text = jsonout.as_text(jsonout.obj_get(second, "stoken"))
+  fakeserver.store_roster(first_token, "Alice", ["optimusprime_cin_tf"])
+  fakeserver.store_roster(second_token, "Bob", ["grimlock_gs_mp08"])
+  fakeserver.opponent_roster(first_token).peer == second_token and fakeserver.opponent_roster(second_token).peer == first_token
+end
+
+function test_saved_team_uses_session_name_unless_overridden(): boolean
+  intent: test
+  fakeserver.reset_sessions()
+  fakeserver.reset_rosters()
+  let login: Json = login_result("\{\"credentials\":\{\"udid\":\"device-a\",\"deviceName\":\"A52 de Andre\"\}\}")
+  let token: text = jsonout.as_text(jsonout.obj_get(login, "stoken"))
+  fakeserver.dynamic("/bcg/setSavedTeam?stoken=" ++ token, "\{\"heroes\":[\"optimusprime_cin_tf\"]\}")
+  let stored: Roster = unwrap_or(get(fakeserver.load_rosters(), 0), Roster { peer: "", name: "", heroes: [] })
+  fakeserver.dynamic("/bcg/setSavedTeam?stoken=" ++ token, "\{\"name\":\"Override\",\"heroes\":[\"grimlock_gs_mp08\"]\}")
+  let overridden: Roster = unwrap_or(get(fakeserver.load_rosters(), 0), Roster { peer: "", name: "", heroes: [] })
+  stored.name == "A52 de Andre" and overridden.name == "Override"
+end
+
 function main(): nothing
   intent: run
   mutable failures: integer = 0
@@ -127,7 +231,14 @@ function main(): nothing
   set failures = failures + report("test_storing_same_peer_twice_replaces_not_duplicates", test_storing_same_peer_twice_replaces_not_duplicates())
   set failures = failures + report("test_opponent_is_the_other_peer_and_falls_back_to_house", test_opponent_is_the_other_peer_and_falls_back_to_house())
   set failures = failures + report("test_find_arena_opponent_serves_the_other_peers_team", test_find_arena_opponent_serves_the_other_peers_team())
-  print(to_text(8 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  set failures = failures + report("test_login_mints_distinct_sessions_for_distinct_udids", test_login_mints_distinct_sessions_for_distinct_udids())
+  set failures = failures + report("test_login_reuses_a_udid_without_duplicate_session", test_login_reuses_a_udid_without_duplicate_session())
+  set failures = failures + report("test_login_token_is_url_safe_and_bounded", test_login_token_is_url_safe_and_bounded())
+  set failures = failures + report("test_login_response_is_a_named_envelope", test_login_response_is_a_named_envelope())
+  set failures = failures + report("test_login_without_credentials_or_json_still_responds", test_login_without_credentials_or_json_still_responds())
+  set failures = failures + report("test_logged_in_devices_keep_separate_peer_rosters", test_logged_in_devices_keep_separate_peer_rosters())
+  set failures = failures + report("test_saved_team_uses_session_name_unless_overridden", test_saved_team_uses_session_name_unless_overridden())
+  print(to_text(15 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 

@@ -24,6 +24,13 @@ record Roster
   heroes: a list of text
 end
 
+record Session
+  fingerprint: text
+  stoken: text
+  uid: text
+  name: text
+end
+
 record Request
   method: text
   path: text
@@ -206,6 +213,98 @@ end
 function roster_safe(value: text): text
   intent: clean
   replace(replace(replace(value, "|", "_"), ",", "_"), "\n", "_")
+end
+
+function session_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-sessions")
+end
+
+public function load_sessions(): a list of Session
+  intent: load
+  if not file_exists(session_file()) then
+  []
+else
+  mutable sessions: a list of Session = []
+  for line in split(read_file(session_file()), "\n") do
+    let fields: a list of text = split(line, "|")
+    let kind: text = unwrap_or(get(fields, 0), "")
+    let fingerprint: text = unwrap_or(get(fields, 1), "")
+    let stoken: text = unwrap_or(get(fields, 2), "")
+    let uid: text = unwrap_or(get(fields, 3), "")
+    let name: text = unwrap_or(get(fields, 4), "")
+    if kind == "S" and fingerprint != "" and stoken != "" and uid != "" then
+  set sessions = append(sessions, Session { fingerprint: fingerprint, stoken: stoken, uid: uid, name: name })
+end
+  end
+  sessions
+end
+end
+
+public function reset_sessions(): nothing
+  intent: reset
+  create_dir(log_dir())
+  write_file(session_file(), "")
+end
+
+public function session_for_token(stoken: text): Session
+  intent: get
+  for session in load_sessions() do
+    if session.stoken == stoken then return session end
+  end
+  Session { fingerprint: "", stoken: "", uid: "", name: "" }
+end
+
+public function has_session_for_token(stoken: text): boolean
+  intent: check
+  session_for_token(stoken).stoken != ""
+end
+
+function token_characters(value: text): text
+  intent: clean
+  mutable result: text = ""
+  mutable index: integer = 0
+  while index < text_length(value) do
+    let character: text = substring(value, index, 1)
+    if contains_text("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", character) then
+  set result = result ++ character
+end
+    set index = index + 1
+  end
+  result
+end
+
+function token_for_fingerprint(fingerprint: text, sessions: a list of Session): text
+  intent: mint
+  let base: text = substring("sess" ++ token_characters(fingerprint), 0, min(32, text_length("sess" ++ token_characters(fingerprint))))
+  mutable taken: boolean = false
+  for session in sessions do
+    if session.stoken == base and session.fingerprint != fingerprint then
+  set taken = true
+end
+  end
+  if not taken then
+  base
+else
+  let suffix: text = to_text(length(sessions))
+  substring(base, 0, max(0, 32 - text_length(suffix))) ++ suffix
+end
+end
+
+public function ensure_session(fingerprint: text, name: text): Session
+  intent: ensure
+  let safe_fingerprint: text = roster_safe(fingerprint)
+  let safe_name: text = roster_safe(name)
+  let sessions: a list of Session = load_sessions()
+  for session in sessions do
+    if session.fingerprint == safe_fingerprint then return session end
+  end
+  let created: Session = Session { fingerprint: safe_fingerprint, stoken: token_for_fingerprint(safe_fingerprint, sessions), uid: to_text(1000000000001 + length(sessions)), name: safe_name }
+  create_dir(log_dir())
+  let line: text = "S|" ++ created.fingerprint ++ "|" ++ created.stoken ++ "|" ++ created.uid ++ "|" ++ created.name
+  let existing: text = if file_exists(session_file()) then read_file(session_file()) else "" end
+  write_file(session_file(), if existing == "" then line else existing ++ "\n" ++ line end)
+  created
 end
 
 public function load_rosters(): a list of Roster
@@ -464,6 +563,39 @@ function spaced_envelope(result: Json): text
   jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
 end
 
+function credentials_object(req: Json): Json
+  intent: get
+  if jsonout.obj_has(req, "credentials") and jsonout.type_name(jsonout.obj_get(req, "credentials")) == "object" then
+  jsonout.obj_get(req, "credentials")
+else
+  jsonout.json_obj([])
+end
+end
+
+function auth_login_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let credentials: Json = credentials_object(req)
+  let udid: text = json_text_or(credentials, "udid", "")
+  let bid: text = json_text_or(req, "bid", "")
+  let device_name: text = json_text_or(credentials, "deviceName", "")
+  let device_model: text = json_text_or(credentials, "deviceModel", "")
+  let fingerprint: text = if udid != "" then
+  udid
+else if bid != "" then
+  bid
+else if device_name != "" then
+  device_name
+else if device_model != "" then
+  device_model
+else
+  "local"
+end
+  let name: text = if device_name != "" then device_name else if device_model != "" then device_model else "Commander" end
+  let session: Session = ensure_session(fingerprint, name)
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("stoken", jsonout.json_text(session.stoken)), jsonout.json_pair("server_tag", jsonout.json_text("prod")), jsonout.json_pair("userToken", jsonout.json_text("")), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(unwrap_or(to_integer(session.uid), 1000000000001))), jsonout.json_pair("name", jsonout.json_text(session.name)), jsonout.json_pair("level", jsonout.json_int(1)), jsonout.json_pair("email", jsonout.json_text("")), jsonout.json_pair("fbid", jsonout.json_text("")), jsonout.json_pair("geo", jsonout.json_text("US")), jsonout.json_pair("naid", jsonout.json_text("")), jsonout.json_pair("cohort", jsonout.json_int(0)), jsonout.json_pair("revenue", jsonout.json_int(0))]))]))
+end
+
 function tutorial_response(p: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
@@ -503,7 +635,9 @@ end
 
 function static_dynamic(path: text, p: text, btxt: text): text
   intent: encode
-  if ends_with(p, "/bcg/getUserData") then
+  if ends_with(p, "/auth/login") then
+  auth_login_response(path, btxt)
+else if ends_with(p, "/bcg/getUserData") then
   compact_envelope(gamedata.build_user_data(get_saved_team()))
 else if ends_with(p, "/autorefresh/grouprefresh") then
   let updates: a list of Json = if query_has_missionsconfig(path) then
@@ -612,7 +746,11 @@ else
   jsonout.json_list([])
 end)
   set_saved_team(heroes)
-  store_roster(peer_key(path), json_text_or(req, "name", "Commander"), heroes)
+  let peer: text = peer_key(path)
+  let session: Session = session_for_token(peer)
+  let default_name: text = if session.name != "" then session.name else "Commander" end
+  let name: text = if jsonout.obj_has(req, "name") and jsonout.type_name(jsonout.obj_get(req, "name")) == "text" then jsonout.as_text(jsonout.obj_get(req, "name")) else default_name end
+  store_roster(peer, name, heroes)
   saved_team_envelope(team_id, heroes)
 end
 

@@ -330,14 +330,10 @@ opponent endpoints `/pvp/find-arena-opponent`, `/pvp/get-new-arena-opponent` and
 game's IL2CPP metadata rather than from an observed server response. A run against a real
 device may need them adjusted; `TECHNICAL_NOTES.md` records the derivation.
 
-Second, every client currently receives the same session token, because `POST /auth/login` is
-answered from a canned file. Players are keyed by that token, so two phones map onto one
-roster slot and the second team saved overwrites the first. To keep peers apart today, seed a
-distinct slot by hand against the host, for example
-`curl -X POST 'http://25.13.240.7:8080/bcg/setSavedTeam?peer=alice' -d '{"heroes":["..."]}'`,
-which stores that roster under the peer name `alice` where the other player's live session
-cannot overwrite it. Minting a unique session token per login is the proper fix and is not
-implemented yet.
+Second, `POST /auth/login` identifies each device by `credentials.udid` and gives it a stable,
+device-specific session token. Two phones therefore become separate peers automatically, and
+the manual `?peer=alice` curl workaround is no longer required. The `peer` query override
+remains available as a testing escape hatch.
 
 ### Running on a non-rooted phone over USB
 
