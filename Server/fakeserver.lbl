@@ -1523,6 +1523,12 @@ function quest_dynamic(path: text, p: text, btxt: text): text
   end
 end
 
+public function user_profile_response_values(uid: text, name: text, level: integer, now: integer): text
+  intent: encode
+  let profile: Json = jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("aid", jsonout.json_text("0")), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("highestRank", jsonout.json_text("")), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), jsonout.json_pair("lastLogin", jsonout.json_int(now)), jsonout.json_pair("alliance", jsonout.json_null()), jsonout.json_pair("levelRewards", jsonout.json_null()), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level))])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), jsonout.json_pair("_createTime", jsonout.json_int(now)), jsonout.json_pair("_abbrivated", jsonout.json_bool(false))])
+  compact_envelope(profile)
+end
+
 function user_profile_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
@@ -1530,13 +1536,12 @@ function user_profile_response(path: text, btxt: text): text
   let uid: text = json_text_or(req, "uid", if session.uid != "" then session.uid else "1000000000001" end)
   let name: text = if session.name != "" then session.name else "Commander" end
   let now: integer = floor(current_time_ms() / 1000)
-  let profile: Json = jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("aid", jsonout.json_text("0")), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("highestRank", jsonout.json_text("")), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), jsonout.json_pair("lastLogin", jsonout.json_int(now)), jsonout.json_pair("alliance", jsonout.json_null()), jsonout.json_pair("levelRewards", jsonout.json_null()), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(account_level()))])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), jsonout.json_pair("_createTime", jsonout.json_int(now)), jsonout.json_pair("_abbrivated", jsonout.json_bool(false))])
-  compact_envelope(profile)
+  user_profile_response_values(uid, name, account_level(), now)
 end
 
 function profile_dynamic(path: text, p: text, btxt: text): text
   intent: encode
-  if "/" ++ trim_path(p) == "/userprofile" then user_profile_response(path, btxt) else "" end
+  if ends_with("/" ++ trim_path(p), "/userprofile") then user_profile_response(path, btxt) else "" end
 end
 
 public function dynamic(path: text, btxt: text): text

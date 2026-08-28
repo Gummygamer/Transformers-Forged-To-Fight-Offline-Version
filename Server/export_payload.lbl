@@ -328,6 +328,9 @@ function build_entries(listen_port: integer): Entries
   set entries = add_quests(entries)
   set entries = add(entries, "@grouprefresh:missionsconfig", envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([gamedata.build_missions_autorefresh_update()]))])))
   set entries = add(entries, "@grouprefresh:", envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([]))])))
+  let user_profile_template: text = fakeserver.user_profile_response_values("%UID%", "Commander", fakeserver.account_level(), 0)
+  let user_profile_with_login: text = replace_exact(user_profile_template, "\"lastLogin\":0", "\"lastLogin\":%NOW%", 1, "userprofile lastLogin")
+  set entries = add(entries, "@userprofile:template", replace_exact(user_profile_with_login, "\"_createTime\":0", "\"_createTime\":%NOW%", 1, "userprofile _createTime"))
   set entries = add(entries, "@tutorial:blocked", join(sort_text(fakeserver.block_tutorials()), "\n"))
   set entries = add(entries, "@tutorial:live", join(sort_text(fakeserver.live_tutorials()), "\n"))
   let tutorials: Entries = tutorial_templates()
@@ -479,10 +482,10 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9366 then fail("payload entry count is not 9366: " ++ to_text(length(keys))) end
+  if length(keys) != 9367 then fail("payload entry count is not 9367: " ++ to_text(length(keys))) end
   if length(pref.keys) != 1 or length(pref.bodies) != 1 then fail("payload prefix count is not 1") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4571132 then fail("payload total size is not 4571132: " ++ to_text(total)) end
+  if total != 4571544 then fail("payload total size is not 4571544: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)

@@ -127,8 +127,9 @@ function test_userprofile_returns_local_profile_without_capturing_bulk_or_find()
   intent: test
   let session: Session = fakeserver.ensure_session("userprofile-test", "Profile Commander")
   let profile: Json = result(fakeserver.dynamic("/userprofile/?stoken=" ++ session.stoken, "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"))
+  let prefixed: Json = result(fakeserver.dynamic("/prod/userprofile/?stoken=" ++ session.stoken, "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"))
   let stats: Json = jsonout.obj_get(profile, "gameIntStats")
-  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_int(jsonout.obj_get(stats, "level")) == fakeserver.account_level() and fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
+  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and jsonout.as_int(jsonout.obj_get(stats, "level")) == fakeserver.account_level() and fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
 end
 
 function test_tutorial_branches_block_live_and_complete(): boolean
