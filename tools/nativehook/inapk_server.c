@@ -247,6 +247,7 @@ static void store_quest_team(const char *s, const char *end) {
 }
 static const char *path_last(const char *p) { const char *x=strrchr(p,'/'); return x?x+1:p; }
 static int has_suffix(const char *p, const char *s) { size_t a=strlen(p),b=strlen(s);return a>=b&&!memcmp(p+a-b,s,b); }
+static int has_suffix_trim_slashes(const char *p, const char *s) { char trimmed[4096]; size_t n=strlen(p); while(n&&p[n-1]=='/')n--;if(n>=sizeof trimmed)return 0;memcpy(trimmed,p,n);trimmed[n]=0;return has_suffix(trimmed,s); }
 static void resolve_match(const char *body, const char *end) {
     char outcome[64]="", submitted[64]="", qid[64]; const char *results=json_value(body,end,"results"), *results_end;
     results_end=json_object_end(results,end);
@@ -259,12 +260,18 @@ static void resolve_match(const char *body, const char *end) {
     pthread_mutex_unlock(&g_pos_lock);
 }
 static const unsigned char *dynamic(const char *method, const char *p, const char *query, const char *body, size_t bn, Out *o, size_t *outn) {
-    char key[256], tid[64]="", bid[64]="", mid[64], qid[64]; const unsigned char *v; size_t n; const char *end=body+bn;
+    char key[256], tid[64]="", bid[64]="", mid[64], qid[64], uid[64]="1000000000001", now[32]; const unsigned char *v; size_t n; const char *end=body+bn;
     /* This ordering deliberately mirrors fakeserver.H._dynamic. */
     if(has_suffix(p,"/bcg/getUserData")) { Team team; Out saved={0},active={0}; TemplateArg args[2];
         v=lookup("@userdata:template",&n);if(!v||!resolve_team(&team)||!render_steam(&saved,&team)||!render_ateam(&active,&team)){free(saved.p);free(active.p);return NULL;}
         args[0]=(TemplateArg){"%STEAM%",saved.p,saved.n};args[1]=(TemplateArg){"%ATEAM%",active.p,active.n};
         if(!out_template_args(o,v,n,args,2)){free(saved.p);free(active.p);return NULL;}free(saved.p);free(active.p);*outn=o->n;return o->p;
+    }
+    if(!strcmp(method,"POST")&&has_suffix_trim_slashes(p,"/userprofile")) { TemplateArg args[2];
+        if(!json_string(body,end,"uid",uid,sizeof uid)||!safe_id(uid))snprintf(uid,sizeof uid,"%s","1000000000001");
+        snprintf(now,sizeof now,"%lld",(long long)time(NULL));v=lookup("@userprofile:template",&n);
+        args[0]=(TemplateArg){"%UID%",(const unsigned char*)uid,strlen(uid)};args[1]=(TemplateArg){"%NOW%",(const unsigned char*)now,strlen(now)};
+        if(!v||!out_template_args(o,v,n,args,2))return NULL;*outn=o->n;return o->p;
     }
     if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
     if(has_suffix(p,"/base/active")) { snprintf(key,sizeof key,"%s /base/active",method); v=lookup(key,outn); return v?v:lookup("GET /base/active",outn); }

@@ -235,6 +235,39 @@ function native_retry_gate_checks(base: text, port: integer): boolean
   expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
 end
 
+function normalize_profile_timestamp(body: text, key: text): text
+  intent: get
+  let needle: text = "\"" ++ key ++ "\":"
+  let at: integer = unwrap_or(index_of(body, needle), -1)
+  if at < 0 then
+    body
+  else
+    let start: integer = at + text_length(needle)
+    mutable finish: integer = start
+    while finish < text_length(body) and contains_text("0123456789", substring(body, finish, 1)) do set finish = finish + 1 end
+    substring(body, 0, start) ++ "%TIME%" ++ substring(body, finish, text_length(body) - finish)
+  end
+end
+
+function normalized_profile(body: text): text
+  intent: get
+  normalize_profile_timestamp(normalize_profile_timestamp(body, "lastLogin"), "_createTime")
+end
+
+function user_profile_checks(base: text, port: integer): boolean
+  intent: test
+  let body: text = "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"
+  fakeserver.reset_sessions()
+  let profile: HttpReply = request(base, port, "POST", "/userprofile/", body, false, true)
+  let no_slash: HttpReply = request(base, port, "POST", "/userprofile", body, false, true)
+  let prefixed: HttpReply = request(base, port, "POST", "/prod/userprofile/?stoken=unknown", body, false, true)
+  let unsafe: HttpReply = request(base, port, "POST", "/userprofile", "\{\"uid\":\"invalid uid\"\}", false, true)
+  let bulk: HttpReply = request(base, port, "POST", "/userprofile/bulk", body, false, true)
+  let find: HttpReply = request(base, port, "POST", "/userprofile/find", body, false, true)
+  let expected: text = fakeserver.dynamic("/userprofile/", body)
+  profile.status == "200" and expect("userprofile", normalized_profile(profile.body), normalized_profile(expected)) and no_slash.status == "200" and expect("userprofile no slash", normalized_profile(no_slash.body), normalized_profile(expected)) and prefixed.status == "200" and expect("userprofile prefixed", normalized_profile(prefixed.body), normalized_profile(expected)) and unsafe.status == "200" and contains_text(unsafe.body, "\"uid\":\"1000000000001\"") and bulk.status == "200" and find.status == "200" and fakeserver.dynamic("/userprofile/bulk", body) == "" and fakeserver.dynamic("/userprofile/find", body) == "" and expect("userprofile bulk", bulk.body, "\{\"error\":null,\"result\":\{\}\}") and expect("userprofile find", find.body, "\{\"error\":null,\"result\":\{\}\}")
+end
+
 function test_payload_server_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
   intent: test
   fakeserver.reset_saved_team()
@@ -251,6 +284,19 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
     let e: boolean = native_retry_gate_checks(base, port)
     stop_harness(started.pid)
     if a and b and c and d and e then ok() else failed("wire regressions") end
+  end
+end
+
+function test_user_profile_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
+  intent: test
+  let started: HarnessStart = start_harness(base, harness, payload, port)
+  if started.error != "" then
+    stop_harness(started.pid)
+    failed(started.error)
+  else
+    let good: boolean = user_profile_checks(base, port)
+    stop_harness(started.pid)
+    if good then ok() else failed("user profile regressions") end
   end
 end
 
@@ -373,8 +419,8 @@ function run_suite(): nothing
     let blob: integer = export_payload.build_payload(port)
     write_file_bytes(payload, blob)
     bytes_free(blob)
-    let names: a list of text = ["test_payload_server_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
-    let results: a list of TestResult = [test_payload_server_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
+    let names: a list of text = ["test_payload_server_matches_fake_server", "test_user_profile_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
+    let results: a list of TestResult = [test_payload_server_matches_fake_server(base, harness, payload, port), test_user_profile_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
     mutable failures: integer = 0
     mutable index: integer = 0
     while index < length(names) do
@@ -382,7 +428,7 @@ function run_suite(): nothing
       set index = index + 1
     end
     shell_exec("rm -rf -- " ++ base)
-    print(to_text(4 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+    print(to_text(5 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
     if failures != 0 then exit_process(1) end
   end
 end

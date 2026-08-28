@@ -91,6 +91,25 @@ function same_json(left: text, right: text): boolean
   canonical(jsonout.parse_json(left)) == canonical(jsonout.parse_json(right))
 end
 
+function normalize_profile_timestamp(body: text, key: text): text
+  intent: get
+  let needle: text = "\"" ++ key ++ "\":"
+  let at: integer = unwrap_or(index_of(body, needle), -1)
+  if at < 0 then
+    body
+  else
+    let start: integer = at + text_length(needle)
+    mutable finish: integer = start
+    while finish < text_length(body) and contains_text("0123456789", substring(body, finish, 1)) do set finish = finish + 1 end
+    substring(body, 0, start) ++ "%NOW%" ++ substring(body, finish, text_length(body) - finish)
+  end
+end
+
+function normalized_profile(body: text): text
+  intent: get
+  normalize_profile_timestamp(normalize_profile_timestamp(body, "lastLogin"), "_createTime")
+end
+
 function entry_index(payload: Payload, key: text): integer
   intent: find
   mutable found: integer = -1
@@ -145,12 +164,12 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4571132 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4571544 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9366 then set detail = "entry count is not 9366" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9367 then set detail = "entry count is not 9367" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 1 then set detail = "prefix count is not 1" end
   if detail == "" and (bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0) then set detail = "reserved fields are non-zero" end
@@ -221,6 +240,10 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
       if not same_json(entry_body(payload, item.key), actual) then set detail = "dynamic response differs: " ++ item.key end
     end
   end
+  let profile_body: text = "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"
+  let profile_template: text = replace(entry_body(payload, "@userprofile:template"), "%UID%", "1000000000002")
+  let profile_actual: text = fakeserver.dynamic("/userprofile/", profile_body)
+  if detail == "" and profile_template != normalized_profile(profile_actual) then set detail = "userprofile template differs" end
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   let actual_begin: text = fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}")
