@@ -123,6 +123,14 @@ function test_dynamic_returns_empty_for_unhandled_path(): boolean
   fakeserver.dynamic("/some/unknown/path", "") == ""
 end
 
+function test_userprofile_returns_local_profile_without_capturing_bulk_or_find(): boolean
+  intent: test
+  let session: Session = fakeserver.ensure_session("userprofile-test", "Profile Commander")
+  let profile: Json = result(fakeserver.dynamic("/userprofile/?stoken=" ++ session.stoken, "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"))
+  let stats: Json = jsonout.obj_get(profile, "gameIntStats")
+  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_int(jsonout.obj_get(stats, "level")) == fakeserver.account_level() and fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
+end
+
 function test_tutorial_branches_block_live_and_complete(): boolean
   intent: test
   let blocked: text = fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"ShieldTutorial\"\}")
@@ -248,6 +256,7 @@ function main(): nothing
   set failed = failed + report("test_sparse_and_overflow_quest_team_fields_follow_capacity_rules", test_sparse_and_overflow_quest_team_fields_follow_capacity_rules())
   set failed = failed + report("test_resp_path_for_maps_routes_to_response_files", test_resp_path_for_maps_routes_to_response_files())
   set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
+  set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_movedir_walks_full_board_after_wins", test_movedir_walks_full_board_after_wins())
   set failed = failed + report("test_lost_replays_pending_battle", test_lost_replays_pending_battle())
@@ -261,7 +270,7 @@ function main(): nothing
   set failed = failed + report("test_login_reports_arena_capable_account_level", test_login_reports_arena_capable_account_level())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(15 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(16 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
