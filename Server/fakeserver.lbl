@@ -292,7 +292,7 @@ end
 public function account_level(): integer
   intent: get
   let configured: integer = unwrap_or(to_integer(unwrap_or(env_get("TFTF_ACCOUNT_LEVEL"), "")), 0)
-  if configured > 0 then configured else 40 end
+  if configured > 0 then configured else 30 end
 end
 
 public function load_sessions(): a list of Session

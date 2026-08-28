@@ -304,8 +304,8 @@ The fake server can serve the game's online PVP/Arena screens over that tunnel. 
 are active in the same arena become live peers: the server records their presence, pairs them
 into one shared match ID, and serves each player the other player's currently saved team. Their
 reported results are reconciled by the host, so both devices read the same final result.
-The Arena/Versus screen is not account-level gated on this server: it reports a level-40 account,
-so a fresh session can enter Arena immediately.
+The server reports a level-30 Commander account, so a fresh offline session can reach Raids, the
+Store, Arenas, Special Missions, Alliance Missions, and Daily Missions immediately.
 
 1. The host starts the server with the tunnel address advertised, in two terminals:
    `TFTF_SERVER_HOST=25.13.240.7 legible run Server/run_local.lbl` and
