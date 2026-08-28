@@ -145,23 +145,30 @@ public function il2cpp_entry(abi: text): text
   "lib/" ++ abi ++ "/libil2cpp.so"
 end
 
-function directory_name(path: text): text
+public function directory_name(path: text): text
   intent: get
   mutable slash: integer = -1
   mutable index: integer = 0
   while index < text_length(path) do
-    if substring(path, index, 1) == "/" then set slash = index end
+    let separator: text = substring(path, index, 1)
+    if separator == "/" or separator == "\\" then set slash = index end
     set index = index + 1
   end
   if slash < 0 then "." else substring(path, 0, slash) end
+end
+
+public function script_directory(script: text, cwd: text): text
+  intent: resolve the directory containing a Unix or Windows script path
+  let drive_absolute: boolean = text_length(script) >= 3 and substring(script, 1, 1) == ":" and (substring(script, 2, 1) == "/" or substring(script, 2, 1) == "\\")
+  let absolute: text = if starts_with(script, "/") or drive_absolute then script else path_join(cwd, script) end
+  directory_name(absolute)
 end
 
 function here(): text
   intent: get
   let args: a list of text = get_args()
   let script: text = unwrap_or(get(args, 0), "Server/build_phone_apk.lbl")
-  let absolute: text = if starts_with(script, "/") then script else path_join(get_cwd(), script) end
-  directory_name(absolute)
+  script_directory(script, get_cwd())
 end
 
 public function abi_hook_path(abi: text): text
