@@ -831,10 +831,17 @@ The minimum level comes from `TuningLevelLocks.LevelLockData`, serialized into t
 while `_playerLevel` comes from `LevelRewardsStatus.Level`. No capture shows the client fetching a
 standalone `/tuning` document, so the minimum-level side is not server-reachable. The server now
 reports the requested account level 30 from `POST /auth/login`, chosen to clear the level locks for
-Raids, the Store, Arenas, Special Missions, Alliance Missions, and Daily Missions. This has not yet
-been confirmed on a device; if the gate survives on hardware, investigate
-the `LevelRewardsManager` status fetch (`LevelRewardsAPI.FetchStatus`, `re_notes/dump.cs` line
-320631), whose endpoint path has never appeared in a capture.
+Raids, the Store, Arenas, Special Missions, Alliance Missions, and Daily Missions. This was confirmed
+to survive on hardware: a signed APK built from commit `696d17d`, installed on an Android emulator,
+showed `Commander / LVL 0` and left Raids, Special, Daily, Arenas, Alliance Missions, and the Store
+padlocked, although the in-APK server correctly answered `POST /auth/login` and `POST /userprofile`
+with level 30. The cause was `UserProfile.levelRewards` being served as `null`, so
+`LevelRewardsStatus` was never constructed and `LevelLockManager._playerLevel` remained 0. The server
+now sends a populated `levelRewards` object carrying `account_level()`. The exact JSON key names read
+by `LevelRewardsStatus.ctor(IDictionary)` are not recoverable from `re_notes/dump.cs` because it has
+no string literals, so both `enabled` and `isEnabled` are emitted; this fix has not yet been
+re-confirmed on device. `LevelRewardsAPI.FetchStatus` (`re_notes/dump.cs` line 320631) remains the
+untried alternative path, and its endpoint has never appeared in any capture under `probe/`.
 
 The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
 
