@@ -830,8 +830,9 @@ The client was therefore previously handed an empty result and had no arena stat
 The minimum level comes from `TuningLevelLocks.LevelLockData`, serialized into the Unity assets,
 while `_playerLevel` comes from `LevelRewardsStatus.Level`. No capture shows the client fetching a
 standalone `/tuning` document, so the minimum-level side is not server-reachable. The server now
-reports account level 40 from `POST /auth/login`, clearing the level-10 Arena gate for a fresh
-session. This has not yet been confirmed on a device; if the gate survives on hardware, investigate
+reports the requested account level 30 from `POST /auth/login`, chosen to clear the level locks for
+Raids, the Store, Arenas, Special Missions, Alliance Missions, and Daily Missions. This has not yet
+been confirmed on a device; if the gate survives on hardware, investigate
 the `LevelRewardsManager` status fetch (`LevelRewardsAPI.FetchStatus`, `re_notes/dump.cs` line
 320631), whose endpoint path has never appeared in a capture.
 
