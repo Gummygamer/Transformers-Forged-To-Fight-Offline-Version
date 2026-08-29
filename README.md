@@ -346,9 +346,9 @@ LAN path on an unmodified retail client is live presence, two-device matchmaking
 between phones.
 
 Second, `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP network surface.
-Only `GET /pvp/get-login-data` is confirmed against a real captured client session; the other
-PVP paths are derived as unconfirmed kebab-case mappings from its API methods and may need
-adjustment after further device captures. The server also exposes heartbeat, lobby, fight-relay,
+Device captures confirm `GET /pvp/get-login-data` and the team-accept request to
+`POST /pvp/find-arena-opponent`; the remaining PVP spellings come from client string literals
+but still need live flow verification. The server also exposes heartbeat, lobby, fight-relay,
 and result endpoints for tools and companion clients, but a retail device will never call those
 invented endpoints. `TECHNICAL_NOTES.md` records the endpoint split and derivation.
 
@@ -518,12 +518,11 @@ were verified firing during that run.
 
 1. Patch the 32-bit library:
    `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
-   The same six original patches apply; only the addresses and encodings differ. The two newer
-   reachability patches and the four profile-level padlock patches are arm64 only for now, because
-   `abi_map.lbl` needs an Il2CppDumper dump
-   of the 32-bit build to translate them and this repo only carries the arm64 dump; addresses
-   must never be hand-translated. A 32-bit bundled APK therefore still needs a network interface
-   to be up, and its game modes stay padlocked until the profile level is reached. Linux continues to
+   The same six original patches plus the four profile-level padlock patches apply (ten of the
+   twelve sites); only the two newer reachability patches are arm64 only because they are not
+   IL2CPP method addresses and `abi_map.lbl` cannot translate them. A 32-bit bundled APK therefore
+   still needs a network interface to be up, but its game modes are not padlocked by profile level.
+   Linux continues to
    use `patchelf` by default. Windows uses the strict in-place injector, which reuses a
    verified alias string and spare dynamic-table slot without moving code or changing any
    patch offset. Either route can be selected explicitly with `--needed patchelf` or

@@ -173,7 +173,11 @@ public function armv7_sites(): a list of Site
     Site { offset: 12752884, patch: bytes_from_hex("0a0000ea"), name: "Hub.InitializeComponents -> register managers past OTAConfig gate" }, -- 0xC297F4
     Site { offset: 20867576, patch: bytes_from_hex("00f020e3"), name: "LoginManager._PostInit -> skip 'no valid authenticators' fail on Count==0" }, -- 0x13E69F8
     Site { offset: 12759716, patch: bytes_from_hex("00f020e3"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xC2B2A4
-    Site { offset: 15845172, patch: bytes_from_hex("1eff2fe1"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" } -- 0xF1C734
+    Site { offset: 15845172, patch: bytes_from_hex("1eff2fe1"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" }, -- 0xF1C734
+    Site { offset: 11832648, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockWidget.get_Locked -> false (game modes never padlocked by profile level)" }, -- 0xB48D48
+    Site { offset: 11836396, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockManager.IsLocked -> false (every lock ID reports unlocked)" }, -- 0xB49BEC
+    Site { offset: 11836620, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockManager.GetMinLevel -> 0 (lock tooltips have no level requirement)" }, -- 0xB49CCC
+    Site { offset: 11943044, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "PVPRaidFlow.IsLevelLocked -> false (Raids entry gate)" } -- 0xB63C84
   ]
 end
 
