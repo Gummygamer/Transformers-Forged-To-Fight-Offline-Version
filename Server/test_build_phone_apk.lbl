@@ -247,9 +247,16 @@ function text_entry(name: text, value: text): ZipEntry
   stored_entry(name, bytes_from_text(value))
 end
 
-function source_entries(include_hooks: boolean, with_payload: boolean): a list of ZipEntry
+function deflated_manifest_entry(): ZipEntry
+  intent: build a raw DEFLATE entry containing the text manifest
+  let data: integer = bytes_from_hex("cb4dcccb4c4b2d2e0100")
+  ZipEntry { name: "AndroidManifest.xml", create_version: 20, create_system: 3, extract_version: 20, flag_bits: 8, compress_type: 8, dostime: 0, dosdate: 33, crc: 2801428544, compress_size: bytes_length(data), file_size: 8, extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 25165824, header_offset: 0, data_offset: 0, data: data }
+end
+
+function source_entries(include_hooks: boolean, with_payload: boolean, compressed_manifest: boolean): a list of ZipEntry
   intent: build
-  mutable entries: a list of ZipEntry = [text_entry("AndroidManifest.xml", "manifest"), stored_entry(build_phone_apk.metadata_name(), metadata_with_literals()), text_entry(build_phone_apk.sparx_manifest_name(), "https://tform-0901-hzlhiniyfcwf.tf-cdn.net"), text_entry(build_phone_apk.endpoint_config_name(), "\{\"Default\":\{\"Prod\":\"https://tform-0901-hzlhiniyfcwf.tf-cdn.net\"}}"), text_entry(build_phone_apk.il2cpp_entry(build_phone_apk.arm64()), "arm64 il2cpp"), text_entry(build_phone_apk.il2cpp_entry(build_phone_apk.armv7()), "armv7 il2cpp")]
+  let manifest: ZipEntry = if compressed_manifest then deflated_manifest_entry() else text_entry("AndroidManifest.xml", "manifest") end
+  mutable entries: a list of ZipEntry = [manifest, stored_entry(build_phone_apk.metadata_name(), metadata_with_literals()), text_entry(build_phone_apk.sparx_manifest_name(), "https://tform-0901-hzlhiniyfcwf.tf-cdn.net"), text_entry(build_phone_apk.endpoint_config_name(), "\{\"Default\":\{\"Prod\":\"https://tform-0901-hzlhiniyfcwf.tf-cdn.net\"}}"), text_entry(build_phone_apk.il2cpp_entry(build_phone_apk.arm64()), "arm64 il2cpp"), text_entry(build_phone_apk.il2cpp_entry(build_phone_apk.armv7()), "armv7 il2cpp")]
   if include_hooks then
     set entries = append(entries, stored_entry(build_phone_apk.hook_entry(build_phone_apk.arm64()), elf(2, 183, false)))
     set entries = append(entries, stored_entry(build_phone_apk.hook_entry(build_phone_apk.armv7()), elf(1, 40, false)))
@@ -269,7 +276,15 @@ end
 
 function write_source(path: text, include_hooks: boolean, with_payload: boolean): text
   intent: write
-  let entries: a list of ZipEntry = source_entries(include_hooks, with_payload)
+  let entries: a list of ZipEntry = source_entries(include_hooks, with_payload, false)
+  let result: text = build_phone_apk.zip_write(path, entries)
+  free_entries(entries)
+  result
+end
+
+function write_source_with_compressed_manifest(path: text): text
+  intent: write a source fixture whose manifest uses DEFLATE
+  let entries: a list of ZipEntry = source_entries(false, false, true)
   let result: text = build_phone_apk.zip_write(path, entries)
   free_entries(entries)
   result
@@ -440,6 +455,34 @@ function test_build_with_http_options_rewrites_endpoint_config(base: text): Test
   if good then ok() else failed("HTTP endpoint rewrite") end
 end
 
+function test_build_preserves_compressed_manifest(base: text): TestResult
+  intent: test
+  let folder: text = path_join(base, "compressed-manifest")
+  create_dir(folder)
+  let source: text = path_join(folder, "source.apk")
+  let destination: text = path_join(folder, "out.apk")
+  let hook_path: text = path_join(folder, "libdothook.so")
+  write_source_with_compressed_manifest(source)
+  let hook: integer = elf(2, 183, false)
+  write_file_bytes(hook_path, hook)
+  let options: BuildOptions = build_options(source, destination, build_phone_apk.arm64(), false, "", "http", "127.0.0.1", 8080, false, hook_path, hook_path)
+  let result: BuildResult = build_phone_apk.build(options)
+  let archive: ZipArchive = build_phone_apk.zip_read(destination)
+  let index: integer = build_phone_apk.zip_find(archive, "AndroidManifest.xml")
+  mutable good: boolean = result.error == "" and archive.error == "" and index >= 0
+  if index >= 0 then
+    let entry: ZipEntry = unwrap(get(archive.entries, index))
+    let actual: integer = build_phone_apk.zip_entry_data(archive, index)
+    let expected: integer = bytes_from_hex("cb4dcccb4c4b2d2e0100")
+    set good = good and entry.compress_type == 8 and entry.flag_bits == 0 and entry.compress_size == 10 and entry.file_size == 8 and entry.crc == 2801428544 and bytes_same(actual, expected)
+    bytes_free(actual)
+    bytes_free(expected)
+  end
+  bytes_free(hook)
+  build_phone_apk.zip_free(archive)
+  if good then ok() else failed("compressed manifest preservation: " ++ result.error) end
+end
+
 function test_bundle_writes_stored_payload(base: text): TestResult
   intent: test
   let fixture: BuildFixture = run_bundle_build(base, "bundle", build_phone_apk.arm64(), false, true, "http", "127.0.0.1", 8123, false, false)
@@ -518,8 +561,8 @@ function main(): nothing
   intent: run
   let base: text = path_join("..", "build", "legible-phone-apk-tests-" ++ to_text(random_int(1000000000)))
   create_dir(base)
-  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation"]
-  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base)]
+  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation"]
+  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base)]
   mutable failures: integer = 0
   mutable index: integer = 0
   while index < length(cases) do
@@ -527,7 +570,7 @@ function main(): nothing
     set index = index + 1
   end
   shell_exec("rm -rf -- " ++ base)
-  print(to_text(24 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(25 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 
