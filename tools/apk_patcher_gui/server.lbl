@@ -213,7 +213,7 @@ function session_token(): text
 end
 
 function browser_opener(): text
-  intent: select browser opener command
+  intent: return configured opener
   let opener: text = trim(unwrap_or(env_get("APK_PATCHER_GUI_OPENER"), ""))
   if opener != "" then opener else "xdg-open" end
 end

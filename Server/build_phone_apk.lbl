@@ -1,5 +1,5 @@
 -- Build a stock-device APK for the local fake server. Compressed entries that do not
--- need patching are preserved byte-for-byte; patched and newly added entries are stored.
+-- need patching are preserved byte-for-byte; patch targets are inflated then stored.
 use export_payload
 use server_paths
 
@@ -152,7 +152,7 @@ public function directory_name(path: text): text
 end
 
 public function script_directory(script: text, cwd: text): text
-  intent: resolve the directory containing a Unix or Windows script path
+  intent: return the script directory
   server_paths.script_directory(script, cwd)
 end
 
@@ -195,7 +195,7 @@ function count_bytes(data: integer, needle: text): integer
 end
 
 function copy_bytes(data: integer): integer
-  intent: copy
+  intent: write bytes
   let result: integer = bytes_new(bytes_length(data))
   bytes_write_bytes(result, 0, data)
   result
@@ -406,7 +406,7 @@ public function patch_metadata(metadata: integer, server_host: text, server_port
 end
 
 function replace_one_fixed(data: integer, old: text, replacement: text, pad: boolean, label: text): BytesResult
-  intent: patch
+  intent: write matched bytes into a replacement buffer
   let count: integer = count_bytes(data, old)
   if count != 1 then BytesResult { data: 0, error: label } else
     let old_data: integer = bytes_from_text(old)
@@ -440,12 +440,12 @@ function replace_one_fixed(data: integer, old: text, replacement: text, pad: boo
 end
 
 public function patch_sparx_manifest(data: integer, server_host: text, scheme: text, server_port: integer): BytesResult
-  intent: patch
+  intent: replace the Sparx manifest endpoint
   replace_one_fixed(data, "https://tform-0901-hzlhiniyfcwf.tf-cdn.net", scheme ++ "://" ++ server_host ++ ":" ++ to_text(server_port), false, "unexpected Sparx manifest endpoint count")
 end
 
 public function patch_endpoint_config(data: integer, server_host: text, scheme: text, server_port: integer): BytesResult
-  intent: patch
+  intent: replace the Unity endpoint config
   let old: text = "\{\"Default\":\{\"Prod\":\"https://tform-0901-hzlhiniyfcwf.tf-cdn.net\"}}"
   let new: text = "\{\"Default\":\{\"Prod\":\"" ++ scheme ++ "://" ++ server_host ++ ":" ++ to_text(server_port) ++ "\"}}"
   replace_one_fixed(data, old, new, true, "unexpected Unity endpoint config count")
@@ -565,7 +565,7 @@ function entry_data(archive: ZipArchive, entry: ZipEntry): integer
 end
 
 function output_flag_bits(entry: ZipEntry): integer
-  intent: clear the data-descriptor bit because rebuilt headers contain final sizes
+  intent: clear the flag bits
   bit_and(entry.flag_bits, 65527)
 end
 
@@ -706,7 +706,7 @@ function has_signature(name: text): boolean
 end
 
 function unique(values: a list of text): a list of text
-  intent: unique
+  intent: keep the first occurrence of each entry using contains
   mutable out: a list of text = []
   for value in values do if not contains(out, value) then set out = append(out, value) end end
   out
@@ -731,7 +731,7 @@ public function build(options: BuildOptions): BuildResult
 end
 
 function prepare_build(options: BuildOptions): BuildState
-  intent: prepare
+  intent: read APK files
   let archive: ZipArchive = zip_read(options.source)
   mutable error: text = archive.error
   if options.source == options.destination then set error = "destination must differ from source; the original APK is preserved" end
@@ -766,24 +766,34 @@ function preserved_entry(entry: ZipEntry): ZipEntry
 end
 
 function entry_needs_patch_data(entry: ZipEntry): boolean
-  intent: identify entries whose uncompressed contents are edited
+  intent: report whether the entry name is metadata or an endpoint config
   entry.name == metadata_name() or entry.name == sparx_manifest_name() or entry.name == endpoint_config_name()
+end
+
+function patch_source_bytes(state: BuildState, entry: ZipEntry): integer
+  intent: return entry bytes, inflating a DEFLATE entry to its file size
+  let raw: integer = entry_data(state.archive, entry)
+  if entry.compress_type == 0 then raw else
+    let inflated: integer = bytes_inflate(raw, entry.file_size)
+    bytes_free(raw)
+    inflated
+  end
 end
 
 function patch_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
   intent: patch
   if entry.name == metadata_name() then
-    let raw: integer = entry_data(state.archive, entry)
+    let raw: integer = patch_source_bytes(state, entry)
     let patched: MetadataPatch = patch_metadata(raw, options.server_host, options.server_port)
     bytes_free(raw)
     if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: patched.changed, error: "" } end
   else if entry.name == sparx_manifest_name() then
-    let raw: integer = entry_data(state.archive, entry)
+    let raw: integer = patch_source_bytes(state, entry)
     let patched: BytesResult = patch_sparx_manifest(raw, options.server_host, options.scheme, options.server_port)
     bytes_free(raw)
     if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: ["tform-0901-hzlhiniyfcwf.tf-cdn.net"], error: "" } end
   else if entry.name == endpoint_config_name() then
-    let raw: integer = entry_data(state.archive, entry)
+    let raw: integer = patch_source_bytes(state, entry)
     let patched: BytesResult = patch_endpoint_config(raw, options.server_host, options.scheme, options.server_port)
     bytes_free(raw)
     if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: [], error: "" } end
@@ -804,7 +814,7 @@ function collect_entries(options: BuildOptions, state: BuildState): EntryCollect
     let keep: boolean = not has_signature(entry.name) and (options.keep_other_abi or not starts_with(entry.name, other_prefix)) and (not options.bundle_server or entry.name != payload_asset())
     if keep and error == "" then
       if bit_and(entry.flag_bits, 1) != 0 then set error = "unsupported encrypted ZIP entry: " ++ entry.name
-      else if entry.compress_type != 0 and entry_needs_patch_data(entry) then set error = "cannot patch compressed ZIP entry: " ++ entry.name else
+      else
         let result: EntryResult = patch_entry(options, state, entry)
         if result.error != "" then set error = result.error else
           set entries = append(entries, result.entry)
@@ -882,7 +892,7 @@ function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw
 end
 
 function shell_quote(value: text): text
-  intent: quote a POSIX shell argument
+  intent: replace value
   "'" ++ replace(value, "'", "'\"'\"'") ++ "'"
 end
 
@@ -901,7 +911,7 @@ public function parallel_writer_available(): boolean
 end
 
 function parallel_overlay_dir(destination: text): text
-  intent: create a unique temporary overlay directory beside the APK
+  intent: join the destination directory with a timestamped overlay folder name
   path_join(directory_name(destination), ".tftf-parallel-" ++ to_text(current_time_ms()))
 end
 
