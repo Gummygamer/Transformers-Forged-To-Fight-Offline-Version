@@ -722,7 +722,7 @@ baked transition/body pair before updating it.
 The static export hardcodes the board width in `move_body`'s bounds check and the
 `add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
 updating those two places and both exact constants in `Server/export_payload.lbl` and
-`Server/test_export_payload.lbl`: the current values are 9366 entries and 4571404 bytes
+`Server/test_export_payload.lbl`: the current values are 9368 entries and 4572592 bytes
 (formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
 the whole test binary before it can print a test summary.
 
@@ -927,9 +927,11 @@ The relevant data model is:
 `ArenaEvent : EventsEvent` (`dump.cs` line 387731) has `IsQuickMatch`, `TeamSize`,
 `WinStreakMax`, `WinStreakPointsModifiers`, `FindOpponentCost`, `NewOpponentCost`,
 `FightRewards`, `SeriesCompleteRewards`, and `Filters`. Arena DEFINITIONS therefore arrive
-through the events system: the same capture shows `GET /events/refresh` also receiving only
-the default envelope, while `/pvp/get-login-data` carries only the player's per-arena state.
-Answering both is required before the Versus UI can be fully populated.
+through the events system, while `/pvp/get-login-data` carries only the player's per-arena
+state. `Server/responses/GET__events_refresh.json` now supplies an authored `arena_versus`
+definition in the `Running` state. Its field names and minimum validity requirements come
+from the IL2CPP constructors rather than a captured production response, so it still needs
+confirmation on a live device.
 
 `PVPOpponentUserData` is the hook for this project's multi-player plan: an opponent is a
 second real player's name, tag, level, portrait, faction, and team, so a store-and-serve

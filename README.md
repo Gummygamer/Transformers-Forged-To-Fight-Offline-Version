@@ -607,7 +607,7 @@ The Python original `Server/gamedata.py` was removed once `Server/gamedata.lbl` 
 verified to regenerate `Server/responses/` byte-identically; it remains recoverable from
 git history at commit `23950a3`, for example `git show 23950a3:Server/gamedata.py`. With
 the Python gone, the committed artifacts are the oracle: `Server/responses/` and the baked
-payload (4,571,404 bytes, 9366 entries at listen port 8080).
+payload (4,572,592 bytes, 9368 entries at listen port 8080).
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python
