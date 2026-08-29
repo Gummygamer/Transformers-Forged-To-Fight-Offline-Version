@@ -147,7 +147,7 @@ function print_before_arm32(blob: integer, offset: integer): nothing
   end
 end
 
-function arm64_sites(): a list of Site
+public function arm64_sites(): a list of Site
   intent: return arm64 patch sites
   [
     Site { offset: 19113788, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "TcpClientSSL.CertificateValidation -> true" }, -- 0x123A73C
@@ -157,11 +157,15 @@ function arm64_sites(): a list of Site
     Site { offset: 16529176, patch: bytes_from_hex("1f2003d5"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xFC3718
     Site { offset: 19056256, patch: bytes_from_hex("c0035fd6"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" }, -- 0x122C680
     Site { offset: 28599028, patch: bytes_concat(bytes_from_hex("40008052"), bytes_from_hex("c0035fd6")), name: "Application.internetReachability -> ReachableViaLocalAreaNetwork (bundled loopback server needs no Wi-Fi AP)" }, -- 0x1B462F4
-    Site { offset: 20135496, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" } -- 0x1333E48
+    Site { offset: 20135496, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" }, -- 0x1333E48
+    Site { offset: 15779872, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockWidget.get_Locked -> false (game modes never padlocked by profile level)" }, -- 0xF0C820
+    Site { offset: 15782864, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockManager.IsLocked -> false (every lock ID reports unlocked)" }, -- 0xF0D3D0
+    Site { offset: 15783048, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockManager.GetMinLevel -> 0 (lock tooltips have no level requirement)" }, -- 0xF0D488
+    Site { offset: 15868548, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "PVPRaidFlow.IsLevelLocked -> false (Raids entry gate)" } -- 0xF22284
   ]
 end
 
-function armv7_sites(): a list of Site
+public function armv7_sites(): a list of Site
   intent: return armv7 patch sites
   [
     Site { offset: 15919104, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "TcpClientSSL.CertificateValidation -> true" }, -- 0xF2E800

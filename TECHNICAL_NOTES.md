@@ -31,8 +31,8 @@ body.
 
 ## The native patches
 
-All eight are in `patches/patch_il2cpp.lbl` (arm64; the armeabi-v7a list is still the first six),
-applied by file offset, and the script prints a
+All twelve are in `patches/patch_il2cpp.lbl` (arm64; the armeabi-v7a list is still only the
+first six), applied by file offset, and the script prints a
 before and after disassembly of each so you can confirm them. In short:
 
 1 and 2. Certificate validation. Two TLS code paths are forced to accept any certificate, so
@@ -56,6 +56,26 @@ branches on it before it will send anything, including to `127.0.0.1`. With no W
 point the bundled build therefore refused to use its own in-APK server and stopped on the failed
 to log in dialog. Both getters are stubbed to constants, so reachability is always
 `ReachableViaLocalAreaNetwork` and connectivity is always true. These two are arm64 only.
+
+9 through 12. Profile-level padlocks on game modes. Raids, Store, Arenas, Special Missions,
+Alliance Missions and Daily Missions render a padlock until the account profile level is high
+enough. The minimum level per lock comes from `TuningLevelLocks.LevelLockData`, which is
+Unity-serialized into the game assets and is therefore not reachable from the fake server, so
+reporting a high account level from `/auth/login` and `/userprofile/` is not enough on its own.
+These four getters are stubbed to `mov w0, #0; ret`:
+
+- `LevelLockWidget::get_Locked` at `0xF0C820` -> always false. This is the non-virtual base of
+  every padlock UI widget (`TFormLevelLockWidget`, `TFormTabLevelLockWidget`,
+  `TopBarTabLevelLockWidget`, `AllianceJoinLevelLockWidget`, `CountBadgeLevelLockWidget`,
+  `LevelLockFightLandingWidget`, `LevelLockGlowWidget`), so one patch covers all of them.
+- `LevelLockManager::IsLocked(string)` at `0xF0D3D0` -> every lock ID reports unlocked.
+- `LevelLockManager::GetMinLevel(string)` at `0xF0D488` -> every lock's required level is 0.
+- `PVPRaidFlow::IsLevelLocked` at `0xF22284` -> the separate static Raids entry gate is off.
+
+Verified for this change: the patcher writes the bytes and the before/after disassembly of each
+of the four sites is exactly `mov w0, #0` then `ret`, and `patches/test_patch_il2cpp.lbl`
+passes. Not yet verified: on-device confirmation that the padlocks are actually gone (a later
+step builds a signed APK and checks on the emulator).
 
 The script also re-injects the dependency that loads the runtime hook. See the gotcha below.
 
@@ -839,9 +859,29 @@ with level 30. The cause was `UserProfile.levelRewards` being served as `null`, 
 `LevelRewardsStatus` was never constructed and `LevelLockManager._playerLevel` remained 0. The server
 now sends a populated `levelRewards` object carrying `account_level()`. The exact JSON key names read
 by `LevelRewardsStatus.ctor(IDictionary)` are not recoverable from `re_notes/dump.cs` because it has
-no string literals, so both `enabled` and `isEnabled` are emitted; this fix has not yet been
-re-confirmed on device. `LevelRewardsAPI.FetchStatus` (`re_notes/dump.cs` line 320631) remains the
-untried alternative path, and its endpoint has never appeared in any capture under `probe/`.
+no string literals, so both `enabled` and `isEnabled` are emitted. `LevelRewardsAPI.FetchStatus`
+(`re_notes/dump.cs` line 320631) remains the untried alternative path, and its endpoint has never
+appeared in any capture under `probe/`.
+
+Because the minimum-level side lives in Unity-serialized `TuningLevelLocks` and is not
+server-reachable, the server-data route above could never be sufficient on its own. The
+definitive fix is native: four sites in `patches/patch_il2cpp.lbl` (arm64) are stubbed to
+`mov w0, #0; ret` so no game mode is padlocked at any profile level -
+
+- `LevelLockWidget::get_Locked` at `0xF0C820` (15779872) -> false; non-virtual base of every
+  padlock widget, so this one patch covers all of them
+- `LevelLockManager::IsLocked(string)` at `0xF0D3D0` (15782864) -> false for every lock ID
+- `LevelLockManager::GetMinLevel(string)` at `0xF0D488` (15783048) -> 0 for every lock ID
+- `PVPRaidFlow::IsLevelLocked` at `0xF22284` (15868548) -> false; the separate static Raids gate
+
+The server-side level reporting is kept as-is: it is harmless and it keeps the reported profile
+coherent. As of this change, **verified** = the patcher applies these bytes and the before/after
+disassembly of each site is exactly `mov w0, #0` then `ret`, plus the Legible test suite
+(`patches/test_patch_il2cpp.lbl`, `Server/test_fakeserver.lbl`). **Not yet verified** =
+on-device confirmation that the padlocks are gone; a later step builds a signed APK and checks
+that on the emulator. The armeabi-v7a site list is not touched here (its offsets are not
+derivable from the arm64 `re_notes/dump.cs`); `patches/abi_map.lbl` is the route for a future
+armv7 port.
 
 The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
 

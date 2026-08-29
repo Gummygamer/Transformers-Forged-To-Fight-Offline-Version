@@ -1,0 +1,79 @@
+use patch_il2cpp
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+  print("[ok] " ++ name)
+  0
+else
+  print("[!] " ++ name)
+  1
+end
+end
+
+function offset_present(sites: a list of Site, offset: integer): boolean
+  intent: check
+  mutable present: boolean = false
+  for site in sites do
+    if site.offset == offset then set present = true end
+  end
+  present
+end
+
+function bytes_identical(left: integer, right: integer): boolean
+  intent: compare bytes
+  mutable same: boolean = bytes_length(left) == bytes_length(right)
+  mutable index: integer = 0
+  while index < bytes_length(left) and same do
+    if bytes_get(left, index) != bytes_get(right, index) then set same = false end
+    set index = index + 1
+  end
+  same
+end
+
+function patch_bytes_match(sites: a list of Site, offset: integer, hex: text): boolean
+  intent: check
+  mutable matched: boolean = false
+  for site in sites do
+    if site.offset == offset then set matched = bytes_identical(site.patch, bytes_from_hex(hex)) end
+  end
+  matched
+end
+
+function test_new_level_lock_sites_present(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.arm64_sites()
+  offset_present(sites, 15779872) and offset_present(sites, 15782864) and offset_present(sites, 15783048) and offset_present(sites, 15868548)
+end
+
+function test_new_level_lock_sites_patch_to_mov_w0_zero_ret(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.arm64_sites()
+  patch_bytes_match(sites, 15779872, "00008052c0035fd6") and patch_bytes_match(sites, 15782864, "00008052c0035fd6") and patch_bytes_match(sites, 15783048, "00008052c0035fd6") and patch_bytes_match(sites, 15868548, "00008052c0035fd6")
+end
+
+function test_arm64_site_count_is_twelve(): boolean
+  intent: test
+  length(patch_il2cpp.arm64_sites()) == 12
+end
+
+function test_preexisting_arm64_sites_retained(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.arm64_sites()
+  offset_present(sites, 19113788) and offset_present(sites, 21940544) and offset_present(sites, 16523700) and offset_present(sites, 23246480) and offset_present(sites, 16529176) and offset_present(sites, 19056256) and offset_present(sites, 28599028) and offset_present(sites, 20135496)
+end
+
+function main(): nothing
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("test_new_level_lock_sites_present", test_new_level_lock_sites_present())
+  set failed = failed + report("test_new_level_lock_sites_patch_to_mov_w0_zero_ret", test_new_level_lock_sites_patch_to_mov_w0_zero_ret())
+  set failed = failed + report("test_arm64_site_count_is_twelve", test_arm64_site_count_is_twelve())
+  set failed = failed + report("test_preexisting_arm64_sites_retained", test_preexisting_arm64_sites_retained())
+  print(to_text(4 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  if failed > 0 then
+  exit_process(1)
+end
+end
+
+main()

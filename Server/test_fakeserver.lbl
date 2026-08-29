@@ -130,7 +130,9 @@ function test_userprofile_returns_local_profile_without_capturing_bulk_or_find()
   let prefixed: Json = result(fakeserver.dynamic("/prod/userprofile/?stoken=" ++ session.stoken, "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"))
   let stats: Json = jsonout.obj_get(profile, "gameIntStats")
   let level_rewards: Json = jsonout.obj_get(profile, "levelRewards")
-  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and jsonout.as_int(jsonout.obj_get(stats, "level")) == fakeserver.account_level() and jsonout.type_name(level_rewards) == "object" and jsonout.as_int(jsonout.obj_get(level_rewards, "level")) == fakeserver.account_level() and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list" and fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
+  let stat_level: integer = jsonout.as_int(jsonout.obj_get(stats, "level"))
+  let reward_level: integer = jsonout.as_int(jsonout.obj_get(level_rewards, "level"))
+  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and stat_level == fakeserver.account_level() and reward_level == fakeserver.account_level() and stat_level == reward_level and jsonout.type_name(level_rewards) == "object" and jsonout.as_bool(jsonout.obj_get(level_rewards, "enabled")) and jsonout.as_bool(jsonout.obj_get(level_rewards, "isEnabled")) and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list" and fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
 end
 
 function test_tutorial_branches_block_live_and_complete(): boolean
