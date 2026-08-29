@@ -58,6 +58,43 @@ end
 end
 end
 
+function test_events_refresh_path_mapping(): boolean
+  intent: test
+  ends_with(fakeserver.resp_path_for("GET", "/events/refresh?hash=&api=5"), "Server/responses/GET__events_refresh.json")
+end
+
+function test_events_refresh_is_canned(): boolean
+  intent: test
+  let choice: ResponseChoice = fakeserver.resolve_response("GET", "/events/refresh?hash=&api=5")
+  starts_with(choice.source, "canned ") and choice.body != "\{\"error\":null,\"result\":\{\}\}"
+end
+
+function test_events_refresh_has_a_playable_arena(): boolean
+  intent: test
+  let choice: ResponseChoice = fakeserver.resolve_response("GET", "/events/refresh?hash=&api=5")
+  let top: Json = jsonout.parse_json(choice.body)
+  if jsonout.type_name(top) != "object" or not jsonout.obj_has(top, "result") then
+  false
+else
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "check") or not jsonout.obj_has(result, "events") then
+  false
+else
+  let events: a list of Json = jsonout.list_items(jsonout.obj_get(result, "events"))
+  let event: Json = unwrap_or(get(events, 0), jsonout.json_obj([]))
+  if length(events) != 1 or jsonout.type_name(event) != "object" then
+  false
+else if not jsonout.obj_has(event, "_id") or not jsonout.obj_has(event, "eventtype") or not jsonout.obj_has(event, "state") or not jsonout.obj_has(event, "messaging") or not jsonout.obj_has(event, "arena") then
+  false
+else
+  let messaging: Json = jsonout.obj_get(event, "messaging")
+  let arena: Json = jsonout.obj_get(event, "arena")
+  jsonout.as_text(jsonout.obj_get(result, "check")) == "offline-arena-v1" and jsonout.as_text(jsonout.obj_get(event, "_id")) == "arena_versus" and jsonout.as_text(jsonout.obj_get(event, "eventtype")) == "arena" and jsonout.as_text(jsonout.obj_get(event, "state")) == "Running" and jsonout.as_int(jsonout.obj_get(event, "start")) < jsonout.as_int(jsonout.obj_get(event, "end")) and jsonout.as_int(jsonout.obj_get(event, "end")) < jsonout.as_int(jsonout.obj_get(event, "final")) and jsonout.type_name(messaging) == "object" and jsonout.as_text(jsonout.obj_get(messaging, "name")) != "" and jsonout.as_text(jsonout.obj_get(messaging, "long")) != "" and jsonout.type_name(arena) == "object" and jsonout.as_int(jsonout.obj_get(arena, "teamSize")) == 3 and jsonout.as_int(jsonout.obj_get(arena, "winStreakMax")) == 3
+end
+end
+end
+end
+
 function test_peer_key_prefers_peer_then_stoken(): boolean
   intent: test
   fakeserver.peer_key("/pvp/find-arena-opponent?stoken=sess1&peer=alice") == "alice" and fakeserver.peer_key("/pvp/find-arena-opponent?sig=x&stoken=sess1&api=5") == "sess1" and fakeserver.peer_key("/pvp/find-arena-opponent") == "local"
@@ -542,12 +579,22 @@ function run_pvp_endpoint_tests(): integer
   failures
 end
 
+function run_arena_event_tests(): integer
+  intent: test
+  mutable failures: integer = 0
+  set failures = failures + report("test_events_refresh_path_mapping", test_events_refresh_path_mapping())
+  set failures = failures + report("test_events_refresh_is_canned", test_events_refresh_is_canned())
+  set failures = failures + report("test_events_refresh_has_a_playable_arena", test_events_refresh_has_a_playable_arena())
+  failures
+end
+
 function main(): nothing
   intent: run
   mutable failures: integer = 0
   set failures = failures + report("test_pvp_path_mapping", test_pvp_path_mapping())
   set failures = failures + report("test_pvp_login_data_is_canned", test_pvp_login_data_is_canned())
   set failures = failures + report("test_pvp_login_data_shape", test_pvp_login_data_shape())
+  set failures = failures + run_arena_event_tests()
   set failures = failures + report("test_peer_key_prefers_peer_then_stoken", test_peer_key_prefers_peer_then_stoken())
   set failures = failures + report("test_roster_store_round_trips_two_peers", test_roster_store_round_trips_two_peers())
   set failures = failures + report("test_storing_same_peer_twice_replaces_not_duplicates", test_storing_same_peer_twice_replaces_not_duplicates())
@@ -580,7 +627,7 @@ function main(): nothing
   set failures = failures + report("test_disputed_results_are_identical_for_both_peers", test_disputed_results_are_identical_for_both_peers())
   set failures = failures + report("test_match_result_survives_after_match_ends", test_match_result_survives_after_match_ends())
   set failures = failures + report("test_fight_events_and_reports_persist_to_disk", test_fight_events_and_reports_persist_to_disk())
-  print(to_text(40 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(43 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 
