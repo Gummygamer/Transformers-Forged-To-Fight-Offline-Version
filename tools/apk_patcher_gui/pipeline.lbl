@@ -83,7 +83,7 @@ public function windows_host(): boolean
 end
 
 public function windows_native_path(path: text): text
-  intent: convert the path
+  intent: rewrite an MSYS drive path using substring and replace
   if text_length(path) >= 3 and starts_with(path, "/") and substring(path, 2, 1) == "/" then
     substring(path, 1, 1) ++ ":\\" ++ replace(substring(path, 3, text_length(path) - 3), "/", "\\")
   else
@@ -163,7 +163,7 @@ function command_output(command: text): text
 end
 
 public function executable_name_variants(name: text): a list of text
-  intent: return name variants
+  intent: return the name plus its .exe, .bat, and .cmd variants
   -- On Windows the Android SDK ships wrappers as .bat/.cmd (apksigner.bat,
   -- the NDK clang .cmd shims) and real binaries as .exe (zipalign.exe,
   -- adb.exe, java.exe). Git Bash's `command -v` only auto-resolves .exe, so
