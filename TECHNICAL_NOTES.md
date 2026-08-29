@@ -74,8 +74,11 @@ These four getters are stubbed to `mov w0, #0; ret`:
 
 Verified for this change: the patcher writes the bytes and the before/after disassembly of each
 of the four sites is exactly `mov w0, #0` then `ret`, and `patches/test_patch_il2cpp.lbl`
-passes. Not yet verified: on-device confirmation that the padlocks are actually gone (a later
-step builds a signed APK and checks on the emulator).
+passes. This was confirmed on device: a signed arm64 APK embedding the newly patched library,
+installed fresh on an Android emulator, showed `Commander / LVL 0` with every mode tile on the
+SELECT A FIGHT MODE screen and every home top-nav entry free of padlocks. The Store opens an
+"unknown error" modal because the offline fake server has no store-catalog content, not because
+of a level lock.
 
 The script also re-injects the dependency that loads the runtime hook. See the gotcha below.
 
@@ -877,11 +880,14 @@ definitive fix is native: four sites in `patches/patch_il2cpp.lbl` (arm64) are s
 The server-side level reporting is kept as-is: it is harmless and it keeps the reported profile
 coherent. As of this change, **verified** = the patcher applies these bytes and the before/after
 disassembly of each site is exactly `mov w0, #0` then `ret`, plus the Legible test suite
-(`patches/test_patch_il2cpp.lbl`, `Server/test_fakeserver.lbl`). **Not yet verified** =
-on-device confirmation that the padlocks are gone; a later step builds a signed APK and checks
-that on the emulator. The armeabi-v7a site list is not touched here (its offsets are not
-derivable from the arm64 `re_notes/dump.cs`); `patches/abi_map.lbl` is the route for a future
-armv7 port.
+(`patches/test_patch_il2cpp.lbl`, `Server/test_fakeserver.lbl`), and an on-device fresh install
+(after uninstall, so a zero-progress profile) of a signed arm64 APK reached the home screen with
+the in-APK hook loaded. At `Commander / LVL 0`, the SELECT A FIGHT MODE grid showed RAIDS,
+SPECIAL, DAILY, ARENAS, ALLIANCE MISSIONS and STORY without padlocks, and the unpadlocked top-nav
+included STORE. **Not yet verified** = the armeabi-v7a build: its site list is unchanged because
+its offsets are not derivable from the arm64 `re_notes/dump.cs`; `patches/abi_map.lbl` is the
+route for a future armv7 port. STORE opens an "unknown error" modal because the fake server has
+no store-catalog content, which is a content gap rather than a level lock.
 
 The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
 
