@@ -23,10 +23,13 @@ typedef struct {
   uint8_t create_version;
   uint8_t create_system;
   uint8_t extract_version;
+  uint16_t flag_bits;
+  uint16_t compress_type;
   uint16_t dostime;
   uint16_t dosdate;
   uint32_t crc;
-  uint32_t size;
+  uint32_t compress_size;
+  uint32_t file_size;
   const uint8_t *extra;
   uint16_t extra_len;
   const uint8_t *comment;
@@ -248,8 +251,9 @@ static int parse_source(const uint8_t *source, size_t source_size,
                !starts_with_any(name, drop_prefixes, drop_prefix_count);
     if (keep) {
       uint32_t local = read_u32(source + cursor + 42);
+      uint16_t flag_bits = read_u16(source + cursor + 8);
       if (local + 30u > source_size || read_u32(source + local) != 0x04034b50u ||
-          read_u16(source + cursor + 10) != 0) {
+          (flag_bits & 1u) != 0) {
         free(name);
         goto invalid;
       }
@@ -267,10 +271,13 @@ static int parse_source(const uint8_t *source, size_t source_size,
         .create_version = source[cursor + 4],
         .create_system = source[cursor + 5],
         .extract_version = source[cursor + 6],
+        .flag_bits = flag_bits,
+        .compress_type = read_u16(source + cursor + 10),
         .dostime = read_u16(source + cursor + 12),
         .dosdate = read_u16(source + cursor + 14),
         .crc = read_u32(source + cursor + 16),
-        .size = size,
+        .compress_size = size,
+        .file_size = read_u32(source + cursor + 24),
         .extra = source + cursor + 46 + name_len,
         .extra_len = extra_len,
         .comment = source + cursor + 46 + name_len + extra_len,
@@ -284,10 +291,13 @@ static int parse_source(const uint8_t *source, size_t source_size,
       if (replacement) {
         entry.replacement_path = replacement->path;
         replacement->used = 1;
-        if (crc_file(replacement->path, &entry.crc, &entry.size) != 0) {
+        if (crc_file(replacement->path, &entry.crc, &entry.compress_size) != 0) {
           free(name);
           goto invalid;
         }
+        entry.file_size = entry.compress_size;
+        entry.flag_bits = 0;
+        entry.compress_type = 0;
       }
       if (append_entry(&entries, &entry_count, &entry_capacity, entry) != 0) {
         free(name);
@@ -320,8 +330,12 @@ static int parse_source(const uint8_t *source, size_t source_size,
       entry.dosdate = 33;
       entry.external_attr = 27525120;
     }
-    if (!entry.name || crc_file(entry.replacement_path, &entry.crc, &entry.size) != 0 ||
-        append_entry(&entries, &entry_count, &entry_capacity, entry) != 0) {
+    if (!entry.name || crc_file(entry.replacement_path, &entry.crc, &entry.compress_size) != 0) {
+      free(entry.name);
+      goto invalid;
+    }
+    entry.file_size = entry.compress_size;
+    if (append_entry(&entries, &entry_count, &entry_capacity, entry) != 0) {
       free(entry.name);
       goto invalid;
     }
@@ -343,11 +357,13 @@ static int write_local_header(int fd, const Entry *entry) {
   if (!header) return -1;
   write_u32(header, 0x04034b50u);
   header[4] = entry->extract_version;
+  write_u16(header + 6, entry->flag_bits & (uint16_t)~8u);
+  write_u16(header + 8, entry->compress_type);
   write_u16(header + 10, entry->dostime);
   write_u16(header + 12, entry->dosdate);
   write_u32(header + 14, entry->crc);
-  write_u32(header + 18, entry->size);
-  write_u32(header + 22, entry->size);
+  write_u32(header + 18, entry->compress_size);
+  write_u32(header + 22, entry->file_size);
   write_u16(header + 26, (uint16_t)name_len);
   write_u16(header + 28, entry->extra_len);
   memcpy(header + 30, entry->name, name_len);
@@ -366,11 +382,13 @@ static int write_central_header(int fd, const Entry *entry, uint64_t offset) {
   header[4] = entry->create_version;
   header[5] = entry->create_system;
   header[6] = entry->extract_version;
+  write_u16(header + 8, entry->flag_bits & (uint16_t)~8u);
+  write_u16(header + 10, entry->compress_type);
   write_u16(header + 12, entry->dostime);
   write_u16(header + 14, entry->dosdate);
   write_u32(header + 16, entry->crc);
-  write_u32(header + 20, entry->size);
-  write_u32(header + 24, entry->size);
+  write_u32(header + 20, entry->compress_size);
+  write_u32(header + 24, entry->file_size);
   write_u16(header + 28, (uint16_t)name_len);
   write_u16(header + 30, entry->extra_len);
   write_u16(header + 32, entry->comment_len);
@@ -453,8 +471,8 @@ int main(int argc, char **argv) {
     Entry *entry = &entries[index];
     entry->output_header = cursor;
     entry->output_data = cursor + 30 + strlen(entry->name) + entry->extra_len;
-    cursor = entry->output_data + entry->size;
-    task_count += (entry->size + COPY_CHUNK - 1) / COPY_CHUNK;
+    cursor = entry->output_data + entry->compress_size;
+    task_count += (entry->compress_size + COPY_CHUNK - 1) / COPY_CHUNK;
   }
   uint64_t central_offset = cursor;
   for (size_t index = 0; index < entry_count; ++index)
@@ -493,8 +511,8 @@ int main(int argc, char **argv) {
       replacement_fds[index] = input_fd;
       input_offset = 0;
     }
-    for (uint64_t at = 0; at < entry->size; at += COPY_CHUNK) {
-      size_t size = entry->size - at < COPY_CHUNK ? (size_t)(entry->size - at) : COPY_CHUNK;
+    for (uint64_t at = 0; at < entry->compress_size; at += COPY_CHUNK) {
+      size_t size = entry->compress_size - at < COPY_CHUNK ? (size_t)(entry->compress_size - at) : COPY_CHUNK;
       tasks[task_index++] = (CopyTask) { input_fd, output_fd, input_offset + at, entry->output_data + at, size };
     }
   }

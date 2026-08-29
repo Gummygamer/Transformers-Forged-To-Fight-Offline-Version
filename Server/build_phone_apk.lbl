@@ -1,5 +1,5 @@
--- Build a stock-device APK for the local fake server.  ZIP support here deliberately
--- covers only stored entries: all non-signature entries in the shipped APK are stored.
+-- Build a stock-device APK for the local fake server. Compressed entries that do not
+-- need patching are preserved byte-for-byte; patched and newly added entries are stored.
 use export_payload
 use server_paths
 
@@ -564,7 +564,12 @@ function entry_data(archive: ZipArchive, entry: ZipEntry): integer
   if entry.data != 0 then entry.data else bytes_slice(archive.raw, entry.data_offset, entry.compress_size) end
 end
 
-function write_local(out: integer, offset: integer, entry: ZipEntry, crc: integer, size: integer): integer
+function output_flag_bits(entry: ZipEntry): integer
+  intent: clear the data-descriptor bit because rebuilt headers contain final sizes
+  bit_and(entry.flag_bits, 65527)
+end
+
+function write_local(out: integer, offset: integer, entry: ZipEntry): integer
   intent: write
   let name: integer = bytes_from_text(entry.name)
   let name_length: integer = bytes_length(name)
@@ -574,13 +579,13 @@ function write_local(out: integer, offset: integer, entry: ZipEntry, crc: intege
   bytes_set(out, offset + 3, 4)
   bytes_set(out, offset + 4, entry.extract_version)
   bytes_set(out, offset + 5, 0)
-  put_u16(out, offset + 6, 0)
-  put_u16(out, offset + 8, 0)
+  put_u16(out, offset + 6, output_flag_bits(entry))
+  put_u16(out, offset + 8, entry.compress_type)
   put_u16(out, offset + 10, entry.dostime)
   put_u16(out, offset + 12, entry.dosdate)
-  bytes_write_u32_le(out, offset + 14, crc)
-  bytes_write_u32_le(out, offset + 18, size)
-  bytes_write_u32_le(out, offset + 22, size)
+  bytes_write_u32_le(out, offset + 14, entry.crc)
+  bytes_write_u32_le(out, offset + 18, entry.compress_size)
+  bytes_write_u32_le(out, offset + 22, entry.file_size)
   put_u16(out, offset + 26, name_length)
   put_u16(out, offset + 28, bytes_length(entry.extra))
   bytes_write_bytes(out, offset + 30, name)
@@ -590,7 +595,7 @@ function write_local(out: integer, offset: integer, entry: ZipEntry, crc: intege
   next
 end
 
-function write_central(out: integer, offset: integer, entry: ZipEntry, crc: integer, size: integer, header: integer): integer
+function write_central(out: integer, offset: integer, entry: ZipEntry, header: integer): integer
   intent: write
   let name: integer = bytes_from_text(entry.name)
   bytes_set(out, offset, 80)
@@ -601,13 +606,13 @@ function write_central(out: integer, offset: integer, entry: ZipEntry, crc: inte
   bytes_set(out, offset + 5, entry.create_system)
   bytes_set(out, offset + 6, entry.extract_version)
   bytes_set(out, offset + 7, 0)
-  put_u16(out, offset + 8, 0)
-  put_u16(out, offset + 10, 0)
+  put_u16(out, offset + 8, output_flag_bits(entry))
+  put_u16(out, offset + 10, entry.compress_type)
   put_u16(out, offset + 12, entry.dostime)
   put_u16(out, offset + 14, entry.dosdate)
-  bytes_write_u32_le(out, offset + 16, crc)
-  bytes_write_u32_le(out, offset + 20, size)
-  bytes_write_u32_le(out, offset + 24, size)
+  bytes_write_u32_le(out, offset + 16, entry.crc)
+  bytes_write_u32_le(out, offset + 20, entry.compress_size)
+  bytes_write_u32_le(out, offset + 24, entry.file_size)
   put_u16(out, offset + 28, bytes_length(name))
   put_u16(out, offset + 30, bytes_length(entry.extra))
   put_u16(out, offset + 32, bytes_length(entry.comment))
@@ -633,8 +638,10 @@ function crc_entries(entries: a list of ZipEntry, table: a list of integer): a l
   intent: build
   mutable out: a list of ZipEntry = []
   for entry in entries do
-    let crc: integer = crc_of(entry.data, 0, bytes_length(entry.data), table)
-    set out = append(out, copied_entry(entry, entry.data, crc))
+    if entry.compress_type == 0 then
+      let crc: integer = crc_of(entry.data, 0, bytes_length(entry.data), table)
+      set out = append(out, copied_entry(entry, entry.data, crc))
+    else set out = append(out, entry) end
   end
   out
 end
@@ -755,7 +762,12 @@ end
 
 function preserved_entry(entry: ZipEntry): ZipEntry
   intent: build
-  ZipEntry { name: entry.name, create_version: entry.create_version, create_system: entry.create_system, extract_version: entry.extract_version, flag_bits: 0, compress_type: 0, dostime: entry.dostime, dosdate: entry.dosdate, crc: entry.crc, compress_size: entry.compress_size, file_size: entry.file_size, extra: entry.extra, comment: entry.comment, internal_attr: entry.internal_attr, external_attr: entry.external_attr, header_offset: 0, data_offset: entry.data_offset, data: 0 }
+  ZipEntry { name: entry.name, create_version: entry.create_version, create_system: entry.create_system, extract_version: entry.extract_version, flag_bits: entry.flag_bits, compress_type: entry.compress_type, dostime: entry.dostime, dosdate: entry.dosdate, crc: entry.crc, compress_size: entry.compress_size, file_size: entry.file_size, extra: entry.extra, comment: entry.comment, internal_attr: entry.internal_attr, external_attr: entry.external_attr, header_offset: 0, data_offset: entry.data_offset, data: 0 }
+end
+
+function entry_needs_patch_data(entry: ZipEntry): boolean
+  intent: identify entries whose uncompressed contents are edited
+  entry.name == metadata_name() or entry.name == sparx_manifest_name() or entry.name == endpoint_config_name()
 end
 
 function patch_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
@@ -791,7 +803,8 @@ function collect_entries(options: BuildOptions, state: BuildState): EntryCollect
   for entry in state.archive.entries do
     let keep: boolean = not has_signature(entry.name) and (options.keep_other_abi or not starts_with(entry.name, other_prefix)) and (not options.bundle_server or entry.name != payload_asset())
     if keep and error == "" then
-      if entry.compress_type != 0 then set error = "unsupported compressed ZIP entry: " ++ entry.name else
+      if bit_and(entry.flag_bits, 1) != 0 then set error = "unsupported encrypted ZIP entry: " ++ entry.name
+      else if entry.compress_type != 0 and entry_needs_patch_data(entry) then set error = "cannot patch compressed ZIP entry: " ++ entry.name else
         let result: EntryResult = patch_entry(options, state, entry)
         if result.error != "" then set error = result.error else
           set entries = append(entries, result.entry)
@@ -827,7 +840,7 @@ function write_zip_directory(out: integer, offset: integer, entries: a list of Z
   mutable index: integer = 0
   while index < length(entries) do
     let entry: ZipEntry = unwrap(get(entries, index))
-    set at = write_central(out, at, entry, entry.crc, entry_size(entry), unwrap_or(get(headers, index), 0))
+    set at = write_central(out, at, entry, unwrap_or(get(headers, index), 0))
     set index = index + 1
   end
   at
@@ -842,7 +855,7 @@ function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw
   for entry in entries do
     set headers = append(headers, at)
     let size: integer = entry_size(entry)
-    set at = write_local(out, at, entry, entry.crc, size)
+    set at = write_local(out, at, entry)
     if entry.data != 0 then bytes_write_bytes(out, at, entry.data) else
       let chunk: integer = bytes_slice(source_raw, entry.data_offset, entry.compress_size)
       bytes_write_bytes(out, at, chunk)
@@ -881,8 +894,10 @@ end
 public function parallel_writer_available(): boolean
   intent: detect whether the native parallel ZIP writer can run
   let disabled: boolean = unwrap_or(env_get("TFTF_SERIAL_APK_WRITER"), "") == "1"
-  let probe: a mapping from text to text = if disabled or not file_exists(parallel_writer_script()) then [] else shell_exec("command -v cc >/dev/null 2>&1") end
-  not disabled and file_exists(parallel_writer_script()) and unwrap_or(to_integer(unwrap_or(get(probe, "exit_code"), "1")), 1) == 0
+  if disabled or not file_exists(parallel_writer_script()) then false else
+    let probe: a mapping from text to text = shell_exec("command -v cc >/dev/null 2>&1")
+    unwrap_or(to_integer(unwrap_or(get(probe, "exit_code"), "1")), 1) == 0
+  end
 end
 
 function parallel_overlay_dir(destination: text): text
