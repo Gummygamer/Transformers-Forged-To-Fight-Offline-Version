@@ -17,7 +17,7 @@ function failed(detail: text): TestResult
 end
 
 function report(name: text, result: TestResult): integer
-  intent: print
+  intent: print the ok or detail line for the test name
   if result.passed then
     print("[ok] " ++ name)
     0
@@ -248,7 +248,7 @@ function text_entry(name: text, value: text): ZipEntry
 end
 
 function deflated_manifest_entry(): ZipEntry
-  intent: build manifest bytes
+  intent: build a DEFLATE AndroidManifest.xml entry from a fixed hex blob
   let data: integer = bytes_from_hex("cb4dcccb4c4b2d2e0100")
   ZipEntry { name: "AndroidManifest.xml", create_version: 20, create_system: 3, extract_version: 20, flag_bits: 8, compress_type: 8, dostime: 0, dosdate: 33, crc: 2801428544, compress_size: bytes_length(data), file_size: 8, extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 25165824, header_offset: 0, data_offset: 0, data: data }
 end
@@ -330,7 +330,7 @@ function write_source(path: text, include_hooks: boolean, with_payload: boolean)
 end
 
 function write_source_with_compressed_manifest(path: text): text
-  intent: write source
+  intent: write a source fixture whose manifest entry uses DEFLATE via source_entries
   let entries: a list of ZipEntry = source_entries(false, false, true, false)
   let result: text = build_phone_apk.zip_write(path, entries)
   free_entries(entries)
@@ -338,7 +338,7 @@ function write_source_with_compressed_manifest(path: text): text
 end
 
 function write_source_with_compressed_metadata(path: text): text
-  intent: write source
+  intent: write a source fixture whose metadata entry uses DEFLATE via source_entries
   let entries: a list of ZipEntry = source_entries(false, false, false, true)
   let result: text = build_phone_apk.zip_write(path, entries)
   free_entries(entries)

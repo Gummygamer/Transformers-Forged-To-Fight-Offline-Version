@@ -195,7 +195,7 @@ function count_bytes(data: integer, needle: text): integer
 end
 
 function copy_bytes(data: integer): integer
-  intent: write bytes
+  intent: write the data bytes into a new buffer of equal length
   let result: integer = bytes_new(bytes_length(data))
   bytes_write_bytes(result, 0, data)
   result
@@ -406,7 +406,7 @@ public function patch_metadata(metadata: integer, server_host: text, server_port
 end
 
 function replace_one_fixed(data: integer, old: text, replacement: text, pad: boolean, label: text): BytesResult
-  intent: write matched bytes into a replacement buffer
+  intent: require exactly one occurrence of old, then pad in place or concat prefix, new bytes, and suffix
   let count: integer = count_bytes(data, old)
   if count != 1 then BytesResult { data: 0, error: label } else
     let old_data: integer = bytes_from_text(old)
@@ -564,8 +564,10 @@ function entry_data(archive: ZipArchive, entry: ZipEntry): integer
   if entry.data != 0 then entry.data else bytes_slice(archive.raw, entry.data_offset, entry.compress_size) end
 end
 
+-- 65527 is ~0x0008: drop the data-descriptor flag because the rebuilt local
+-- headers carry the real crc and sizes inline.
 function output_flag_bits(entry: ZipEntry): integer
-  intent: clear the flag bits
+  intent: clear the data-descriptor flag bit
   bit_and(entry.flag_bits, 65527)
 end
 
@@ -731,7 +733,7 @@ public function build(options: BuildOptions): BuildResult
 end
 
 function prepare_build(options: BuildOptions): BuildState
-  intent: read APK files
+  intent: validate the options, load the hook and patched libil2cpp, and build the BuildState
   let archive: ZipArchive = zip_read(options.source)
   mutable error: text = archive.error
   if options.source == options.destination then set error = "destination must differ from source; the original APK is preserved" end
@@ -892,7 +894,7 @@ function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw
 end
 
 function shell_quote(value: text): text
-  intent: replace value
+  intent: wrap the value in single quotes with replace
   "'" ++ replace(value, "'", "'\"'\"'") ++ "'"
 end
 
