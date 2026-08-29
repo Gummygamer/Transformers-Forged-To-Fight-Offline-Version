@@ -31,8 +31,8 @@ body.
 
 ## The native patches
 
-All twelve are in `patches/patch_il2cpp.lbl` (arm64; the armeabi-v7a list is still only the
-first six), applied by file offset, and the script prints a
+All twelve are in `patches/patch_il2cpp.lbl`; the armeabi-v7a list carries ten of them (all
+but the two reachability patches), applied by file offset, and the script prints a
 before and after disassembly of each so you can confirm them. In short:
 
 1 and 2. Certificate validation. Two TLS code paths are forced to accept any certificate, so
@@ -62,18 +62,19 @@ Alliance Missions and Daily Missions render a padlock until the account profile 
 enough. The minimum level per lock comes from `TuningLevelLocks.LevelLockData`, which is
 Unity-serialized into the game assets and is therefore not reachable from the fake server, so
 reporting a high account level from `/auth/login` and `/userprofile/` is not enough on its own.
-These four getters are stubbed to `mov w0, #0; ret`:
+These four getters are stubbed to `mov w0, #0; ret` on arm64 and `mov r0, #0; bx lr`
+(`0000a0e3 1eff2fe1`) on armv7:
 
-- `LevelLockWidget::get_Locked` at `0xF0C820` -> always false. This is the non-virtual base of
+- `LevelLockWidget::get_Locked` at `0xF0C820` (armv7 `0xB48D48`) -> always false. This is the non-virtual base of
   every padlock UI widget (`TFormLevelLockWidget`, `TFormTabLevelLockWidget`,
   `TopBarTabLevelLockWidget`, `AllianceJoinLevelLockWidget`, `CountBadgeLevelLockWidget`,
   `LevelLockFightLandingWidget`, `LevelLockGlowWidget`), so one patch covers all of them.
-- `LevelLockManager::IsLocked(string)` at `0xF0D3D0` -> every lock ID reports unlocked.
-- `LevelLockManager::GetMinLevel(string)` at `0xF0D488` -> every lock's required level is 0.
-- `PVPRaidFlow::IsLevelLocked` at `0xF22284` -> the separate static Raids entry gate is off.
+- `LevelLockManager::IsLocked(string)` at `0xF0D3D0` (armv7 `0xB49BEC`) -> every lock ID reports unlocked.
+- `LevelLockManager::GetMinLevel(string)` at `0xF0D488` (armv7 `0xB49CCC`) -> every lock's required level is 0.
+- `PVPRaidFlow::IsLevelLocked` at `0xF22284` (armv7 `0xB63C84`) -> the separate static Raids entry gate is off.
 
-Verified for this change: the patcher writes the bytes and the before/after disassembly of each
-of the four sites is exactly `mov w0, #0` then `ret`, and `patches/test_patch_il2cpp.lbl`
+Verified for this change: the patcher writes the bytes and the before/after disassembly of the
+four arm64 sites is exactly `mov w0, #0` then `ret`, and `patches/test_patch_il2cpp.lbl`
 passes. This was confirmed on device: a signed arm64 APK embedding the newly patched library,
 installed fresh on an Android emulator, showed `Commander / LVL 0` with every mode tile on the
 SELECT A FIGHT MODE screen and every home top-nav entry free of padlocks. The Store opens an
@@ -643,9 +644,26 @@ stun blends into the normal strike/stagger animation.
 
 `patches/abi_map.lbl` translates arm64 method addresses and field offsets to the 32-bit
 build by pairing the two Il2CppDumper dumps, which both come from the same
-`global-metadata.dat`. That covers the six original native patches and ten of the twelve hook
-sites. The two reachability patches added later are arm64 only because the 32-bit Il2CppDumper
-dump this pairing needs is not in the repo.
+`global-metadata.dat`. That mapping now covers ten of the twelve patch sites: the six original
+method patches plus the four profile-level padlock patches. The two reachability patches remain
+arm64 only because they are not IL2CPP method addresses, so `abi_map.lbl` cannot translate them.
+
+The four padlock RVAs were derived with Il2CppDumper v6.7.46 (net7), which dumped both libraries
+against the same `assets/bin/Data/Managed/Metadata/global-metadata.dat` extracted from
+`Transformers 9.2 offline.apk`: arm64 from the repo's `pristine_libil2cpp.so`, and armeabi-v7a
+from the APK's own `lib/armeabi-v7a/libil2cpp.so`. `patches/abi_map.lbl` `verify` mode
+cross-checked the two independent pairings (method name and `dump.cs` metadata order) and reported
+both mappings agree; `method` mode then translated the four arm64 addresses. All four landed at
+offset 0 of their function, with no `+0x.. into the function` note.
+
+The arm64 dumper run emitted `ERROR: Some errors in dumping` and left one unresolved method,
+`EB.EnumConverter$$ToInt32`, with garbage address `5645929538064241490`, far past the 48 MB
+library; the armv7 dump has no corresponding entry. That one entry trips `abi_map`'s “the two
+dumps disagree on N method names” guard, which exists to catch dumps made from different metadata,
+not the case here. It was removed from a copy of the arm64 `script.json` before mapping; no address
+was altered. The real 32-bit library was patched cleanly, and each new site had an ARM function
+prologue before patching and `mov r0, #0` / `bx lr` after. This has not yet been verified on an
+armeabi-v7a device.
 It does not cover anything that is not a method address, and two fixes are exactly that.
 Both were re-derived against the 32-bit binary; the reasoning is written out in
 `tools/nativehook/hook_arm32.c` next to each fix, and both were confirmed firing live.
@@ -868,14 +886,15 @@ appeared in any capture under `probe/`.
 
 Because the minimum-level side lives in Unity-serialized `TuningLevelLocks` and is not
 server-reachable, the server-data route above could never be sufficient on its own. The
-definitive fix is native: four sites in `patches/patch_il2cpp.lbl` (arm64) are stubbed to
-`mov w0, #0; ret` so no game mode is padlocked at any profile level -
+definitive fix is native: four sites in `patches/patch_il2cpp.lbl` are stubbed to
+`mov w0, #0; ret` on arm64 and `mov r0, #0; bx lr` (`0000a0e3 1eff2fe1`) on armv7, so no game
+mode is padlocked at any profile level -
 
-- `LevelLockWidget::get_Locked` at `0xF0C820` (15779872) -> false; non-virtual base of every
+- `LevelLockWidget::get_Locked` at `0xF0C820` (15779872; armv7 `0xB48D48`, 11832648) -> false; non-virtual base of every
   padlock widget, so this one patch covers all of them
-- `LevelLockManager::IsLocked(string)` at `0xF0D3D0` (15782864) -> false for every lock ID
-- `LevelLockManager::GetMinLevel(string)` at `0xF0D488` (15783048) -> 0 for every lock ID
-- `PVPRaidFlow::IsLevelLocked` at `0xF22284` (15868548) -> false; the separate static Raids gate
+- `LevelLockManager::IsLocked(string)` at `0xF0D3D0` (15782864; armv7 `0xB49BEC`, 11836396) -> false for every lock ID
+- `LevelLockManager::GetMinLevel(string)` at `0xF0D488` (15783048; armv7 `0xB49CCC`, 11836620) -> 0 for every lock ID
+- `PVPRaidFlow::IsLevelLocked` at `0xF22284` (15868548; armv7 `0xB63C84`, 11943044) -> false; the separate static Raids gate
 
 The server-side level reporting is kept as-is: it is harmless and it keeps the reported profile
 coherent. As of this change, **verified** = the patcher applies these bytes and the before/after
@@ -884,9 +903,9 @@ disassembly of each site is exactly `mov w0, #0` then `ret`, plus the Legible te
 (after uninstall, so a zero-progress profile) of a signed arm64 APK reached the home screen with
 the in-APK hook loaded. At `Commander / LVL 0`, the SELECT A FIGHT MODE grid showed RAIDS,
 SPECIAL, DAILY, ARENAS, ALLIANCE MISSIONS and STORY without padlocks, and the unpadlocked top-nav
-included STORE. **Not yet verified** = the armeabi-v7a build: its site list is unchanged because
-its offsets are not derivable from the arm64 `re_notes/dump.cs`; `patches/abi_map.lbl` is the
-route for a future armv7 port. STORE opens an "unknown error" modal because the fake server has
+included STORE. **Not yet verified** = the armeabi-v7a build on device. Its ten-site list now
+includes the four mapped padlock sites; only the two non-method reachability patches remain
+arm64-only. STORE opens an "unknown error" modal because the fake server has
 no store-catalog content, which is a content gap rather than a level lock.
 
 The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
@@ -903,10 +922,11 @@ The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
 - `LockIn(arenaID, heroes)`
 - `ClearInvalidTeams`
 
-`GetLoginData` is confirmed by capture to be `/pvp/get-login-data`. The remaining methods
-are DERIVED and UNCONFIRMED kebab-cased siblings, such as `/pvp/get-user-data`,
-`/pvp/find-arena-opponent`, `/pvp/select-opponent`, and `/pvp/lock-in`; only
-`get-login-data` is observed in a real capture.
+Device captures now confirm `/pvp/get-login-data`, `/pvp/find-arena-opponent`, and
+`/pvp/clear-invalid-teams`. In particular, accepting the selected Arena team posts
+`heroes`, `type`, and `arenaID` to `/pvp/find-arena-opponent`. The binary's string literals
+also give the exact remaining paths; they are not uniformly kebab-cased (`/pvp/lockin`,
+`/pvp/quit`, `/pvp/get-new-opponent`, `/pvp/match-loaded`, and `/pvp/retry-match`).
 
 The relevant data model is:
 
@@ -916,7 +936,7 @@ The relevant data model is:
   `SeriesRewards`, `Milestones`.
 - `PVPOpponent` (417082): `Uid`, `Team`, `Matchups`, `UserData`.
 - `PVPOpponentUserData` (416985): `Name`, `Tag`, `Level`, `Portrait`, `FactionId`,
-  `ArenaStats`.
+  `ArenaStats`; its JSON key is `pvpStats`.
 - `PVPMatchup` (416884): `UserHero`, `OpponentHero`, `AIDifficulty`, `State`, `Outcome`,
   `BasePoints`, `ActualPoints`, `FightId`.
 - `ePVPState` (416857): `none=0`, `active=2`, `rewarding=4`, `claimed=8`,
@@ -937,10 +957,13 @@ confirmation on a live device.
 second real player's name, tag, level, portrait, faction, and team, so a store-and-serve
 roster from another tunnel peer can be served as the opponent.
 
-`Server/responses/GET__pvp_get-login-data.json`, added by this chunk, uses key names derived
-from IL2CPP property names, NOT from a captured server response, and has not yet been
-confirmed against a live device. A device run may require adjusting the `arenas` and
-`matches` container key names.
+`PVPManager.UpdatePVPData` reads the exact top-level keys `pvpUserData` and `pvpMatchData`.
+The latter is a dictionary of `PVPMatchData` objects, whose identifier key is `pid`; returning
+one match directly, under the guessed key `pvpid`, leaves `CurrentMatchData` null and makes the
+Arena flow report a network error despite receiving HTTP 200. Opponent `uid` is an integer and
+each `team` entry is a full `BCGUserHero` dictionary, not a session-token string and a list of
+blueprint strings. `Server/responses/GET__pvp_get-login-data.json` and the dynamic opponent
+response now follow that parser contract.
 
 The existing naming trap remains: `TFTF_ARENA_LEVEL` and `TFTF_ARENA_TOD` name the physical
 battleground scene, not the online Arena mode.
@@ -1010,7 +1033,7 @@ paired, both peers retain that match until it is ended.
 | `/pvp/lock-in` | Publishes the caller's real team to the roster store and attempts pairing. |
 | `/pvp/select-opponent` | Confirms the pairing. |
 | `/pvp/quit-arena` | Ends the match and purges that match's fight events; it is a harmless no-op without an active match. |
-| `/pvp/find-arena-opponent` | Touches presence, prefers pairing live peers, then serves the opponent; falls back to the stored-roster behaviour. |
+| `/pvp/find-arena-opponent` | Touches presence, prefers pairing live peers, then serves the opponent in the client-required `pvpMatchData`/`pvpUserData` containers; falls back to the stored-roster behaviour. |
 | `/pvp/get-new-arena-opponent` | Uses the same live-peer-first opponent handler. |
 | `/pvp/get-opponents` | Uses the same live-peer-first opponent handler. |
 
@@ -1049,9 +1072,9 @@ Retail TFTF Arena is asynchronous by design: the client fights a local AI copy o
 stored team. There is no realtime fight netcode in the retail client. Real-time input relay is
 therefore impossible without rewriting the IL2CPP fight simulation, which this project does not
 do. `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP surface, with eight
-network methods relevant to these endpoint mappings. Only `GetLoginData` is confirmed by a real
-capture to be `/pvp/get-login-data`; the remaining paths are derived, unconfirmed kebab-case
-mappings.
+network methods relevant to these endpoint mappings. Device captures confirm `GetLoginData` as
+`/pvp/get-login-data` and `FindArenaOpponent` as `/pvp/find-arena-opponent`. The other spellings
+come directly from client string literals, although their live response paths remain unverified.
 
 Consequently `/pvp/heartbeat`, `/pvp/lobby`, `/pvp/leave-match`, `/pvp/fight-post`,
 `/pvp/fight-poll`, `/pvp/report-result`, and `/pvp/match-result` will never be called by a

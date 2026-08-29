@@ -63,6 +63,29 @@ function test_preexisting_arm64_sites_retained(): boolean
   offset_present(sites, 19113788) and offset_present(sites, 21940544) and offset_present(sites, 16523700) and offset_present(sites, 23246480) and offset_present(sites, 16529176) and offset_present(sites, 19056256) and offset_present(sites, 28599028) and offset_present(sites, 20135496)
 end
 
+function test_new_armv7_level_lock_sites_present(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.armv7_sites()
+  offset_present(sites, 11832648) and offset_present(sites, 11836396) and offset_present(sites, 11836620) and offset_present(sites, 11943044)
+end
+
+function test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.armv7_sites()
+  patch_bytes_match(sites, 11832648, "0000a0e31eff2fe1") and patch_bytes_match(sites, 11836396, "0000a0e31eff2fe1") and patch_bytes_match(sites, 11836620, "0000a0e31eff2fe1") and patch_bytes_match(sites, 11943044, "0000a0e31eff2fe1")
+end
+
+function test_armv7_site_count_is_ten(): boolean
+  intent: test
+  length(patch_il2cpp.armv7_sites()) == 10
+end
+
+function test_preexisting_armv7_sites_retained(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.armv7_sites()
+  offset_present(sites, 15919104) and offset_present(sites, 19285720) and offset_present(sites, 12752884) and offset_present(sites, 20867576) and offset_present(sites, 12759716) and offset_present(sites, 15845172)
+end
+
 function main(): nothing
   intent: run
   mutable failed: integer = 0
@@ -70,7 +93,11 @@ function main(): nothing
   set failed = failed + report("test_new_level_lock_sites_patch_to_mov_w0_zero_ret", test_new_level_lock_sites_patch_to_mov_w0_zero_ret())
   set failed = failed + report("test_arm64_site_count_is_twelve", test_arm64_site_count_is_twelve())
   set failed = failed + report("test_preexisting_arm64_sites_retained", test_preexisting_arm64_sites_retained())
-  print(to_text(4 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  set failed = failed + report("test_new_armv7_level_lock_sites_present", test_new_armv7_level_lock_sites_present())
+  set failed = failed + report("test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr", test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr())
+  set failed = failed + report("test_armv7_site_count_is_ten", test_armv7_site_count_is_ten())
+  set failed = failed + report("test_preexisting_armv7_sites_retained", test_preexisting_armv7_sites_retained())
+  print(to_text(8 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

@@ -36,10 +36,10 @@ else
   let result: Json = jsonout.obj_get(top, "result")
   if jsonout.type_name(result) != "object" then
   false
-else if not jsonout.obj_has(result, "arenas") or not jsonout.obj_has(result, "matches") then
+else if not jsonout.obj_has(result, "pvpUserData") or not jsonout.obj_has(result, "pvpMatchData") then
   false
 else
-  let arenas: Json = jsonout.obj_get(result, "arenas")
+  let arenas: Json = jsonout.obj_get(result, "pvpUserData")
   if jsonout.type_name(arenas) != "object" then
   false
 else if not jsonout.obj_has(arenas, "arena_versus") then
@@ -142,16 +142,20 @@ function test_find_arena_opponent_serves_the_other_peers_team(): boolean
   false
 else
   let result: Json = jsonout.obj_get(top, "result")
-  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "opponents") then
+  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "pvpMatchData") or not jsonout.obj_has(result, "pvpUserData") then
   false
 else
-  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(result, "opponents"))
+  let matches: Json = jsonout.obj_get(result, "pvpMatchData")
+  let match_data: Json = jsonout.obj_get(matches, "arena_versus-1")
+  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(match_data, "opponents"))
   let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
   if length(opponents) != 1 or jsonout.type_name(opponent) != "object" or not jsonout.obj_has(opponent, "uid") or not jsonout.obj_has(opponent, "userData") or not jsonout.obj_has(opponent, "team") then
   false
 else
   let user_data: Json = jsonout.obj_get(opponent, "userData")
-  jsonout.as_text(jsonout.obj_get(opponent, "uid")) == "sessB" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob" and length(jsonout.list_items(jsonout.obj_get(opponent, "team"))) > 0
+  let team: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "team"))
+  let hero: Json = unwrap_or(get(team, 0), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(match_data, "pid")) == "arena_versus-1" and jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob" and jsonout.obj_has(user_data, "pvpStats") and length(team) > 0 and jsonout.type_name(hero) == "object" and jsonout.as_text(jsonout.obj_get(hero, "bid")) == "optimusprime_cin_tf"
 end
 end
 end
@@ -424,9 +428,11 @@ function test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster(): bo
   fakeserver.touch_presence_at("sessC", "Cara", current_time_ms())
   let body: text = fakeserver.dynamic("/pvp/find-arena-opponent?stoken=sessA&sver=3", "\{\"arenaID\":\"arena_versus\"\}")
   let result: Json = jsonout.obj_get(jsonout.parse_json(body), "result")
-  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(result, "opponents"))
+  let matches: Json = jsonout.obj_get(result, "pvpMatchData")
+  let match_data: Json = jsonout.obj_get(matches, fakeserver.match_for_peer("sessA").match_id)
+  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(match_data, "opponents"))
   let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
-  jsonout.as_text(jsonout.obj_get(opponent, "uid")) == "sessC" and jsonout.as_bool(jsonout.obj_get(result, "live")) and jsonout.as_text(jsonout.obj_get(result, "pvpid")) == jsonout.as_text(jsonout.obj_get(result, "matchID"))
+  jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.as_bool(jsonout.obj_get(match_data, "live")) and jsonout.as_text(jsonout.obj_get(match_data, "pid")) == jsonout.as_text(jsonout.obj_get(match_data, "matchID"))
 end
 
 function test_leave_match_frees_both_peers(): boolean
