@@ -83,7 +83,7 @@ public function windows_host(): boolean
 end
 
 public function windows_native_path(path: text): text
-  intent: convert an MSYS drive path for native Windows tools
+  intent: convert the path
   if text_length(path) >= 3 and starts_with(path, "/") and substring(path, 2, 1) == "/" then
     substring(path, 1, 1) ++ ":\\" ++ replace(substring(path, 3, text_length(path) - 3), "/", "\\")
   else
@@ -163,7 +163,7 @@ function command_output(command: text): text
 end
 
 public function executable_name_variants(name: text): a list of text
-  intent: list platform executable filename variants
+  intent: return name variants
   -- On Windows the Android SDK ships wrappers as .bat/.cmd (apksigner.bat,
   -- the NDK clang .cmd shims) and real binaries as .exe (zipalign.exe,
   -- adb.exe, java.exe). Git Bash's `command -v` only auto-resolves .exe, so
@@ -544,7 +544,7 @@ public function adb_install_command(request: BuildRequest): a list of text
 end
 
 public function adb_verify_install_command(request: BuildRequest): a list of text
-  intent: verify installed package
+  intent: verify ADB shell package path
   [request.adb, "shell", "pm", "path", "com.kabam.bigrobot"]
 end
 

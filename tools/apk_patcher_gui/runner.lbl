@@ -69,7 +69,7 @@ function pid_value(): integer
 end
 
 function powershell_quote(value: text): text
-  intent: quote a PowerShell literal
+  intent: format
   "'" ++ replace(value, "'", "''") ++ "'"
 end
 
@@ -79,7 +79,7 @@ function powershell_command(script: text): text
 end
 
 function windows_argument(value: text): text
-  intent: preserve one Start-Process argument including spaces
+  intent: use PowerShell quote
   powershell_quote("\"" ++ value ++ "\"")
 end
 
@@ -95,7 +95,7 @@ public function worker_launch_command(request: BuildRequest, worker: text, launc
 end
 
 public function process_check_command(pid: integer, windows: boolean): text
-  intent: build process liveness probe
+  intent: build process command
   if windows then
     powershell_command("if (Get-Process -Id " ++ to_text(pid) ++ " -ErrorAction SilentlyContinue) \{ exit 0 \} else \{ exit 1 \}")
   else
@@ -104,7 +104,7 @@ public function process_check_command(pid: integer, windows: boolean): text
 end
 
 public function cancel_command(pid: integer, windows: boolean): text
-  intent: build worker cancellation command
+  intent: build taskkill or kill command
   if windows then
     "taskkill.exe /PID " ++ to_text(pid) ++ " /T /F >/dev/null 2>&1 || true"
   else
