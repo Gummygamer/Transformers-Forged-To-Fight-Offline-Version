@@ -481,6 +481,11 @@ function crc_of(handle: integer, start: integer, count: integer, table: a list o
   bit_xor(crc, 4294967295)
 end
 
+function replacement_crc(data: integer): integer
+  intent: compute replacement CRC only when the serial writer needs it
+  if parallel_writer_available() then 0 else crc_of(data, 0, bytes_length(data), crc_table()) end
+end
+
 function zip_error(raw: integer, message: text): ZipArchive
   intent: build
   ZipArchive { raw: raw, entries: [], error: message }
@@ -667,12 +672,12 @@ function fresh_entry(name: text, data: integer): ZipEntry
   let yy: integer = unwrap_or(get(civil, 3), 1980)
   let mo: integer = unwrap_or(get(civil, 4), 1)
   let dd: integer = unwrap_or(get(civil, 5), 1)
-  ZipEntry { name: name, create_version: 20, create_system: 3, extract_version: 20, flag_bits: 0, compress_type: 0, dostime: hh * 2048 + mm * 32 + floor(ss / 2), dosdate: (yy - 1980) * 512 + mo * 32 + dd, crc: crc_of(data, 0, bytes_length(data), crc_table()), compress_size: bytes_length(data), file_size: bytes_length(data), extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 25165824, header_offset: 0, data_offset: 0, data: data }
+  ZipEntry { name: name, create_version: 20, create_system: 3, extract_version: 20, flag_bits: 0, compress_type: 0, dostime: hh * 2048 + mm * 32 + floor(ss / 2), dosdate: (yy - 1980) * 512 + mo * 32 + dd, crc: replacement_crc(data), compress_size: bytes_length(data), file_size: bytes_length(data), extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 25165824, header_offset: 0, data_offset: 0, data: data }
 end
 
 function payload_entry(data: integer): ZipEntry
   intent: build
-  ZipEntry { name: payload_asset(), create_version: 20, create_system: 3, extract_version: 20, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 33, crc: crc_of(data, 0, bytes_length(data), crc_table()), compress_size: bytes_length(data), file_size: bytes_length(data), extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 27525120, header_offset: 0, data_offset: 0, data: data }
+  ZipEntry { name: payload_asset(), create_version: 20, create_system: 3, extract_version: 20, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 33, crc: replacement_crc(data), compress_size: bytes_length(data), file_size: bytes_length(data), extra: bytes_new(0), comment: bytes_new(0), internal_attr: 0, external_attr: 27525120, header_offset: 0, data_offset: 0, data: data }
 end
 
 public function default_build_options(source: text, destination: text): BuildOptions
@@ -707,7 +712,7 @@ public function build(options: BuildOptions): BuildResult
     let selected: EntryCollection = collect_entries(options, state)
     if selected.error != "" then BuildResult { hosts: [], error: selected.error }
     else
-      let write_error: text = write_preserved_zip(options.destination, selected.entries, state.archive.raw)
+      let write_error: text = if parallel_writer_available() then write_parallel_zip(options, selected) else write_preserved_zip(options.destination, selected.entries, state.archive.raw) end
       if write_error != "" then BuildResult { hosts: [], error: write_error } else BuildResult { hosts: unique(selected.changed), error: "" } end
     end
   end
@@ -759,21 +764,21 @@ function patch_entry(options: BuildOptions, state: BuildState, entry: ZipEntry):
     let raw: integer = entry_data(state.archive, entry)
     let patched: MetadataPatch = patch_metadata(raw, options.server_host, options.server_port)
     bytes_free(raw)
-    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, crc_of(patched.data, 0, bytes_length(patched.data), crc_table())), changed: patched.changed, error: "" } end
+    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: patched.changed, error: "" } end
   else if entry.name == sparx_manifest_name() then
     let raw: integer = entry_data(state.archive, entry)
     let patched: BytesResult = patch_sparx_manifest(raw, options.server_host, options.scheme, options.server_port)
     bytes_free(raw)
-    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, crc_of(patched.data, 0, bytes_length(patched.data), crc_table())), changed: ["tform-0901-hzlhiniyfcwf.tf-cdn.net"], error: "" } end
+    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: ["tform-0901-hzlhiniyfcwf.tf-cdn.net"], error: "" } end
   else if entry.name == endpoint_config_name() then
     let raw: integer = entry_data(state.archive, entry)
     let patched: BytesResult = patch_endpoint_config(raw, options.server_host, options.scheme, options.server_port)
     bytes_free(raw)
-    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, crc_of(patched.data, 0, bytes_length(patched.data), crc_table())), changed: [], error: "" } end
+    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: [], error: "" } end
   else if entry.name == hook_entry(options.abi) then
-    EntryResult { entry: copied_entry(entry, state.hook, crc_of(state.hook, 0, bytes_length(state.hook), crc_table())), changed: [], error: "" }
+    EntryResult { entry: copied_entry(entry, state.hook, replacement_crc(state.hook)), changed: [], error: "" }
   else if entry.name == il2cpp_entry(options.abi) and state.replacement != 0 then
-    EntryResult { entry: copied_entry(entry, state.replacement, crc_of(state.replacement, 0, bytes_length(state.replacement), crc_table())), changed: [], error: "" }
+    EntryResult { entry: copied_entry(entry, state.replacement, replacement_crc(state.replacement)), changed: [], error: "" }
   else EntryResult { entry: preserved_entry(entry), changed: [], error: "" } end
 end
 
@@ -861,6 +866,58 @@ function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw
   write_file_bytes(path, out)
   bytes_free(out)
   ""
+end
+
+function shell_quote(value: text): text
+  intent: quote a POSIX shell argument
+  "'" ++ replace(value, "'", "'\"'\"'") ++ "'"
+end
+
+public function parallel_writer_script(): text
+  intent: get the native parallel ZIP writer launcher
+  path_join(here(), "parallel_zip_writer.sh")
+end
+
+public function parallel_writer_available(): boolean
+  intent: detect whether the native parallel ZIP writer can run
+  let disabled: boolean = unwrap_or(env_get("TFTF_SERIAL_APK_WRITER"), "") == "1"
+  let probe: a mapping from text to text = if disabled or not file_exists(parallel_writer_script()) then [] else shell_exec("command -v cc >/dev/null 2>&1") end
+  not disabled and file_exists(parallel_writer_script()) and unwrap_or(to_integer(unwrap_or(get(probe, "exit_code"), "1")), 1) == 0
+end
+
+function parallel_overlay_dir(destination: text): text
+  intent: create a unique temporary overlay directory beside the APK
+  path_join(directory_name(destination), ".tftf-parallel-" ++ to_text(current_time_ms()))
+end
+
+function write_parallel_zip(options: BuildOptions, selected: EntryCollection): text
+  intent: write the APK with a native multi-worker data-copy stage
+  let folder: text = parallel_overlay_dir(options.destination)
+  create_dir(folder)
+  mutable command: text = shell_quote(parallel_writer_script()) ++ " " ++ shell_quote(options.source) ++ " " ++ shell_quote(options.destination) ++ " --drop-signatures"
+  if not options.keep_other_abi then
+    let other: text = if options.abi == arm64() then armv7() else arm64() end
+    set command = command ++ " --drop-prefix " ++ shell_quote("lib/" ++ other ++ "/")
+  end
+  if options.bundle_server then set command = command ++ " --drop " ++ shell_quote(payload_asset()) end
+  let workers: text = trim(unwrap_or(env_get("TFTF_APK_WORKERS"), ""))
+  if workers != "" then set command = command ++ " --workers " ++ shell_quote(workers) end
+  mutable index: integer = 0
+  for entry in selected.entries do
+    if entry.data != 0 then
+      let overlay: text = path_join(folder, "entry-" ++ to_text(index) ++ ".bin")
+      write_file_bytes(overlay, entry.data)
+      set command = command ++ " --replace " ++ shell_quote(entry.name) ++ " " ++ shell_quote(overlay)
+    end
+    set index = index + 1
+  end
+  let result: a mapping from text to text = shell_exec(command)
+  let code: integer = unwrap_or(to_integer(unwrap_or(get(result, "exit_code"), "1")), 1)
+  let stdout: text = trim(unwrap_or(get(result, "stdout"), ""))
+  let stderr: text = trim(unwrap_or(get(result, "stderr"), ""))
+  if stdout != "" then print(stdout) end
+  shell_exec("rm -rf -- " ++ shell_quote(folder))
+  if code == 0 then "" else "parallel ZIP writer failed" ++ if stderr == "" then "" else ": " ++ stderr end end
 end
 
 function print_build_result(options: BuildOptions, result: BuildResult): nothing
