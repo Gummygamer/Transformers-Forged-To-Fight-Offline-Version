@@ -35,6 +35,9 @@ During a STORY fight, the special-attack meter is no longer locked: it charges f
 and received hits, and a special attack can be fired for real damage. Every bot has all three
 special-meter segments available immediately.
 On arm64, STORY opponents can also fire their basic ranged attack while outside melee range.
+Game modes are no longer gated behind profile level: Raids, the Store, Arenas, Special
+Missions, Alliance Missions and Daily Missions are reachable from a fresh offline session
+regardless of account level, because the native padlock checks are patched out.
 On arm64, BOTS roster and detail views suppress residual base geometry, and level-3 cinematics
 render and animate the shipped alternate form before restoring robot form. These visual hooks
 are not ported to ARMv7.
@@ -72,13 +75,14 @@ Kabam.
 
 1. Native binary patches. The game is Unity IL2CPP, so the logic lives in a compiled ARM
    library, `libil2cpp.so`, not in editable script files. `patches/patch_il2cpp.lbl` rewrites
-   eight functions in that library to get past the dead server checks: it defeats two
+   twelve functions in that library to get past the dead server checks: it defeats two
    certificate pinning paths so our own TLS cert is accepted, forces the manager
    registration block to run even though the live config is null, lets login succeed with
    our local device session, and silences the subsystem fatal errors that would otherwise
-   pop the "failed to log in" dialog. The last two stub the Unity reachability getter and the
+   pop the "failed to log in" dialog. Two more stub the Unity reachability getter and the
    endpoint's connectivity check, so the client will talk to the bundled loopback server on a
-   phone with no Wi-Fi access point. It also re-injects a single dependency entry (see the
+   phone with no Wi-Fi access point. The last four stub the profile-level padlock checks, so
+   game modes are never locked behind account level. It also re-injects a single dependency entry (see the
    Gotchas section) so the runtime hook actually loads. The output is `libil2cpp.patched.so`.
 
 2. A fake Sparx server. `Server/fakeserver.lbl` stands in for Kabam's backend. It listens on
@@ -116,7 +120,7 @@ README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
-  patch_il2cpp.lbl            the eight native patches plus the dependency re-injection
+  patch_il2cpp.lbl            the twelve native patches plus the dependency re-injection
   abi_map.lbl                 translate arm64 addresses and field offsets to armeabi-v7a
   disasm_fn.lbl               helper: disassemble a function at an offset
   find_callers.lbl            helper: find callers of a function
@@ -513,10 +517,11 @@ were verified firing during that run.
 1. Patch the 32-bit library:
    `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
    The same six original patches apply; only the addresses and encodings differ. The two newer
-   reachability patches are arm64 only for now, because `abi_map.lbl` needs an Il2CppDumper dump
+   reachability patches and the four profile-level padlock patches are arm64 only for now, because
+   `abi_map.lbl` needs an Il2CppDumper dump
    of the 32-bit build to translate them and this repo only carries the arm64 dump; addresses
    must never be hand-translated. A 32-bit bundled APK therefore still needs a network interface
-   to be up. Linux continues to
+   to be up, and its game modes stay padlocked until the profile level is reached. Linux continues to
    use `patchelf` by default. Windows uses the strict in-place injector, which reuses a
    verified alias string and spare dynamic-table slot without moving code or changing any
    patch offset. Either route can be selected explicitly with `--needed patchelf` or
