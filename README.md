@@ -38,6 +38,8 @@ On arm64, STORY opponents can also fire their basic ranged attack while outside 
 Game modes are no longer gated behind profile level: Raids, the Store, Arenas, Special
 Missions, Alliance Missions and Daily Missions are reachable from a fresh offline session
 regardless of account level, because the native padlock checks are patched out.
+This was confirmed on an Android emulator at profile level 0 with a freshly installed build; the
+Store tile opens but has no catalog content offline, which is a content gap rather than a lock.
 On arm64, BOTS roster and detail views suppress residual base geometry, and level-3 cinematics
 render and animate the shipped alternate form before restoring robot form. These visual hooks
 are not ported to ARMv7.
