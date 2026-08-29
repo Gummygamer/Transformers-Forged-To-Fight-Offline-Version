@@ -1,0 +1,26 @@
+-- Resolve the entry script directory consistently on Unix and native Windows.
+
+public function directory_name(path: text): text
+  intent: return
+  mutable slash: integer = -1
+  mutable index: integer = 0
+  while index < text_length(path) do
+    let separator: text = substring(path, index, 1)
+    if separator == "/" or separator == "\\" then set slash = index end
+    set index = index + 1
+  end
+  if slash < 0 then "." else if slash == 0 then "/" else substring(path, 0, slash) end
+end
+
+public function script_directory(script: text, cwd: text): text
+  intent: resolve the directory containing a Unix or Windows script path
+  let drive_absolute: boolean = text_length(script) >= 3 and substring(script, 1, 1) == ":" and (substring(script, 2, 1) == "/" or substring(script, 2, 1) == "\\")
+  let absolute: text = if starts_with(script, "/") or drive_absolute then script else path_join(cwd, script) end
+  directory_name(absolute)
+end
+
+public function entry_directory(default_script: text): text
+  intent: return the directory containing the process entry script
+  let script: text = unwrap_or(get(get_args(), 0), default_script)
+  script_directory(script, get_cwd())
+end

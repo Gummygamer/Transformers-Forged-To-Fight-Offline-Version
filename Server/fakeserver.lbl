@@ -1,5 +1,6 @@
 use jsonout
 use gamedata
+use server_paths
 
 record ResponseChoice
   source: text
@@ -90,29 +91,9 @@ end
   result
 end
 
-function directory_name(path: text): text
-  intent: get
-  let slash: integer = last_slash(path)
-  if slash < 0 then
-  "."
-else
-  substring(path, 0, slash)
-end
-end
-
-function absolute_script_path(arguments: a list of text): text
-  intent: return
-  let path: text = unwrap_or(get(arguments, 0), "")
-  if starts_with(path, "/") then
-  path
-else
-  path_join(get_cwd(), path)
-end
-end
-
 public function here(): text
   intent: get
-  directory_name(absolute_script_path(get_args()))
+  server_paths.entry_directory("Server/fakeserver.lbl")
 end
 
 public function resp_dir(): text

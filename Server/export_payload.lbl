@@ -2,6 +2,7 @@
 use jsonout
 use gamedata
 use fakeserver
+use server_paths
 
 record Entries
   keys: a list of text
@@ -32,24 +33,7 @@ end
 
 function here(): text
   intent: return
-  let args: a list of text = get_args()
-  let script: text = unwrap_or(get(args, 0), "Server/export_payload.lbl")
-  let absolute: text = if starts_with(script, "/") then script else path_join(get_cwd(), script) end
-  let slash: integer = last_index(absolute, "/")
-  if slash < 0 then "Server" else substring(absolute, 0, slash) end
-end
-
-function last_index(value: text, needle: text): integer
-  intent: find
-  mutable result: integer = -1
-  mutable index: integer = 0
-  while index < text_length(value) do
-    if substring(value, index, text_length(needle)) == needle then
-      set result = index
-    end
-    set index = index + 1
-  end
-  result
+  server_paths.entry_directory("Server/export_payload.lbl")
 end
 
 function responses(): text
