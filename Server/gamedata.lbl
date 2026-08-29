@@ -1,4 +1,5 @@
 use jsonout
+use server_paths
 
 record RosterEntry
   bid: text
@@ -36,42 +37,9 @@ record BasePlacement
   bid: text
 end
 
-function last_slash(path: text): integer
-  intent: find
-  mutable result: integer = -1
-  mutable index: integer = 0
-  while index < text_length(path) do
-    if substring(path, index, 1) == "/" then
-  set result = index
-end
-    set index = index + 1
-  end
-  result
-end
-
-function directory_name(path: text): text
-  intent: get
-  let slash: integer = last_slash(path)
-  if slash < 0 then
-  "."
-else
-  substring(path, 0, slash)
-end
-end
-
-function absolute_script_path(arguments: a list of text): text
-  intent: return
-  let path: text = unwrap_or(get(arguments, 0), "")
-  if starts_with(path, "/") then
-  path
-else
-  path_join(get_cwd(), path)
-end
-end
-
 public function here(): text
   intent: get
-  directory_name(absolute_script_path(get_args()))
+  server_paths.entry_directory("Server/gamedata.lbl")
 end
 
 public function resp_dir(): text
