@@ -31,8 +31,8 @@ body.
 
 ## The native patches
 
-All twelve are in `patches/patch_il2cpp.lbl`; the armeabi-v7a list carries ten of them (all
-but the two reachability patches), applied by file offset, and the script prints a
+All twelve are in `patches/patch_il2cpp.lbl`; the armeabi-v7a list carries all twelve,
+applied by file offset, and the script prints a
 before and after disassembly of each so you can confirm them. In short:
 
 1 and 2. Certificate validation. Two TLS code paths are forced to accept any certificate, so
@@ -55,7 +55,9 @@ so a failed subsystem is treated as connected and the boot continues.
 branches on it before it will send anything, including to `127.0.0.1`. With no Wi-Fi access
 point the bundled build therefore refused to use its own in-APK server and stopped on the failed
 to log in dialog. Both getters are stubbed to constants, so reachability is always
-`ReachableViaLocalAreaNetwork` and connectivity is always true. These two are arm64 only.
+`ReachableViaLocalAreaNetwork` and connectivity is always true. Both ABIs carry these patches:
+arm64 uses `0x1B462F4` and `0x1333E48`; armv7 uses `0x1A0EA0C` and `0x105ACFC`, with stubs
+`mov r0, #2; bx lr` and `mov r0, #1; bx lr`.
 
 9 through 12. Profile-level padlocks on game modes. Raids, Store, Arenas, Special Missions,
 Alliance Missions and Daily Missions render a padlock until the account profile level is high
@@ -644,9 +646,10 @@ stun blends into the normal strike/stagger animation.
 
 `patches/abi_map.lbl` translates arm64 method addresses and field offsets to the 32-bit
 build by pairing the two Il2CppDumper dumps, which both come from the same
-`global-metadata.dat`. That mapping now covers ten of the twelve patch sites: the six original
-method patches plus the four profile-level padlock patches. The two reachability patches remain
-arm64 only because they are not IL2CPP method addresses, so `abi_map.lbl` cannot translate them.
+`global-metadata.dat`. That mapping now covers all twelve patch sites. The two reachability
+getters are ordinary IL2CPP methods present in both dumps' `ScriptMethod` tables and pair directly
+by name: arm64 `0x1B462F4` maps to armv7 `0x1A0EA0C`, and arm64 `0x1333E48` maps to armv7
+`0x105ACFC`. The earlier claim that they were not method addresses was wrong.
 
 The four padlock RVAs were derived with Il2CppDumper v6.7.46 (net7), which dumped both libraries
 against the same `assets/bin/Data/Managed/Metadata/global-metadata.dat` extracted from
@@ -903,9 +906,10 @@ disassembly of each site is exactly `mov w0, #0` then `ret`, plus the Legible te
 (after uninstall, so a zero-progress profile) of a signed arm64 APK reached the home screen with
 the in-APK hook loaded. At `Commander / LVL 0`, the SELECT A FIGHT MODE grid showed RAIDS,
 SPECIAL, DAILY, ARENAS, ALLIANCE MISSIONS and STORY without padlocks, and the unpadlocked top-nav
-included STORE. **Not yet verified** = the armeabi-v7a build on device. Its ten-site list now
-includes the four mapped padlock sites; only the two non-method reachability patches remain
-arm64-only. STORE opens an "unknown error" modal because the fake server has
+included STORE. **Not yet verified** = the armeabi-v7a build on device. Its full twelve-site list
+includes both reachability patches; the new armv7 reachability sites are verified by the patcher's
+before/after disassembly and the Legible test suite, not yet by an on-device offline run. STORE
+opens an "unknown error" modal because the fake server has
 no store-catalog content, which is a content gap rather than a level lock.
 
 The client's whole PVP surface is `PVPAPI` (`re_notes/dump.cs` line 416801):
