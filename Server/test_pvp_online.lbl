@@ -148,8 +148,10 @@ else
 else
   let user_data: Json = jsonout.obj_get(opponent, "userData")
   let team: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "team"))
+  let matchups: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "matchups"))
   let hero: Json = unwrap_or(get(team, 0), jsonout.json_obj([]))
-  jsonout.as_text(jsonout.obj_get(match_data, "pid")) == "arena_versus-1" and jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob" and jsonout.obj_has(user_data, "pvpStats") and length(team) > 0 and jsonout.type_name(hero) == "object" and jsonout.as_text(jsonout.obj_get(hero, "bid")) == "optimusprime_cin_tf"
+  let matchup: Json = unwrap_or(get(matchups, 0), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(match_data, "pid")) == "arena_versus" and jsonout.type_name(jsonout.obj_get(match_data, "state")) == "text" and jsonout.as_text(jsonout.obj_get(match_data, "state")) == "selecting" and jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob" and jsonout.obj_has(user_data, "pvpStats") and length(team) > 0 and length(matchups) == length(team) and jsonout.type_name(hero) == "object" and jsonout.as_text(jsonout.obj_get(hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(matchup, "opponentHero")) == "optimusprime_cin_tf" and jsonout.obj_has(matchup, "userHero") and jsonout.as_text(jsonout.obj_get(matchup, "aip")) == "normal"
 end
 end
 end
@@ -257,6 +259,14 @@ function test_saved_team_uses_session_name_unless_overridden(): boolean
   fakeserver.dynamic("/bcg/setSavedTeam?stoken=" ++ token, "\{\"name\":\"Override\",\"heroes\":[\"grimlock_gs_mp08\"]\}")
   let overridden: Roster = unwrap_or(get(fakeserver.load_rosters(), 0), Roster { peer: "", name: "", heroes: [] })
   stored.name == "A52 de Andre" and overridden.name == "Override"
+end
+
+function test_pvp_saved_team_uses_the_arena_as_active_team_id(): boolean
+  intent: test
+  let response: Json = jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic("/bcg/setSavedTeam?stoken=sessA", "\{\"teamID\":\"PVP3\",\"heroes\":[\"optimusprime_cin_tf\"]\}")), "result")
+  let updates: Json = jsonout.obj_get(response, "updates")
+  let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(active, "aid")) == "arena_versus"
 end
 
 function reset_endpoint_pvp_state(): nothing
@@ -426,7 +436,7 @@ function test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster(): bo
   let match_data: Json = unwrap_or(get(matches, 0), jsonout.json_obj([]))
   let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(match_data, "opponents"))
   let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
-  jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.as_bool(jsonout.obj_get(match_data, "live")) and jsonout.as_text(jsonout.obj_get(match_data, "pid")) == jsonout.as_text(jsonout.obj_get(match_data, "matchID"))
+  jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.as_bool(jsonout.obj_get(match_data, "live")) and jsonout.as_text(jsonout.obj_get(match_data, "pid")) == "arena_versus" and jsonout.as_text(jsonout.obj_get(match_data, "matchID")) != ""
 end
 
 function test_leave_match_frees_both_peers(): boolean
@@ -607,6 +617,7 @@ function main(): nothing
   set failures = failures + report("test_login_without_credentials_or_json_still_responds", test_login_without_credentials_or_json_still_responds())
   set failures = failures + report("test_logged_in_devices_keep_separate_peer_rosters", test_logged_in_devices_keep_separate_peer_rosters())
   set failures = failures + report("test_saved_team_uses_session_name_unless_overridden", test_saved_team_uses_session_name_unless_overridden())
+  set failures = failures + report("test_pvp_saved_team_uses_the_arena_as_active_team_id", test_pvp_saved_team_uses_the_arena_as_active_team_id())
   set failures = failures + run_pvp_endpoint_tests()
   set failures = failures + report("test_heartbeat_registers_a_live_peer", test_heartbeat_registers_a_live_peer())
   set failures = failures + report("test_presence_expires_after_ttl", test_presence_expires_after_ttl())
@@ -627,7 +638,7 @@ function main(): nothing
   set failures = failures + report("test_disputed_results_are_identical_for_both_peers", test_disputed_results_are_identical_for_both_peers())
   set failures = failures + report("test_match_result_survives_after_match_ends", test_match_result_survives_after_match_ends())
   set failures = failures + report("test_fight_events_and_reports_persist_to_disk", test_fight_events_and_reports_persist_to_disk())
-  print(to_text(43 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(44 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 

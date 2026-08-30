@@ -1304,6 +1304,18 @@ end
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("quit", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id))]))
 end
 
+function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of text): a list of Json
+  intent: build
+  mutable matchups: a list of Json = []
+  mutable index: integer = 0
+  for opponent_hero in opponent_heroes do
+    let user_hero: text = unwrap_or(get(user_heroes, index), unwrap_or(get(user_heroes, 0), opponent_hero))
+    set matchups = append(matchups, jsonout.json_obj([jsonout.json_pair("userHero", jsonout.json_text(user_hero)), jsonout.json_pair("opponentHero", jsonout.json_text(opponent_hero)), jsonout.json_pair("aip", jsonout.json_text("normal")), jsonout.json_pair("state", jsonout.json_text("none")), jsonout.json_pair("outcome", jsonout.json_text("NONE")), jsonout.json_pair("basePoints", jsonout.json_dec(0)), jsonout.json_pair("actualPoints", jsonout.json_dec(0)), jsonout.json_pair("fightId", jsonout.json_text(""))]))
+    set index = index + 1
+  end
+  matchups
+end
+
 function pvp_opponent_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
@@ -1311,7 +1323,11 @@ function pvp_opponent_response(path: text, btxt: text): text
   let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
   let peer: text = caller.peer
   let m: Match = pair_peers(peer, arena)
+  mutable caller_roster: Roster = Roster { peer: peer, name: caller.name, heroes: gamedata.default_team() }
   mutable opponent: Roster = opponent_roster(peer)
+  for roster in load_rosters() do
+    if roster.peer == peer then set caller_roster = roster end
+  end
   if m.match_id != "" then
   let opponent_peer: text = match_opponent(m, peer)
   mutable found: boolean = false
@@ -1331,14 +1347,15 @@ end
     if session.stoken == opponent.peer then set opponent_uid = 1000000001 + session_index end
     set session_index = session_index + 1
   end
+  let opponent_heroes: a list of text = gamedata.resolve_team(opponent.heroes)
   mutable team: a list of Json = []
-  for hero in opponent.heroes do
+  for hero in opponent_heroes do
     set team = append(team, gamedata.build_hero_entry(hero, 1, 1))
   end
-  let portrait: text = unwrap_or(get(opponent.heroes, 0), "")
-  let pvpid: text = if m.match_id != "" then m.match_id else arena ++ "-1" end
+  let matchups: a list of Json = pvp_matchups(gamedata.resolve_team(caller_roster.heroes), opponent_heroes)
+  let portrait: text = unwrap_or(get(opponent_heroes, 0), "")
   let arena_stats: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("winStreak", jsonout.json_int(0)), jsonout.json_pair("wins", jsonout.json_int(0)), jsonout.json_pair("losses", jsonout.json_int(0)), jsonout.json_pair("longestStreak", jsonout.json_int(0)), jsonout.json_pair("findAttempts", jsonout.json_int(0))])
-  let match_data: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(pvpid)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("state", jsonout.json_int(128)), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(opponent_uid)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list([])), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("pvpStats", arena_stats)]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_obj([jsonout.json_pair("claimed", jsonout.json_bool(false)), jsonout.json_pair("box", jsonout.json_text(""))])), jsonout.json_pair("milestones", jsonout.json_list([]))])
+  let match_data: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("state", jsonout.json_text("selecting")), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(opponent_uid)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list(matchups)), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("pvpStats", arena_stats)]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_obj([jsonout.json_pair("claimed", jsonout.json_bool(false)), jsonout.json_pair("box", jsonout.json_text(""))])), jsonout.json_pair("milestones", jsonout.json_list([]))])
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([match_data])), jsonout.json_pair("pvpUserData", jsonout.json_list([arena_stats]))]))
 end
 
@@ -1477,7 +1494,8 @@ end
 
 function saved_team_envelope(team_id: text, heroes: a list of text): text
   intent: encode
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list([gamedata.build_active_team("1.1.1-" ++ team_id, heroes)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
+  let active_team_id: text = if starts_with(team_id, "PVP") then "arena_versus" else "1.1.1-" ++ team_id end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list([gamedata.build_active_team(active_team_id, heroes)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
 end
 
 function saved_team_response(path: text, btxt: text): text
