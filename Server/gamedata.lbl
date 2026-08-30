@@ -487,7 +487,7 @@ end
 
 public function default_team(): a list of text
   intent: return
-  ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_g1_mp10"]
+  ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015"]
 end
 
 public function boss_blueprint(): text

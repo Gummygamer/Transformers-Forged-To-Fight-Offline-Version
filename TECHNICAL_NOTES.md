@@ -976,6 +976,25 @@ each `team` entry is a full `BCGUserHero` dictionary (its constructor chain only
 strings. `Server/responses/GET__pvp_get-login-data.json` and the dynamic opponent response now
 return the array shape.
 
+The match `state` type is equally strict. `PVPMatchData.ctor` reads it through
+`EB.Dot.String` before calling `GetEnumValueFromString<ePVPState>`, so the JSON number `128`
+does not mean `selecting`; it becomes the default `none` state. `PVPFlow.FoundMatch` rejects
+that state and quits the Arena. The opponent response therefore sends the enum name
+`"selecting"` as a JSON string.
+
+`PVPMatchData.pid` is the Arena/event ID, not a unique match ID. The match-series model uses
+it both to find the `ArenaEvent` and as the key passed to `BCGManager.GetActiveTeam`. The
+`/bcg/setSavedTeam` response therefore installs the PVP selection as active team
+`arena_versus`, and the opponent response uses the same value for `pid`. A live pairing's
+unique ID remains in the separate `matchID` extension. Using `arena_versus-1` or the shared
+match ID leaves the model's `TeamData` null and throws in `PVPPlayerContestantItem.Init`.
+
+Every opponent also needs one `matchups` entry per `team` entry. During its initial refresh,
+`PVPOpponentContestantItem.SetMatchData` indexes both lists in parallel; an empty or shorter
+`matchups` list throws `ArgumentOutOfRangeException` before the opponent screen is rendered.
+The serialized matchup difficulty key is the compact wire name `aip` (not the C# property
+name `AIDifficulty`), while the hero keys are `userHero` and `opponentHero`.
+
 `/pvp/get-active-pvp-data` and `/pvp/get-user-data` feed the same `PVPMatchData` list parser
 (`<GetActivePVPData>b__0` at `0xb854b0`) and still return a single flat object; they are not on
 the team-accept path and their callback does not hard-fail, but they should return `[]` or an
