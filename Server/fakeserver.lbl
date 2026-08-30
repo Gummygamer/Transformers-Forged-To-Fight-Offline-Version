@@ -1041,6 +1041,11 @@ function spaced_envelope(result: Json): text
   jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
 end
 
+function spaced_envelope_async(result: Json, async_items: a list of Json): text
+  intent: encode
+  jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result), jsonout.json_pair("async", jsonout.json_list(async_items))]))
+end
+
 function credentials_object(req: Json): Json
   intent: get
   if jsonout.obj_has(req, "credentials") and jsonout.type_name(jsonout.obj_get(req, "credentials")) == "object" then
@@ -1265,11 +1270,17 @@ end
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(peer)), jsonout.json_pair("winStreak", jsonout.json_int(win_streak)), jsonout.json_pair("wins", jsonout.json_int(wins)), jsonout.json_pair("losses", jsonout.json_int(losses)), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("livePeers", jsonout.json_int(other_live_peers))]))
 end
 
+function pvp_arena_id(req: Json): text
+  intent: get
+  let arena_id: text = json_text_or(req, "arenaID", "")
+  if arena_id != "" then arena_id else json_text_or(req, "pid", "arena_versus") end
+end
+
 function pvp_lock_in_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
   let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
-  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  let arena: text = pvp_arena_id(req)
   let posted: a list of Json = json_list_or_empty(req, "heroes")
   let hero_nodes: a list of Json = if length(posted) > 0 then posted else json_list_or_empty(req, "team") end
   let heroes: a list of text = text_list_from_json(jsonout.json_list(hero_nodes))
@@ -1278,7 +1289,12 @@ function pvp_lock_in_response(path: text, btxt: text): text
 else
   store_roster(caller.peer, caller.name, heroes)
   let m: Match = pair_peers(caller.peer, arena)
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("locked", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("error", jsonout.json_text(""))]))
+  let result: Json = pvp_match_result(path, btxt, "active")
+  let with_locked: Json = jsonout.obj_set(result, "locked", jsonout.json_bool(true))
+  let with_match: Json = jsonout.obj_set(with_locked, "matchID", jsonout.json_text(m.match_id))
+  let with_live: Json = jsonout.obj_set(with_match, "live", jsonout.json_bool(m.match_id != ""))
+  let with_arena: Json = jsonout.obj_set(with_live, "arenaID", jsonout.json_text(arena))
+  spaced_envelope(jsonout.obj_set(with_arena, "error", jsonout.json_text("")))
 end
 end
 
@@ -1286,11 +1302,16 @@ function pvp_select_opponent_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
   let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
-  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  let arena: text = pvp_arena_id(req)
   let m: Match = pair_peers(caller.peer, arena)
   let fallback_opponent: text = if m.match_id != "" then match_opponent(m, caller.peer) else "" end
   let opponent_id: text = json_text_or(req, "opponentID", fallback_opponent)
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("selected", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("opponentIndex", jsonout.json_int(json_int_or(req, "index", 0))), jsonout.json_pair("opponentID", jsonout.json_text(opponent_id))]))
+  let result: Json = pvp_match_result(path, btxt, "selecting")
+  let with_selected: Json = jsonout.obj_set(result, "selected", jsonout.json_bool(true))
+  let with_match: Json = jsonout.obj_set(with_selected, "matchID", jsonout.json_text(m.match_id))
+  let with_live: Json = jsonout.obj_set(with_match, "live", jsonout.json_bool(m.match_id != ""))
+  let with_index: Json = jsonout.obj_set(with_live, "opponentIndex", jsonout.json_int(json_int_or(req, "index", 0)))
+  spaced_envelope(jsonout.obj_set(with_index, "opponentID", jsonout.json_text(opponent_id)))
 end
 
 function pvp_quit_arena_response(path: text, btxt: text): text
@@ -1316,10 +1337,10 @@ function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of te
   matchups
 end
 
-function pvp_opponent_response(path: text, btxt: text): text
-  intent: encode
+function pvp_match_result(path: text, btxt: text, state: text): Json
+  intent: build
   let req: Json = request_object(btxt)
-  let arena: text = json_text_or(req, "arenaID", "arena_versus")
+  let arena: text = pvp_arena_id(req)
   let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
   let peer: text = caller.peer
   let m: Match = pair_peers(peer, arena)
@@ -1355,8 +1376,58 @@ end
   let matchups: a list of Json = pvp_matchups(gamedata.resolve_team(caller_roster.heroes), opponent_heroes)
   let portrait: text = unwrap_or(get(opponent_heroes, 0), "")
   let arena_stats: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("winStreak", jsonout.json_int(0)), jsonout.json_pair("wins", jsonout.json_int(0)), jsonout.json_pair("losses", jsonout.json_int(0)), jsonout.json_pair("longestStreak", jsonout.json_int(0)), jsonout.json_pair("findAttempts", jsonout.json_int(0))])
-  let match_data: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("state", jsonout.json_text("selecting")), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(opponent_uid)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list(matchups)), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("pvpStats", arena_stats)]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_obj([jsonout.json_pair("claimed", jsonout.json_bool(false)), jsonout.json_pair("box", jsonout.json_text(""))])), jsonout.json_pair("milestones", jsonout.json_list([]))])
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([match_data])), jsonout.json_pair("pvpUserData", jsonout.json_list([arena_stats]))]))
+  let match_data: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("state", jsonout.json_text(state)), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(opponent_uid)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list(matchups)), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("pvpStats", arena_stats)]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_obj([jsonout.json_pair("claimed", jsonout.json_bool(false)), jsonout.json_pair("box", jsonout.json_text(""))])), jsonout.json_pair("milestones", jsonout.json_list([]))])
+  jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([match_data])), jsonout.json_pair("pvpUserData", jsonout.json_list([arena_stats]))])
+end
+
+function pvp_opponent_response(path: text, btxt: text): text
+  intent: encode
+  spaced_envelope(pvp_match_result(path, btxt, "selecting"))
+end
+
+function pvp_fight_loaded_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("loaded", jsonout.json_bool(true)), jsonout.json_pair("fightID", jsonout.json_text(json_text_or(req, "fightID", json_text_or(req, "fid", ""))))]))
+end
+
+function pvp_retry_match_response(path: text, btxt: text): text
+  intent: encode
+  spaced_envelope(pvp_match_result(path, btxt, "active"))
+end
+
+function pvp_activate_match_response(path: text, btxt: text): text
+  intent: encode
+  let req: Json = request_object(btxt)
+  let posted: a list of text = text_list_from_json(if jsonout.obj_has(req, "heroes") then jsonout.obj_get(req, "heroes") else jsonout.json_list([]) end)
+  let user_team: a list of text = gamedata.resolve_team(if length(posted) > 0 then posted else get_saved_team() end)
+  let peer: text = peer_key(path)
+  let stored_opponent: Roster = opponent_roster(peer)
+  let opponent_team: a list of text = gamedata.resolve_team(if length(stored_opponent.heroes) > 0 then stored_opponent.heroes else gamedata.default_team() end)
+  let user_bid: text = unwrap_or(get(user_team, 0), unwrap_or(get(gamedata.default_team(), 0), ""))
+  let opponent_bid: text = unwrap_or(get(opponent_team, 0), unwrap_or(get(gamedata.default_team(), 0), ""))
+  let details: a list of Json = jsonout.list_items(gamedata.build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(user_bid))]), jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(opponent_bid))])]))
+  let user_hero: Json = unwrap_or(get(details, 0), jsonout.json_obj([]))
+  let opponent_hero: Json = unwrap_or(get(details, 1), jsonout.json_obj([]))
+  -- PVPFlow discards this response body; the fight data is read from
+  -- PVPManager.CurrentMatchData + CurrentMatchAttributes. CurrentMatchAttributes is
+  -- only populated by the "match-activated" async, which the client dispatches from a
+  -- response's "async" array via EB.Sparx.PushManager.HandleMessage @0x12fe17c:
+  -- it reads payload = EB.Dot.Find(msg, "payload") (the raw node) and virtual-dispatches
+  -- manager.Async(channel, message, payload). PVPManager.Async @0x120006c, "match-activated"
+  -- branch, does NOT extract a "data" child -- it casts the payload node itself
+  -- (il2cpp_isinst @slot 0x2c1c918), passes THAT to UpdatePVPData (reads .pvpMatchData /
+  -- .pvpUserData arrays) and to BCGManagerBase.ParseMatchAttributes(BCGManager.Instance, .)
+  -- @0x1698884, which reads EB.Dot.Object(payload, "matchAttributes") and, if non-null,
+  -- builds BCGMatchAttributes @0xa5d4d0 from matchAttributes.userHero / .opponentHero.
+  -- A missing "matchAttributes" leaves CurrentMatchAttributes null and
+  -- PVPUtil.GenerateFightData @0xb34cd8 NREs on it. So the async payload node itself must
+  -- be the flat data dict: { pvpMatchData, pvpUserData, matchAttributes } at the top level.
+  let match_attributes: Json = jsonout.json_obj([jsonout.json_pair("userHero", user_hero), jsonout.json_pair("opponentHero", opponent_hero)])
+  let match_state: Json = pvp_match_result(path, btxt, "active")
+  let data: Json = jsonout.obj_set(match_state, "matchAttributes", match_attributes)
+  let async_msg: Json = jsonout.json_obj([jsonout.json_pair("component", jsonout.json_text("PVPManager")), jsonout.json_pair("channel", jsonout.json_text("")), jsonout.json_pair("message", jsonout.json_text("match-activated")), jsonout.json_pair("payload", data)])
+  spaced_envelope_async(data, [async_msg])
 end
 
 function pvp_static_dynamic(path: text, p: text, btxt: text): text
@@ -1380,13 +1451,17 @@ else if ends_with(p, "/pvp/get-login-data") then
   ""
 else if ends_with(p, "/pvp/get-user-data") or ends_with(p, "/pvp/get-active-pvp-data") then
   pvp_arena_state_response(path, btxt)
-else if ends_with(p, "/pvp/lock-in") then
+else if ends_with(p, "/pvp/lockin") or ends_with(p, "/pvp/lock-in") then
   pvp_lock_in_response(path, btxt)
 else if ends_with(p, "/pvp/select-opponent") then
   pvp_select_opponent_response(path, btxt)
-else if ends_with(p, "/pvp/quit-arena") then
+else if ends_with(p, "/pvp/quit") or ends_with(p, "/pvp/quit-arena") then
   pvp_quit_arena_response(path, btxt)
-else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
+else if ends_with(p, "/pvp/match-loaded") then
+  pvp_fight_loaded_response(path, btxt)
+else if ends_with(p, "/pvp/retry-match") then
+  pvp_retry_match_response(path, btxt)
+else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
   pvp_opponent_response(path, btxt)
 else
   ""
@@ -1408,6 +1483,8 @@ end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
 else if ends_with(p, "/base/active") then
   compact_envelope(gamedata.build_base_active())
+else if ends_with(p, "/matches/activate-match/pvp_fight") then
+  pvp_activate_match_response(path, btxt)
 else if contains_text(p, "/pvp/") then
   pvp_static_dynamic(path, p, btxt)
 else if endpoint_is_tutorial(p) then
