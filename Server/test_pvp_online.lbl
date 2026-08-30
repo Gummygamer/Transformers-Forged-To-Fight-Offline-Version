@@ -287,6 +287,11 @@ function pvp_result(path: text, body: text): Json
   jsonout.obj_get(jsonout.parse_json(fakeserver.dynamic(path, body)), "result")
 end
 
+function first_pvp_match(result: Json): Json
+  intent: get
+  unwrap_or(get(jsonout.list_items(jsonout.obj_get(result, "pvpMatchData")), 0), jsonout.json_obj([]))
+end
+
 function test_get_login_data_touches_session_named_presence_and_falls_through(): boolean
   intent: test
   reset_endpoint_pvp_state()
@@ -348,6 +353,30 @@ function test_opponent_search_touches_the_callers_presence(): boolean
   let alice: Presence = unwrap_or(get(peers, 0), Presence { peer: "", name: "", seen_ms: 0 })
   let bob: Presence = unwrap_or(get(peers, 1), Presence { peer: "", name: "", seen_ms: 0 })
   response != "" and length(peers) == 2 and ((alice.peer == "sessA" and alice.name == "Alice") or (bob.peer == "sessA" and bob.name == "Alice"))
+end
+
+function test_exact_client_paths_return_updateable_pvp_data(): boolean
+  intent: test
+  reset_endpoint_pvp_state()
+  fakeserver.touch_presence("sessB", "Bob")
+  fakeserver.store_roster("sessB", "Bob", ["optimusprime_cin_tf", "megatron_cin_tf", "bumblebee_cin_tf"])
+  let replacement: Json = pvp_result("/pvp/get-new-opponent?peer=sessA", "\{\"pid\":\"arena_versus\",\"playerName\":\"Alice\"\}")
+  let replacement_match: Json = first_pvp_match(replacement)
+  let locked: Json = pvp_result("/pvp/lockin?peer=sessA", "\{\"pid\":\"arena_versus\",\"heroes\":[\"optimusprime_cin_tf\",\"megatron_cin_tf\",\"bumblebee_cin_tf\"]\}")
+  let locked_match: Json = first_pvp_match(locked)
+  let locked_opponent: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(locked_match, "opponents")), 0), jsonout.json_obj([]))
+  let loaded: Json = pvp_result("/pvp/match-loaded?peer=sessA", "\{\"fightID\":\"arena-fight-1\"\}")
+  let retried: Json = pvp_result("/pvp/retry-match?peer=sessA", "\{\"pid\":\"arena_versus\"\}")
+  let retried_match: Json = first_pvp_match(retried)
+  let activated_top: Json = jsonout.parse_json(fakeserver.dynamic("/matches/activate-match/pvp_fight?peer=sessA", "\{\"pid\":\"arena_versus\",\"heroes\":[\"optimusprime_cin_tf\",\"megatron_cin_tf\",\"bumblebee_cin_tf\"]\}"))
+  let activated: Json = jsonout.obj_get(activated_top, "result")
+  let async_messages: a list of Json = jsonout.list_items(jsonout.obj_get(activated_top, "async"))
+  let async_message: Json = unwrap_or(get(async_messages, 0), jsonout.json_obj([]))
+  let async_data: Json = jsonout.obj_get(async_message, "payload")
+  let async_attrs: Json = jsonout.obj_get(async_data, "matchAttributes")
+  let user_hero: Json = jsonout.obj_get(jsonout.obj_get(activated, "matchAttributes"), "userHero")
+  let opponent_hero: Json = jsonout.obj_get(jsonout.obj_get(activated, "matchAttributes"), "opponentHero")
+  jsonout.as_text(jsonout.obj_get(replacement_match, "state")) == "selecting" and jsonout.as_text(jsonout.obj_get(locked_match, "state")) == "active" and jsonout.as_bool(jsonout.obj_get(locked, "locked")) and length(jsonout.list_items(jsonout.obj_get(locked_opponent, "matchups"))) == 3 and jsonout.as_bool(jsonout.obj_get(loaded, "loaded")) and jsonout.as_text(jsonout.obj_get(loaded, "fightID")) == "arena-fight-1" and jsonout.as_text(jsonout.obj_get(retried_match, "state")) == "active" and jsonout.as_text(jsonout.obj_get(user_hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(opponent_hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_int(jsonout.obj_get(user_hero, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(opponent_hero, "attack")) > 0 and jsonout.as_text(jsonout.obj_get(async_message, "component")) == "PVPManager" and jsonout.as_text(jsonout.obj_get(async_message, "message")) == "match-activated" and jsonout.type_name(jsonout.obj_get(async_data, "pvpMatchData")) == "list" and jsonout.type_name(jsonout.obj_get(async_data, "pvpUserData")) == "list" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(async_attrs, "userHero"), "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(async_attrs, "opponentHero"), "bid")) == "optimusprime_cin_tf"
 end
 
 function test_heartbeat_registers_a_live_peer(): boolean
@@ -589,6 +618,7 @@ function run_pvp_endpoint_tests(): integer
   set failures = failures + report("test_select_opponent_confirms_a_live_pair", test_select_opponent_confirms_a_live_pair())
   set failures = failures + report("test_quit_arena_ends_match_purges_events_and_is_harmless_without_match", test_quit_arena_ends_match_purges_events_and_is_harmless_without_match())
   set failures = failures + report("test_opponent_search_touches_the_callers_presence", test_opponent_search_touches_the_callers_presence())
+  set failures = failures + report("test_exact_client_paths_return_updateable_pvp_data", test_exact_client_paths_return_updateable_pvp_data())
   failures
 end
 
@@ -641,7 +671,7 @@ function main(): nothing
   set failures = failures + report("test_disputed_results_are_identical_for_both_peers", test_disputed_results_are_identical_for_both_peers())
   set failures = failures + report("test_match_result_survives_after_match_ends", test_match_result_survives_after_match_ends())
   set failures = failures + report("test_fight_events_and_reports_persist_to_disk", test_fight_events_and_reports_persist_to_disk())
-  print(to_text(44 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(45 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 

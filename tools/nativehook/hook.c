@@ -491,6 +491,9 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // il2cpp NullCheck call, not a raw pointer dereference, so the existing SIGSEGV/FAULT logger
     // never fires for it. Dump every field Skip touches right before the original runs.
     { 0xBC17B4, "DIALOGDIAG", 2, 0 }, // 147 DialogueOverlay.Skip -> dump state before the NRE
+    { 0x120006C, "PVPASYNC", 0, 0 },  // 148 PVPManager.Async -> log the message name
+    { 0xB34CD8,  "GENFIGHT", 0, 0 },  // 149 PVPUtil.GenerateFightData -> log CurrentMatchData / CurrentMatchAttributes
+    { 0x12FE17C, "PUSHHM",   0, 0 },  // 150 PushManager.HandleMessage -> confirm async delivery
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -3612,6 +3615,64 @@ void* hook_147(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     });
     return H[147].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+// 148 PVPASYNC: log the message name arg (a1 = Il2CppString*) so we can see whether the
+// offline "match-activated" async ever reaches PVPManager.Async.
+void* hook_148(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        char m[64];
+        if (read_str(a1, m, sizeof m)) LOG("PVPASYNC msg=%s payload=%p", m, a2);
+        else LOG("PVPASYNC msg=<null> payload=%p", a2);
+    });
+    void* result = H[148].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({
+        void* common_payload_key = NULL;
+        if (g_base) {
+            uintptr_t key_handle = *(uintptr_t*)(g_base + 0x2c1c918);
+            if (obj_ok((void*)key_handle)) common_payload_key = *(void**)key_handle;
+        }
+        char payload_key[64];
+        if (!read_str(common_payload_key, payload_key, sizeof payload_key)) strcpy(payload_key, "<null>");
+        void* cmd = fld_p(a0, 0x38);
+        void* attrs = fld_p(a0, 0x48);
+        void* user = fld_p(attrs, 0x10);
+        void* opponent = fld_p(attrs, 0x18);
+        char user_bid[96]; char opponent_bid[96];
+        if (!read_str(fld_p(user, 0x10), user_bid, sizeof user_bid)) strcpy(user_bid, "<null>");
+        if (!read_str(fld_p(opponent, 0x10), opponent_bid, sizeof opponent_bid)) strcpy(opponent_bid, "<null>");
+        LOG("PVPASYNC state payloadKey=%s currentMatchData=%p attributes=%p user=%p bid=%s opponent=%p bid=%s",
+            payload_key, cmd, attrs, user, user_bid, opponent, opponent_bid);
+    });
+    return result;
+}
+// 149 GENFIGHT: dump the PVPManager singleton state GenerateFightData reads. Instance chain
+// (from disasm): [g_base+0x2c13248] -> [.] -> [.] -> [.+0xb8] -> [.] = PVPManager.Instance;
+// then _currentMatchData@0x38, CurrentMatchAttributes@0x48.
+void* hook_149(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        void* inst = NULL; void* cmd = NULL; void* attrs = NULL;
+        if (g_base){
+            uintptr_t p = g_base + 0x2c13248;
+            p = *(uintptr_t*)p;
+            if (obj_ok((void*)p)){ p = *(uintptr_t*)p;
+                if (obj_ok((void*)p)){ p = *(uintptr_t*)(p + 0xb8);
+                    if (obj_ok((void*)p)){ inst = *(void**)p; } } }
+        }
+        if (obj_ok(inst)){ cmd = fld_p(inst, 0x38); attrs = fld_p(inst, 0x48); }
+        void* user = fld_p(attrs, 0x10);
+        void* opponent = fld_p(attrs, 0x18);
+        char user_bid[96]; char opponent_bid[96];
+        if (!read_str(fld_p(user, 0x10), user_bid, sizeof user_bid)) strcpy(user_bid, "<null>");
+        if (!read_str(fld_p(opponent, 0x10), opponent_bid, sizeof opponent_bid)) strcpy(opponent_bid, "<null>");
+        LOG("GENFIGHT inst=%p currentMatchData=%p attributes=%p user=%p bid=%s data=%p opponent=%p bid=%s data=%p",
+            inst, cmd, attrs, user, user_bid, fld_p(user, 0x40), opponent, opponent_bid, fld_p(opponent, 0x40));
+    });
+    return H[149].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+// 150 PUSHHM: confirm the response "async" array is dispatched to PushManager.HandleMessage.
+void* hook_150(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({ LOG("PUSHHM this=%p obj=%p", a0, a1); });
+    return H[150].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -3627,7 +3688,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_115,hook_116,hook_117,hook_118,hook_119,hook_120,hook_121,hook_122,hook_123,hook_124,hook_125,hook_126,hook_127,
     hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
-    hook_145,hook_146,hook_147 };
+    hook_145,hook_146,hook_147,hook_148,hook_149,hook_150 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
