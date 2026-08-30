@@ -253,6 +253,43 @@ function test_login_reports_arena_capable_account_level(): boolean
   level == fakeserver.account_level() and level >= 10 and jsonout.as_int(jsonout.obj_get(canned_user, "level")) == level
 end
 
+function test_ave_event_and_difficulty_sets_are_served(): boolean
+  intent: test
+  let events: Json = jsonout.obj_get(result(fakeserver.resolve_response("GET", "/events/refresh").body), "events")
+  let sets: Json = result(fakeserver.resolve_response("GET", "/quests/quest-list").body)
+  mutable event_ok: boolean = false
+  for event in jsonout.list_items(events) do
+    if jsonout.as_text(jsonout.obj_get(event, "_id")) == "offline_ave_operation" then
+      let names: Json = jsonout.obj_get(event, "quest_sets")
+      set event_ok = jsonout.as_text(jsonout.obj_get(event, "eventtype")) == "ave" and length(jsonout.list_items(names)) == 3
+    end
+  end
+  mutable normal: boolean = false
+  mutable heroic: boolean = false
+  mutable master: boolean = false
+  for quest_set in jsonout.list_items(sets) do
+    let group: text = jsonout.as_text(jsonout.obj_get(quest_set, "group"))
+    let category: text = jsonout.as_text(jsonout.obj_get(quest_set, "category"))
+    let difficulty: text = jsonout.as_text(jsonout.obj_get(quest_set, "difficulty"))
+    let present: boolean = length(jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests"))) > 0
+    if group == "offline_ave_operation" and category == "ave" and present then
+      if difficulty == "normal" then set normal = true end
+      if difficulty == "heroic" then set heroic = true end
+      if difficulty == "master" then set master = true end
+    end
+  end
+  event_ok and normal and heroic and master
+end
+
+function test_ave_profile_and_alliance_refresh_are_consistent(): boolean
+  intent: test
+  let session: Session = fakeserver.ensure_session("ave-alliance-test", "Alliance Commander")
+  let profile: Json = result(fakeserver.dynamic("/userprofile/?stoken=" ++ session.stoken, ""))
+  let refreshed: Json = result(fakeserver.dynamic("/alliances/refresh?stoken=" ++ session.stoken, ""))
+  let profile_alliance: Json = jsonout.obj_get(profile, "alliance")
+  jsonout.as_text(jsonout.obj_get(profile, "aid")) == "offline-alliance" and jsonout.as_text(jsonout.obj_get(profile_alliance, "aid")) == "offline-alliance" and jsonout.as_text(jsonout.obj_get(refreshed, "aid")) == "offline-alliance" and length(jsonout.list_items(jsonout.obj_get(refreshed, "members"))) == 1
+end
+
 function main(): nothing
   intent: run
   mutable failed: integer = 0
@@ -272,9 +309,11 @@ function main(): nothing
   set failed = failed + report("test_resolve_response_prefers_canned_then_rule_then_default", test_resolve_response_prefers_canned_then_rule_then_default())
   set failed = failed + report("test_encode_spacing_matches_python", test_encode_spacing_matches_python())
   set failed = failed + report("test_login_reports_arena_capable_account_level", test_login_reports_arena_capable_account_level())
+  set failed = failed + report("test_ave_event_and_difficulty_sets_are_served", test_ave_event_and_difficulty_sets_are_served())
+  set failed = failed + report("test_ave_profile_and_alliance_refresh_are_consistent", test_ave_profile_and_alliance_refresh_are_consistent())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(16 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(18 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

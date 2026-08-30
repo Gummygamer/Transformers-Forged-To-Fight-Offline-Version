@@ -1530,9 +1530,16 @@ function quest_dynamic(path: text, p: text, btxt: text): text
   end
 end
 
+function synthetic_alliance(uid: text, name: text, now: integer): Json
+  intent: build
+  -- creationTime / joinTime are fixed (not `now`) so the exported @userprofile:template
+  -- stays byte-identical to the live /userprofile response, which the payload parity test checks.
+  jsonout.json_obj([jsonout.json_pair("aid", jsonout.json_text("offline-alliance")), jsonout.json_pair("name", jsonout.json_text("Offline Alliance")), jsonout.json_pair("tag", jsonout.json_text("OFF")), jsonout.json_pair("msg", jsonout.json_text("A local alliance for offline missions.")), jsonout.json_pair("privMsg", jsonout.json_text("")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("localizedCountry", jsonout.json_text("")), jsonout.json_pair("geo", jsonout.json_text("")), jsonout.json_pair("pubType", jsonout.json_text("open")), jsonout.json_pair("data", jsonout.json_obj([])), jsonout.json_pair("joinReqs", jsonout.json_list([])), jsonout.json_pair("creationTime", jsonout.json_int(1)), jsonout.json_pair("stats", jsonout.json_obj([])), jsonout.json_pair("resourcesStatus", jsonout.json_obj([])), jsonout.json_pair("numMembers", jsonout.json_int(1)), jsonout.json_pair("members", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("rank", jsonout.json_int(0)), jsonout.json_pair("joinTime", jsonout.json_int(1))])])), jsonout.json_pair("kickedMembers", jsonout.json_list([]))])
+end
+
 public function user_profile_response_values(uid: text, name: text, level: integer, now: integer): text
   intent: encode
-  let profile: Json = jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("aid", jsonout.json_text("0")), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("highestRank", jsonout.json_text("")), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), jsonout.json_pair("lastLogin", jsonout.json_int(now)), jsonout.json_pair("alliance", jsonout.json_null()), jsonout.json_pair("levelRewards", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("enabled", jsonout.json_bool(true)), jsonout.json_pair("isEnabled", jsonout.json_bool(true)), jsonout.json_pair("types", jsonout.json_list([]))])), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level))])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), jsonout.json_pair("_createTime", jsonout.json_int(now)), jsonout.json_pair("_abbrivated", jsonout.json_bool(false))])
+  let profile: Json = jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("aid", jsonout.json_text("offline-alliance")), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("highestRank", jsonout.json_text("")), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), jsonout.json_pair("lastLogin", jsonout.json_int(now)), jsonout.json_pair("alliance", synthetic_alliance(uid, name, now)), jsonout.json_pair("levelRewards", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("enabled", jsonout.json_bool(true)), jsonout.json_pair("isEnabled", jsonout.json_bool(true)), jsonout.json_pair("types", jsonout.json_list([]))])), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level))])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), jsonout.json_pair("_createTime", jsonout.json_int(now)), jsonout.json_pair("_abbrivated", jsonout.json_bool(false))])
   compact_envelope(profile)
 end
 
@@ -1551,6 +1558,16 @@ function profile_dynamic(path: text, p: text, btxt: text): text
   if ends_with("/" ++ trim_path(p), "/userprofile") then user_profile_response(path, btxt) else "" end
 end
 
+function alliance_dynamic(path: text, p: text): text
+  intent: encode
+  if ends_with(p, "/alliances/refresh") or ends_with(p, "/alliances/details") then
+  let session: Session = session_for_token(query_value(path, "stoken"))
+  compact_envelope(synthetic_alliance(if session.uid != "" then session.uid else "1000000000001" end, if session.name != "" then session.name else "Commander" end, floor(current_time_ms() / 1000)))
+else
+  ""
+end
+end
+
 public function dynamic(path: text, btxt: text): text
   intent: encode
   let p: text = unwrap_or(get(split(path, "?"), 0), path)
@@ -1559,7 +1576,10 @@ public function dynamic(path: text, btxt: text): text
   static
 else
   let profile: text = profile_dynamic(path, p, btxt)
-  if profile != "" then profile else quest_dynamic(path, p, btxt) end
+  if profile != "" then profile else
+  let alliance: text = alliance_dynamic(path, p)
+  if alliance != "" then alliance else quest_dynamic(path, p, btxt) end
+end
 end
 end
 

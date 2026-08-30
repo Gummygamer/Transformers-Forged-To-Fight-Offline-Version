@@ -75,8 +75,11 @@ else
   false
 else
   let events: a list of Json = jsonout.list_items(jsonout.obj_get(result, "events"))
-  let event: Json = unwrap_or(get(events, 0), jsonout.json_obj([]))
-  if length(events) != 1 or jsonout.type_name(event) != "object" then
+  mutable event: Json = jsonout.json_obj([])
+  for candidate in events do
+    if jsonout.as_text(jsonout.obj_get(candidate, "_id")) == "arena_versus" then set event = candidate end
+  end
+  if jsonout.type_name(event) != "object" or not jsonout.obj_has(event, "_id") then
   false
 else if not jsonout.obj_has(event, "_id") or not jsonout.obj_has(event, "eventtype") or not jsonout.obj_has(event, "state") or not jsonout.obj_has(event, "messaging") or not jsonout.obj_has(event, "arena") then
   false
