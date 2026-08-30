@@ -467,8 +467,8 @@ unchanged and remain the default.
 time, so changing `Server/gamedata.lbl` requires rebuilding the APK. Its responses are the same
 ones served by `Server/fakeserver.lbl`.
 
-Because its two reachability patch sites are arm64 only, the bundled `armeabi-v7a` build requires
-Android to report any active network; loopback-only airplane mode is not sufficient.
+The bundled `armeabi-v7a` build carries the same two reachability patches, so it does not require
+Android to report an active network and works in loopback-only airplane mode, like arm64.
 
 For an ARMv7 bundled build, use the same align and signing steps with ARMv7 output names.
 Unlike the arm64 one, this build must also supply a patched library: `Transformers 9.2
@@ -518,10 +518,10 @@ were verified firing during that run.
 
 1. Patch the 32-bit library:
    `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
-   The same six original patches plus the four profile-level padlock patches apply (ten of the
-   twelve sites); only the two newer reachability patches are arm64 only because they are not
-   IL2CPP method addresses and `abi_map.lbl` cannot translate them. A 32-bit bundled APK therefore
-   still needs a network interface to be up, but its game modes are not padlocked by profile level.
+   All twelve sites apply to `armeabi-v7a`. Both reachability sites are ordinary IL2CPP method
+   addresses that `abi_map.lbl` maps directly: arm64 `0x1B462F4` to armv7 `0x1A0EA0C`, and arm64
+   `0x1333E48` to armv7 `0x105ACFC`. A 32-bit bundled APK therefore no longer needs a network
+   interface to be up, and its game modes are not padlocked by profile level.
    Linux continues to
    use `patchelf` by default. Windows uses the strict in-place injector, which reuses a
    verified alias string and spare dynamic-table slot without moving code or changing any

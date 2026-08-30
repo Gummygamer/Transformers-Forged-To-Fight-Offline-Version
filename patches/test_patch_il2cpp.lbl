@@ -75,9 +75,21 @@ function test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr(): boolean
   patch_bytes_match(sites, 11832648, "0000a0e31eff2fe1") and patch_bytes_match(sites, 11836396, "0000a0e31eff2fe1") and patch_bytes_match(sites, 11836620, "0000a0e31eff2fe1") and patch_bytes_match(sites, 11943044, "0000a0e31eff2fe1")
 end
 
-function test_armv7_site_count_is_ten(): boolean
+function test_new_armv7_reachability_sites_present(): boolean
   intent: test
-  length(patch_il2cpp.armv7_sites()) == 10
+  let sites: a list of Site = patch_il2cpp.armv7_sites()
+  offset_present(sites, 27322892) and offset_present(sites, 17149180)
+end
+
+function test_new_armv7_reachability_sites_patch_to_constants(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.armv7_sites()
+  patch_bytes_match(sites, 27322892, "0200a0e31eff2fe1") and patch_bytes_match(sites, 17149180, "0100a0e31eff2fe1")
+end
+
+function test_armv7_site_count_is_twelve(): boolean
+  intent: test
+  length(patch_il2cpp.armv7_sites()) == 12
 end
 
 function test_preexisting_armv7_sites_retained(): boolean
@@ -95,9 +107,11 @@ function main(): nothing
   set failed = failed + report("test_preexisting_arm64_sites_retained", test_preexisting_arm64_sites_retained())
   set failed = failed + report("test_new_armv7_level_lock_sites_present", test_new_armv7_level_lock_sites_present())
   set failed = failed + report("test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr", test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr())
-  set failed = failed + report("test_armv7_site_count_is_ten", test_armv7_site_count_is_ten())
+  set failed = failed + report("test_new_armv7_reachability_sites_present", test_new_armv7_reachability_sites_present())
+  set failed = failed + report("test_new_armv7_reachability_sites_patch_to_constants", test_new_armv7_reachability_sites_patch_to_constants())
+  set failed = failed + report("test_armv7_site_count_is_twelve", test_armv7_site_count_is_twelve())
   set failed = failed + report("test_preexisting_armv7_sites_retained", test_preexisting_armv7_sites_retained())
-  print(to_text(8 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(10 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
