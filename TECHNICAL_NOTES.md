@@ -957,13 +957,25 @@ confirmation on a live device.
 second real player's name, tag, level, portrait, faction, and team, so a store-and-serve
 roster from another tunnel peer can be served as the opponent.
 
-`PVPManager.UpdatePVPData` reads the exact top-level keys `pvpUserData` and `pvpMatchData`.
-The latter is a dictionary of `PVPMatchData` objects, whose identifier key is `pid`; returning
-one match directly, under the guessed key `pvpid`, leaves `CurrentMatchData` null and makes the
-Arena flow report a network error despite receiving HTTP 200. Opponent `uid` is an integer and
-each `team` entry is a full `BCGUserHero` dictionary, not a session-token string and a list of
-blueprint strings. `Server/responses/GET__pvp_get-login-data.json` and the dynamic opponent
-response now follow that parser contract.
+`PVPManager.UpdatePVPData` (`libil2cpp.so` arm64 `0x12002d0`) reads the exact top-level keys
+`pvpUserData` and `pvpMatchData`. Both are read with `EB.Dot.Array` (`0x1460af4`), so each must
+be a JSON **array**, not an id-keyed object: `EB.Dot.Array` type-checks the value and returns an
+empty list for a JSON object. The client re-keys its internal `_matchDict` from each entry's own
+`pid` field, so the wrapper key an object form would carry is never read. An object-shaped
+`pvpMatchData` therefore parses to nothing, `CurrentMatchData` (`PVPManager` field `0x38`,
+`get_CurrentMatchData` is a bare `ldr x0,[x0,#0x38]`) is never assigned, stays null, and the
+Arena flow reports a network error despite HTTP 200. Each array element is a `PVPMatchData`
+object: `pid` (string), `state` (string enum name; a numeric string such as `"128"` also parses
+via `Enum.Parse`), `opponents` (array), `opponentIndex` (int). Opponent `uid` is an integer and
+each `team` entry is a full `BCGUserHero` dictionary (its constructor chain only uses defaulted
+`EB.Fast.Dot.*` getters and never throws), not a session-token string and a list of blueprint
+strings. `Server/responses/GET__pvp_get-login-data.json` and the dynamic opponent response now
+return the array shape.
+
+`/pvp/get-active-pvp-data` and `/pvp/get-user-data` feed the same `PVPMatchData` list parser
+(`<GetActivePVPData>b__0` at `0xb854b0`) and still return a single flat object; they are not on
+the team-accept path and their callback does not hard-fail, but they should return `[]` or an
+array of match objects.
 
 The existing naming trap remains: `TFTF_ARENA_LEVEL` and `TFTF_ARENA_TOD` name the physical
 battleground scene, not the online Arena mode.

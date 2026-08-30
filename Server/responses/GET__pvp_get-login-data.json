@@ -1,1 +1,1 @@
-{"error":null,"result":{"pvpUserData":{"arena_versus":{"pid":"arena_versus","winStreak":0,"wins":0,"losses":0,"longestStreak":0,"findAttempts":0}},"pvpMatchData":{}}}
+{"error":null,"result":{"pvpUserData":[{"pid":"arena_versus","winStreak":0,"wins":0,"losses":0,"longestStreak":0,"findAttempts":0}],"pvpMatchData":[]}}
