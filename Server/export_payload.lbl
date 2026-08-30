@@ -466,10 +466,10 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9366 then fail("payload entry count is not 9366: " ++ to_text(length(keys))) end
+  if length(keys) != 9543 then fail("payload entry count is not 9543: " ++ to_text(length(keys))) end
   if length(pref.keys) != 1 or length(pref.bodies) != 1 then fail("payload prefix count is not 1") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4572468 then fail("payload total size is not 4572468: " ++ to_text(total)) end
+  if total != 4848656 then fail("payload total size is not 4848656: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)

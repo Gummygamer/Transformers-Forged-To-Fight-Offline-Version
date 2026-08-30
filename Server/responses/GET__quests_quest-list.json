@@ -17,4 +17,34 @@
      "image":"","theme":""
    }
  ]
+},
+{
+ "hash":"offline-ave-normal","setId":"offline_ave_normal","setName":"OFFLINE OPERATION - NORMAL","expiry":0,"timeLimit":0,"timeLimitGrace":0,
+ "showUI":true,"group":"offline_ave_operation","difficulty":"normal","difficulty_label":"NORMAL",
+ "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":true,
+ "category":"ave","tags":[],
+ "actCount":1,"chapterCount":[1,1],
+ "acts":[{"name":"OPERATION","index":0},{"name":"OPERATION","index":1}],
+ "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1}],
+ "availableQuests":[{"id":"ave.normal.1","act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,"friendlyName":"Signal Sweep","description":"Normal offline alliance operation.","category":"ave","difficulty":"normal","energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,"minHealthPerTile":100,"maxHealthPerTile":100,"image":"","theme":""}]
+},
+{
+ "hash":"offline-ave-heroic","setId":"offline_ave_heroic","setName":"OFFLINE OPERATION - HEROIC","expiry":0,"timeLimit":0,"timeLimitGrace":0,
+ "showUI":true,"group":"offline_ave_operation","difficulty":"heroic","difficulty_label":"HEROIC",
+ "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":true,
+ "category":"ave","tags":[],
+ "actCount":1,"chapterCount":[1,1],
+ "acts":[{"name":"OPERATION","index":0},{"name":"OPERATION","index":1}],
+ "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1}],
+ "availableQuests":[{"id":"ave.heroic.1","act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,"friendlyName":"Signal Sweep","description":"Heroic offline alliance operation.","category":"ave","difficulty":"heroic","energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,"minHealthPerTile":100,"maxHealthPerTile":100,"image":"","theme":""}]
+},
+{
+ "hash":"offline-ave-master","setId":"offline_ave_master","setName":"OFFLINE OPERATION - MASTER","expiry":0,"timeLimit":0,"timeLimitGrace":0,
+ "showUI":true,"group":"offline_ave_operation","difficulty":"master","difficulty_label":"MASTER",
+ "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":true,
+ "category":"ave","tags":[],
+ "actCount":1,"chapterCount":[1,1],
+ "acts":[{"name":"OPERATION","index":0},{"name":"OPERATION","index":1}],
+ "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1}],
+ "availableQuests":[{"id":"ave.master.1","act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,"friendlyName":"Signal Sweep","description":"Master offline alliance operation.","category":"ave","difficulty":"master","energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,"minHealthPerTile":100,"maxHealthPerTile":100,"image":"","theme":""}]
 }]}
