@@ -18,6 +18,13 @@ record Replacement
   new: text
 end
 
+record ReachabilitySite
+  offset: integer
+  stub: text
+  pristine: text
+  name: text
+end
+
 record MetadataPatch
   data: integer
   changed: a list of text
@@ -176,6 +183,17 @@ public function abi_elf_machine(abi: text): integer
   if abi == arm64() then 183 else 40 end
 end
 
+-- patches/patch_il2cpp.lbl is the canonical source of these offsets and stub
+-- bytes. These are patch sites 7 and 8 from that list.
+public function reachability_sites(abi: text): a list of ReachabilitySite
+  intent: get the offline reachability patch sites for an ABI
+  if abi == arm64() then
+    [ReachabilitySite { offset: 28599028, stub: "40008052c0035fd6", pristine: "f30f1ef8fd7b01a9", name: "Application.internetReachability" }, ReachabilitySite { offset: 20135496, stub: "20008052c0035fd6", pristine: "fd7bbfa9fd030091", name: "EndPoint.HasInternetConnectivity" }]
+  else
+    [ReachabilitySite { offset: 27322892, stub: "0200a0e31eff2fe1", pristine: "34009fe500009fe7", name: "Application.internetReachability" }, ReachabilitySite { offset: 17149180, stub: "0100a0e31eff2fe1", pristine: "00482de90db0a0e1", name: "EndPoint.HasInternetConnectivity" }]
+  end
+end
+
 function put_u16(data: integer, offset: integer, value: integer): nothing
   intent: write
   bytes_set(data, offset, value % 256)
@@ -223,6 +241,20 @@ function bytes_equal_at(data: integer, offset: integer, needle: text): boolean
   same
 end
 
+function bytes_equal_hex_at(data: integer, offset: integer, hex: text): boolean
+  intent: compare a byte range against hexadecimal text
+  let wanted: integer = bytes_from_hex(hex)
+  let n: integer = bytes_length(wanted)
+  mutable same: boolean = offset >= 0 and offset + n <= bytes_length(data)
+  mutable index: integer = 0
+  while index < n and same do
+    if bytes_get(data, offset + index) != bytes_get(wanted, index) then set same = false end
+    set index = index + 1
+  end
+  bytes_free(wanted)
+  same
+end
+
 function zip_signature_at(data: integer, offset: integer, third: integer, fourth: integer): boolean
   intent: compare
   if offset < 0 or offset + 4 > bytes_length(data) then false else
@@ -243,6 +275,67 @@ public function check_elf(data: integer, abi: text, path: text, description: tex
       description ++ " " ++ path ++ " is ELF class " ++ to_text(elf_class) ++ "/machine " ++ to_text(machine) ++ ", but " ++ abi ++ " needs class " ++ to_text(want_class) ++ "/machine " ++ to_text(want_machine)
     else "" end
   end
+end
+
+function to_hex_lower(number: integer): text
+  intent: format hexadecimal text
+  if number == 0 then
+    "0"
+  else
+    mutable value: integer = number
+    mutable out: text = ""
+    while value > 0 do
+      let digit: integer = value % 16
+      set out = substring("0123456789abcdef", digit, 1) ++ out
+      set value = floor(value / 16)
+    end
+    out
+  end
+end
+
+function bytes_hex_at(data: integer, offset: integer, count: integer): text
+  intent: format a byte range as lowercase hexadecimal
+  mutable out: text = ""
+  mutable index: integer = 0
+  while index < count do
+    let value: integer = bytes_get(data, offset + index)
+    set out = out ++ substring("0123456789abcdef", floor(value / 16), 1) ++ substring("0123456789abcdef", value % 16, 1)
+    set index = index + 1
+  end
+  out
+end
+
+function offline_patch_remedy(abi: text): text
+  intent: describe how to prepare a fully patched libil2cpp
+  let output: text = if abi == arm64() then "build/libil2cpp-arm64-patched.so" else "build/libil2cpp-armv7-patched.so" end
+  "patch it first with: legible run patches/patch_il2cpp.lbl --abi " ++ abi ++ " --needed inplace --apply -o " ++ output ++ " <path to the stock " ++ abi ++ " libil2cpp.so>, then pass --patched-il2cpp " ++ output
+end
+
+public function ensure_reachability_stubs(data: integer, sites: a list of ReachabilitySite, abi: text, path: text): text
+  intent: apply recognised offline reachability stubs to a libil2cpp blob
+  mutable error: text = ""
+  for site in sites do
+    let stub: integer = bytes_from_hex(site.stub)
+    let size: integer = bytes_length(stub)
+    if error == "" and site.offset + size > bytes_length(data) then
+      set error = "libil2cpp is too small to be the expected Transformers 9.2 library: " ++ path ++ " (" ++ abi ++ ", offset " ++ to_text(site.offset) ++ "/0x" ++ to_hex_lower(site.offset) ++ ", length " ++ to_text(bytes_length(data)) ++ "); " ++ offline_patch_remedy(abi)
+    else if error == "" and not bytes_equal_hex_at(data, site.offset, site.stub) then
+      if bytes_equal_hex_at(data, site.offset, site.pristine) then
+        bytes_write_bytes(data, site.offset, stub)
+      else
+        set error = "libil2cpp is not the expected Transformers 9.2 build: " ++ path ++ " (" ++ abi ++ ", offset " ++ to_text(site.offset) ++ "/0x" ++ to_hex_lower(site.offset) ++ " holds unrecognised bytes " ++ bytes_hex_at(data, site.offset, size) ++ "); " ++ offline_patch_remedy(abi)
+      end
+    end
+    bytes_free(stub)
+  end
+  error
+end
+
+public function check_offline_ready(data: integer, sites: a list of ReachabilitySite, abi: text, path: text): text
+  intent: validate and patch the libil2cpp required by a bundled offline build
+  if bytes_index_of(data, "libdothook.so", 0) < 0 then
+    "bundled server hook is not wired into libil2cpp: " ++ path ++ " (" ++ abi ++ ") has no libdothook.so reference; it needs patches/patch_il2cpp.lbl --needed inplace. " ++ offline_patch_remedy(abi)
+  else ensure_reachability_stubs(data, sites, abi, path) end
 end
 
 public function check_hook(data: integer, abi: text, path: text, bundle_server: boolean): text
@@ -747,11 +840,28 @@ function prepare_build(options: BuildOptions): BuildState
   if error == "" and not file_exists(hook_path) then set error = "current runtime hook is missing: " ++ hook_path end
   let hook: integer = if error == "" then read_file_bytes(hook_path) else 0 end
   if error == "" then set error = check_hook(hook, options.abi, hook_path, options.bundle_server) end
-  let replacement: integer = if options.patched_il2cpp != "" and file_exists(options.patched_il2cpp) then read_file_bytes(options.patched_il2cpp) else 0 end
+  mutable replacement: integer = if options.patched_il2cpp != "" and file_exists(options.patched_il2cpp) then read_file_bytes(options.patched_il2cpp) else 0 end
   if error == "" and options.patched_il2cpp != "" and replacement == 0 then set error = "patched libil2cpp is missing: " ++ options.patched_il2cpp end
   if error == "" and replacement != 0 then set error = check_elf(replacement, options.abi, options.patched_il2cpp, "patched libil2cpp") end
-  if error == "" and replacement != 0 then
+  if error == "" and replacement != 0 and not options.bundle_server then
     if bytes_index_of(replacement, "libdothook.so", 0) < 0 then set error = "patched libil2cpp does not reference libdothook.so: " ++ options.patched_il2cpp end
+  end
+  if error == "" and options.bundle_server then
+    mutable shipping: integer = replacement
+    mutable source_derived: boolean = false
+    let shipping_path: text = if replacement != 0 then options.patched_il2cpp else options.source ++ ":" ++ il2cpp_entry(options.abi) end
+    if shipping == 0 then
+      let index: integer = zip_find(archive, il2cpp_entry(options.abi))
+      let entry: ZipEntry = unwrap(get(archive.entries, index))
+      set shipping = patch_source_bytes(BuildState { archive: archive, hook: 0, replacement: 0, payload: 0, hook_path: "", error: "" }, entry)
+      set source_derived = true
+    end
+    if check_elf(shipping, options.abi, shipping_path, "libil2cpp") == "" then
+      let offline_error: text = check_offline_ready(shipping, reachability_sites(options.abi), options.abi, shipping_path)
+      if offline_error != "" then set error = offline_error
+      else if source_derived then set replacement = shipping end
+    end
+    if source_derived and replacement == 0 then bytes_free(shipping) end
   end
   let payload: integer = if error == "" and options.bundle_server then export_payload.build_payload(options.server_port) else 0 end
   BuildState { archive: archive, hook: hook, replacement: replacement, payload: payload, hook_path: hook_path, error: error }
@@ -958,6 +1068,7 @@ function print_build_result(options: BuildOptions, result: BuildResult): nothing
     let loaded: Payload = export_payload.load_payload(payload)
     print("bundled server payload: " ++ payload_asset() ++ " (" ++ to_text(bytes_length(payload)) ++ " bytes, " ++ to_text(length(loaded.entry_keys)) ++ " routes, port " ++ to_text(options.server_port) ++ ")")
     bytes_free(payload)
+    print("offline reachability stubs: Application.internetReachability; EndPoint.HasInternetConnectivity (applied or already present)")
   end
   let hook: integer = read_file_bytes(selected_hook(options))
   print("embedded runtime hook: " ++ selected_hook(options) ++ " (" ++ to_text(bytes_length(hook)) ++ " bytes)")
