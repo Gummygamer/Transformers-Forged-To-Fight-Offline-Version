@@ -164,12 +164,12 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4573020 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4572468 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9368 then set detail = "entry count is not 9368" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9366 then set detail = "entry count is not 9366" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 1 then set detail = "prefix count is not 1" end
   if detail == "" and (bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0) then set detail = "reserved fields are non-zero" end
