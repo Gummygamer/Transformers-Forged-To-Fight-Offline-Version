@@ -465,15 +465,20 @@ unchanged and remain the default.
 `armeabi-v7a`. It requires plain HTTP on loopback: `--scheme https` and non-loopback
 `--server-host` values are rejected. The baked payload is a snapshot of the authored data at build
 time, so changing `Server/gamedata.lbl` requires rebuilding the APK. Its responses are the same
-ones served by `Server/fakeserver.lbl`.
+ones served by `Server/fakeserver.lbl`. For a recognised stock `libil2cpp.so`, the builder now
+applies the two offline reachability stubs before packaging; an unknown library hard-fails with a
+patch command instead of producing an APK that still requires Android networking.
 
-The bundled `armeabi-v7a` build carries the same two reachability patches, so it does not require
-Android to report an active network and works in loopback-only airplane mode, like arm64.
+The shipped arm64 library has patch sites 1--6, but not the two reachability sites (7--8), so an
+earlier bundled arm64 build could still demand a live network. The builder fills in sites 7--8
+automatically for the recognised stock arm64 library. Arm64 sites 9--12 (the profile-level-lock
+patches) are also absent from the shipped library; that separate, non-network gap is out of scope
+for this build step.
 
 For an ARMv7 bundled build, use the same align and signing steps with ARMv7 output names.
-Unlike the arm64 one, this build must also supply a patched library: `Transformers 9.2
-offline.apk` ships an **already patched** `lib/arm64-v8a/libil2cpp.so` but a **pristine**
-`lib/armeabi-v7a/libil2cpp.so`. Skip step 1 below and the APK installs and launches fine
+Unlike the arm64 one, this build must also supply a patched library: the stock
+`lib/armeabi-v7a/libil2cpp.so` has no `libdothook.so` DT_NEEDED entry, which the builder cannot
+inject. Skip step 1 below and the APK installs and launches fine
 while `adb logcat -s TFTFHOOK` stays completely silent and nothing listens on 8080, because
 the hook is never loaded — which looks exactly like a broken server but is not one.
 

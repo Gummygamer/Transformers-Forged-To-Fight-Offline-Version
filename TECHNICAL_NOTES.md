@@ -59,6 +59,14 @@ to log in dialog. Both getters are stubbed to constants, so reachability is alwa
 arm64 uses `0x1B462F4` and `0x1333E48`; armv7 uses `0x1A0EA0C` and `0x105ACFC`, with stubs
 `mov r0, #2; bx lr` and `mov r0, #1; bx lr`.
 
+The APK's shipped arm64 `libil2cpp.so` contains only sites 1--6; sites 7--8 are not baked in.
+`Server/build_phone_apk.lbl --bundle-server` recognises that stock library and applies the two
+reachability stubs before it writes the APK, or fails with a patch command when the library bytes
+are unfamiliar. Stock armv7 still has to be patched first with `--needed inplace` and supplied
+via `--patched-il2cpp`: it has no `libdothook.so` DT_NEEDED entry and the APK builder cannot add
+one. Arm64 sites 9--12 are likewise absent from the shipped library; they are level-lock patches,
+not a network fix, and remain outside this bundled-build change.
+
 9 through 12. Profile-level padlocks on game modes. Raids, Store, Arenas, Special Missions,
 Alliance Missions and Daily Missions render a padlock until the account profile level is high
 enough. The minimum level per lock comes from `TuningLevelLocks.LevelLockData`, which is

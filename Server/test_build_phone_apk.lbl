@@ -345,6 +345,14 @@ function write_source_with_compressed_metadata(path: text): text
   result
 end
 
+function write_source_with_short_armv7_elf(path: text, armv7_il2cpp: integer): text
+  intent: write
+  let entries: a list of ZipEntry = [text_entry("AndroidManifest.xml", "manifest"), stored_entry(build_phone_apk.metadata_name(), metadata_with_literals()), text_entry(build_phone_apk.sparx_manifest_name(), "https://tform-0901-hzlhiniyfcwf.tf-cdn.net"), text_entry(build_phone_apk.endpoint_config_name(), "\{\"Default\":\{\"Prod\":\"https://tform-0901-hzlhiniyfcwf.tf-cdn.net\"}}"), text_entry(build_phone_apk.il2cpp_entry(build_phone_apk.arm64()), "arm64 il2cpp"), stored_entry(build_phone_apk.il2cpp_entry(build_phone_apk.armv7()), armv7_il2cpp)]
+  let result: text = build_phone_apk.zip_write(path, entries)
+  free_entries(entries)
+  result
+end
+
 function build_options(source: text, destination: text, abi: text, keep_other_abi: boolean, patched_il2cpp: text, scheme: text, server_host: text, server_port: integer, bundle_server: boolean, hook64: text, hook7: text): BuildOptions
   intent: build
   BuildOptions { source: source, destination: destination, server_host: server_host, abi: abi, keep_other_abi: keep_other_abi, patched_il2cpp: patched_il2cpp, scheme: scheme, server_port: server_port, bundle_server: bundle_server, hook_override_arm64: hook64, hook_override_armv7: hook7 }
@@ -359,6 +367,50 @@ function bytes_same(left: integer, right: integer): boolean
     set index = index + 1
   end
   same
+end
+
+function test_reachability_sites(): TestResult
+  intent: test
+  let arm64: a list of ReachabilitySite = build_phone_apk.reachability_sites(build_phone_apk.arm64())
+  let armv7: a list of ReachabilitySite = build_phone_apk.reachability_sites(build_phone_apk.armv7())
+  let a0: ReachabilitySite = unwrap(get(arm64, 0))
+  let a1: ReachabilitySite = unwrap(get(arm64, 1))
+  let v0: ReachabilitySite = unwrap(get(armv7, 0))
+  let v1: ReachabilitySite = unwrap(get(armv7, 1))
+  if length(arm64) == 2 and a0.offset == 28599028 and a0.stub == "40008052c0035fd6" and a1.offset == 20135496 and a1.stub == "20008052c0035fd6" and length(armv7) == 2 and v0.offset == 27322892 and v0.stub == "0200a0e31eff2fe1" and v1.offset == 17149180 and v1.stub == "0100a0e31eff2fe1" then ok() else failed("reachability site table") end
+end
+
+function synthetic_reachability_sites(): a list of ReachabilitySite
+  intent: build
+  [ReachabilitySite { offset: 0, stub: "1122334455667788", pristine: "aabbccddeeff0011", name: "first" }, ReachabilitySite { offset: 8, stub: "8877665544332211", pristine: "1100ffeeddccbbaa", name: "second" }]
+end
+
+function test_ensure_reachability_stubs(): TestResult
+  intent: test
+  let sites: a list of ReachabilitySite = synthetic_reachability_sites()
+  let pristine: integer = bytes_from_hex("aabbccddeeff00111100ffeeddccbbaa")
+  let expected: integer = bytes_from_hex("11223344556677888877665544332211")
+  let first_error: text = build_phone_apk.ensure_reachability_stubs(pristine, sites, build_phone_apk.arm64(), "synthetic.so")
+  let first_good: boolean = first_error == "" and bytes_same(pristine, expected)
+  let second_error: text = build_phone_apk.ensure_reachability_stubs(pristine, sites, build_phone_apk.arm64(), "synthetic.so")
+  let second_good: boolean = second_error == "" and bytes_same(pristine, expected)
+  let unknown: integer = bytes_from_hex("00000000000000001100ffeeddccbbaa")
+  let unknown_good: boolean = text_contains(build_phone_apk.ensure_reachability_stubs(unknown, sites, build_phone_apk.arm64(), "synthetic.so"), "patch_il2cpp")
+  let short: integer = bytes_from_hex("aabbccddeeff0011")
+  let short_good: boolean = build_phone_apk.ensure_reachability_stubs(short, sites, build_phone_apk.arm64(), "synthetic.so") != ""
+  bytes_free(pristine)
+  bytes_free(expected)
+  bytes_free(unknown)
+  bytes_free(short)
+  if first_good and second_good and unknown_good and short_good then ok() else failed("reachability stub application") end
+end
+
+function test_check_offline_ready_requires_hook_reference(): TestResult
+  intent: test
+  let data: integer = bytes_from_hex("aabbccddeeff00111100ffeeddccbbaa")
+  let error: text = build_phone_apk.check_offline_ready(data, synthetic_reachability_sites(), build_phone_apk.armv7(), "synthetic.so")
+  bytes_free(data)
+  if text_contains(error, "--needed inplace") then ok() else failed("missing hook reference") end
 end
 
 function text_contains(value: text, needle: text): boolean
@@ -638,12 +690,29 @@ function test_bundle_validation(base: text): TestResult
   if text_contains(bad_scheme.error, "--scheme http") and text_contains(bad_host.error, "127.0.0.1") then ok() else failed("bundle option validation") end
 end
 
+function test_bundled_short_elf_requires_patching(base: text): TestResult
+  intent: test
+  let folder: text = path_join(base, "short-armv7-elf")
+  create_dir(folder)
+  let source: text = path_join(folder, "source.apk")
+  let bundled_destination: text = path_join(folder, "bundled.apk")
+  let host_destination: text = path_join(folder, "host.apk")
+  write_source_with_short_armv7_elf(source, elf(1, 40, false))
+  let hook_path: text = path_join(folder, "libdothook-armv7.so")
+  let hook: integer = elf(1, 40, true)
+  write_file_bytes(hook_path, hook)
+  let bundled: BuildResult = build_phone_apk.build(build_options(source, bundled_destination, build_phone_apk.armv7(), false, "", "http", "127.0.0.1", 8080, true, hook_path, hook_path))
+  let host: BuildResult = build_phone_apk.build(build_options(source, host_destination, build_phone_apk.armv7(), false, "", "https", "127.0.0.1", 8443, false, hook_path, hook_path))
+  bytes_free(hook)
+  if text_contains(bundled.error, "patch_il2cpp") and not file_exists(bundled_destination) and host.error == "" and file_exists(host_destination) then ok() else failed("bundled short ELF gate: " ++ bundled.error) end
+end
+
 function main(): nothing
   intent: run
   let base: text = path_join("..", "build", "legible-phone-apk-tests-" ++ to_text(random_int(1000000000)))
   create_dir(base)
-  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_build_patches_compressed_metadata", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation"]
-  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_build_patches_compressed_metadata(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base)]
+  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_reachability_sites", "test_ensure_reachability_stubs", "test_check_offline_ready_requires_hook_reference", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_build_patches_compressed_metadata", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation", "test_bundled_short_elf_requires_patching"]
+  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_reachability_sites(), test_ensure_reachability_stubs(), test_check_offline_ready_requires_hook_reference(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_build_patches_compressed_metadata(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base), test_bundled_short_elf_requires_patching(base)]
   mutable failures: integer = 0
   mutable index: integer = 0
   while index < length(cases) do
@@ -651,7 +720,7 @@ function main(): nothing
     set index = index + 1
   end
   shell_exec("rm -rf -- " ++ base)
-  print(to_text(26 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(30 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 
