@@ -214,7 +214,7 @@ end
 
 public function final_boss_stats(): Stats
   intent: build
-  Stats { hp: 28000, atk: 3000 }
+  Stats { hp: 300000, atk: 1000 }
 end
 
 public function base_stats(bid: text, rank: integer, level: integer): Stats
