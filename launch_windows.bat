@@ -23,7 +23,9 @@ set "LEGIBLE_ROOT=%LOCALAPPDATA%\legible-lang"
 set "LEGIBLE_SRC=%LEGIBLE_ROOT%\src"
 
 where legible >nul 2>nul
-if not %errorlevel%==0 (
+if %errorlevel%==0 (
+  call :update_legible
+) else (
   call :install_legible
   if not !errorlevel!==0 exit /b 1
 )
@@ -43,11 +45,11 @@ if not %errorlevel%==0 (
 )
 
 call :enable_android_path
-where zipalign >nul 2>nul
-if not %errorlevel%==0 (
-  call :install_android_sdk
-  if not !errorlevel!==0 exit /b 1
-)
+call :ensure_android_sdk
+if not !errorlevel!==0 exit /b 1
+
+call :ensure_debug_keystore
+if not !errorlevel!==0 exit /b 1
 
 call :enable_git_shell
 if not !errorlevel!==0 exit /b 1
@@ -139,65 +141,184 @@ if not !errorlevel!==0 (
 )
 exit /b 0
 
-:install_android_sdk
+:ensure_android_sdk
+rem Resolve an SDK root: an existing env var, or the standard per-user location
+rem that `pipeline.lbl` also probes (%LOCALAPPDATA%\Android\Sdk).
 if not defined ANDROID_HOME if defined ANDROID_SDK_ROOT set "ANDROID_HOME=!ANDROID_SDK_ROOT!"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
 set "ANDROID_SDK_ROOT=!ANDROID_HOME!"
+call :enable_android_path
 
-set "SDKMANAGER=!ANDROID_HOME!\cmdline-tools\latest\bin\sdkmanager.bat"
-if not exist "!SDKMANAGER!" (
-  echo ==^> Downloading Android SDK command-line tools...
-  if not exist "!ANDROID_HOME!" (
-    mkdir "!ANDROID_HOME!"
-    if not !errorlevel!==0 (
-      echo Could not create the Android SDK directory at "!ANDROID_HOME!".
-      exit /b 1
-    )
-  )
-  if not exist "!ANDROID_HOME!\cmdline-tools" (
-    mkdir "!ANDROID_HOME!\cmdline-tools"
-    if not !errorlevel!==0 (
-      echo Could not create the Android SDK command-line-tools directory.
-      exit /b 1
-    )
-  )
+rem Work out which packages are still missing. A previous interrupted run can
+rem leave only cmdline-tools behind, and the old launcher never installed the
+rem NDK once zipalign existed, so check each package independently.
+set "NEED_BUILD_TOOLS=1"
+set "NEED_PLATFORM_TOOLS=1"
+set "NEED_NDK=1"
+where zipalign >nul 2>nul && set "NEED_BUILD_TOOLS="
+where adb >nul 2>nul && set "NEED_PLATFORM_TOOLS="
+call :ndk_clang_present && set "NEED_NDK="
 
-  set "CMDLINE_TOOLS_ZIP=%TEMP%\commandlinetools-win-15859902_latest.zip"
-  set "CMDLINE_TOOLS_TMP=%TEMP%\commandlinetools-win-!RANDOM!-!RANDOM!"
-  powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip' -OutFile $env:CMDLINE_TOOLS_ZIP"
-  if not !errorlevel!==0 (
-    echo Failed to download the Android SDK command-line tools.
-    exit /b 1
-  )
-  if not exist "!CMDLINE_TOOLS_ZIP!" (
-    echo The Android SDK command-line-tools download is missing.
-    exit /b 1
-  )
-
-  powershell -NoProfile -Command "Expand-Archive -LiteralPath $env:CMDLINE_TOOLS_ZIP -DestinationPath $env:CMDLINE_TOOLS_TMP -Force"
-  if not !errorlevel!==0 (
-    echo Failed to extract the Android SDK command-line tools.
-    exit /b 1
-  )
-  move "!CMDLINE_TOOLS_TMP!\cmdline-tools" "!ANDROID_HOME!\cmdline-tools\latest" >nul
-  if not !errorlevel!==0 (
-    echo Failed to install the Android SDK command-line tools.
-    exit /b 1
-  )
+if not defined NEED_BUILD_TOOLS if not defined NEED_PLATFORM_TOOLS if not defined NEED_NDK (
+  setx ANDROID_HOME "!ANDROID_HOME!" >nul
+  setx ANDROID_SDK_ROOT "!ANDROID_HOME!" >nul
+  exit /b 0
 )
 
-set "SDKMANAGER=!ANDROID_HOME!\cmdline-tools\latest\bin\sdkmanager.bat"
-echo ==^> Installing Android platform-tools, build-tools 35.0.0, and NDK 26.1.10909125...
+call :ensure_cmdline_tools
+if not !errorlevel!==0 exit /b 1
+
+set "SDK_PACKAGES="
+if defined NEED_PLATFORM_TOOLS set "SDK_PACKAGES=!SDK_PACKAGES! "platform-tools""
+if defined NEED_BUILD_TOOLS set "SDK_PACKAGES=!SDK_PACKAGES! "build-tools;35.0.0""
+if defined NEED_NDK set "SDK_PACKAGES=!SDK_PACKAGES! "ndk;26.1.10909125""
+
+echo ==^> Installing Android SDK packages:!SDK_PACKAGES!
 echo     This first-time download can take several minutes and use 1-2 GB.
-(for /l %%Y in (1,1,20) do @echo y) | call "!SDKMANAGER!" "--sdk_root=!ANDROID_HOME!" "platform-tools" "build-tools;35.0.0" "ndk;26.1.10909125"
-if not !errorlevel!==0 (
-  echo Android SDK package installation did not complete successfully.
+
+rem sdkmanager reads license acceptances from stdin. Piping `echo` into a
+rem `call`ed .bat is unreliable in cmd, so feed acceptances from a file.
+set "SDK_YES=%TEMP%\apk-patcher-sdk-yes-!RANDOM!-!RANDOM!.txt"
+powershell -NoProfile -Command "Set-Content -LiteralPath $env:SDK_YES -Value (1..64 | ForEach-Object { 'y' })"
+call "!SDKMANAGER!" "--sdk_root=!ANDROID_HOME!" --licenses < "!SDK_YES!" >nul 2>nul
+call "!SDKMANAGER!" "--sdk_root=!ANDROID_HOME!" !SDK_PACKAGES! < "!SDK_YES!"
+set "SDK_INSTALL_RESULT=!errorlevel!"
+del "!SDK_YES!" >nul 2>nul
+
+call :enable_android_path
+set "SDK_OK=1"
+if defined NEED_BUILD_TOOLS ( where zipalign >nul 2>nul || set "SDK_OK=" )
+if defined NEED_PLATFORM_TOOLS ( where adb >nul 2>nul || set "SDK_OK=" )
+if defined NEED_NDK ( call :ndk_clang_present || set "SDK_OK=" )
+if not defined SDK_OK (
+  echo Android SDK package installation did not complete successfully ^(sdkmanager exit !SDK_INSTALL_RESULT!^).
+  echo Install the missing packages manually, then re-run this script:
+  echo   "!SDKMANAGER!" "--sdk_root=!ANDROID_HOME!"!SDK_PACKAGES!
   exit /b 1
 )
 
 setx ANDROID_HOME "!ANDROID_HOME!" >nul
 setx ANDROID_SDK_ROOT "!ANDROID_HOME!" >nul
-call :enable_android_path
+exit /b 0
+
+:ndk_clang_present
+rem Succeeds (exit 0) when a usable NDK clang wrapper is installed.
+if not defined ANDROID_NDK_DIR exit /b 1
+if exist "!ANDROID_NDK_DIR!\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android28-clang.cmd" exit /b 0
+exit /b 1
+
+:ensure_cmdline_tools
+set "SDKMANAGER=!ANDROID_HOME!\cmdline-tools\latest\bin\sdkmanager.bat"
+if exist "!SDKMANAGER!" exit /b 0
+
+echo ==^> Downloading Android SDK command-line tools...
+if not exist "!ANDROID_HOME!" (
+  mkdir "!ANDROID_HOME!"
+  if not !errorlevel!==0 (
+    echo Could not create the Android SDK directory at "!ANDROID_HOME!".
+    exit /b 1
+  )
+)
+if not exist "!ANDROID_HOME!\cmdline-tools" (
+  mkdir "!ANDROID_HOME!\cmdline-tools"
+  if not !errorlevel!==0 (
+    echo Could not create the Android SDK command-line-tools directory.
+    exit /b 1
+  )
+)
+
+set "CMDLINE_TOOLS_ZIP=%TEMP%\commandlinetools-win-15859902_latest.zip"
+set "CMDLINE_TOOLS_TMP=%TEMP%\commandlinetools-win-!RANDOM!-!RANDOM!"
+powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri 'https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip' -OutFile $env:CMDLINE_TOOLS_ZIP"
+if not !errorlevel!==0 (
+  echo Failed to download the Android SDK command-line tools.
+  exit /b 1
+)
+if not exist "!CMDLINE_TOOLS_ZIP!" (
+  echo The Android SDK command-line-tools download is missing.
+  exit /b 1
+)
+
+powershell -NoProfile -Command "Expand-Archive -LiteralPath $env:CMDLINE_TOOLS_ZIP -DestinationPath $env:CMDLINE_TOOLS_TMP -Force"
+if not !errorlevel!==0 (
+  echo Failed to extract the Android SDK command-line tools.
+  exit /b 1
+)
+move "!CMDLINE_TOOLS_TMP!\cmdline-tools" "!ANDROID_HOME!\cmdline-tools\latest" >nul
+if not !errorlevel!==0 (
+  echo Failed to install the Android SDK command-line tools.
+  exit /b 1
+)
+
+set "SDKMANAGER=!ANDROID_HOME!\cmdline-tools\latest\bin\sdkmanager.bat"
+if not exist "!SDKMANAGER!" (
+  echo The Android SDK command-line tools are still missing after download.
+  exit /b 1
+)
+exit /b 0
+
+:ensure_debug_keystore
+rem apksigner needs a keystore; the pipeline defaults to the Android debug
+rem keystore, which only exists once a tool has created it. Generate it with
+rem the JDK's keytool if it is missing.
+set "DEBUG_KEYSTORE=%USERPROFILE%\.android\debug.keystore"
+if exist "!DEBUG_KEYSTORE!" exit /b 0
+
+set "KEYTOOL=keytool"
+where keytool >nul 2>nul
+if not !errorlevel!==0 (
+  if defined JAVA_HOME if exist "!JAVA_HOME!\bin\keytool.exe" set "KEYTOOL=!JAVA_HOME!\bin\keytool.exe"
+)
+
+echo ==^> Creating the Android debug keystore at "!DEBUG_KEYSTORE!"...
+if not exist "%USERPROFILE%\.android" mkdir "%USERPROFILE%\.android"
+"!KEYTOOL!" -genkeypair -v -keystore "!DEBUG_KEYSTORE!" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+if not exist "!DEBUG_KEYSTORE!" (
+  echo Could not create the Android debug keystore automatically.
+  echo Create it manually with:
+  echo   keytool -genkeypair -v -keystore "!DEBUG_KEYSTORE!" -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+  exit /b 1
+)
+exit /b 0
+
+:update_legible
+rem legible is already installed. Keep it in sync with the pinned interpreter
+rem source so repository scripts that need newer builtins (for example
+rem `bytes_inflate`, used by the APK builder) keep working. This is best
+rem effort: if anything here fails, the working interpreter is left in place.
+where git >nul 2>nul
+if not %errorlevel%==0 exit /b 0
+if not exist "%LEGIBLE_SRC%\Cargo.toml" exit /b 0
+git -C "%LEGIBLE_SRC%" rev-parse --is-inside-work-tree >nul 2>nul
+if not %errorlevel%==0 exit /b 0
+
+set "LEGIBLE_HEAD_BEFORE="
+set "LEGIBLE_HEAD_AFTER="
+for /f "delims=" %%H in ('git -C "%LEGIBLE_SRC%" rev-parse HEAD 2^>nul') do set "LEGIBLE_HEAD_BEFORE=%%H"
+git -C "%LEGIBLE_SRC%" remote set-url origin "%LEGIBLE_REPO%" >nul 2>nul
+git -C "%LEGIBLE_SRC%" pull --ff-only origin "%LEGIBLE_BRANCH%" >nul 2>nul
+if not %errorlevel%==0 (
+  echo ==^> Could not check for legible interpreter updates; using the installed version.
+  exit /b 0
+)
+for /f "delims=" %%H in ('git -C "%LEGIBLE_SRC%" rev-parse HEAD 2^>nul') do set "LEGIBLE_HEAD_AFTER=%%H"
+if "!LEGIBLE_HEAD_BEFORE!"=="!LEGIBLE_HEAD_AFTER!" exit /b 0
+
+echo ==^> Updating the legible interpreter to match the pinned source...
+where cargo >nul 2>nul
+if not !errorlevel!==0 if exist "%USERPROFILE%\.cargo\bin\cargo.exe" set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+where cargo >nul 2>nul
+if not !errorlevel!==0 (
+  echo     Rust/cargo is not available to rebuild legible; keeping the current version.
+  echo     Install Rust from https://rustup.rs and re-run this script to update.
+  exit /b 0
+)
+pushd "%LEGIBLE_SRC%"
+cargo install --path . --no-default-features --locked
+set "LEGIBLE_UPDATE_RESULT=%errorlevel%"
+popd
+if not "%LEGIBLE_UPDATE_RESULT%"=="0" echo     legible rebuild failed; keeping the previously installed version.
+set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 exit /b 0
 
 :install_legible
