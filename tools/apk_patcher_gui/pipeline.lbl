@@ -213,7 +213,12 @@ public function sdk_roots(): a list of text
   mutable roots: a list of text = []
   set roots = add_root(roots, unwrap_or(env_get("ANDROID_HOME"), ""))
   set roots = add_root(roots, unwrap_or(env_get("ANDROID_SDK_ROOT"), ""))
+  let local_app_data: text = unwrap_or(env_get("LOCALAPPDATA"), "")
+  if local_app_data != "" then
+    set roots = add_root(roots, path_join(path_join(local_app_data, "Android"), "Sdk"))
+  end
   if home_dir() != "" then
+    set roots = add_root(roots, path_join(path_join(home_dir(), "AppData"), path_join("Local", path_join("Android", "Sdk"))))
     set roots = add_root(roots, path_join(path_join(home_dir(), "Android"), "Sdk"))
     set roots = add_root(roots, path_join(path_join(home_dir(), "Android"), "sdk"))
   end
