@@ -1,0 +1,10 @@
+# The bundled-server payload (Server/export_payload.lbl) size-checks its inputs
+# to the exact byte. On Windows the default core.autocrlf=true rewrites text
+# files with CRLF endings on checkout, which would inflate the payload past its
+# size guard. Keep the canned responses LF-only so every checkout is
+# byte-identical to CI. (Server/export_payload.lbl also strips CR at read time,
+# so existing CRLF checkouts still build.)
+Server/responses/** text eol=lf
+
+# Shell scripts and the Legible launcher config must stay LF for POSIX shells.
+*.sh text eol=lf
