@@ -290,6 +290,17 @@ function test_ave_profile_and_alliance_refresh_are_consistent(): boolean
   jsonout.as_text(jsonout.obj_get(profile, "aid")) == "offline-alliance" and jsonout.as_text(jsonout.obj_get(profile_alliance, "aid")) == "offline-alliance" and jsonout.as_text(jsonout.obj_get(refreshed, "aid")) == "offline-alliance" and length(jsonout.list_items(jsonout.obj_get(refreshed, "members"))) == 1
 end
 
+function test_auth_login_data_populates_alliance_manager_contract(): boolean
+  intent: test
+  let data: Json = result(fakeserver.resolve_response("POST", "/auth/login").body)
+  let alliance: Json = jsonout.obj_get(data, "alliance")
+  let config: Json = jsonout.obj_get(data, "config")
+  let set_data: Json = jsonout.obj_get(data, "set")
+  let members: Json = jsonout.obj_get(alliance, "members")
+  let local_member: Json = unwrap_or(get(jsonout.list_items(members), 0), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(alliance, "aid")) == "offline-alliance" and length(jsonout.list_items(members)) == 1 and jsonout.as_text(jsonout.obj_get(local_member, "rank")) == "leader" and jsonout.type_name(jsonout.obj_get(config, "ranks")) == "object" and jsonout.type_name(set_data) == "object"
+end
+
 function main(): nothing
   intent: run
   mutable failed: integer = 0
@@ -311,9 +322,10 @@ function main(): nothing
   set failed = failed + report("test_login_reports_arena_capable_account_level", test_login_reports_arena_capable_account_level())
   set failed = failed + report("test_ave_event_and_difficulty_sets_are_served", test_ave_event_and_difficulty_sets_are_served())
   set failed = failed + report("test_ave_profile_and_alliance_refresh_are_consistent", test_ave_profile_and_alliance_refresh_are_consistent())
+  set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(18 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(19 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
