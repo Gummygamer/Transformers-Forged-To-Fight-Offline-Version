@@ -41,6 +41,15 @@ function responses(): text
   path_join(here(), "responses")
 end
 
+function read_response(name: text): text
+  intent: read a canned response file with line endings normalised to LF
+  -- The payload is size-checked to the byte against a fixed constant. Git
+  -- checkouts with core.autocrlf=true (the Windows default) rewrite these
+  -- text files with CRLF endings, which would inflate the payload and trip
+  -- the size guard, so strip carriage returns on the way in.
+  replace(read_file(path_join(responses(), name)), "\r\n", "\n")
+end
+
 function envelope(value: Json): text
   intent: encode
   jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", value)]))
@@ -113,7 +122,7 @@ end
 
 function mission_pairs(): a list of text
   intent: build
-  let root: Json = jsonout.parse_json(read_file(path_join(responses(), "GET__quests_quest-list.json")))
+  let root: Json = jsonout.parse_json(read_response("GET__quests_quest-list.json"))
   mutable pairs: a list of text = []
   for item in jsonout.list_items(jsonout.obj_get(root, "result")) do
     let set_id: text = jsonout.as_text(jsonout.obj_get(item, "setId"))
@@ -306,7 +315,7 @@ function build_entries(listen_port: integer): Entries
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
   mutable entries: Entries = Entries { keys: [], bodies: {} }
   for name in sort_text(list_dir(responses())) do
-    if ends_with(name, ".json") and not starts_with(name, "_") then set entries = add(entries, route_from_response(name), read_file(path_join(responses(), name))) end
+    if ends_with(name, ".json") and not starts_with(name, "_") then set entries = add(entries, route_from_response(name), read_response(name)) end
   end
   set entries = add(entries, "GET /base/active", envelope(gamedata.build_base_active()))
   set entries = add_quests(entries)
@@ -378,7 +387,7 @@ end
 
 function prefixes(): Prefixes
   intent: build
-  let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_file(path_join(responses(), "_prefix_rules.json"))))
+  let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_response("_prefix_rules.json")))
   mutable prefix_keys: a list of text = []
   mutable prefix_bodies: a list of text = []
   for rule in rules do
@@ -386,7 +395,7 @@ function prefixes(): Prefixes
     let key: text = jsonout.as_text(unwrap_or(get(values, 0), jsonout.json_text("")))
     let filename: text = jsonout.as_text(unwrap_or(get(values, 1), jsonout.json_text("")))
     set prefix_keys = append(prefix_keys, key)
-    set prefix_bodies = append(prefix_bodies, read_file(path_join(responses(), filename)))
+    set prefix_bodies = append(prefix_bodies, read_response(filename))
   end
   Prefixes { keys: prefix_keys, bodies: prefix_bodies }
 end

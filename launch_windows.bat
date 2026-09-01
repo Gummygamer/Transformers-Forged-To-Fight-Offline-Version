@@ -282,29 +282,38 @@ if not exist "!DEBUG_KEYSTORE!" (
 exit /b 0
 
 :update_legible
-rem legible is already installed. Keep it in sync with the pinned interpreter
-rem source so repository scripts that need newer builtins (for example
-rem `bytes_inflate`, used by the APK builder) keep working. This is best
-rem effort: if anything here fails, the working interpreter is left in place.
+rem legible is already on PATH. Keep the actual binary in sync with the pinned
+rem interpreter source so repository scripts that adopt newer builtins (for
+rem example `bytes_inflate`, used by the APK builder) keep working. The rebuild
+rem decision is driven by a marker file this script writes only after a
+rem successful `cargo install`, so a stale binary is caught even when the
+rem source checkout is already current. Best effort: any failure here leaves
+rem the working interpreter in place.
 where git >nul 2>nul
 if not %errorlevel%==0 exit /b 0
+
+rem Make sure an interpreter source checkout exists. It may be missing when
+rem legible was installed some other way, or when the cache was cleared.
+if not exist "%LEGIBLE_SRC%\Cargo.toml" (
+  if not exist "%LEGIBLE_ROOT%" mkdir "%LEGIBLE_ROOT%" >nul 2>nul
+  echo ==^> Fetching the legible interpreter source...
+  git clone --depth 1 --branch "%LEGIBLE_BRANCH%" "%LEGIBLE_REPO%" "%LEGIBLE_SRC%" >nul 2>nul
+)
 if not exist "%LEGIBLE_SRC%\Cargo.toml" exit /b 0
 git -C "%LEGIBLE_SRC%" rev-parse --is-inside-work-tree >nul 2>nul
 if not %errorlevel%==0 exit /b 0
 
-set "LEGIBLE_HEAD_BEFORE="
-set "LEGIBLE_HEAD_AFTER="
-for /f "delims=" %%H in ('git -C "%LEGIBLE_SRC%" rev-parse HEAD 2^>nul') do set "LEGIBLE_HEAD_BEFORE=%%H"
 git -C "%LEGIBLE_SRC%" remote set-url origin "%LEGIBLE_REPO%" >nul 2>nul
 git -C "%LEGIBLE_SRC%" pull --ff-only origin "%LEGIBLE_BRANCH%" >nul 2>nul
-if not %errorlevel%==0 (
-  echo ==^> Could not check for legible interpreter updates; using the installed version.
-  exit /b 0
-)
-for /f "delims=" %%H in ('git -C "%LEGIBLE_SRC%" rev-parse HEAD 2^>nul') do set "LEGIBLE_HEAD_AFTER=%%H"
-if "!LEGIBLE_HEAD_BEFORE!"=="!LEGIBLE_HEAD_AFTER!" exit /b 0
 
-echo ==^> Updating the legible interpreter to match the pinned source...
+set "LEGIBLE_SRC_HEAD="
+for /f "delims=" %%H in ('git -C "%LEGIBLE_SRC%" rev-parse HEAD 2^>nul') do set "LEGIBLE_SRC_HEAD=%%H"
+set "LEGIBLE_BUILT_MARK=%LEGIBLE_ROOT%\built-commit.txt"
+set "LEGIBLE_BUILT_HEAD="
+if exist "!LEGIBLE_BUILT_MARK!" set /p LEGIBLE_BUILT_HEAD=<"!LEGIBLE_BUILT_MARK!"
+if defined LEGIBLE_SRC_HEAD if "!LEGIBLE_BUILT_HEAD!"=="!LEGIBLE_SRC_HEAD!" exit /b 0
+
+echo ==^> Updating the legible interpreter to match the pinned source ^(this can take a minute^)...
 where cargo >nul 2>nul
 if not !errorlevel!==0 if exist "%USERPROFILE%\.cargo\bin\cargo.exe" set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 where cargo >nul 2>nul
@@ -314,11 +323,15 @@ if not !errorlevel!==0 (
   exit /b 0
 )
 pushd "%LEGIBLE_SRC%"
-cargo install --path . --no-default-features --locked
-set "LEGIBLE_UPDATE_RESULT=%errorlevel%"
+cargo install --path . --no-default-features --locked --force
+set "LEGIBLE_UPDATE_RESULT=!errorlevel!"
 popd
-if not "%LEGIBLE_UPDATE_RESULT%"=="0" echo     legible rebuild failed; keeping the previously installed version.
 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+if "!LEGIBLE_UPDATE_RESULT!"=="0" (
+  > "!LEGIBLE_BUILT_MARK!" echo !LEGIBLE_SRC_HEAD!
+) else (
+  echo     legible rebuild failed; keeping the previously installed version.
+)
 exit /b 0
 
 :install_legible
@@ -427,10 +440,14 @@ rem (used by the APK patcher GUI) are not behind a feature flag and always
 rem get built.
 echo ==^> Building and installing the legible interpreter ^(first build can take several minutes^)...
 pushd "%LEGIBLE_SRC%"
-cargo install --path . --no-default-features --locked
+cargo install --path . --no-default-features --locked --force
 set "BUILD_RESULT=%errorlevel%"
 popd
 if not "%BUILD_RESULT%"=="0" exit /b 1
+
+rem Record the built commit so :update_legible can tell a later run whether the
+rem installed binary is still current.
+for /f "delims=" %%H in ('git -C "%LEGIBLE_SRC%" rev-parse HEAD 2^>nul') do > "%LEGIBLE_ROOT%\built-commit.txt" echo %%H
 
 set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
 exit /b 0
