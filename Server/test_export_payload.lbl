@@ -19,6 +19,11 @@ function ok(): TestResult
   TestResult { passed: true, detail: "" }
 end
 
+function canned(name: text): text
+  intent: read a canned response file with the same LF normalisation the payload uses
+  replace(read_file(path_join(fakeserver.resp_dir(), name)), "\r\n", "\n")
+end
+
 function failed(detail: text): TestResult
   intent: return
   TestResult { passed: false, detail: detail }
@@ -213,13 +218,13 @@ function test_static_prefix_and_default_parity(blob: integer, payload: Payload):
     if detail == "" and ends_with(name, ".json") and not starts_with(name, "_") then
       let key: text = route_from_name(name)
       let actual: text = entry_body(payload, key)
-      let expected: text = read_file(path_join(fakeserver.resp_dir(), name))
+      let expected: text = canned(name)
       if actual != expected then set detail = "canned response differs: " ++ name end
     end
   end
   if detail == "" and length(payload.prefix_keys) != 1 then set detail = "prefix count differs" end
   if detail == "" and unwrap_or(get(payload.prefix_keys, 0), "") != "/autorefresh/" then set detail = "prefix key differs" end
-  if detail == "" and unwrap_or(get(payload.prefix_bodies, 0), "") != read_file(path_join(fakeserver.resp_dir(), "_autorefresh.json")) then set detail = "prefix body differs" end
+  if detail == "" and unwrap_or(get(payload.prefix_bodies, 0), "") != canned("_autorefresh.json") then set detail = "prefix body differs" end
   if detail == "" and payload.default_body != "\{\"error\":null,\"result\":\{\}\}" then set detail = "default body differs" end
   if bytes_length(blob) == 0 and detail == "" then set detail = "built blob is empty" end
   if detail == "" then ok() else failed(detail) end
@@ -355,7 +360,7 @@ function check_team_fragments(payload: Payload): text
     end
   end
   let user_data: text = expand_team_template(payload, entry_body(payload, "@userdata:template"), [], "0")
-  if detail == "" and user_data != read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json")) then set detail = "user-data template differs" end
+  if detail == "" and user_data != canned("GET__bcg_getUserData.json") then set detail = "user-data template differs" end
   if detail == "" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(user_data), "result"), "userData"), "teamSizeMax")) != 5 then set detail = "user-data teamSizeMax differs" end
   detail
 end
