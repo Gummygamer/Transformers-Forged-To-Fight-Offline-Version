@@ -137,6 +137,16 @@ function entry_body(payload: Payload, key: text): text
   if index < 0 then "" else unwrap_or(get(payload.entry_bodies, index), "") end
 end
 
+function prefix_body(payload: Payload, key: text): text
+  intent: get
+  mutable index: integer = 0
+  while index < length(payload.prefix_keys) do
+    if unwrap_or(get(payload.prefix_keys, index), "") == key then return unwrap_or(get(payload.prefix_bodies, index), "") end
+    set index = index + 1
+  end
+  ""
+end
+
 function route_from_name(name: text): text
   intent: build
   let stem: text = substring(name, 0, text_length(name) - 5)
@@ -169,14 +179,14 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4848656 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4852244 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9543 then set detail = "entry count is not 9543" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9548 then set detail = "entry count is not 9548" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
-  if detail == "" and bytes_read_u32_le(blob, 28) != 1 then set detail = "prefix count is not 1" end
+  if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
   if detail == "" and (bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0) then set detail = "reserved fields are non-zero" end
   if detail == "" and payload.error != "" then set detail = "decoder failed: " ++ payload.error end
   mutable index: integer = 0
@@ -222,10 +232,29 @@ function test_static_prefix_and_default_parity(blob: integer, payload: Payload):
       if actual != expected then set detail = "canned response differs: " ++ name end
     end
   end
-  if detail == "" and length(payload.prefix_keys) != 1 then set detail = "prefix count differs" end
+  if detail == "" and length(payload.prefix_keys) != 2 then set detail = "prefix count differs" end
   if detail == "" and unwrap_or(get(payload.prefix_keys, 0), "") != "/autorefresh/" then set detail = "prefix key differs" end
   if detail == "" and unwrap_or(get(payload.prefix_bodies, 0), "") != canned("_autorefresh.json") then set detail = "prefix body differs" end
+  if detail == "" and unwrap_or(get(payload.prefix_keys, 1), "") != "/ds/1000000000001" then set detail = "self-profile prefix key differs" end
+  if detail == "" and unwrap_or(get(payload.prefix_bodies, 1), "") != canned("GET__ds_1000000000001.json") then set detail = "self-profile prefix body differs" end
   if detail == "" and payload.default_body != "\{\"error\":null,\"result\":\{\}\}" then set detail = "default body differs" end
+  if bytes_length(blob) == 0 and detail == "" then set detail = "built blob is empty" end
+  if detail == "" then ok() else failed(detail) end
+end
+
+function test_alliance_and_self_profile_routes_are_baked(blob: integer, payload: Payload): TestResult
+  intent: test
+  mutable detail: text = ""
+  for name in ["GET__ds_1000000000001.json", "GET__alliances_refresh.json", "POST__alliances_refresh.json", "GET__alliances_details.json", "POST__alliances_details.json"] do
+    let key: text = route_from_name(name)
+    let body: text = entry_body(payload, key)
+    if detail == "" and body == "" then set detail = "missing baked route: " ++ key end
+    if detail == "" and body != canned(name) then set detail = "baked route differs: " ++ key end
+  end
+  let profile: Json = jsonout.obj_get(jsonout.parse_json(prefix_body(payload, "/ds/1000000000001")), "result")
+  let alliance: Json = jsonout.obj_get(profile, "alliance")
+  let refreshed: Json = jsonout.obj_get(jsonout.parse_json(entry_body(payload, "POST /alliances/refresh")), "result")
+  if detail == "" and (jsonout.as_text(jsonout.obj_get(profile, "aid")) != "offline-alliance" or jsonout.as_text(jsonout.obj_get(alliance, "aid")) != "offline-alliance" or jsonout.as_text(jsonout.obj_get(refreshed, "aid")) != "offline-alliance") then set detail = "baked alliance identity differs" end
   if bytes_length(blob) == 0 and detail == "" then set detail = "built blob is empty" end
   if detail == "" then ok() else failed(detail) end
 end
@@ -392,6 +421,9 @@ function main(): nothing
   set failed_count = failed_count + report("test_static_prefix_and_default_parity", test_static_prefix_and_default_parity(blob, payload))
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
+  set failed_count = failed_count + report("test_alliance_and_self_profile_routes_are_baked", test_alliance_and_self_profile_routes_are_baked(blob, payload))
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
   set failed_count = failed_count + report("test_dynamic_parity", test_dynamic_parity(blob, payload))
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
@@ -402,7 +434,7 @@ function main(): nothing
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   bytes_free(blob)
-  print(to_text(6 - failed_count) ++ " passed, " ++ to_text(failed_count) ++ " failed")
+  print(to_text(7 - failed_count) ++ " passed, " ++ to_text(failed_count) ++ " failed")
   if failed_count > 0 then exit_process(1) end
 end
 
