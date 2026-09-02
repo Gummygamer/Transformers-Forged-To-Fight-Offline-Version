@@ -282,6 +282,12 @@ public function default_patched_il2cpp(): text
   path_join(path_join(project_root(), "build"), "libil2cpp-armv7-patched.so")
 end
 
+public function default_il2cpp_source(abi: text): text
+  intent: return an extracted pristine library only when it actually exists
+  let candidate: text = path_join(path_join(path_join(path_join(project_root(), "Transformers 9.2 extracted"), "lib"), abi), "libil2cpp.so")
+  if file_exists(candidate) then candidate else "" end
+end
+
 function default_keystore(): text
   intent: return debug keystore path
   if home_dir() == "" then ".android/debug.keystore" else path_join(path_join(home_dir(), ".android"), "debug.keystore") end
@@ -302,7 +308,7 @@ public function default_request_for(abi: text): BuildRequest
     keep_other_abi: false,
     patched_il2cpp: patched,
     auto_patch_il2cpp: false,
-    il2cpp_source: path_join(path_join(path_join(path_join(root, "Transformers 9.2 extracted"), "lib"), abi), "libil2cpp.so"),
+    il2cpp_source: default_il2cpp_source(abi),
     keystore: default_keystore(),
     ks_pass: "android",
     key_pass: "android",
@@ -399,6 +405,21 @@ public function auto_patch_output(request: BuildRequest): text
   path_join(path_join(project_root(), "build"), "libil2cpp-" ++ request.abi ++ "-patched.so")
 end
 
+public function auto_patch_extracted_source(request: BuildRequest): text
+  intent: return the pristine library path extracted automatically from the source APK
+  path_join(path_join(project_root(), "build"), "libil2cpp-" ++ request.abi ++ "-pristine.so")
+end
+
+public function auto_patch_source(request: BuildRequest): text
+  intent: choose an existing manual pristine library or the automatically extracted copy
+  if trim(request.il2cpp_source) != "" and file_exists(request.il2cpp_source) then request.il2cpp_source else auto_patch_extracted_source(request) end
+end
+
+public function needs_auto_patch_extraction(request: BuildRequest): boolean
+  intent: report whether auto-patching must extract the pristine library from the APK
+  request.auto_patch_il2cpp and (trim(request.il2cpp_source) == "" or not file_exists(request.il2cpp_source))
+end
+
 public function elf_abi(path: text): text
   intent: check
   if not file_exists(path) then "" else
@@ -458,9 +479,7 @@ function validate_libraries(request: BuildRequest): Validation
       set errors = append(errors, "The supplied patched libil2cpp.so at " ++ request.patched_il2cpp ++ " is " ++ actual_abi ++ ", but this build targets " ++ request.abi ++ ". Supply a patched library built for " ++ request.abi ++ ", or change the ABI.")
     end
   end
-  if request.auto_patch_il2cpp and (trim(request.il2cpp_source) == "" or not file_exists(request.il2cpp_source)) then
-    set errors = append(errors, "Auto-patching is enabled, but the pristine libil2cpp.so source is missing or is not a file.")
-  else if request.auto_patch_il2cpp then
+  if request.auto_patch_il2cpp and trim(request.il2cpp_source) != "" and file_exists(request.il2cpp_source) then
     let source_abi: text = elf_abi(request.il2cpp_source)
     if source_abi != "" and source_abi != request.abi then
       set errors = append(errors, "The pristine libil2cpp.so source at " ++ request.il2cpp_source ++ " is " ++ source_abi ++ ", but this build targets " ++ request.abi ++ ". Choose the pristine library for " ++ request.abi ++ ", or change the ABI.")
@@ -510,7 +529,12 @@ end
 public function patch_il2cpp_command(request: BuildRequest): a list of text
   intent: build patch command
   let needed: text = if request.abi == arm64() then "byte" else "inplace" end
-  [request.legible, "run", path_join(path_join(project_root(), "patches"), "patch_il2cpp.lbl"), "--abi", request.abi, "--needed", needed, "--apply", "-o", auto_patch_output(request), request.il2cpp_source]
+  [request.legible, "run", path_join(path_join(project_root(), "patches"), "patch_il2cpp.lbl"), "--abi", request.abi, "--needed", needed, "--apply", "-o", auto_patch_output(request), auto_patch_source(request)]
+end
+
+public function extract_il2cpp_command(request: BuildRequest): a list of text
+  intent: build the command that extracts a pristine library from the selected APK
+  [request.legible, "run", path_join(path_join(project_root(), "Server"), "extract_libil2cpp.lbl"), request.source_apk, request.abi, auto_patch_extracted_source(request)]
 end
 
 public function build_apk_command(request: BuildRequest, unsigned: text): a list of text
@@ -572,6 +596,7 @@ public function plan_steps(request: BuildRequest): a list of Step
   let paths: IntermediatePaths = intermediate_paths(request)
   mutable steps: a list of Step = []
   if request.rebuild_hook then set steps = append(steps, Step { name: "build native hook", argv: build_hook_command(request), cwd: project_root(), java: "" }) end
+  if needs_auto_patch_extraction(request) then set steps = append(steps, Step { name: "extract pristine il2cpp", argv: extract_il2cpp_command(request), cwd: project_root(), java: "" }) end
   if request.auto_patch_il2cpp then set steps = append(steps, Step { name: "patch il2cpp", argv: patch_il2cpp_command(request), cwd: project_root(), java: "" }) end
   set steps = append(steps, Step { name: "build APK", argv: build_apk_command(request, paths.unsigned), cwd: project_root(), java: "" })
   set steps = append(steps, Step { name: "zipalign APK", argv: zipalign_command(request, paths.unsigned, paths.aligned), cwd: "", java: "" })

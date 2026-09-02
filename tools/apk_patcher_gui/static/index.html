@@ -43,7 +43,8 @@
         <p id="armv7-warning" class="alert error hidden">32-bit builds require a patched libil2cpp.so. Without it the APK installs, but <code>TFTFHOOK</code> never logs and nothing listens on port 8080.</p>
         <label>Patched libil2cpp.so <input id="patched_il2cpp" name="patched_il2cpp" type="text"></label>
         <label><input id="auto_patch_il2cpp" name="auto_patch_il2cpp" type="checkbox"> Auto-patch it for me</label>
-        <label>Pristine libil2cpp.so source <input id="il2cpp_source" name="il2cpp_source" type="text"></label>
+        <label>Pristine libil2cpp.so source (optional) <input id="il2cpp_source" name="il2cpp_source" type="text"></label>
+        <p class="note">Leave this empty to extract the correct library automatically from the selected source APK.</p>
       </fieldset>
 
       <fieldset>

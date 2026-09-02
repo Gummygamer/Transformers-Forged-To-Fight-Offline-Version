@@ -1,0 +1,22 @@
+-- Extract the pristine libil2cpp.so for one ABI from a selected APK.
+use build_phone_apk
+
+function die(message: text, code: integer): nothing
+  intent: print an extraction error and stop
+  print(message)
+  exit_process(code)
+end
+
+function main(): nothing
+  intent: extract a pristine library for the GUI auto-patching pipeline
+  let args: a list of text = get_args()
+  if length(args) != 4 then die("usage: extract_libil2cpp.lbl <source.apk> <arm64-v8a|armeabi-v7a> <destination.so>", 2) end
+  let source: text = unwrap_or(get(args, 1), "")
+  let abi: text = unwrap_or(get(args, 2), "")
+  let destination: text = unwrap_or(get(args, 3), "")
+  let error: text = build_phone_apk.extract_libil2cpp(source, abi, destination)
+  if error != "" then die(error, 1) end
+  print("extracted pristine " ++ abi ++ " libil2cpp.so to " ++ destination)
+end
+
+main()

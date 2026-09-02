@@ -39,8 +39,8 @@ end
 
 function fixture(): Fixture
   intent: create pipeline fixtures
-  let root: text = "/tmp/apk-patcher-pipeline-" ++ to_text(random_int(1000000000))
-  create_dir(root)
+  let root: text = path_join(path_join(pipeline.project_root(), "build"), ".test-apk-patcher-pipeline")
+  if not is_dir(root) then create_dir(root) end
   let source: text = path_join(root, "source with spaces.apk")
   let destination: text = path_join(root, "patched.apk")
   let keystore: text = path_join(root, "debug.keystore")
@@ -179,12 +179,22 @@ function pristine_elf_mismatch_test(fix: Fixture): boolean
   contains_text(join(checked.errors, "\n"), "pristine libil2cpp.so source") and contains_text(join(checked.errors, "\n"), "is armeabi-v7a") and contains_text(join(checked.errors, "\n"), "targets arm64-v8a")
 end
 
+function automatic_apk_extraction_test(fix: Fixture): boolean
+  intent: test fallback extraction when the optional pristine path is missing
+  let missing: text = path_join(fix.root, "missing-pristine.so")
+  let request: BuildRequest = fix.request with { auto_patch_il2cpp: true, il2cpp_source: missing }
+  let checked: Validation = pipeline.validate(request)
+  let steps: a list of Step = pipeline.plan_steps(request)
+  let extract: Step = unwrap(get(steps, 0))
+  let patch: Step = unwrap(get(steps, 1))
+  length(checked.errors) == 0 and length(steps) == 7 and extract.name == "extract pristine il2cpp" and contains(extract.argv, request.source_apk) and contains(extract.argv, request.abi) and contains(extract.argv, pipeline.auto_patch_extracted_source(request)) and patch.name == "patch il2cpp" and contains(patch.argv, pipeline.auto_patch_extracted_source(request))
+end
+
 function defaults_test(): boolean
   intent: test
   let request: BuildRequest = pipeline.default_request()
   let home: text = unwrap_or(env_get("HOME"), unwrap_or(env_get("USERPROFILE"), ""))
-  let il2cpp_tail: text = path_join(path_join("arm64-v8a", ""), "libil2cpp.so")
-  request.abi == pipeline.arm64() and request.rebuild_hook and request.patched_il2cpp == "" and contains_text(request.il2cpp_source, il2cpp_tail) and request.keystore == path_join(path_join(home, ".android"), "debug.keystore") and contains(pipeline.sdk_roots(), path_join(path_join(home, "Android"), "Sdk"))
+  request.abi == pipeline.arm64() and request.rebuild_hook and request.patched_il2cpp == "" and request.il2cpp_source == pipeline.default_il2cpp_source(pipeline.arm64()) and request.keystore == path_join(path_join(home, ".android"), "debug.keystore") and contains(pipeline.sdk_roots(), path_join(path_join(home, "Android"), "Sdk"))
 end
 
 function mapping_test(fix: Fixture): boolean
@@ -240,13 +250,13 @@ function main(): nothing
   set counts = add(counts, report("ELF ABI detection", elf_test(fix)))
   set counts = add(counts, report("ELF mismatch validation", elf_mismatch_test(fix)))
   set counts = add(counts, report("pristine ELF mismatch validation", pristine_elf_mismatch_test(fix)))
+  set counts = add(counts, report("automatic APK extraction fallback", automatic_apk_extraction_test(fix)))
   set counts = add(counts, report("user-specific defaults", defaults_test()))
   set counts = add(counts, report("browser mapping", mapping_test(fix)))
   set counts = add(counts, report("Windows directory names", windows_directory_name_test()))
   set counts = add(counts, report("Windows LOCALAPPDATA SDK root", windows_sdk_root_test()))
   set counts = add(counts, report("Windows executable variants", windows_executable_variants_test()))
   set counts = add(counts, report("Windows native executable paths", windows_native_path_test()))
-  shell_exec("rm -rf -- " ++ pipeline.shell_quote(fix.root))
   print(to_text(counts.passed) ++ " passed, " ++ to_text(counts.failed) ++ " failed")
   if counts.failed > 0 then exit_process(1) end
 end
