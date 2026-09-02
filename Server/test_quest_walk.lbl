@@ -103,7 +103,7 @@ function team_matches(node: Json, team: a list of text): boolean
   jsonout.encode_compact(node) == jsonout.encode_compact(jsonout.json_obj(expected))
 end
 
-function test_begin_then_walks_through_patrol_to_scout(base: text, port: integer): boolean
+function test_begin_then_walks_through_bludgeon_to_scout(base: text, port: integer): boolean
   intent: test
   let team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
   let begin_body: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\"\}"
@@ -114,15 +114,15 @@ function test_begin_then_walks_through_patrol_to_scout(base: text, port: integer
   let board: Json = jsonout.obj_get(instance, "map")
   let grid: Json = jsonout.obj_get(board, "grid")
   let start: Json = item(item(grid, 0), 1)
-  let patrol: Json = item(item(grid, 1), 1)
+  let bludgeon_tile: Json = item(item(grid, 1), 1)
   let boss: Json = item(item(grid, gamedata.quest_dim() - 1), 1)
-  let minion: text = gamedata.minion_blueprint()
+  let first_enemy: text = gamedata.first_encounter_blueprint()
   let scout: text = "kickback_gs_kabam"
   let link_zero: text = "\{\"x\":0,\"y\":1\}"
   let link_boss: text = "\{\"x\":2,\"y\":1\}"
   mutable links_have_zero: boolean = false
   mutable links_have_boss: boolean = false
-  for link in jsonout.list_items(jsonout.obj_get(patrol, "links")) do
+  for link in jsonout.list_items(jsonout.obj_get(bludgeon_tile, "links")) do
     if jsonout.encode_compact(link) == link_zero then set links_have_zero = true end
     if jsonout.encode_compact(link) == link_boss then set links_have_boss = true end
   end
@@ -136,19 +136,19 @@ function test_begin_then_walks_through_patrol_to_scout(base: text, port: integer
   let second: Json = result(second_reply)
   let second_results: Json = jsonout.obj_get(second, "results")
   let second_battle: Json = jsonout.obj_get(jsonout.obj_get(item(second_results, 1), "action"), "battle")
-  begun_reply.status == "200" and team_matches(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid()), "team"), team) and jsonout.as_bool(jsonout.obj_get(start, "start")) and jsonout.as_bool(jsonout.obj_get(patrol, "walkable")) and (not jsonout.obj_has(patrol, "final") or not jsonout.as_bool(jsonout.obj_get(patrol, "final"))) and jsonout.as_text(jsonout.obj_get(patrol, "boss")) == minion and jsonout.obj_has(jsonout.obj_get(patrol, "entities"), minion) and not jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(patrol, "entities"), minion) |> jsonout.obj_get("isFinalBoss")) and links_have_zero and links_have_boss and jsonout.as_bool(jsonout.obj_get(boss, "final")) and first_reply.status == "200" and length(jsonout.list_items(first_results)) == 2 and team_matches(jsonout.obj_get(jsonout.obj_get(first, "teamData"), "heroes"), team) and encoded(jsonout.obj_get(jsonout.obj_get(item(first_results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(first_battle, "x")) == 1 and jsonout.as_int(jsonout.obj_get(first_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(first_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(first_battle, "battleEnemy"), "key")) == minion and jsonout.as_text(jsonout.obj_get(progression, "currentBattleId")) == minion and encoded(jsonout.obj_get(progression, "currentBattleEnemy"), "\{\"id\":\"" ++ minion ++ "\"\}") and encoded(jsonout.obj_get(progression, "currentBattlePos"), "\{\"x\":1,\"y\":1\}") and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid()), "currentBattleState")) == "activated" and resolved.status == "200" and resolved.body == "\{\"error\":null,\"result\":\{\}\}" and second_reply.status == "200" and encoded(jsonout.obj_get(jsonout.obj_get(item(second_results, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(second_battle, "x")) == 2 and jsonout.as_int(jsonout.obj_get(second_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(second_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(second_battle, "battleEnemy"), "key")) == scout
+  begun_reply.status == "200" and team_matches(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid()), "team"), team) and jsonout.as_bool(jsonout.obj_get(start, "start")) and jsonout.as_bool(jsonout.obj_get(bludgeon_tile, "walkable")) and (not jsonout.obj_has(bludgeon_tile, "final") or not jsonout.as_bool(jsonout.obj_get(bludgeon_tile, "final"))) and jsonout.as_text(jsonout.obj_get(bludgeon_tile, "boss")) == first_enemy and jsonout.obj_has(jsonout.obj_get(bludgeon_tile, "entities"), first_enemy) and not jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(bludgeon_tile, "entities"), first_enemy) |> jsonout.obj_get("isFinalBoss")) and links_have_zero and links_have_boss and jsonout.as_bool(jsonout.obj_get(boss, "final")) and first_reply.status == "200" and length(jsonout.list_items(first_results)) == 2 and team_matches(jsonout.obj_get(jsonout.obj_get(first, "teamData"), "heroes"), team) and encoded(jsonout.obj_get(jsonout.obj_get(item(first_results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(first_battle, "x")) == 1 and jsonout.as_int(jsonout.obj_get(first_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(first_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(first_battle, "battleEnemy"), "key")) == first_enemy and jsonout.as_text(jsonout.obj_get(progression, "currentBattleId")) == first_enemy and encoded(jsonout.obj_get(progression, "currentBattleEnemy"), "\{\"id\":\"" ++ first_enemy ++ "\"\}") and encoded(jsonout.obj_get(progression, "currentBattlePos"), "\{\"x\":1,\"y\":1\}") and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid()), "currentBattleState")) == "activated" and resolved.status == "200" and resolved.body == "\{\"error\":null,\"result\":\{\}\}" and second_reply.status == "200" and encoded(jsonout.obj_get(jsonout.obj_get(item(second_results, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(second_battle, "x")) == 2 and jsonout.as_int(jsonout.obj_get(second_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(second_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(second_battle, "battleEnemy"), "key")) == scout
 end
 
-function test_both_quest_enemies_resolve_to_their_shipped_assets(base: text, port: integer): boolean
+function test_first_and_final_quest_enemies_resolve_to_their_shipped_assets(base: text, port: integer): boolean
   intent: test
-  let minion: text = gamedata.minion_blueprint()
+  let first_enemy: text = gamedata.first_encounter_blueprint()
   let boss: text = gamedata.boss_blueprint()
-  let body: text = "\{\"heroes\":[\{\"bid\":\"" ++ minion ++ "\",\"rank\":1,\"level\":1\},\{\"bid\":\"" ++ boss ++ "\",\"rank\":1,\"level\":1\}]\}"
+  let body: text = "\{\"heroes\":[\{\"bid\":\"" ++ first_enemy ++ "\",\"rank\":1,\"level\":1\},\{\"bid\":\"" ++ boss ++ "\",\"rank\":1,\"level\":1\}]\}"
   let reply: HttpReply = post(base, port, "/bcg/getBaseHeroData", body)
   let heroes: Json = result(reply)
   let first: Json = item(heroes, 0)
   let second: Json = item(heroes, 1)
-  reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == minion and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "npc_shark_warr" and jsonout.as_text(jsonout.obj_get(second, "img")) == "nemesis_p" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
+  reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == first_enemy and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "bludge_gs" and jsonout.as_text(jsonout.obj_get(second, "img")) == "nemesis_p" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
 end
 
 function last_slash(path: text): integer
@@ -198,13 +198,13 @@ function main(): nothing
       print("0 passed, 2 failed")
       exit_process(1)
     else
-      let walk: boolean = test_begin_then_walks_through_patrol_to_scout(base, port)
-      let assets: boolean = test_both_quest_enemies_resolve_to_their_shipped_assets(base, port)
+      let walk: boolean = test_begin_then_walks_through_bludgeon_to_scout(base, port)
+      let assets: boolean = test_first_and_final_quest_enemies_resolve_to_their_shipped_assets(base, port)
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
       shell_exec("rm -rf -- " ++ base)
-      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets)
+      let failed: integer = report("test_begin_then_walks_through_bludgeon_to_scout", walk) + report("test_first_and_final_quest_enemies_resolve_to_their_shipped_assets", assets)
       print(to_text(2 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
       if failed > 0 then exit_process(1) end
     end
