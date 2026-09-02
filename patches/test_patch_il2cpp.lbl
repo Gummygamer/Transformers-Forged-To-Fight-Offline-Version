@@ -52,9 +52,9 @@ function test_new_level_lock_sites_patch_to_mov_w0_zero_ret(): boolean
   patch_bytes_match(sites, 15779872, "00008052c0035fd6") and patch_bytes_match(sites, 15782864, "00008052c0035fd6") and patch_bytes_match(sites, 15783048, "00008052c0035fd6") and patch_bytes_match(sites, 15868548, "00008052c0035fd6")
 end
 
-function test_arm64_site_count_is_fourteen(): boolean
+function test_arm64_site_count_is_fifteen(): boolean
   intent: test
-  length(patch_il2cpp.arm64_sites()) == 14
+  length(patch_il2cpp.arm64_sites()) == 15
 end
 
 function test_alliance_gate_arm64_sites_present(): boolean
@@ -67,6 +67,12 @@ function test_alliance_gate_arm64_patch_bytes(): boolean
   intent: test
   let sites: a list of Site = patch_il2cpp.arm64_sites()
   patch_bytes_match(sites, 16569924, "20008052c0035fd6") and patch_bytes_match(sites, 15373560, "1f2003d5")
+end
+
+function test_ave_no_events_arm64_site_present_and_true(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.arm64_sites()
+  offset_present(sites, 16567012) and patch_bytes_match(sites, 16567012, "20008052c0035fd6")
 end
 
 function test_preexisting_arm64_sites_retained(): boolean
@@ -99,9 +105,9 @@ function test_new_armv7_reachability_sites_patch_to_constants(): boolean
   patch_bytes_match(sites, 27322892, "0200a0e31eff2fe1") and patch_bytes_match(sites, 17149180, "0100a0e31eff2fe1")
 end
 
-function test_armv7_site_count_is_fourteen(): boolean
+function test_armv7_site_count_is_fifteen(): boolean
   intent: test
-  length(patch_il2cpp.armv7_sites()) == 14
+  length(patch_il2cpp.armv7_sites()) == 15
 end
 
 function test_alliance_gate_armv7_sites_present(): boolean
@@ -116,6 +122,12 @@ function test_alliance_gate_armv7_patch_bytes(): boolean
   patch_bytes_match(sites, 12808412, "0100a0e31eff2fe1") and patch_bytes_match(sites, 11333248, "00f020e3")
 end
 
+function test_ave_no_events_armv7_site_present_and_true(): boolean
+  intent: test
+  let sites: a list of Site = patch_il2cpp.armv7_sites()
+  offset_present(sites, 12804728) and patch_bytes_match(sites, 12804728, "0100a0e31eff2fe1")
+end
+
 function test_preexisting_armv7_sites_retained(): boolean
   intent: test
   let sites: a list of Site = patch_il2cpp.armv7_sites()
@@ -127,19 +139,21 @@ function main(): nothing
   mutable failed: integer = 0
   set failed = failed + report("test_new_level_lock_sites_present", test_new_level_lock_sites_present())
   set failed = failed + report("test_new_level_lock_sites_patch_to_mov_w0_zero_ret", test_new_level_lock_sites_patch_to_mov_w0_zero_ret())
-  set failed = failed + report("test_arm64_site_count_is_fourteen", test_arm64_site_count_is_fourteen())
+  set failed = failed + report("test_arm64_site_count_is_fifteen", test_arm64_site_count_is_fifteen())
   set failed = failed + report("test_alliance_gate_arm64_sites_present", test_alliance_gate_arm64_sites_present())
   set failed = failed + report("test_alliance_gate_arm64_patch_bytes", test_alliance_gate_arm64_patch_bytes())
+  set failed = failed + report("test_ave_no_events_arm64_site_present_and_true", test_ave_no_events_arm64_site_present_and_true())
   set failed = failed + report("test_preexisting_arm64_sites_retained", test_preexisting_arm64_sites_retained())
   set failed = failed + report("test_new_armv7_level_lock_sites_present", test_new_armv7_level_lock_sites_present())
   set failed = failed + report("test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr", test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr())
   set failed = failed + report("test_new_armv7_reachability_sites_present", test_new_armv7_reachability_sites_present())
   set failed = failed + report("test_new_armv7_reachability_sites_patch_to_constants", test_new_armv7_reachability_sites_patch_to_constants())
-  set failed = failed + report("test_armv7_site_count_is_fourteen", test_armv7_site_count_is_fourteen())
+  set failed = failed + report("test_armv7_site_count_is_fifteen", test_armv7_site_count_is_fifteen())
   set failed = failed + report("test_alliance_gate_armv7_sites_present", test_alliance_gate_armv7_sites_present())
   set failed = failed + report("test_alliance_gate_armv7_patch_bytes", test_alliance_gate_armv7_patch_bytes())
+  set failed = failed + report("test_ave_no_events_armv7_site_present_and_true", test_ave_no_events_armv7_site_present_and_true())
   set failed = failed + report("test_preexisting_armv7_sites_retained", test_preexisting_armv7_sites_retained())
-  print(to_text(14 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(16 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
