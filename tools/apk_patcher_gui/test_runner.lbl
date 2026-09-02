@@ -26,7 +26,7 @@ function worker_launch_command_test(): boolean
   let launch_log: text = "C:\\Users\\Acer\\My Project\\worker-start.log"
   let windows: text = runner.worker_launch_command(request, worker, launch_log, true)
   let unix: text = runner.worker_launch_command(request, "/tmp/worker.lbl", "/tmp/worker.log", false)
-  starts_with(windows, "powershell.exe -NoProfile -NonInteractive -Command ") and contains_text(windows, "Start-Process") and contains_text(windows, "c:\\Users\\Acer\\.cargo\\bin\\legible.exe") and contains_text(windows, "-RedirectStandardError") and not contains_text(windows, "nohup") and starts_with(unix, "nohup setsid ")
+  starts_with(windows, "powershell.exe -NoProfile -NonInteractive -Command ") and contains_text(windows, "Win32_ProcessStartup") and contains_text(windows, "Win32_Process") and contains_text(windows, "ProcessId") and contains_text(windows, "EncodedCommand") and contains_text(windows, "$env:PATH") and contains_text(windows, "c:\\Users\\Acer\\.cargo\\bin\\legible.exe") and not contains_text(windows, "Start-Process") and not contains_text(windows, "nohup") and starts_with(unix, "nohup setsid ")
 end
 
 function process_check_command_test(): boolean

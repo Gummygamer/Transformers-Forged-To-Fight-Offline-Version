@@ -86,8 +86,16 @@ end
 public function worker_launch_command(request: BuildRequest, worker: text, launch_log: text, windows: boolean): text
   intent: build the detached worker launch command
   if windows then
+    -- Starting the worker directly with Start-Process leaves Legible's captured
+    -- pipe handles inherited by the child on Windows. shell_exec then waits for
+    -- the entire build, blocking /api/run and preventing live log polling.
+    -- WMI creates the worker without inheriting those handles.
+    -- WMI starts from the account's registered environment, not the launcher's
+    -- process environment. Preserve PATH so the worker can find Git's sh.exe
+    -- and any tools enabled by launch_windows.bat.
     let error_log: text = launch_log ++ ".err"
-    let script: text = "$worker = Start-Process -FilePath " ++ powershell_quote(pipeline.windows_native_executable(request.legible)) ++ " -ArgumentList @(" ++ powershell_quote("run") ++ ", " ++ windows_argument(pipeline.windows_native_path(worker)) ++ ", " ++ windows_argument(pipeline.windows_native_path(pipeline.request_file())) ++ ") -RedirectStandardOutput " ++ powershell_quote(pipeline.windows_native_path(launch_log)) ++ " -RedirectStandardError " ++ powershell_quote(pipeline.windows_native_path(error_log)) ++ " -WindowStyle Hidden -PassThru; $worker.Id"
+    let payload: text = "$env:PATH = " ++ powershell_quote(unwrap_or(env_get("PATH"), "")) ++ "; Set-Location -LiteralPath " ++ powershell_quote(pipeline.windows_native_path(pipeline.project_root())) ++ "; & " ++ powershell_quote(pipeline.windows_native_executable(request.legible)) ++ " " ++ powershell_quote("run") ++ " " ++ powershell_quote(pipeline.windows_native_path(worker)) ++ " " ++ powershell_quote(pipeline.windows_native_path(pipeline.request_file())) ++ " 1> " ++ powershell_quote(pipeline.windows_native_path(launch_log)) ++ " 2> " ++ powershell_quote(pipeline.windows_native_path(error_log))
+    let script: text = "$payload = " ++ powershell_quote(payload) ++ "; $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($payload)); $commandLine = 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' + $encoded; $startup = ([wmiclass]'Win32_ProcessStartup').CreateInstance(); $startup.ShowWindow = 0; $result = ([wmiclass]'Win32_Process').Create($commandLine, " ++ powershell_quote(pipeline.windows_native_path(pipeline.project_root())) ++ ", $startup); if ($result.ReturnValue -ne 0) \{ exit $result.ReturnValue \}; [Console]::Out.Write($result.ProcessId)"
     powershell_command(script)
   else
     "nohup setsid " ++ pipeline.shell_quote(request.legible) ++ " run " ++ pipeline.shell_quote(worker) ++ " " ++ pipeline.shell_quote(pipeline.request_file()) ++ " > " ++ pipeline.shell_quote(launch_log) ++ " 2>&1 & echo $!"
