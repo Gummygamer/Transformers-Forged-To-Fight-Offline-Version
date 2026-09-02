@@ -415,7 +415,9 @@ optional install-to-device step. Choose `arm64-v8a` (64-bit, the default) or
 mode is either bundled (self-contained, no PC, fixed to `http` and `127.0.0.1`) or
 separate (a PC-hosted fake server, with a host, port, and `http`/`https` supplied by you).
 It also accepts a patched `libil2cpp.so` path, or can auto-patch one with
-`patches/patch_il2cpp.lbl` from the pristine library.
+`patches/patch_il2cpp.lbl`. The pristine-library field is optional: when it is empty or
+does not point to a file, the workflow extracts the selected ABI's stock `libil2cpp.so`
+directly from the source APK before patching it.
 
 Pressing **Build APK** runs the same pipeline documented below: native-hook compilation
 from `hook.c`/`hook_arm32.c` plus `inapk_server.c` when its default checkbox is enabled, optional

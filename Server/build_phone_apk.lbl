@@ -643,6 +643,25 @@ public function zip_entry_data(archive: ZipArchive, index: integer): integer
   if entry.data != 0 then copy_bytes(entry.data) else bytes_slice(archive.raw, entry.data_offset, entry.compress_size) end
 end
 
+public function extract_libil2cpp(source: text, abi: text, destination: text): text
+  intent: extract the selected ABI pristine libil2cpp from an APK
+  let archive: ZipArchive = zip_read(source)
+  mutable error: text = archive.error
+  if error == "" and abi != arm64() and abi != armv7() then set error = "invalid ABI: " ++ abi end
+  let index: integer = if error == "" then zip_find(archive, il2cpp_entry(abi)) else -1 end
+  if error == "" and index < 0 then set error = "APK is missing " ++ il2cpp_entry(abi) end
+  if error == "" then
+    let entry: ZipEntry = unwrap(get(archive.entries, index))
+    let stored: integer = zip_entry_data(archive, index)
+    let data: integer = if entry.compress_type == 0 then stored else bytes_inflate(stored, entry.file_size) end
+    write_file_bytes(destination, data)
+    if data != stored then bytes_free(data) end
+    bytes_free(stored)
+  end
+  zip_free(archive)
+  error
+end
+
 public function zip_free(archive: ZipArchive): nothing
   intent: free
   for entry in archive.entries do
