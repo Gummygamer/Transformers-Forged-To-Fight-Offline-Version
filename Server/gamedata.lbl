@@ -502,6 +502,11 @@ public function minion_blueprint(): text
   "sharkticon_gs_warrior"
 end
 
+public function first_encounter_blueprint(): text
+  intent: return
+  "bludgeon_gs_rd20"
+end
+
 public function quest_dim(): integer
   intent: return
   11
@@ -520,7 +525,7 @@ end
 public function quest_encounter(row: integer): QuestEncounter
   intent: get
   if row == 1 then
-  QuestEncounter { key: minion_blueprint(), final_boss: false, label: "Patrol" }
+  QuestEncounter { key: first_encounter_blueprint(), final_boss: false, label: "Bludgeon's Ambush" }
 else if row == 2 then
   QuestEncounter { key: "kickback_gs_kabam", final_boss: false, label: "Insecticon Scouts" }
 else if row == 3 then

@@ -168,7 +168,7 @@ function test_lost_replays_pending_battle(): boolean
   fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
   resolve("\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}")
   let replay: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  pos_x(replay) == 1 and jsonout.as_int(jsonout.obj_get(move_to(replay), "x")) == 1 and jsonout.as_int(jsonout.obj_get(battle(replay), "x")) == 1 and current_battle_id(replay) == gamedata.minion_blueprint() and current_battle_state(replay) == "activated"
+  pos_x(replay) == 1 and jsonout.as_int(jsonout.obj_get(move_to(replay), "x")) == 1 and jsonout.as_int(jsonout.obj_get(battle(replay), "x")) == 1 and current_battle_id(replay) == gamedata.first_encounter_blueprint() and current_battle_state(replay) == "activated"
 end
 
 function test_nested_won_with_board_qid_advances(): boolean
