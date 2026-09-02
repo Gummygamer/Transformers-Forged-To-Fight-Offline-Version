@@ -163,7 +163,8 @@ public function arm64_sites(): a list of Site
     Site { offset: 15783048, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockManager.GetMinLevel -> 0 (lock tooltips have no level requirement)" }, -- 0xF0D488
     Site { offset: 15868548, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "PVPRaidFlow.IsLevelLocked -> false (Raids entry gate)" }, -- 0xF22284
     Site { offset: 16569924, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "AvXModeButtonData.IsInAlliance -> true (AvE tile is usable without a real alliance)" }, -- 0xFCD644
-    Site { offset: 15373560, patch: bytes_from_hex("1f2003d5"), name: "FightLandingModel.ProcessAvxModeClick -> skip null-alliance branch (open AvE difficulty selection)" } -- 0xEA94F8
+    Site { offset: 15373560, patch: bytes_from_hex("1f2003d5"), name: "FightLandingModel.ProcessAvxModeClick -> skip null-alliance branch (open AvE difficulty selection)" }, -- 0xEA94F8
+    Site { offset: 16567012, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "AvEEvent.IsAvailable -> true (keep the supplied offline AvE event out of the no-events empty state)" } -- 0xFCCAE4
   ]
 end
 
@@ -183,7 +184,8 @@ public function armv7_sites(): a list of Site
     Site { offset: 11836620, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockManager.GetMinLevel -> 0 (lock tooltips have no level requirement)" }, -- 0xB49CCC
     Site { offset: 11943044, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "PVPRaidFlow.IsLevelLocked -> false (Raids entry gate)" }, -- 0xB63C84
     Site { offset: 12808412, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "AvXModeButtonData.IsInAlliance -> true (AvE tile is usable without a real alliance)" }, -- 0xC370DC
-    Site { offset: 11333248, patch: bytes_from_hex("00f020e3"), name: "FightLandingModel.ProcessAvxModeClick -> skip null-alliance branch (open AvE difficulty selection)" } -- 0xACEE80
+    Site { offset: 11333248, patch: bytes_from_hex("00f020e3"), name: "FightLandingModel.ProcessAvxModeClick -> skip null-alliance branch (open AvE difficulty selection)" }, -- 0xACEE80
+    Site { offset: 12804728, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "AvEEvent.IsAvailable -> true (keep the supplied offline AvE event out of the no-events empty state)" } -- 0xC36278
   ]
 end
 
