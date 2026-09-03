@@ -293,7 +293,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
-    if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); /* reset even if response is absent */
+    if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); logmsg("quest-begin qid=%s body=%.*s", qid, (int)(end-body>512?512:end-body), body); /* reset even if response is absent */
         int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
     if(strstr(p,"/quests/quest-movedir/")) {
         int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0;
@@ -370,9 +370,10 @@ static void *connection(void *arg) {
         if(clen>MAX_BODY) { size_t consumed=body_have; unsigned char junk[4096]; while(consumed<clen){size_t want=clen-consumed;if(want>sizeof junk)want=sizeof junk;ssize_t r=recv(fd,junk,want,0);if(r<=0)goto out;consumed+=(size_t)r;} take=MAX_BODY; }
         if (hlen + take < MAX_HEAD + MAX_BODY) buf[hlen + take] = 0;
         snprintf(path,sizeof path,"%s",target); char *q=strchr(path,'?');if(q){*q++=0;query=q;}
-        Out o={0}; size_t n=0; const unsigned char *answer;
+        Out o={0}; size_t n=0; const unsigned char *answer; const char *src="default";
         if(ci_equal(method,"HEAD")) answer=(const unsigned char*)"";
-        else { answer=dynamic(method,path,query,(const char*)buf+hlen,take,&o,&n); if(!answer){char key[4200];snprintf(key,sizeof key,"%s %s",method,path);answer=lookup(key,&n);} if(!answer){uint32_t i;for(i=0;i<g_blob.pc;i++){Rec r=rec_at(&g_blob,g_blob.po,i);if(strlen(path)>=r.kl&&!memcmp(path,g_blob.p+r.ko,r.kl)){answer=body_for(&r,&n);break;}}}if(!answer){answer=g_blob.p+g_blob.dfo;n=g_blob.dfl;} }
+        else { answer=dynamic(method,path,query,(const char*)buf+hlen,take,&o,&n); if(answer)src="dyn"; if(!answer){char key[4200];snprintf(key,sizeof key,"%s %s",method,path);answer=lookup(key,&n);if(answer)src="exact";} if(!answer){uint32_t i;for(i=0;i<g_blob.pc;i++){Rec r=rec_at(&g_blob,g_blob.po,i);if(strlen(path)>=r.kl&&!memcmp(path,g_blob.p+r.ko,r.kl)){answer=body_for(&r,&n);src="prefix";break;}}}if(!answer){answer=g_blob.p+g_blob.dfo;n=g_blob.dfl;} }
+        logmsg("http %s %s src=%s bytes=%zu",method,path,src,n);
         if(!respond(fd,answer,n,ci_equal(method,"HEAD"))){free(o.p);goto out;} free(o.p);
         conn=ci_find_header((char*)buf,"Connection");if(has_token(conn,"close"))close_after=1; if(!strcmp(proto,"HTTP/1.0")&&!has_token(conn,"keep-alive"))close_after=1;
         if(clen>MAX_BODY) { used=0; } else { size_t consumed=hlen+clen; if(used>consumed)memmove(buf,buf+consumed,used-consumed); used=used>consumed?used-consumed:0; }
