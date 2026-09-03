@@ -1494,7 +1494,8 @@ else if ends_with(p, "/bcg/getBaseHeroData") then
   spaced_envelope(gamedata.build_base_hero_details(json_list_or_empty(req, "heroes")))
 else if contains_text(p, "/quests/quest-detail/") then
   let req: Json = request_object(btxt)
-  spaced_envelope(gamedata.build_quest_detail(last_segment(p), json_text_or(req, "setId", "story_act1")))
+  let qid: text = last_segment(p)
+  spaced_envelope(gamedata.build_quest_detail(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid))))
 else
   ""
 end
@@ -1503,6 +1504,7 @@ end
 function quest_begin_response(p: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
+  let qid: text = last_segment(p)
   mutable posted: a list of text = []
   mutable index: integer = 0
   while index < gamedata.team_size_max() do
@@ -1512,12 +1514,12 @@ function quest_begin_response(p: text, btxt: text): text
 end
   let overflow: text = json_text_or(req, "tm" ++ to_text(gamedata.team_size_max()), "")
   if overflow != "" then set posted = append(posted, overflow) end
-  if length(posted) > 0 then
+  if length(posted) > 0 and qid != gamedata.custom_story_qid() then
   set_saved_team(posted)
 end
-  let qid: text = last_segment(p)
-  set_position(qid, 0, 1, false)
-  spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", "story_act1"), get_saved_team()))
+  set_position(qid, gamedata.quest_start_x_for(qid), gamedata.quest_start_y_for(qid), false)
+  let team: a list of text = if qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
+  spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team))
 end
 
 function movedir_response(p: text): text
@@ -1536,14 +1538,15 @@ function movedir_response(p: text): text
   else
   let candidate_x: integer = start.x + offx
   let candidate_y: integer = start.y + offy
-  if candidate_x >= 0 and candidate_x < gamedata.quest_dim() and candidate_y == gamedata.quest_path_col() then
-  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter(candidate_x))
+  if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and candidate_y == gamedata.quest_path_col_for(qid) then
+  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_for(qid, candidate_x))
   else
     set offx = 0
     set offy = 0
   end
   end
-  spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, get_saved_team()))
+  let team: a list of text = if qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
+  spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team))
 end
 
 function resolve_match_response(path: text, btxt: text): text

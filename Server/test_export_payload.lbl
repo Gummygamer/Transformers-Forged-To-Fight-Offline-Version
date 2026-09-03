@@ -179,12 +179,12 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4854308 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4870264 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9548 then set detail = "entry count is not 9548" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9563 then set detail = "entry count is not 9563" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
   if detail == "" and (bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0) then set detail = "reserved fields are non-zero" end
@@ -265,7 +265,8 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
     DynamicCase { key: "GET /base/active", path: "/base/active", body: "" },
     DynamicCase { key: "@grouprefresh:missionsconfig", path: "/autorefresh/grouprefresh?groups.0.name=missionsconfig", body: "" },
     DynamicCase { key: "@grouprefresh:", path: "/autorefresh/grouprefresh?groups.0.name=other", body: "" },
-    DynamicCase { key: "POST /quests/quest-detail/1.1.1", path: "/quests/quest-detail/1.1.1", body: "\{\"setId\":\"story_act1\"\}" }
+    DynamicCase { key: "POST /quests/quest-detail/1.1.1", path: "/quests/quest-detail/1.1.1", body: "\{\"setId\":\"story_act1\"\}" },
+    DynamicCase { key: "POST /quests/quest-detail/2.1.1", path: "/quests/quest-detail/2.1.1", body: "\{\"setId\":\"custom_story_act1\"\}" }
   ]
   mutable detail: text = ""
   for item in cases do
@@ -283,6 +284,19 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   let actual_begin: text = fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}")
   let expanded_begin: text = expand_team_template(payload, entry_body(payload, "POST /quests/quest-begin/1.1.1"), [], "0")
   if detail == "" and not same_json(expanded_begin, actual_begin) then set detail = "quest-begin template differs" end
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  let custom_qid: text = gamedata.custom_story_qid()
+  let custom_begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}"
+  let custom_actual_begin: text = fakeserver.dynamic("/quests/quest-begin/" ++ custom_qid, custom_begin_body)
+  let custom_expanded_begin: text = expand_team_template(payload, entry_body(payload, "POST /quests/quest-begin/" ++ custom_qid), gamedata.custom_story_team(), "0")
+  if detail == "" and not same_json(custom_expanded_begin, custom_actual_begin) then set detail = "custom quest-begin template differs" end
+  if detail == "" and entry_body(payload, "@quest:fixed-team:" ++ custom_qid) != "optimusprime_cin_tf" then set detail = "custom fixed team entry differs" end
+  let custom_move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
+  let custom_actual_move: text = fakeserver.dynamic(custom_move_path, "\{\}")
+  let custom_expanded_move: text = expand_team_template(payload, entry_body(payload, "@movedir:2.1.1:0:1:1:0"), gamedata.custom_story_team(), "0")
+  if detail == "" and not same_json(custom_expanded_move, custom_actual_move) then set detail = "custom movedir template differs" end
+  if detail == "" and (not contains_text(custom_actual_move, "\"key\": \"bludgeon_gs_rd20\"") or not contains_text(custom_actual_move, "\"mapOverride\": \"chicago\"") or not contains_text(custom_actual_move, "\"todIndex\": 0")) then set detail = "custom movedir encounter differs" end
   if bytes_length(blob) == 0 and detail == "" then set detail = "built blob is empty" end
   if detail == "" then ok() else failed(detail) end
 end
@@ -346,6 +360,10 @@ function check_tutorial_templates(payload: Payload): text
   for key in ["@tutorial:completed-nobid", "@tutorial:started-nobid"] do
     if detail == "" and (not contains_text(entry_body(payload, key), "%TID%") or contains_text(entry_body(payload, key), "%BID%")) then set detail = "tutorial no-bid tokens differ: " ++ key end
   end
+  let canned_login: text = read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_get-login-data.json"))
+  if detail == "" and fakeserver.dynamic("/tutorial/get-login-data", "") != "" then set detail = "tutorial login must stay canned instead of dynamic" end
+  if detail == "" and not contains_text(canned_login, "\"s\":2") then set detail = "tutorial login canned fallback is not the completed state" end
+  if detail == "" and not contains_text(canned_login, "\"FTEComplete\"") then set detail = "tutorial login canned fallback is not FTEComplete" end
   detail
 end
 

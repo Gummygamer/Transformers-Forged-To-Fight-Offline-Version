@@ -483,16 +483,71 @@ function test_quest_summary_exposes_authored_dialogue_sets(): boolean
   jsonout.obj_has(summary, "dialogueTable") and dialogue_set_is_authored(sets, "arrival_intro") and dialogue_set_is_authored(sets, "midpoint_rally") and dialogue_set_is_authored(sets, "final_stand") and dialogue_set_is_authored(sets, "shore_secured")
 end
 
+function dialogue_entry_matches(entries: a list of Json, index: integer, character: text, side: text, line: text): boolean
+  intent: check
+  let entry: Json = unwrap_or(get(entries, index), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(entry, "character")) == character and jsonout.as_text(jsonout.obj_get(entry, "side")) == side and jsonout.as_text(jsonout.obj_get(entry, "line")) == line
+end
+
+function test_custom_story_uses_revised_five_scene_script(): boolean
+  intent: test
+  let entries: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_custom_story_dialogue_sets(), "custom_opening_intro"))
+  length(entries) == 5 and dialogue_entry_matches(entries, 0, "optimusprime_cin_tf", "left", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector.") and dialogue_entry_matches(entries, 1, "optimusprime_cin_tf", "left", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone.") and dialogue_entry_matches(entries, 2, "optimusprime_cin_tf", "left", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!") and dialogue_entry_matches(entries, 3, "bludgeon_gs_rd20", "right", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!") and dialogue_entry_matches(entries, 4, "optimusprime_cin_tf", "left", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")
+end
+
+function test_custom_story_has_independent_identity_and_compact_map(): boolean
+  intent: test
+  let qid: text = gamedata.custom_story_qid()
+  let summary: Json = gamedata.build_quest_summary(qid, gamedata.custom_story_set_id())
+  let map: Json = gamedata.build_quest_map(qid)
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  qid == "2.1.1" and gamedata.custom_story_set_id() == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Bludgeon's Ambush" and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "act")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(summary, "hash")) == gamedata.custom_story_set_hash() and gamedata.quest_dim_for(qid) == 2 and length(grid) == 2 and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == 2 and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 2
+end
+
+function test_custom_story_encounter_is_bludgeon_on_chicago_streets(): boolean
+  intent: test
+  let qid: text = gamedata.custom_story_qid()
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map(qid), "grid"))
+  let row: Json = unwrap_or(get(grid, 1), jsonout.json_list([]))
+  let tile: Json = unwrap_or(get(jsonout.list_items(row), 1), jsonout.json_obj([]))
+  let enemy: Json = jsonout.obj_get(jsonout.obj_get(tile, "entities"), gamedata.custom_story_enemy())
+  let moved: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 1, [])
+  let battle: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved, "results")), 1), jsonout.json_obj([])), "action"), "battle")
+  jsonout.as_text(jsonout.obj_get(tile, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile, "boss")) == "bludgeon_gs_rd20" and jsonout.as_bool(jsonout.obj_get(tile, "final")) and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "mapOverride")) == "chicago"
+end
+
+function test_custom_story_forces_optimus_without_changing_template_team_rules(): boolean
+  intent: test
+  let custom: Json = gamedata.build_quest_progression(gamedata.custom_story_qid(), 0, 1, ["megatron_cin_rotf"])
+  let template: Json = gamedata.build_quest_progression("1.1.1", 0, 1, ["megatron_cin_rotf"])
+  let custom_user: Json = jsonout.obj_get(jsonout.obj_get(custom, "users"), gamedata.local_uid())
+  let template_user: Json = jsonout.obj_get(jsonout.obj_get(template, "users"), gamedata.local_uid())
+  team_object_matches(jsonout.obj_get(custom_user, "team"), ["optimusprime_cin_tf"]) and team_object_matches(jsonout.obj_get(template_user, "team"), ["megatron_cin_rotf"])
+end
+
 function test_team_size_max_is_advertised_by_account_and_quest_responses(): boolean
   intent: test
   let user_data: Json = jsonout.obj_get(gamedata.build_user_data([]), "userData")
   let summary: Json = gamedata.build_quest_summary("1.1.1", "story_act1")
   let static_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))), "result"), "userData")
   let static_sets: a list of Json = jsonout.list_items(jsonout.obj_get(jsonout.parse_json(read_file(path_join(fakeserver.resp_dir(), "GET__quests_quest-list.json"))), "result"))
-  let static_set: Json = unwrap_or(get(static_sets, 0), jsonout.json_obj([]))
+  mutable static_set: Json = jsonout.json_obj([])
+  for candidate in static_sets do
+    if jsonout.as_text(jsonout.obj_get(candidate, "setId")) == "story_act1" then set static_set = candidate end
+  end
   let static_quests: Json = jsonout.obj_get(static_set, "availableQuests")
   let static_summary: Json = unwrap_or(get(jsonout.list_items(static_quests), 0), jsonout.json_obj([]))
   gamedata.team_size_max() == 5 and jsonout.as_int(jsonout.obj_get(user_data, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(static_user, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(static_summary, "teamSizeMax")) == 5
+end
+
+function run_custom_story_tests(): integer
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + report("test_custom_story_uses_revised_five_scene_script", test_custom_story_uses_revised_five_scene_script(), "custom intro did not match the revised five-scene script")
+  set failed = failed + report("test_custom_story_has_independent_identity_and_compact_map", test_custom_story_has_independent_identity_and_compact_map(), "custom story identity or map was wrong")
+  set failed = failed + report("test_custom_story_encounter_is_bludgeon_on_chicago_streets", test_custom_story_encounter_is_bludgeon_on_chicago_streets(), "custom encounter was not the authored Chicago Bludgeon fight")
+  set failed = failed + report("test_custom_story_forces_optimus_without_changing_template_team_rules", test_custom_story_forces_optimus_without_changing_template_team_rules(), "custom or template team rules were wrong")
+  failed
 end
 
 function main(): nothing
@@ -531,9 +586,9 @@ function main(): nothing
   set failed = failed + report("test_every_encounter_row_triggers_a_battle_on_movedir", test_every_encounter_row_triggers_a_battle_on_movedir(), "story encounter did not trigger")
   set failed = failed + report("test_story_encounters_use_varied_enemy_blueprints", test_story_encounters_use_varied_enemy_blueprints(), "story encounters were not varied")
   set failed = failed + report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing")
-  set failed = failed + run_slice3_tests()
+  set failed = failed + run_custom_story_tests() + run_slice3_tests()
   set failed = failed + run_slice4_tests()
-  print(to_text(66 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(70 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -785,7 +840,13 @@ end
 
 function test_none_and_empty_team_preserve_default_json(): boolean
   intent: test
-  jsonout.encode_compact(gamedata.build_quest_progression("1.1.1", 0, 1, [])) == jsonout.encode_compact(gamedata.build_quest_progression("1.1.1", 0, 1, [])) and jsonout.encode_compact(gamedata.build_active_quest("1.1.1", "story_act1", [])) == jsonout.encode_compact(gamedata.build_active_quest("1.1.1", "story_act1", [])) and jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) == jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) and jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) == jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) and jsonout.encode_compact(gamedata.build_user_data([])) == jsonout.encode_compact(gamedata.build_user_data([]))
+  let fixture: Json = jsonout.parse_json(read_file(path_join(gamedata.here(), "fixtures/story_act1_848e4d3.json")))
+  let sets: a list of Json = jsonout.list_items(jsonout.obj_get(jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__quests_quest-list.json"))), "result"))
+  mutable story_set: Json = jsonout.json_obj([])
+  for candidate in sets do
+    if jsonout.as_text(jsonout.obj_get(candidate, "setId")) == "story_act1" then set story_set = candidate end
+  end
+  jsonout.as_text(jsonout.obj_get(fixture, "sourceCommit")) == "848e4d3" and jsonout.encode_compact(story_set) == jsonout.encode_compact(jsonout.obj_get(fixture, "questList")) and jsonout.encode_compact(gamedata.build_quest_summary("1.1.1", "story_act1")) == jsonout.encode_compact(jsonout.obj_get(fixture, "summary")) and jsonout.encode_compact(gamedata.build_quest_map("1.1.1")) == jsonout.encode_compact(jsonout.obj_get(fixture, "map")) and jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) == jsonout.encode_compact(jsonout.obj_get(fixture, "begin")) and jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) == jsonout.encode_compact(jsonout.obj_get(fixture, "firstMovedir"))
 end
 
 function test_unknown_blueprint_falls_back_to_the_default_squad(): boolean
