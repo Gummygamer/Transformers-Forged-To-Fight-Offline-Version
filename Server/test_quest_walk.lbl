@@ -151,23 +151,6 @@ function test_both_quest_enemies_resolve_to_their_shipped_assets(base: text, por
   reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == minion and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "npc_shark_warr" and jsonout.as_text(jsonout.obj_get(second, "img")) == "nemesis_p" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
 end
 
-function test_custom_story_walks_from_intro_dialogue_into_bludgeon_battle(base: text, port: integer): boolean
-  intent: test
-  let begun_reply: HttpReply = post(base, port, "/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}")
-  let begun: Json = result(begun_reply)
-  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "2.1.1")
-  let instance: Json = first_item(jsonout.obj_get(active, "instances"))
-  let grid: Json = jsonout.obj_get(jsonout.obj_get(instance, "map"), "grid")
-  let encounter: Json = item(item(grid, 1), 1)
-  let dialogue: Json = jsonout.obj_get(jsonout.obj_get(instance, "data"), "dialogueTable")
-  let moved_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
-  let moved: Json = result(moved_reply)
-  let results: Json = jsonout.obj_get(moved, "results")
-  let battle: Json = jsonout.obj_get(jsonout.obj_get(item(results, 1), "action"), "battle")
-  let enemy: Json = jsonout.obj_get(battle, "battleEnemy")
-  begun_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and team_matches(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid()), "team"), ["optimusprime_cin_tf"]) and jsonout.as_text(jsonout.obj_get(encounter, "dialogue")) == "custom_opening_intro" and length(jsonout.list_items(jsonout.obj_get(dialogue, "custom_opening_intro"))) == 5 and moved_reply.status == "200" and length(jsonout.list_items(results)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_bool(jsonout.obj_get(battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy, "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == 0 and team_matches(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes"), ["optimusprime_cin_tf"])
-end
-
 function last_slash(path: text): integer
   intent: find
   mutable result: integer = -1
@@ -203,7 +186,7 @@ function main(): nothing
     shell_exec("rm -rf -- " ++ base)
     fakeserver.reset_saved_team()
     fakeserver.reset_quest_positions()
-    print("0 passed, 3 failed")
+    print("0 passed, 2 failed")
     exit_process(1)
   else
     let started: HarnessStart = start_server(base, server, port)
@@ -212,18 +195,17 @@ function main(): nothing
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
       shell_exec("rm -rf -- " ++ base)
-      print("0 passed, 3 failed")
+      print("0 passed, 2 failed")
       exit_process(1)
     else
       let walk: boolean = test_begin_then_walks_through_patrol_to_scout(base, port)
       let assets: boolean = test_both_quest_enemies_resolve_to_their_shipped_assets(base, port)
-      let custom: boolean = test_custom_story_walks_from_intro_dialogue_into_bludgeon_battle(base, port)
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
       shell_exec("rm -rf -- " ++ base)
-      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_into_bludgeon_battle", custom)
-      print(to_text(3 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets)
+      print(to_text(2 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
       if failed > 0 then exit_process(1) end
     end
   end

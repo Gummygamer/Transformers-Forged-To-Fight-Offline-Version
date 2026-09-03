@@ -189,12 +189,6 @@ static int team_from_lines(const unsigned char *s, size_t n, Team *team) {
     }
     return team->count>0;
 }
-static int fixed_quest_team(const char *qid, Team *team) {
-    char key[128]; const unsigned char *v; size_t n;
-    snprintf(key,sizeof key,"@quest:fixed-team:%s",qid);
-    v=lookup(key,&n);
-    return v ? team_from_lines(v,n,team) : 0;
-}
 static void store_saved_team(const char bids[][64], int count, int invalid) {
     int i;
     pthread_mutex_lock(&g_pos_lock);
@@ -300,7 +294,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
     if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); /* reset even if response is absent */
-        int x=0,y=1,fixed=fixed_quest_team(qid,&team);if(!fixed)store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||(!fixed&&!resolve_team(&team))||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
+        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
     if(strstr(p,"/quests/quest-movedir/")) {
         int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0;
         const char *z=strrchr(p,'/'), *yseg=z?z+1:"", *z2=z?NULL:NULL;
@@ -322,7 +316,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
         if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}
         if(v&&found&&contains_bytes(v,n,"\"currentBattleState\"")){pthread_mutex_lock(&g_pos_lock);if(slot>=0&&!strcmp(g_pos[slot].qid,qid))g_pos[slot].pending=1;pthread_mutex_unlock(&g_pos_lock);}
-        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!fixed_quest_team(qid,&team)&&!resolve_team(&team)){free(qteam.p);free(ateam.p);return NULL;}if(!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
+        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
         return NULL;
     }
     if(has_suffix(p,"/bcg/setSavedTeam")) { char teamid[64]="0",bids[TEAM_SIZE_MAX][64];int count,invalid;Team team;Out steam={0},ateam={0};TemplateArg args[3];json_string(body,end,"teamID",teamid,sizeof teamid);json_heroes(body,end,bids,&count,&invalid);store_saved_team(bids,count,invalid);v=lookup("@savedteam:template",&n);if(!v||!resolve_team(&team)||!render_steam(&steam,&team)||!render_ateam(&ateam,&team)){free(steam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%TID%",(const unsigned char*)teamid,strlen(teamid)};args[1]=(TemplateArg){"%STEAM%",steam.p,steam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(steam.p);free(ateam.p);return v; }

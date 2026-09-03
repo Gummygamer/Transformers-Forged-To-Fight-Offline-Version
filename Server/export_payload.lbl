@@ -150,9 +150,9 @@ function detail_for(bid: text, rank: integer, level: integer): text
   replace_exact(body, to_text(sentinel), "%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
 end
 
-function team_values(qid: text, team: a list of text): a list of text
+function team_values(team: a list of text): a list of text
   intent: build
-  let bids: a list of text = gamedata.resolve_quest_team(qid, team)
+  let bids: a list of text = gamedata.resolve_team(team)
   mutable saved: a list of Json = []
   mutable active: a list of Pair = []
   for bid in bids do
@@ -160,7 +160,7 @@ function team_values(qid: text, team: a list of text): a list of text
     set saved = append(saved, hero)
     set active = append(active, jsonout.json_pair(bid, hero))
   end
-  let progression: Json = gamedata.build_quest_progression(qid, gamedata.quest_start_x_for(qid), gamedata.quest_start_y_for(qid), bids)
+  let progression: Json = gamedata.build_quest_progression("1.1.1", 0, 1, bids)
   let users: Json = jsonout.obj_get(progression, "users")
   let quest: Json = jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")
   [jsonout.encode_compact(jsonout.json_list(saved)), jsonout.encode_compact(jsonout.json_obj(active)), jsonout.encode_compact(quest)]
@@ -168,9 +168,9 @@ end
 
 function quest_begin_template(qid: text, set_id: text): text
   intent: build
-  let values: a list of text = team_values(qid, [])
+  let values: a list of text = team_values([])
   let quest: text = unwrap_or(get(values, 2), "")
-  let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
+  let lead: text = unwrap_or(get(gamedata.default_team(), 0), "")
   let body: text = envelope(gamedata.build_quest_begin(qid, set_id, []))
   let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 2, "quest-begin " ++ qid ++ " lead")
   replace_exact(with_lead, quest, "%QTEAM%", 2, "quest-begin " ++ qid ++ " team")
@@ -182,7 +182,7 @@ function move_body(qid: text, sx: integer, sy: integer, dx: integer, dy: integer
   mutable actual_dy: integer = dy
   let nx: integer = sx + dx
   let ny: integer = sy + dy
-  if nx < 0 or nx >= gamedata.quest_dim_for(qid) or ny != gamedata.quest_path_col_for(qid) then
+  if nx < 0 or nx >= gamedata.quest_dim() or ny != gamedata.quest_path_col() then
     set actual_dx = 0
     set actual_dy = 0
   end
@@ -191,10 +191,10 @@ end
 
 function movedir_template(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
   intent: build
-  let values: a list of text = team_values(qid, [])
+  let values: a list of text = team_values([])
   let active: text = unwrap_or(get(values, 1), "")
   let quest: text = unwrap_or(get(values, 2), "")
-  let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
+  let lead: text = unwrap_or(get(gamedata.default_team(), 0), "")
   let body: text = move_body(qid, sx, sy, dx, dy)
   let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
   let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
@@ -210,7 +210,7 @@ function saved_team_template(): text
   if produced == "" then fail("fakeserver did not produce saved-team template") end
   let body: text = jsonout.encode_compact(jsonout.parse_json(produced))
   if count_occurrences(body, "%TID%") != 2 then fail("saved-team template: expected two teamID tokens") end
-  let values: a list of text = team_values("1.1.1", [])
+  let values: a list of text = team_values([])
   let saved: text = unwrap_or(get(values, 0), "")
   let active: text = unwrap_or(get(values, 1), "")
   let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
@@ -219,7 +219,7 @@ end
 
 function user_data_template(): text
   intent: build
-  let values: a list of text = team_values("1.1.1", [])
+  let values: a list of text = team_values([])
   let body: text = envelope(gamedata.build_user_data([]))
   let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
   replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 1, "user-data active heroes")
@@ -250,23 +250,18 @@ function add_quests(entries: Entries): Entries
     let qid: text = unwrap_or(get(parts, 1), "")
     set output = add(output, "POST /quests/quest-detail/" ++ qid, envelope(gamedata.build_quest_detail(qid, set_id)))
     set output = add(output, "POST /quests/quest-begin/" ++ qid, quest_begin_template(qid, set_id))
-    let start_x: integer = gamedata.quest_start_x_for(qid)
-    let start_y: integer = gamedata.quest_start_y_for(qid)
-    let path_col: integer = gamedata.quest_path_col_for(qid)
-    let dim: integer = gamedata.quest_dim_for(qid)
-    set output = add(output, "@quest:start:" ++ qid, to_text(start_x) ++ " " ++ to_text(start_y))
-    if qid == gamedata.custom_story_qid() then set output = add(output, "@quest:fixed-team:" ++ qid, join(gamedata.custom_story_team(), "\n")) end
+    set output = add(output, "@quest:start:" ++ qid, "0 1")
     mutable legal: a list of text = []
     mutable sx: integer = 0
-    while sx < dim do
+    while sx < gamedata.quest_dim() do
       for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1"] do
         let bits: a list of text = split(direction, ",")
         let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
         let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
         let nx: integer = sx + dx
-        let ny: integer = path_col + dy
-        if nx >= 0 and nx < dim and ny == path_col then set legal = append(legal, to_text(sx) ++ " " ++ to_text(path_col) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
-        set output = add(output, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, path_col, dx, dy))
+        let ny: integer = 1 + dy
+        if nx >= 0 and nx < gamedata.quest_dim() and ny == 1 then set legal = append(legal, to_text(sx) ++ " 1 " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
+        set output = add(output, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":1:" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, 1, dx, dy))
       end
       set sx = sx + 1
     end
@@ -480,10 +475,10 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9563 then fail("payload entry count is not 9563: " ++ to_text(length(keys))) end
+  if length(keys) != 9548 then fail("payload entry count is not 9548: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4870264 then fail("payload total size is not 4870264: " ++ to_text(total)) end
+  if total != 4854308 then fail("payload total size is not 4854308: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)
