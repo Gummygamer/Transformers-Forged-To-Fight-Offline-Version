@@ -542,104 +542,6 @@ else
 end
 end
 
-public function custom_story_qid(): text
-  intent: return
-  "2.1.1"
-end
-
-public function custom_story_set_id(): text
-  intent: return
-  "custom_story_act1"
-end
-
-public function custom_story_enemy(): text
-  intent: return
-  "bludgeon_gs_rd20"
-end
-
-public function custom_story_team(): a list of text
-  intent: return
-  ["optimusprime_cin_tf"]
-end
-
-public function custom_story_set_hash(): text
-  intent: return
-  "custom-story-h1"
-end
-
--- The client indexes every quest summary into per-set tables sized
--- actCount + 1 (Legacy.QuestSet.BuildSummaryTable), then indexes them by
--- the summary's act/chapter/mission fields. The custom quest lives in its
--- own single-act set, so its summary slot must be 1/1/1 even though the
--- qid string starts with 2. An act of 2 with actCount 1 throws
--- IndexOutOfRangeException while parsing the quest list.
-public function custom_story_summary_act(): integer
-  intent: return
-  1
-end
-
-public function custom_story_summary_chapter(): integer
-  intent: return
-  1
-end
-
-public function custom_story_summary_mission(): integer
-  intent: return
-  1
-end
-
-public function quest_set_id_for(qid: text): text
-  intent: get
-  if qid == custom_story_qid() then custom_story_set_id() else "story_act1" end
-end
-
--- The activeQuest wrapper hash must match the set hash advertised in the
--- quest list; the known-good template set carries "h1" in both places.
--- A mismatched wrapper hash makes the client retry quest-begin in a loop.
-public function quest_set_hash_for(qid: text): text
-  intent: get
-  if qid == custom_story_qid() then custom_story_set_hash() else "h1" end
-end
-
-public function quest_dim_for(qid: text): integer
-  intent: get
-  if qid == custom_story_qid() then 2 else quest_dim() end
-end
-
-public function quest_path_col_for(qid: text): integer
-  intent: get
-  quest_path_col()
-end
-
-public function quest_start_x_for(qid: text): integer
-  intent: get
-  0
-end
-
-public function quest_start_y_for(qid: text): integer
-  intent: get
-  quest_path_col_for(qid)
-end
-
-public function quest_has_encounter_for(qid: text, row: integer): boolean
-  intent: check
-  if qid == custom_story_qid() then row == 1 else quest_has_encounter(row) end
-end
-
-public function quest_encounter_for(qid: text, row: integer): QuestEncounter
-  intent: get
-  if qid == custom_story_qid() then
-  QuestEncounter { key: custom_story_enemy(), final_boss: true, label: "Bludgeon's Ambush" }
-else
-  quest_encounter(row)
-end
-end
-
-public function resolve_quest_team(qid: text, team: a list of text): a list of text
-  intent: return
-  if qid == custom_story_qid() then custom_story_team() else resolve_team(team) end
-end
-
 function roster_has_bid(bid: text): boolean
   intent: find
   mutable found: boolean = false
@@ -859,28 +761,13 @@ public function build_dialogue_sets(): Json
   jsonout.json_obj([jsonout.json_pair("arrival_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Sensors read a cold beachhead ahead. Whatever landed here is already moving."), dialogue_entry(true, "sharkticon_gs_warrior", "right", "default", "The tide brought us in. The tide will bury you."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we hold this line, and we hold it together.")])), jsonout.json_pair("midpoint_rally", dialogue_set([dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."), dialogue_entry(true, "soundwave_gs", "right", "default", "Every step you take is recorded. Every step you take is counted."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we walk it to the end. Steady spark, higher guard.")])), jsonout.json_pair("final_stand", dialogue_set([dialogue_entry(true, "nemesisprime_gs_voyager2015", "right", "default", "You climbed all this way just to meet the shape of your own ending."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "We climbed a long way to end this. Stand down or fall down.")])), jsonout.json_pair("shore_secured", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "The shore is quiet. Log the coordinates and get the wounded home."), dialogue_entry(false, "optimusprimal_bw_mp32", "left", "default", "Quiet today. We will be back before it gets loud again.")]))])
 end
 
-public function build_custom_story_dialogue_sets(): Json
-  intent: build
-  -- Opening image order: Optimus, spaceship, alert screen, Bludgeon, Optimus ready.
-  jsonout.json_obj([jsonout.json_pair("custom_opening_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone."), dialogue_entry(true, "optimusprime_cin_tf", "left", "default", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!"), dialogue_entry(false, "bludgeon_gs_rd20", "right", "default", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")]))])
-end
-
-public function build_dialogue_sets_for(qid: text): Json
-  intent: build
-  if qid == custom_story_qid() then build_custom_story_dialogue_sets() else build_dialogue_sets() end
-end
-
 public function build_quest_summary(mission_id: text, set_id: text): Json
   intent: build
   let parts: a list of text = split(mission_id, ".")
   let act: integer = mission_part(parts, 0)
   let chapter: integer = mission_part(parts, 1)
   let mission: integer = mission_part(parts, 2)
-  if mission_id == custom_story_qid() then
-  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text(custom_story_set_hash())), jsonout.json_pair("act", jsonout.json_int(custom_story_summary_act())), jsonout.json_pair("chapter", jsonout.json_int(custom_story_summary_chapter())), jsonout.json_pair("mission", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("missionIndex", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("index", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("teamSizeMax", jsonout.json_int(1)), jsonout.json_pair("friendlyName", jsonout.json_text("Bludgeon's Ambush")), jsonout.json_pair("description", jsonout.json_text("Optimus Prime confronts Bludgeon in the city streets.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_custom_story_dialogue_sets())])
-else
   jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
-end
 end
 
 public function build_quest_detail(mission_id: text, set_id: text): Json
@@ -955,27 +842,8 @@ end
   jsonout.json_obj(pairs)
 end
 
-function custom_story_encounter_tile(): Json
-  intent: build
-  let enemy_key: text = custom_story_enemy()
-  let links: Json = jsonout.json_list([vec2(0, 1)])
-  let enemy: Json = build_quest_enemy_for("chicago", 0, enemy_key, true)
-  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(true)), jsonout.json_pair("lab", jsonout.json_text("Bludgeon's Ambush")), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(enemy_key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)])), jsonout.json_pair("dialogue", jsonout.json_text("custom_opening_intro"))])
-end
-
-function build_custom_story_map(qid: text): Json
-  intent: build
-  let first_links: Json = jsonout.json_list([vec2(1, 1)])
-  let grid: Json = jsonout.json_list([jsonout.json_list([filler_tile(), start_tile(first_links)]), jsonout.json_list([filler_tile(), custom_story_encounter_tile()])])
-  let path: Json = jsonout.json_list([vec2(0, 1), vec2(1, 1)])
-  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(2)), jsonout.json_pair("grid", grid), jsonout.json_pair("walkableCount", jsonout.json_int(2)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(2)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
-end
-
 public function build_quest_map(qid: text): Json
   intent: build
-  if qid == custom_story_qid() then
-  build_custom_story_map(qid)
-else
   mutable grid: a list of Json = []
   mutable row: integer = 0
   while row < quest_dim() do
@@ -1007,7 +875,6 @@ end
   end
   let path: Json = jsonout.json_list(path_points)
   jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(quest_dim())), jsonout.json_pair("grid", jsonout.json_list(grid)), jsonout.json_pair("walkableCount", jsonout.json_int(quest_dim())), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(quest_dim())), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
-end
 end
 
 public function build_quest_enemy_for(map_override: text, tod_index: integer, key: text, is_final_boss: boolean): Json
@@ -1058,30 +925,21 @@ function revealed_tiles(): Json
   jsonout.json_list(tiles)
 end
 
-function revealed_tiles_for(qid: text): Json
-  intent: build
-  if qid == custom_story_qid() then
-  jsonout.json_list([vec2(0, 1), vec2(1, 1)])
-else
-  revealed_tiles()
-end
-end
-
 public function build_quest_progression(qid: text, start_x: integer, start_y: integer, team: a list of text): Json
   intent: build
-  let bids: a list of text = resolve_quest_team(qid, team)
+  let bids: a list of text = resolve_team(team)
   let user: Json = jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("Commander")), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("strongestHero", jsonout.json_text(unwrap_or(get(bids, 0), ""))), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("team", quest_team(bids)), jsonout.json_pair("points", jsonout.json_int(0))])
-  jsonout.json_obj([jsonout.json_pair("version", jsonout.json_int(1)), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("cleared", jsonout.json_list([])), jsonout.json_pair("previouslyCleared", jsonout.json_list([])), jsonout.json_pair("revealed", revealed_tiles_for(qid)), jsonout.json_pair("users", jsonout.json_obj([jsonout.json_pair(local_uid(), user)]))])
+  jsonout.json_obj([jsonout.json_pair("version", jsonout.json_int(1)), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("cleared", jsonout.json_list([])), jsonout.json_pair("previouslyCleared", jsonout.json_list([])), jsonout.json_pair("revealed", revealed_tiles()), jsonout.json_pair("users", jsonout.json_obj([jsonout.json_pair(local_uid(), user)]))])
 end
 
 public function build_active_quest(qid: text, set_id: text, team: a list of text): Json
   intent: build
   let qmap: Json = build_quest_map(qid)
-  let progression: Json = build_quest_progression(qid, quest_start_x_for(qid), quest_start_y_for(qid), team)
+  let progression: Json = build_quest_progression(qid, 0, 1, team)
   let base_instance: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("index", jsonout.json_int(0)), jsonout.json_pair("instanceIndex", jsonout.json_int(0)), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("startTime", jsonout.json_int(0)), jsonout.json_pair("expiryTime", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap)])
   let nested_instance: Json = jsonout.obj_set(base_instance, "progression", progression)
   let instance: Json = jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(nested_instance, "version", jsonout.obj_get(progression, "version")), "currentPos", jsonout.obj_get(progression, "currentPos")), "cleared", jsonout.obj_get(progression, "cleared")), "previouslyCleared", jsonout.obj_get(progression, "previouslyCleared")), "revealed", jsonout.obj_get(progression, "revealed")), "users", jsonout.obj_get(progression, "users"))
-  jsonout.json_obj([jsonout.json_pair("uniqueId", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("category", jsonout.json_text("PvE")), jsonout.json_pair("mode", jsonout.json_text("PvE")), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text(quest_set_hash_for(qid))), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap), jsonout.json_pair("progression", jsonout.json_obj([])), jsonout.json_pair("instances", jsonout.json_list([instance]))])
+  jsonout.json_obj([jsonout.json_pair("uniqueId", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("category", jsonout.json_text("PvE")), jsonout.json_pair("mode", jsonout.json_text("PvE")), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap), jsonout.json_pair("progression", jsonout.json_obj([])), jsonout.json_pair("instances", jsonout.json_list([instance]))])
 end
 
 public function build_quest_begin(qid: text, set_id: text, team: a list of text): Json
@@ -1101,17 +959,16 @@ public function build_quest_movedir(qid: text, offx: integer, offy: integer, sta
   let next_x: integer = start_x + offx
   let next_y: integer = start_y + offy
   mutable results: a list of Json = [jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("moveto", vec2(next_x, next_y))]))])]
-  if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) then
-  let encounter: QuestEncounter = quest_encounter_for(qid, next_x)
-  let battle_enemy: Json = if qid == custom_story_qid() then build_quest_enemy_for("chicago", 0, encounter.key, encounter.final_boss) else build_quest_enemy_for("", -1, encounter.key, encounter.final_boss) end
-  let battle: Json = jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(next_x)), jsonout.json_pair("y", jsonout.json_int(next_y)), jsonout.json_pair("isFinalBoss", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("battleEnemy", battle_enemy)])
+  if next_y == quest_path_col() and quest_has_encounter(next_x) then
+  let encounter: QuestEncounter = quest_encounter(next_x)
+  let battle: Json = jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(next_x)), jsonout.json_pair("y", jsonout.json_int(next_y)), jsonout.json_pair("isFinalBoss", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("battleEnemy", build_quest_enemy_for("", -1, encounter.key, encounter.final_boss))])
   set results = append(results, jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("battle", battle)]))]))
 end
   let initial: Json = build_quest_progression(qid, next_x, next_y, team)
   let with_cleared: Json = jsonout.obj_set(initial, "cleared", jsonout.json_list([vec2(start_x, start_y)]))
-  let progression: Json = jsonout.obj_set(with_cleared, "revealed", revealed_tiles_for(qid))
-  let final_progression: Json = if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) then
-  let encounter: QuestEncounter = quest_encounter_for(qid, next_x)
+  let progression: Json = jsonout.obj_set(with_cleared, "revealed", revealed_tiles())
+  let final_progression: Json = if next_y == quest_path_col() and quest_has_encounter(next_x) then
+  let encounter: QuestEncounter = quest_encounter(next_x)
   let with_id: Json = jsonout.obj_set(progression, "currentBattleId", jsonout.json_text(encounter.key))
   let with_pos: Json = jsonout.obj_set(with_id, "currentBattlePos", vec2(next_x, next_y))
   let with_enemy: Json = jsonout.obj_set(with_pos, "currentBattleEnemy", jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(encounter.key))]))
@@ -1121,7 +978,7 @@ end
 else
   progression
 end
-  let team_data: Json = build_active_team(qid ++ "-0", resolve_quest_team(qid, team))
+  let team_data: Json = build_active_team(qid ++ "-0", resolve_team(team))
   jsonout.json_obj([jsonout.json_pair("results", jsonout.json_list(results)), jsonout.json_pair("progression", final_progression), jsonout.json_pair("teamData", team_data)])
 end
 

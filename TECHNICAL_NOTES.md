@@ -1129,36 +1129,3 @@ result reconciliation that both devices read identically.
 
 `tools/nativehook/` is not a netcode surface: its hooks are offline fight mechanics.
 `inapk_server.c` binds only `127.0.0.1:8080`, so it does not enable LAN play.
-
-## Quest-set summary table bounds
-
-The client parses `/quests/quest-list` into per-set summary tables and indexes them by the
-quest's own `act` / `chapter` / `mission` fields. These are 1-based slot indices into arrays
-that the set itself sizes. Disassembly of `Legacy.QuestSet.BuildSummaryTable` (arm64 RVA
-`0x1039BE4`) and `ParseChapters` / `ParseQuests` (`0x103A5B4` / `0x103A710`) shows the exact
-allocation:
-
-- `Acts = new Act[actCount + 1]`
-- For each act `i`, `chapters = new Chapter[chapterCount[i] + 1]`
-- For each chapter, `quests = new Summary[... + 1]`
-
-`AddQuestSummarys` (RVA `0x10381F0`) then stores each summary at
-`Acts[act].chapters[chapter].quests[mission]`, and `AddQuestDetails` (RVA `0x103A0E4`) performs
-the same indexed store when a quest-detail response arrives.
-
-Consequences for authored content:
-
-- A quest's `act` must satisfy `1 <= act <= actCount`. A quest with `act` beyond the set's
-  own `actCount` throws `IndexOutOfRangeException` while the quest list is parsed, which closes
-  the client right after login.
-- `chapterCount` must have exactly `actCount + 1` entries, and `chapter` must not exceed
-  `chapterCount[act]`.
-- The `act` / `chapter` / `mission` values in the static `quest-list` object and in any
-  generated `build_quest_summary` output for the same qid must agree, because both are stored
-  through the same indexed path.
-
-The `2.1.1` custom story quest lives in its own single-act set (`custom_story_act1`,
-`actCount: 1`), so its summary slot is `1/1/1` even though the qid string starts with `2`. The
-qid is an opaque routing key; the numeric slot fields, not the qid, drive the client's table
-indexing. `Server/test_fakeserver.lbl::test_quest_list_slots_fit_client_summary_tables` encodes
-these bounds so a future set cannot regress them.
