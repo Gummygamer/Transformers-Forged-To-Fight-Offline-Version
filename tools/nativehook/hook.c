@@ -47,13 +47,17 @@ static void seg_handler(int sig, siginfo_t* si, void* uc){
     else { signal(sig, SIG_DFL); raise(sig); }
 }
 #define PROTECT(stmt) do { g_prot=1; if (sigsetjmp(g_jb,1)==0) { stmt } g_prot=0; } while(0)
-#define LOG(...) do { __android_log_print(ANDROID_LOG_ERROR, "TFTFHOOK", __VA_ARGS__); flog(__VA_ARGS__); } while(0)
+#define LOG(...) flog(__VA_ARGS__)
 static FILE* g_f = NULL;
+// Every diagnostic goes to logcat (tag TFTFHOOK) as well as the dotkeys.log file: the file
+// is unreadable on this device (app not debuggable, no root), so logcat is the live surface.
 static void flog(const char* fmt, ...){
+    char buf[1024];
+    va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof buf, fmt, ap); va_end(ap);
+    __android_log_print(ANDROID_LOG_ERROR, "TFTFHOOK", "%s", buf);
     if (!g_f) g_f = fopen("/data/data/com.kabam.bigrobot/files/dotkeys.log", "a");
     if (!g_f) return;
-    va_list ap; va_start(ap, fmt); vfprintf(g_f, fmt, ap); va_end(ap);
-    fputc('\n', g_f); fflush(g_f);
+    fputs(buf, g_f); fputc('\n', g_f); fflush(g_f);
 }
 
 typedef void* (*fn8)(void*,void*,void*,void*,void*,void*,void*,void*);
