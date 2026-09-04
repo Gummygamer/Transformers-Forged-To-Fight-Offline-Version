@@ -478,7 +478,7 @@ public function build_payload(listen_port: integer): integer
   if length(keys) != 9548 then fail("payload entry count is not 9548: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4860032 then fail("payload total size is not 4860032: " ++ to_text(total)) end
+  if total != 4858984 then fail("payload total size is not 4858984: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)

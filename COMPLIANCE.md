@@ -372,9 +372,9 @@ roster, with art already resolved by `art_overrides()`. Referencing an existing 
 follows the same precedent as the rest of the authored content here. No asset, portrait,
 model, or recovered server record was added.
 
-The final boss's statline, 28000 max HP and 3000 attack for a displayed power of 31000, is
+The final boss's statline, 20000 max HP and 800 attack for a displayed power of 20800, is
 an original balance choice invented for this revival to satisfy a request for a roughly
-31000-power final boss. It is not a recovered Kabam value.
+20800-power final boss. It is not a recovered Kabam value.
 
 One dialogue line changed. The `final_stand` set's antagonist speaker moved from the
 retired Sharkticon Brawler to Nemesis Prime, and its line is new, 100% original writing for

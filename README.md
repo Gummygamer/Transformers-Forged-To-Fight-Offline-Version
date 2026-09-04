@@ -717,8 +717,8 @@ one of those blueprints was already in the shipped roster with working art, so t
 needed no new assets.
 
 Row 10 is now **Nemesis Prime** (`nemesisprime_gs_voyager2015`) rather than a Sharkticon
-Brawler, authored with 28000 max HP and 3000 attack so the pre-fight screen shows a power
-of 31000. `TECHNICAL_NOTES.md` explains which server field that number comes from and why
+Brawler, authored with 20000 max HP and 800 attack so the pre-fight screen shows a power
+of 20800. `TECHNICAL_NOTES.md` explains which server field that number comes from and why
 that is the field the client actually displays.
 
 The mission's four authored dialogue sets ship under the `dialogueTable` key, and each set
