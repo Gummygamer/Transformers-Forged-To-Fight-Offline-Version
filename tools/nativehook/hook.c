@@ -2317,6 +2317,8 @@ void* hook_13(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     PROTECT( ensure_empty_tags(); fix_blueprint_tags(a0); );
     return r;
 }
+static void* g_p0_controller = NULL;
+
 // slot 56 FIXFIGHT: PlayerAttributes.Init(this=a0, owner=a1, manager=a2, fighterData=a3,
 // opponentFighterData=a4). At dac178 it does `new HashSet<string>(this._blueprint.Tags)` and
 // throws ArgumentNullException when Tags is null -> "unknown error" as the fight loads. The
@@ -2340,8 +2342,10 @@ void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         if(!read_str(fld_p(bp1,0x10),id1,sizeof id1)) strcpy(id1,"<null>");
         if(!read_str(fld_p(bp2,0x10),id2,sizeof id2)) strcpy(id2,"<null>");
         void* at1=fld_p((void*)fd,0x38); void* at2=fld_p((void*)ofd,0x38);
+        int player_idx = obj_ok(a1) ? *(int32_t*)((uintptr_t)a1+0xF4) : -1;
+        if (player_idx == 0 && obj_ok(a1)) g_p0_controller = a1;
         flog("FIXFIGHT player=%d bp1=%s msa=%d attr.specials=%d tags:%p->%p  bp2=%s msa=%d attr.specials=%d tags:%p->%p",
-             obj_ok(a1)?*(int32_t*)((uintptr_t)a1+0xF4):-1, id1, obj_ok(bp1)?*(int32_t*)((uintptr_t)bp1+0xAC):-1,
+             player_idx, id1, obj_ok(bp1)?*(int32_t*)((uintptr_t)bp1+0xAC):-1,
              obj_ok(at1)?*(int32_t*)((uintptr_t)at1+0x28):-1, t1a,t1b, id2,
              obj_ok(bp2)?*(int32_t*)((uintptr_t)bp2+0xAC):-1, obj_ok(at2)?*(int32_t*)((uintptr_t)at2+0x28):-1,t2a,t2b);
     });
@@ -3559,6 +3563,8 @@ void* hook_142(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     });
     return r;
 }
+static void reset_player_attack_chain(void* pc);
+
 // SP3XFIX (shipped): drop the hold before restoring robot form at cinematic exit.
 void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* pc=fld_p(a0,0x18);
@@ -3581,10 +3587,7 @@ void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
             flog("SP3XFIX exit pc=%p pump=%d tms=%llu", pc, g_sp3_beat_ticks,
                  (unsigned long long)propgo_now_ms());
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,0,NULL);
-            *(uint64_t*)((uintptr_t)pc + 0x1c0) = 0;
-            *(uint32_t*)((uintptr_t)pc + 0x1c8) = 0;
-            if (g_base) ((void(*)(void*,void*))(g_base + 0x1177288))(pc, NULL);
-            flog("SP3XFIX reset attack chain on pc=%p", pc);
+            reset_player_attack_chain(pc);
         }
     });
     return r;
@@ -3693,16 +3696,18 @@ void* hook_150(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({ LOG("PUSHHM this=%p obj=%p", a0, a1); });
     return H[150].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
-static void* g_p0_controller = NULL;
-
 static void reset_player_attack_chain(void* pc) {
     if (!obj_ok(pc)) return;
+    if (g_p0_controller && pc != g_p0_controller) return;
+    int32_t p_idx = *(int32_t*)((uintptr_t)pc + 0xF4);
+    if (p_idx != 0) return;
+    if (!g_p0_controller && p_idx == 0) g_p0_controller = pc;
     *(uint64_t*)((uintptr_t)pc + 0x1c0) = 0;
     *(uint32_t*)((uintptr_t)pc + 0x1c8) = 0;
     if (g_base) {
         ((void(*)(void*, void*))(g_base + 0x1177288))(pc, NULL);
     }
-    flog("RESET_ATTACK_CHAIN on pc=%p", pc);
+    flog("RESET_ATTACK_CHAIN on p0 pc=%p", pc);
 }
 
 void* hook_151(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
@@ -3727,11 +3732,7 @@ void* hook_153(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[153].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("SPECIAL_EXIT (S1/S2) resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            flog("SPECIAL_EXIT (S1/S2) fallback resetting attack chain on g_p0=%p", g_p0_controller);
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3741,10 +3742,7 @@ void* hook_154(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[154].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("HEAVY_ENTER resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3754,10 +3752,7 @@ void* hook_155(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[155].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("HIT_REACT resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3766,7 +3761,6 @@ void* hook_156(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     void* r = H[156].orig(self, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(self)) {
-            flog("HIT_STUN resetting attack chain on pc=%p", self);
             reset_player_attack_chain(self);
         }
     });
@@ -3776,7 +3770,6 @@ void* hook_157(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     void* r = H[157].orig(self, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(self)) {
-            flog("APPLY_DAMAGE resetting attack chain on pc=%p", self);
             reset_player_attack_chain(self);
         }
     });
@@ -3787,10 +3780,7 @@ void* hook_158(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[158].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("BLOCK_ENTER resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
