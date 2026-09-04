@@ -345,6 +345,22 @@ static int has_token(const char *v, const char *token) {
     return 0;
 }
 static void *find_end(unsigned char *p, size_t n) { size_t i; for(i=0;i+4<=n;i++)if(!memcmp(p+i,"\r\n\r\n",4))return p+i;return NULL; }
+/* GET /debug/dotkeys[?n=BYTES] serves the tail of the hook log file so the full
+ * diagnostic history survives logcat ring-buffer rotation and adb flakiness. */
+static void serve_log_tail(int fd, const char *query) {
+    static const char *lp="/data/data/com.kabam.bigrobot/files/dotkeys.log";
+    size_t want=131072; unsigned char *buf; FILE *f; long sz; char hdr[192]; int m;
+    if(query && !strncmp(query,"n=",2)) { unsigned long long x=strtoull(query+2,NULL,10); if(x>0&&x<=8u*1024u*1024u)want=(size_t)x; }
+    f=fopen(lp,"rb");
+    if(!f){ const char *e="{\"error\":\"no log file\"}"; m=snprintf(hdr,sizeof hdr,"HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n",strlen(e)); if(m>0){send_all(fd,hdr,(size_t)m);send_all(fd,(const unsigned char*)e,strlen(e));} return; }
+    fseek(f,0,SEEK_END); sz=ftell(f); if(sz<0)sz=0;
+    long off=(size_t)sz>want?sz-(long)want:0; fseek(f,off,SEEK_SET);
+    size_t take=(size_t)(sz-off); buf=malloc(take+1);
+    if(buf){ size_t got=fread(buf,1,take,f); buf[got]=0; if(off>0){unsigned char*nl=(unsigned char*)memchr(buf,'\n',got); if(nl){size_t skip=(size_t)(nl-buf)+1; memmove(buf,buf+skip,got-skip+1); got-=skip;} }
+        m=snprintf(hdr,sizeof hdr,"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: %zu\r\n\r\n",strlen((char*)buf));
+        if(m>0){send_all(fd,hdr,(size_t)m);send_all(fd,buf,strlen((char*)buf));} free(buf); }
+    fclose(f);
+}
 static int respond(int fd, const unsigned char *data, size_t n, int head) {
     char hdr[160]; int m;
     if(head) { m=snprintf(hdr,sizeof hdr,"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"); return send_all(fd,hdr,(size_t)m); }
@@ -370,6 +386,7 @@ static void *connection(void *arg) {
         if(clen>MAX_BODY) { size_t consumed=body_have; unsigned char junk[4096]; while(consumed<clen){size_t want=clen-consumed;if(want>sizeof junk)want=sizeof junk;ssize_t r=recv(fd,junk,want,0);if(r<=0)goto out;consumed+=(size_t)r;} take=MAX_BODY; }
         if (hlen + take < MAX_HEAD + MAX_BODY) buf[hlen + take] = 0;
         snprintf(path,sizeof path,"%s",target); char *q=strchr(path,'?');if(q){*q++=0;query=q;}
+        if(ci_equal(method,"GET") && !strncmp(path,"/debug/dotkeys",14)) { logmsg("http GET /debug/dotkeys src=debug bytes=-"); serve_log_tail(fd,query); goto out; }
         Out o={0}; size_t n=0; const unsigned char *answer; const char *src="default";
         if(ci_equal(method,"HEAD")) answer=(const unsigned char*)"";
         else { answer=dynamic(method,path,query,(const char*)buf+hlen,take,&o,&n); if(answer)src="dyn"; if(!answer){char key[4200];snprintf(key,sizeof key,"%s %s",method,path);answer=lookup(key,&n);if(answer)src="exact";} if(!answer){uint32_t i;for(i=0;i<g_blob.pc;i++){Rec r=rec_at(&g_blob,g_blob.po,i);if(strlen(path)>=r.kl&&!memcmp(path,g_blob.p+r.ko,r.kl)){answer=body_for(&r,&n);src="prefix";break;}}}if(!answer){answer=g_blob.p+g_blob.dfo;n=g_blob.dfl;} }
