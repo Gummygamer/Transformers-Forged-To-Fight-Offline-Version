@@ -506,6 +506,10 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x1179938, "HITSTUN",    2, 0 }, // 156 PlayerController.ApplyHitStun -> reset attack chain on hit stun
     { 0x117AB6C, "APPLYDMG",   2, 0 }, // 157 PlayerController.ApplyDamage -> reset attack chain on taking damage
     { 0x1173B28, "BLOCKENTER", 2, 0 }, // 158 PlayerBlockState.OnEnter -> reset attack chain on entering block
+    // WINLIFE: name every window open/close and input-blocker toggle from logcat.
+    { 0x15890C0, "WINOPEN",  0, 0 },  // 159 WindowManager.Open(layer,name,...) -> log layer+name+info
+    { 0x1580674, "WINCLOSE", 0, 0 },  // 160 WindowManager.Close(layer,name,...) -> log layer+name
+    { 0x1580548, "WINBLOCK", 0, 0 },  // 161 WindowInputBlocker.BlockWindow(info,enabled) -> log name+enabled
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -3791,6 +3795,31 @@ void* hook_158(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     });
     return r;
 }
+// WINLIFE (window lifecycle): name every window open/close and every input-blocker toggle so a
+// stuck screen can be identified by name from logcat alone. WindowManager.Open/Close take
+// (this, layer, name, ...); WindowInputBlocker.BlockWindow takes (this, WindowInfo, enabled)
+// and WindowInfo->name is the auto-property string at +0x10.
+static void read_win_name(void* s, char* out, int cap){
+    out[0]=0;
+    uintptr_t p=(uintptr_t)s;
+    if(p>=0x100000 && !(p&7)) read_str(*(void**)(p+0x10), out, cap);
+}
+void* hook_159(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    void* r = H[159].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({ char nm[80]; if(!read_str(a2,nm,sizeof nm)) strcpy(nm,"?");
+        LOG("WINOPEN layer=%d name=%s -> info=%p", (int)(intptr_t)a1, nm, r); });
+    return r;
+}
+void* hook_160(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({ char nm[80]; if(!read_str(a2,nm,sizeof nm)) strcpy(nm,"?");
+        LOG("WINCLOSE layer=%d name=%s", (int)(intptr_t)a1, nm); });
+    return H[160].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_161(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({ char nm[80]; read_win_name(a1,nm,sizeof nm);
+        LOG("WINBLOCK name=%s enabled=%d", nm[0]?nm:"?", (int)(intptr_t)a2); });
+    return H[161].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -3807,7 +3836,8 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_128,hook_129,hook_130,hook_131,hook_132,hook_133,hook_134,hook_135,hook_136,hook_137,
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
     hook_145,hook_146,hook_147,hook_148,hook_149,hook_150,
-    hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158 };
+    hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158,
+    hook_159,hook_160,hook_161 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
