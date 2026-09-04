@@ -828,7 +828,7 @@ process restarts, whereas the Legible development server writes it to its state 
 Nemesis Prime fight. The blueprint was already in `roster()` and already had an
 `art_overrides()` entry (`nemesis_p`), so no new art plumbing was needed.
 
-The boss is authored to show a power of about 301000. The number a player reads on the
+The boss is authored to show a power of about 20800. The number a player reads on the
 pre-fight SELECT YOUR BOT screen comes from `POST /bcg/getBaseHeroData`, answered by
 `build_base_hero_details`, which emits `rating_hp: stats.hp` and `rating_attack: stats.atk`
 unhalved. `build_login_data` ships `heroRatingMaxHPWeight: 1` and
@@ -837,16 +837,16 @@ exposes a read-only computed `Rating` over settable `RatingHP` and `RatingAttack
 is, the client derives the displayed rating from the HP and attack components rather than
 echoing the server's own `rating` field. So the displayed power is `hp + atk`.
 
-`final_boss_bid()` and `final_boss_stats()` supply `hp: 300000`, `atk: 1000`, and
-`base_stats(bid, rank, level)` returns them directly for that blueprint. 300000 + 1000 is
-**301000 exactly**. `build_quest_enemy_for` still passes `rank: 1, level: 1`, so no absurd
+`final_boss_bid()` and `final_boss_stats()` supply `hp: 20000`, `atk: 800`, and
+`base_stats(bid, rank, level)` returns them directly for that blueprint. 20000 + 800 is
+**20800 exactly**. `build_quest_enemy_for` still passes `rank: 1, level: 1`, so no absurd
 rank or level readout appears anywhere in the UI.
 
 The bundled-server payload takes a separate path: `export_payload.lbl`'s `detail_for`
 overwrites the rating and combat fields with `payload_base_stats`. Before that function
 applied the final-boss override, every `--bundle-server` APK shipped
 `rating_hp: 7800` and `rating_attack: 610` (8410 power) for this entry. It now applies the
-same override, so the baked payload also returns 300000 and 1000.
+same override, so the baked payload also returns 20000 and 800.
 
 ## Virtual-LAN listener and advertised host
 
@@ -860,7 +860,7 @@ with no host override the original CDN URL and response bytes remain unchanged.
 time of day, not the online Arena mode.
 
 One deliberate side effect: `nemesisprime_gs_voyager2015` is also in `owned()`, so a player
-who fields Nemesis Prime gets the same 300000/1000 statline. That is self-consistent with
+who fields Nemesis Prime gets the same 20000/800 statline. That is self-consistent with
 the override living in `base_stats`, and it is intentional rather than a defect.
 
 Two other numbers move with this change. `Server/responses/GET__bcg_getLoginData.json` and
