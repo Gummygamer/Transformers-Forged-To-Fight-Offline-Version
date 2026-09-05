@@ -1,0 +1,3851 @@
+{
+  "sourceCommit": "848e4d3",
+  "questList": {
+    "hash": "h1",
+    "setId": "story_act1",
+    "setName": "ACT 1",
+    "expiry": 0,
+    "timeLimit": 0,
+    "timeLimitGrace": 0,
+    "showUI": true,
+    "group": "story",
+    "difficulty": "normal",
+    "difficulty_label": "NORMAL",
+    "minLevel": 0,
+    "recommendMinLevel": 0,
+    "cdn": "",
+    "use_ui_color": false,
+    "hasProgression": true,
+    "category": "Story",
+    "tags": [],
+    "actCount": 1,
+    "chapterCount": [
+      1,
+      1
+    ],
+    "acts": [
+      {
+        "name": "ACT 1",
+        "index": 0
+      },
+      {
+        "name": "ACT 1",
+        "index": 1
+      }
+    ],
+    "chapters": [
+      {
+        "name": "Chapter 1",
+        "index": 0,
+        "actIndex": 0
+      },
+      {
+        "name": "Chapter 1",
+        "index": 1,
+        "actIndex": 1
+      }
+    ],
+    "availableQuests": [
+      {
+        "id": "1.1.1",
+        "act": 1,
+        "chapter": 1,
+        "mission": 1,
+        "missionIndex": 1,
+        "index": 1,
+        "teamSizeMax": 5,
+        "friendlyName": "Arrival",
+        "description": "The first battle.",
+        "category": "story",
+        "difficulty": "normal",
+        "energyPerTile": 1,
+        "minXpPerTile": 1,
+        "maxXpPerTile": 2,
+        "minHealthPerTile": 100,
+        "maxHealthPerTile": 100,
+        "image": "",
+        "theme": ""
+      }
+    ]
+  },
+  "summary": {
+    "id": "1.1.1",
+    "setId": "story_act1",
+    "hash": "h1",
+    "act": 1,
+    "chapter": 1,
+    "mission": 1,
+    "missionIndex": 1,
+    "index": 1,
+    "teamSizeMax": 5,
+    "friendlyName": "Arrival",
+    "description": "The first battle.",
+    "category": "story",
+    "difficulty": "normal",
+    "energyPerTile": 1,
+    "minXpPerTile": 1,
+    "maxXpPerTile": 2,
+    "minHealthPerTile": 100,
+    "maxHealthPerTile": 100,
+    "image": "",
+    "theme": "primordial",
+    "todIndex": 0,
+    "dialogueTable": {
+      "arrival_intro": [
+        {
+          "inShadow": false,
+          "character": "optimusprime_cin_tf",
+          "side": "left",
+          "style": "default",
+          "line": "Sensors read a cold beachhead ahead. Whatever landed here is already moving."
+        },
+        {
+          "inShadow": true,
+          "character": "sharkticon_gs_warrior",
+          "side": "right",
+          "style": "default",
+          "line": "The tide brought us in. The tide will bury you."
+        },
+        {
+          "inShadow": false,
+          "character": "optimusprime_cin_tf",
+          "side": "left",
+          "style": "default",
+          "line": "Then we hold this line, and we hold it together."
+        }
+      ],
+      "midpoint_rally": [
+        {
+          "inShadow": false,
+          "character": "optimusprimal_bw_mp32",
+          "side": "left",
+          "style": "default",
+          "line": "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."
+        },
+        {
+          "inShadow": true,
+          "character": "soundwave_gs",
+          "side": "right",
+          "style": "default",
+          "line": "Every step you take is recorded. Every step you take is counted."
+        },
+        {
+          "inShadow": false,
+          "character": "optimusprime_cin_tf",
+          "side": "left",
+          "style": "default",
+          "line": "Then we walk it to the end. Steady spark, higher guard."
+        }
+      ],
+      "final_stand": [
+        {
+          "inShadow": true,
+          "character": "nemesisprime_gs_voyager2015",
+          "side": "right",
+          "style": "default",
+          "line": "You climbed all this way just to meet the shape of your own ending."
+        },
+        {
+          "inShadow": false,
+          "character": "optimusprime_cin_tf",
+          "side": "left",
+          "style": "default",
+          "line": "We climbed a long way to end this. Stand down or fall down."
+        }
+      ],
+      "shore_secured": [
+        {
+          "inShadow": false,
+          "character": "optimusprime_cin_tf",
+          "side": "left",
+          "style": "default",
+          "line": "The shore is quiet. Log the coordinates and get the wounded home."
+        },
+        {
+          "inShadow": false,
+          "character": "optimusprimal_bw_mp32",
+          "side": "left",
+          "style": "default",
+          "line": "Quiet today. We will be back before it gets loud again."
+        }
+      ]
+    }
+  },
+  "map": {
+    "hash": "qm_1.1.1",
+    "v": 1,
+    "mapHash": "qm_1.1.1",
+    "gridDimension": 11,
+    "grid": [
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "start": true,
+          "lab": "Start",
+          "links": [
+            {
+              "x": 1,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 1,
+              "y": 1
+            }
+          ]
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Patrol",
+          "links": [
+            {
+              "x": 0,
+              "y": 1
+            },
+            {
+              "x": 2,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 0,
+              "y": 1
+            },
+            {
+              "x": 2,
+              "y": 1
+            }
+          ],
+          "boss": "sharkticon_gs_warrior",
+          "entities": {
+            "sharkticon_gs_warrior": {
+              "key": "sharkticon_gs_warrior",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "sharkticon_gs_warrior"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          },
+          "dialogue": "arrival_intro"
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Insecticon Scouts",
+          "links": [
+            {
+              "x": 1,
+              "y": 1
+            },
+            {
+              "x": 3,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 1,
+              "y": 1
+            },
+            {
+              "x": 3,
+              "y": 1
+            }
+          ],
+          "boss": "kickback_gs_kabam",
+          "entities": {
+            "kickback_gs_kabam": {
+              "key": "kickback_gs_kabam",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "kickback_gs_kabam"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Buzzsaw Swarm",
+          "links": [
+            {
+              "x": 2,
+              "y": 1
+            },
+            {
+              "x": 4,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 2,
+              "y": 1
+            },
+            {
+              "x": 4,
+              "y": 1
+            }
+          ],
+          "boss": "waspinator_gs_deluxe",
+          "entities": {
+            "waspinator_gs_deluxe": {
+              "key": "waspinator_gs_deluxe",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "waspinator_gs_deluxe"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Demolition Crew",
+          "links": [
+            {
+              "x": 3,
+              "y": 1
+            },
+            {
+              "x": 5,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 3,
+              "y": 1
+            },
+            {
+              "x": 5,
+              "y": 1
+            }
+          ],
+          "boss": "sharkticon_gs_demolition",
+          "entities": {
+            "sharkticon_gs_demolition": {
+              "key": "sharkticon_gs_demolition",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "sharkticon_gs_demolition"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Interceptor",
+          "links": [
+            {
+              "x": 4,
+              "y": 1
+            },
+            {
+              "x": 6,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 4,
+              "y": 1
+            },
+            {
+              "x": 6,
+              "y": 1
+            }
+          ],
+          "boss": "soundwave_gs",
+          "entities": {
+            "soundwave_gs": {
+              "key": "soundwave_gs",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "soundwave_gs"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          },
+          "dialogue": "midpoint_rally"
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Sweep Patrol",
+          "links": [
+            {
+              "x": 5,
+              "y": 1
+            },
+            {
+              "x": 7,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 5,
+              "y": 1
+            },
+            {
+              "x": 7,
+              "y": 1
+            }
+          ],
+          "boss": "cyclonus_gs_uw06",
+          "entities": {
+            "cyclonus_gs_uw06": {
+              "key": "cyclonus_gs_uw06",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "cyclonus_gs_uw06"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Highway Blockade",
+          "links": [
+            {
+              "x": 6,
+              "y": 1
+            },
+            {
+              "x": 8,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 6,
+              "y": 1
+            },
+            {
+              "x": 8,
+              "y": 1
+            }
+          ],
+          "boss": "motormaster_gs_voyager2015",
+          "entities": {
+            "motormaster_gs_voyager2015": {
+              "key": "motormaster_gs_voyager2015",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "motormaster_gs_voyager2015"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Blade Duel",
+          "links": [
+            {
+              "x": 7,
+              "y": 1
+            },
+            {
+              "x": 9,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 7,
+              "y": 1
+            },
+            {
+              "x": 9,
+              "y": 1
+            }
+          ],
+          "boss": "bludgeon_gs_rd20",
+          "entities": {
+            "bludgeon_gs_rd20": {
+              "key": "bludgeon_gs_rd20",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "bludgeon_gs_rd20"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": false,
+          "lab": "Siege Breaker",
+          "links": [
+            {
+              "x": 8,
+              "y": 1
+            },
+            {
+              "x": 10,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 8,
+              "y": 1
+            },
+            {
+              "x": 10,
+              "y": 1
+            }
+          ],
+          "boss": "necrotronus_gs_kabam",
+          "entities": {
+            "necrotronus_gs_kabam": {
+              "key": "necrotronus_gs_kabam",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "necrotronus_gs_kabam"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ],
+      [
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": true,
+          "hidden": false,
+          "final": true,
+          "lab": "Boss",
+          "links": [
+            {
+              "x": 9,
+              "y": 1
+            }
+          ],
+          "visibleLinks": [
+            {
+              "x": 9,
+              "y": 1
+            }
+          ],
+          "boss": "nemesisprime_gs_voyager2015",
+          "entities": {
+            "nemesisprime_gs_voyager2015": {
+              "key": "nemesisprime_gs_voyager2015",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": true,
+              "characters": [
+                "nemesisprime_gs_voyager2015"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          },
+          "dialogue": "final_stand",
+          "dialoguePE": "shore_secured"
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        },
+        {
+          "walkable": false,
+          "hidden": true
+        }
+      ]
+    ],
+    "walkableCount": 11,
+    "visibleWalkableCount": 11,
+    "pathData": [
+      {
+        "path": [
+          {
+            "x": 0,
+            "y": 1
+          },
+          {
+            "x": 1,
+            "y": 1
+          },
+          {
+            "x": 2,
+            "y": 1
+          },
+          {
+            "x": 3,
+            "y": 1
+          },
+          {
+            "x": 4,
+            "y": 1
+          },
+          {
+            "x": 5,
+            "y": 1
+          },
+          {
+            "x": 6,
+            "y": 1
+          },
+          {
+            "x": 7,
+            "y": 1
+          },
+          {
+            "x": 8,
+            "y": 1
+          },
+          {
+            "x": 9,
+            "y": 1
+          },
+          {
+            "x": 10,
+            "y": 1
+          }
+        ]
+      }
+    ],
+    "overrideZoom": 0
+  },
+  "begin": {
+    "activeQuests": {
+      "1.1.1": {
+        "uniqueId": "1.1.1",
+        "qid": "1.1.1",
+        "id": "1.1.1",
+        "category": "PvE",
+        "mode": "PvE",
+        "setId": "story_act1",
+        "hash": "h1",
+        "phase": 0,
+        "data": {
+          "id": "1.1.1",
+          "setId": "story_act1",
+          "hash": "h1",
+          "act": 1,
+          "chapter": 1,
+          "mission": 1,
+          "missionIndex": 1,
+          "index": 1,
+          "teamSizeMax": 5,
+          "friendlyName": "Arrival",
+          "description": "The first battle.",
+          "category": "story",
+          "difficulty": "normal",
+          "energyPerTile": 1,
+          "minXpPerTile": 1,
+          "maxXpPerTile": 2,
+          "minHealthPerTile": 100,
+          "maxHealthPerTile": 100,
+          "image": "",
+          "theme": "primordial",
+          "todIndex": 0,
+          "dialogueTable": {
+            "arrival_intro": [
+              {
+                "inShadow": false,
+                "character": "optimusprime_cin_tf",
+                "side": "left",
+                "style": "default",
+                "line": "Sensors read a cold beachhead ahead. Whatever landed here is already moving."
+              },
+              {
+                "inShadow": true,
+                "character": "sharkticon_gs_warrior",
+                "side": "right",
+                "style": "default",
+                "line": "The tide brought us in. The tide will bury you."
+              },
+              {
+                "inShadow": false,
+                "character": "optimusprime_cin_tf",
+                "side": "left",
+                "style": "default",
+                "line": "Then we hold this line, and we hold it together."
+              }
+            ],
+            "midpoint_rally": [
+              {
+                "inShadow": false,
+                "character": "optimusprimal_bw_mp32",
+                "side": "left",
+                "style": "default",
+                "line": "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."
+              },
+              {
+                "inShadow": true,
+                "character": "soundwave_gs",
+                "side": "right",
+                "style": "default",
+                "line": "Every step you take is recorded. Every step you take is counted."
+              },
+              {
+                "inShadow": false,
+                "character": "optimusprime_cin_tf",
+                "side": "left",
+                "style": "default",
+                "line": "Then we walk it to the end. Steady spark, higher guard."
+              }
+            ],
+            "final_stand": [
+              {
+                "inShadow": true,
+                "character": "nemesisprime_gs_voyager2015",
+                "side": "right",
+                "style": "default",
+                "line": "You climbed all this way just to meet the shape of your own ending."
+              },
+              {
+                "inShadow": false,
+                "character": "optimusprime_cin_tf",
+                "side": "left",
+                "style": "default",
+                "line": "We climbed a long way to end this. Stand down or fall down."
+              }
+            ],
+            "shore_secured": [
+              {
+                "inShadow": false,
+                "character": "optimusprime_cin_tf",
+                "side": "left",
+                "style": "default",
+                "line": "The shore is quiet. Log the coordinates and get the wounded home."
+              },
+              {
+                "inShadow": false,
+                "character": "optimusprimal_bw_mp32",
+                "side": "left",
+                "style": "default",
+                "line": "Quiet today. We will be back before it gets loud again."
+              }
+            ]
+          }
+        },
+        "map": {
+          "hash": "qm_1.1.1",
+          "v": 1,
+          "mapHash": "qm_1.1.1",
+          "gridDimension": 11,
+          "grid": [
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "start": true,
+                "lab": "Start",
+                "links": [
+                  {
+                    "x": 1,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 1,
+                    "y": 1
+                  }
+                ]
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Patrol",
+                "links": [
+                  {
+                    "x": 0,
+                    "y": 1
+                  },
+                  {
+                    "x": 2,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 0,
+                    "y": 1
+                  },
+                  {
+                    "x": 2,
+                    "y": 1
+                  }
+                ],
+                "boss": "sharkticon_gs_warrior",
+                "entities": {
+                  "sharkticon_gs_warrior": {
+                    "key": "sharkticon_gs_warrior",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "sharkticon_gs_warrior"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                },
+                "dialogue": "arrival_intro"
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Insecticon Scouts",
+                "links": [
+                  {
+                    "x": 1,
+                    "y": 1
+                  },
+                  {
+                    "x": 3,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 1,
+                    "y": 1
+                  },
+                  {
+                    "x": 3,
+                    "y": 1
+                  }
+                ],
+                "boss": "kickback_gs_kabam",
+                "entities": {
+                  "kickback_gs_kabam": {
+                    "key": "kickback_gs_kabam",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "kickback_gs_kabam"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Buzzsaw Swarm",
+                "links": [
+                  {
+                    "x": 2,
+                    "y": 1
+                  },
+                  {
+                    "x": 4,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 2,
+                    "y": 1
+                  },
+                  {
+                    "x": 4,
+                    "y": 1
+                  }
+                ],
+                "boss": "waspinator_gs_deluxe",
+                "entities": {
+                  "waspinator_gs_deluxe": {
+                    "key": "waspinator_gs_deluxe",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "waspinator_gs_deluxe"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Demolition Crew",
+                "links": [
+                  {
+                    "x": 3,
+                    "y": 1
+                  },
+                  {
+                    "x": 5,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 3,
+                    "y": 1
+                  },
+                  {
+                    "x": 5,
+                    "y": 1
+                  }
+                ],
+                "boss": "sharkticon_gs_demolition",
+                "entities": {
+                  "sharkticon_gs_demolition": {
+                    "key": "sharkticon_gs_demolition",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "sharkticon_gs_demolition"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Interceptor",
+                "links": [
+                  {
+                    "x": 4,
+                    "y": 1
+                  },
+                  {
+                    "x": 6,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 4,
+                    "y": 1
+                  },
+                  {
+                    "x": 6,
+                    "y": 1
+                  }
+                ],
+                "boss": "soundwave_gs",
+                "entities": {
+                  "soundwave_gs": {
+                    "key": "soundwave_gs",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "soundwave_gs"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                },
+                "dialogue": "midpoint_rally"
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Sweep Patrol",
+                "links": [
+                  {
+                    "x": 5,
+                    "y": 1
+                  },
+                  {
+                    "x": 7,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 5,
+                    "y": 1
+                  },
+                  {
+                    "x": 7,
+                    "y": 1
+                  }
+                ],
+                "boss": "cyclonus_gs_uw06",
+                "entities": {
+                  "cyclonus_gs_uw06": {
+                    "key": "cyclonus_gs_uw06",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "cyclonus_gs_uw06"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Highway Blockade",
+                "links": [
+                  {
+                    "x": 6,
+                    "y": 1
+                  },
+                  {
+                    "x": 8,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 6,
+                    "y": 1
+                  },
+                  {
+                    "x": 8,
+                    "y": 1
+                  }
+                ],
+                "boss": "motormaster_gs_voyager2015",
+                "entities": {
+                  "motormaster_gs_voyager2015": {
+                    "key": "motormaster_gs_voyager2015",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "motormaster_gs_voyager2015"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Blade Duel",
+                "links": [
+                  {
+                    "x": 7,
+                    "y": 1
+                  },
+                  {
+                    "x": 9,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 7,
+                    "y": 1
+                  },
+                  {
+                    "x": 9,
+                    "y": 1
+                  }
+                ],
+                "boss": "bludgeon_gs_rd20",
+                "entities": {
+                  "bludgeon_gs_rd20": {
+                    "key": "bludgeon_gs_rd20",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "bludgeon_gs_rd20"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": false,
+                "lab": "Siege Breaker",
+                "links": [
+                  {
+                    "x": 8,
+                    "y": 1
+                  },
+                  {
+                    "x": 10,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 8,
+                    "y": 1
+                  },
+                  {
+                    "x": 10,
+                    "y": 1
+                  }
+                ],
+                "boss": "necrotronus_gs_kabam",
+                "entities": {
+                  "necrotronus_gs_kabam": {
+                    "key": "necrotronus_gs_kabam",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": false,
+                    "characters": [
+                      "necrotronus_gs_kabam"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                }
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ],
+            [
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": true,
+                "hidden": false,
+                "final": true,
+                "lab": "Boss",
+                "links": [
+                  {
+                    "x": 9,
+                    "y": 1
+                  }
+                ],
+                "visibleLinks": [
+                  {
+                    "x": 9,
+                    "y": 1
+                  }
+                ],
+                "boss": "nemesisprime_gs_voyager2015",
+                "entities": {
+                  "nemesisprime_gs_voyager2015": {
+                    "key": "nemesisprime_gs_voyager2015",
+                    "entityType": "boss",
+                    "parentEntityType": "boss",
+                    "isFinalBoss": true,
+                    "characters": [
+                      "nemesisprime_gs_voyager2015"
+                    ],
+                    "rank": 1,
+                    "level": 1,
+                    "sig_lvl": 0,
+                    "flvl": 0,
+                    "aiType": 0,
+                    "aiString": "Default",
+                    "aiPer": "Ranged",
+                    "mapOverride": "chicago",
+                    "todIndex": 0
+                  }
+                },
+                "dialogue": "final_stand",
+                "dialoguePE": "shore_secured"
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              },
+              {
+                "walkable": false,
+                "hidden": true
+              }
+            ]
+          ],
+          "walkableCount": 11,
+          "visibleWalkableCount": 11,
+          "pathData": [
+            {
+              "path": [
+                {
+                  "x": 0,
+                  "y": 1
+                },
+                {
+                  "x": 1,
+                  "y": 1
+                },
+                {
+                  "x": 2,
+                  "y": 1
+                },
+                {
+                  "x": 3,
+                  "y": 1
+                },
+                {
+                  "x": 4,
+                  "y": 1
+                },
+                {
+                  "x": 5,
+                  "y": 1
+                },
+                {
+                  "x": 6,
+                  "y": 1
+                },
+                {
+                  "x": 7,
+                  "y": 1
+                },
+                {
+                  "x": 8,
+                  "y": 1
+                },
+                {
+                  "x": 9,
+                  "y": 1
+                },
+                {
+                  "x": 10,
+                  "y": 1
+                }
+              ]
+            }
+          ],
+          "overrideZoom": 0
+        },
+        "progression": {},
+        "instances": [
+          {
+            "id": "1.1.1",
+            "qid": "1.1.1",
+            "index": 0,
+            "instanceIndex": 0,
+            "phase": 0,
+            "startTime": 0,
+            "expiryTime": 0,
+            "data": {
+              "id": "1.1.1",
+              "setId": "story_act1",
+              "hash": "h1",
+              "act": 1,
+              "chapter": 1,
+              "mission": 1,
+              "missionIndex": 1,
+              "index": 1,
+              "teamSizeMax": 5,
+              "friendlyName": "Arrival",
+              "description": "The first battle.",
+              "category": "story",
+              "difficulty": "normal",
+              "energyPerTile": 1,
+              "minXpPerTile": 1,
+              "maxXpPerTile": 2,
+              "minHealthPerTile": 100,
+              "maxHealthPerTile": 100,
+              "image": "",
+              "theme": "primordial",
+              "todIndex": 0,
+              "dialogueTable": {
+                "arrival_intro": [
+                  {
+                    "inShadow": false,
+                    "character": "optimusprime_cin_tf",
+                    "side": "left",
+                    "style": "default",
+                    "line": "Sensors read a cold beachhead ahead. Whatever landed here is already moving."
+                  },
+                  {
+                    "inShadow": true,
+                    "character": "sharkticon_gs_warrior",
+                    "side": "right",
+                    "style": "default",
+                    "line": "The tide brought us in. The tide will bury you."
+                  },
+                  {
+                    "inShadow": false,
+                    "character": "optimusprime_cin_tf",
+                    "side": "left",
+                    "style": "default",
+                    "line": "Then we hold this line, and we hold it together."
+                  }
+                ],
+                "midpoint_rally": [
+                  {
+                    "inShadow": false,
+                    "character": "optimusprimal_bw_mp32",
+                    "side": "left",
+                    "style": "default",
+                    "line": "Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol."
+                  },
+                  {
+                    "inShadow": true,
+                    "character": "soundwave_gs",
+                    "side": "right",
+                    "style": "default",
+                    "line": "Every step you take is recorded. Every step you take is counted."
+                  },
+                  {
+                    "inShadow": false,
+                    "character": "optimusprime_cin_tf",
+                    "side": "left",
+                    "style": "default",
+                    "line": "Then we walk it to the end. Steady spark, higher guard."
+                  }
+                ],
+                "final_stand": [
+                  {
+                    "inShadow": true,
+                    "character": "nemesisprime_gs_voyager2015",
+                    "side": "right",
+                    "style": "default",
+                    "line": "You climbed all this way just to meet the shape of your own ending."
+                  },
+                  {
+                    "inShadow": false,
+                    "character": "optimusprime_cin_tf",
+                    "side": "left",
+                    "style": "default",
+                    "line": "We climbed a long way to end this. Stand down or fall down."
+                  }
+                ],
+                "shore_secured": [
+                  {
+                    "inShadow": false,
+                    "character": "optimusprime_cin_tf",
+                    "side": "left",
+                    "style": "default",
+                    "line": "The shore is quiet. Log the coordinates and get the wounded home."
+                  },
+                  {
+                    "inShadow": false,
+                    "character": "optimusprimal_bw_mp32",
+                    "side": "left",
+                    "style": "default",
+                    "line": "Quiet today. We will be back before it gets loud again."
+                  }
+                ]
+              }
+            },
+            "map": {
+              "hash": "qm_1.1.1",
+              "v": 1,
+              "mapHash": "qm_1.1.1",
+              "gridDimension": 11,
+              "grid": [
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "start": true,
+                    "lab": "Start",
+                    "links": [
+                      {
+                        "x": 1,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 1,
+                        "y": 1
+                      }
+                    ]
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Patrol",
+                    "links": [
+                      {
+                        "x": 0,
+                        "y": 1
+                      },
+                      {
+                        "x": 2,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 0,
+                        "y": 1
+                      },
+                      {
+                        "x": 2,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "sharkticon_gs_warrior",
+                    "entities": {
+                      "sharkticon_gs_warrior": {
+                        "key": "sharkticon_gs_warrior",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "sharkticon_gs_warrior"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    },
+                    "dialogue": "arrival_intro"
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Insecticon Scouts",
+                    "links": [
+                      {
+                        "x": 1,
+                        "y": 1
+                      },
+                      {
+                        "x": 3,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 1,
+                        "y": 1
+                      },
+                      {
+                        "x": 3,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "kickback_gs_kabam",
+                    "entities": {
+                      "kickback_gs_kabam": {
+                        "key": "kickback_gs_kabam",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "kickback_gs_kabam"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Buzzsaw Swarm",
+                    "links": [
+                      {
+                        "x": 2,
+                        "y": 1
+                      },
+                      {
+                        "x": 4,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 2,
+                        "y": 1
+                      },
+                      {
+                        "x": 4,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "waspinator_gs_deluxe",
+                    "entities": {
+                      "waspinator_gs_deluxe": {
+                        "key": "waspinator_gs_deluxe",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "waspinator_gs_deluxe"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Demolition Crew",
+                    "links": [
+                      {
+                        "x": 3,
+                        "y": 1
+                      },
+                      {
+                        "x": 5,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 3,
+                        "y": 1
+                      },
+                      {
+                        "x": 5,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "sharkticon_gs_demolition",
+                    "entities": {
+                      "sharkticon_gs_demolition": {
+                        "key": "sharkticon_gs_demolition",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "sharkticon_gs_demolition"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Interceptor",
+                    "links": [
+                      {
+                        "x": 4,
+                        "y": 1
+                      },
+                      {
+                        "x": 6,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 4,
+                        "y": 1
+                      },
+                      {
+                        "x": 6,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "soundwave_gs",
+                    "entities": {
+                      "soundwave_gs": {
+                        "key": "soundwave_gs",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "soundwave_gs"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    },
+                    "dialogue": "midpoint_rally"
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Sweep Patrol",
+                    "links": [
+                      {
+                        "x": 5,
+                        "y": 1
+                      },
+                      {
+                        "x": 7,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 5,
+                        "y": 1
+                      },
+                      {
+                        "x": 7,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "cyclonus_gs_uw06",
+                    "entities": {
+                      "cyclonus_gs_uw06": {
+                        "key": "cyclonus_gs_uw06",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "cyclonus_gs_uw06"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Highway Blockade",
+                    "links": [
+                      {
+                        "x": 6,
+                        "y": 1
+                      },
+                      {
+                        "x": 8,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 6,
+                        "y": 1
+                      },
+                      {
+                        "x": 8,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "motormaster_gs_voyager2015",
+                    "entities": {
+                      "motormaster_gs_voyager2015": {
+                        "key": "motormaster_gs_voyager2015",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "motormaster_gs_voyager2015"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Blade Duel",
+                    "links": [
+                      {
+                        "x": 7,
+                        "y": 1
+                      },
+                      {
+                        "x": 9,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 7,
+                        "y": 1
+                      },
+                      {
+                        "x": 9,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "bludgeon_gs_rd20",
+                    "entities": {
+                      "bludgeon_gs_rd20": {
+                        "key": "bludgeon_gs_rd20",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "bludgeon_gs_rd20"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": false,
+                    "lab": "Siege Breaker",
+                    "links": [
+                      {
+                        "x": 8,
+                        "y": 1
+                      },
+                      {
+                        "x": 10,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 8,
+                        "y": 1
+                      },
+                      {
+                        "x": 10,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "necrotronus_gs_kabam",
+                    "entities": {
+                      "necrotronus_gs_kabam": {
+                        "key": "necrotronus_gs_kabam",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": false,
+                        "characters": [
+                          "necrotronus_gs_kabam"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    }
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ],
+                [
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": true,
+                    "hidden": false,
+                    "final": true,
+                    "lab": "Boss",
+                    "links": [
+                      {
+                        "x": 9,
+                        "y": 1
+                      }
+                    ],
+                    "visibleLinks": [
+                      {
+                        "x": 9,
+                        "y": 1
+                      }
+                    ],
+                    "boss": "nemesisprime_gs_voyager2015",
+                    "entities": {
+                      "nemesisprime_gs_voyager2015": {
+                        "key": "nemesisprime_gs_voyager2015",
+                        "entityType": "boss",
+                        "parentEntityType": "boss",
+                        "isFinalBoss": true,
+                        "characters": [
+                          "nemesisprime_gs_voyager2015"
+                        ],
+                        "rank": 1,
+                        "level": 1,
+                        "sig_lvl": 0,
+                        "flvl": 0,
+                        "aiType": 0,
+                        "aiString": "Default",
+                        "aiPer": "Ranged",
+                        "mapOverride": "chicago",
+                        "todIndex": 0
+                      }
+                    },
+                    "dialogue": "final_stand",
+                    "dialoguePE": "shore_secured"
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  },
+                  {
+                    "walkable": false,
+                    "hidden": true
+                  }
+                ]
+              ],
+              "walkableCount": 11,
+              "visibleWalkableCount": 11,
+              "pathData": [
+                {
+                  "path": [
+                    {
+                      "x": 0,
+                      "y": 1
+                    },
+                    {
+                      "x": 1,
+                      "y": 1
+                    },
+                    {
+                      "x": 2,
+                      "y": 1
+                    },
+                    {
+                      "x": 3,
+                      "y": 1
+                    },
+                    {
+                      "x": 4,
+                      "y": 1
+                    },
+                    {
+                      "x": 5,
+                      "y": 1
+                    },
+                    {
+                      "x": 6,
+                      "y": 1
+                    },
+                    {
+                      "x": 7,
+                      "y": 1
+                    },
+                    {
+                      "x": 8,
+                      "y": 1
+                    },
+                    {
+                      "x": 9,
+                      "y": 1
+                    },
+                    {
+                      "x": 10,
+                      "y": 1
+                    }
+                  ]
+                }
+              ],
+              "overrideZoom": 0
+            },
+            "progression": {
+              "version": 1,
+              "currentPos": {
+                "x": 0,
+                "y": 1
+              },
+              "cleared": [],
+              "previouslyCleared": [],
+              "revealed": [
+                {
+                  "x": 0,
+                  "y": 1
+                },
+                {
+                  "x": 1,
+                  "y": 1
+                },
+                {
+                  "x": 2,
+                  "y": 1
+                },
+                {
+                  "x": 3,
+                  "y": 1
+                },
+                {
+                  "x": 4,
+                  "y": 1
+                },
+                {
+                  "x": 5,
+                  "y": 1
+                },
+                {
+                  "x": 6,
+                  "y": 1
+                },
+                {
+                  "x": 7,
+                  "y": 1
+                },
+                {
+                  "x": 8,
+                  "y": 1
+                },
+                {
+                  "x": 9,
+                  "y": 1
+                },
+                {
+                  "x": 10,
+                  "y": 1
+                }
+              ],
+              "users": {
+                "1000000000001": {
+                  "name": "Commander",
+                  "tag": "",
+                  "strongestHero": "optimusprime_cin_tf",
+                  "currentPos": {
+                    "x": 0,
+                    "y": 1
+                  },
+                  "team": {
+                    "optimusprime_cin_tf": {
+                      "hp": 1.0,
+                      "pi": 757,
+                      "sig_lvl": 0,
+                      "stat_mods": [],
+                      "sig_mods": []
+                    },
+                    "optimusprimal_bw_mp32": {
+                      "hp": 1.0,
+                      "pi": 757,
+                      "sig_lvl": 0,
+                      "stat_mods": [],
+                      "sig_mods": []
+                    },
+                    "megatron_gs_leader2015": {
+                      "hp": 1.0,
+                      "pi": 617,
+                      "sig_lvl": 0,
+                      "stat_mods": [],
+                      "sig_mods": []
+                    }
+                  },
+                  "points": 0
+                }
+              }
+            },
+            "version": 1,
+            "currentPos": {
+              "x": 0,
+              "y": 1
+            },
+            "cleared": [],
+            "previouslyCleared": [],
+            "revealed": [
+              {
+                "x": 0,
+                "y": 1
+              },
+              {
+                "x": 1,
+                "y": 1
+              },
+              {
+                "x": 2,
+                "y": 1
+              },
+              {
+                "x": 3,
+                "y": 1
+              },
+              {
+                "x": 4,
+                "y": 1
+              },
+              {
+                "x": 5,
+                "y": 1
+              },
+              {
+                "x": 6,
+                "y": 1
+              },
+              {
+                "x": 7,
+                "y": 1
+              },
+              {
+                "x": 8,
+                "y": 1
+              },
+              {
+                "x": 9,
+                "y": 1
+              },
+              {
+                "x": 10,
+                "y": 1
+              }
+            ],
+            "users": {
+              "1000000000001": {
+                "name": "Commander",
+                "tag": "",
+                "strongestHero": "optimusprime_cin_tf",
+                "currentPos": {
+                  "x": 0,
+                  "y": 1
+                },
+                "team": {
+                  "optimusprime_cin_tf": {
+                    "hp": 1.0,
+                    "pi": 757,
+                    "sig_lvl": 0,
+                    "stat_mods": [],
+                    "sig_mods": []
+                  },
+                  "optimusprimal_bw_mp32": {
+                    "hp": 1.0,
+                    "pi": 757,
+                    "sig_lvl": 0,
+                    "stat_mods": [],
+                    "sig_mods": []
+                  },
+                  "megatron_gs_leader2015": {
+                    "hp": 1.0,
+                    "pi": 617,
+                    "sig_lvl": 0,
+                    "stat_mods": [],
+                    "sig_mods": []
+                  }
+                },
+                "points": 0
+              }
+            }
+          }
+        ]
+      }
+    }
+  },
+  "firstMovedir": {
+    "results": [
+      {
+        "action": {
+          "moveto": {
+            "x": 1,
+            "y": 1
+          }
+        }
+      },
+      {
+        "action": {
+          "battle": {
+            "x": 1,
+            "y": 1,
+            "isFinalBoss": false,
+            "battleEnemy": {
+              "key": "sharkticon_gs_warrior",
+              "entityType": "boss",
+              "parentEntityType": "boss",
+              "isFinalBoss": false,
+              "characters": [
+                "sharkticon_gs_warrior"
+              ],
+              "rank": 1,
+              "level": 1,
+              "sig_lvl": 0,
+              "flvl": 0,
+              "aiType": 0,
+              "aiString": "Default",
+              "aiPer": "Ranged",
+              "mapOverride": "chicago",
+              "todIndex": 0
+            }
+          }
+        }
+      }
+    ],
+    "progression": {
+      "version": 1,
+      "currentPos": {
+        "x": 1,
+        "y": 1
+      },
+      "cleared": [
+        {
+          "x": 0,
+          "y": 1
+        }
+      ],
+      "previouslyCleared": [],
+      "revealed": [
+        {
+          "x": 0,
+          "y": 1
+        },
+        {
+          "x": 1,
+          "y": 1
+        },
+        {
+          "x": 2,
+          "y": 1
+        },
+        {
+          "x": 3,
+          "y": 1
+        },
+        {
+          "x": 4,
+          "y": 1
+        },
+        {
+          "x": 5,
+          "y": 1
+        },
+        {
+          "x": 6,
+          "y": 1
+        },
+        {
+          "x": 7,
+          "y": 1
+        },
+        {
+          "x": 8,
+          "y": 1
+        },
+        {
+          "x": 9,
+          "y": 1
+        },
+        {
+          "x": 10,
+          "y": 1
+        }
+      ],
+      "users": {
+        "1000000000001": {
+          "name": "Commander",
+          "tag": "",
+          "strongestHero": "optimusprime_cin_tf",
+          "currentPos": {
+            "x": 1,
+            "y": 1
+          },
+          "team": {
+            "optimusprime_cin_tf": {
+              "hp": 1.0,
+              "pi": 757,
+              "sig_lvl": 0,
+              "stat_mods": [],
+              "sig_mods": []
+            },
+            "optimusprimal_bw_mp32": {
+              "hp": 1.0,
+              "pi": 757,
+              "sig_lvl": 0,
+              "stat_mods": [],
+              "sig_mods": []
+            },
+            "megatron_gs_leader2015": {
+              "hp": 1.0,
+              "pi": 617,
+              "sig_lvl": 0,
+              "stat_mods": [],
+              "sig_mods": []
+            }
+          },
+          "points": 0,
+          "currentBattleId": "sharkticon_gs_warrior",
+          "currentBattlePos": {
+            "x": 1,
+            "y": 1
+          },
+          "currentBattleState": "activated"
+        }
+      },
+      "currentBattleId": "sharkticon_gs_warrior",
+      "currentBattlePos": {
+        "x": 1,
+        "y": 1
+      },
+      "currentBattleEnemy": {
+        "id": "sharkticon_gs_warrior"
+      },
+      "currentBattleEnemyHealth": 1.0
+    },
+    "teamData": {
+      "aid": "1.1.1-0",
+      "type": "PvE",
+      "modes": [
+        "PvE"
+      ],
+      "heroes": {
+        "optimusprime_cin_tf": {
+          "entity_type": "bot",
+          "bid": "optimusprime_cin_tf",
+          "rank": 1,
+          "level": 1,
+          "sig_lvl": 0,
+          "required_xp": 0,
+          "max_xp": 100,
+          "stamina": 100,
+          "stamina_ts": 0,
+          "stamina_full_ts": 0,
+          "stt": "",
+          "max_hp": 14375,
+          "attack": 765,
+          "rating": 757,
+          "rating_attack": 382,
+          "rating_hp": 7187,
+          "rating_attack_base": 382,
+          "rating_hp_base": 7187,
+          "special_attacks": 3,
+          "pvpb": {},
+          "exc": {},
+          "mana_gain": 1.0,
+          "mana_start": 0,
+          "flvl": 0,
+          "req_fxp": 0,
+          "max_fxp": 0,
+          "mfl": 0
+        },
+        "optimusprimal_bw_mp32": {
+          "entity_type": "bot",
+          "bid": "optimusprimal_bw_mp32",
+          "rank": 1,
+          "level": 1,
+          "sig_lvl": 0,
+          "required_xp": 0,
+          "max_xp": 100,
+          "stamina": 100,
+          "stamina_ts": 0,
+          "stamina_full_ts": 0,
+          "stt": "",
+          "max_hp": 14375,
+          "attack": 765,
+          "rating": 757,
+          "rating_attack": 382,
+          "rating_hp": 7187,
+          "rating_attack_base": 382,
+          "rating_hp_base": 7187,
+          "special_attacks": 3,
+          "pvpb": {},
+          "exc": {},
+          "mana_gain": 1.0,
+          "mana_start": 0,
+          "flvl": 0,
+          "req_fxp": 0,
+          "max_fxp": 0,
+          "mfl": 0
+        },
+        "megatron_gs_leader2015": {
+          "entity_type": "bot",
+          "bid": "megatron_gs_leader2015",
+          "rank": 1,
+          "level": 1,
+          "sig_lvl": 0,
+          "required_xp": 0,
+          "max_xp": 100,
+          "stamina": 100,
+          "stamina_ts": 0,
+          "stamina_full_ts": 0,
+          "stt": "",
+          "max_hp": 11500,
+          "attack": 850,
+          "rating": 617,
+          "rating_attack": 425,
+          "rating_hp": 5750,
+          "rating_attack_base": 425,
+          "rating_hp_base": 5750,
+          "special_attacks": 3,
+          "pvpb": {},
+          "exc": {},
+          "mana_gain": 1.0,
+          "mana_start": 0,
+          "flvl": 0,
+          "req_fxp": 0,
+          "max_fxp": 0,
+          "mfl": 0
+        }
+      },
+      "expire": 0
+    }
+  }
+}
