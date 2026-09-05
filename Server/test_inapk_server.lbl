@@ -83,7 +83,10 @@ function start_harness(base: text, harness: text, payload: text, port: integer):
   intent: start
   let out: text = path_join(base, "out.log")
   let err: text = path_join(base, "err.log")
-  let started: a mapping from text to text = shell_exec("nohup " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let marker: text = path_join(base, "tutorial-seen")
+  write_file(out, "")
+  write_file(err, "")
+  let started: a mapping from text to text = shell_exec("nohup env TFTF_TUTORIAL_STATE_FILE=" ++ marker ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
   let pid: text = trim(command_output(started))
   let deadline: integer = current_time_ms() + 10000
   mutable ready: boolean = false
@@ -117,6 +120,8 @@ function request(base: text, port: integer, method: text, path: text, body: text
   let headers: text = path_join(base, "resp.hdr")
   let request_body: text = path_join(base, "req.bin")
   let url: text = "http://127.0.0.1:" ++ to_text(port) ++ path
+  write_file(response, "")
+  write_file(headers, "")
   mutable command: text = "curl -sS --http1.1 --max-time 10 -D " ++ headers ++ " -o " ++ response ++ " -w \"%\{http_code\}\""
   if close then set command = command ++ " -H \"Connection: close\"" end
   if method == "HEAD" then
@@ -179,7 +184,21 @@ function payload_tutorial_checks(base: text, port: integer): boolean
   let d: HttpReply = request(base, port, "POST", "/tutorial/start-branch", four, false, true)
   let complete: HttpReply = request(base, port, "POST", "/tutorial/complete-tutorial", one, false, true)
   let tutorial: HttpReply = request(base, port, "POST", "/tutorial/start-tutorial", "\{\}", false, true)
-  expect("tutorial one", a.body, fakeserver.dynamic("/tutorial/start-branch", one)) and expect("tutorial two", b.body, fakeserver.dynamic("/tutorial/start-branch", two)) and expect("tutorial three", c.body, fakeserver.dynamic("/tutorial/start-branch", three)) and expect("tutorial four", d.body, fakeserver.dynamic("/tutorial/start-branch", four)) and expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json")))
+  let first_login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
+  let second_login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
+  expect("tutorial one", a.body, fakeserver.dynamic("/tutorial/start-branch", one)) and expect("tutorial two", b.body, fakeserver.dynamic("/tutorial/start-branch", two)) and expect("tutorial three", c.body, fakeserver.dynamic("/tutorial/start-branch", three)) and expect("tutorial four", d.body, fakeserver.dynamic("/tutorial/start-branch", four)) and expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json"))) and expect("tutorial first login", first_login.body, fakeserver.tutorial_login_started_response()) and expect("tutorial second login", second_login.body, fakeserver.tutorial_login_completed_response())
+end
+
+function payload_custom_story_checks(base: text, port: integer): boolean
+  intent: test
+  let begin_path: text = "/quests/quest-begin/2.1.1"
+  let begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}"
+  let move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
+  let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
+  let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
+  let moved: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+  let expected_moved: text = fakeserver.dynamic(move_path, "\{\}")
+  expect("custom quest begin", begin.body, expected_begin) and expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"chicago\"") and contains_text(moved.body, "\"optimusprime_cin_tf\"") and not contains_text(begin.body, "\"megatron_cin_rotf\"")
 end
 
 function payload_session_checks(base: text, port: integer): boolean
@@ -272,6 +291,8 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
   intent: test
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
+  fakeserver.reset_tutorial_login()
+  shell_exec("rm -f -- " ++ path_join(base, "tutorial-seen"))
   let started: HarnessStart = start_harness(base, harness, payload, port)
   if started.error != "" then
     stop_harness(started.pid)
@@ -282,8 +303,16 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
     let c: boolean = payload_tutorial_checks(base, port)
     let d: boolean = payload_session_checks(base, port)
     let e: boolean = native_retry_gate_checks(base, port)
+    let f: boolean = payload_custom_story_checks(base, port)
     stop_harness(started.pid)
-    if a and b and c and d and e then ok() else failed("wire regressions") end
+    let restarted: HarnessStart = start_harness(base, harness, payload, port)
+    mutable persisted: boolean = false
+    if restarted.error == "" then
+      let login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
+      set persisted = expect("tutorial login after restart", login.body, fakeserver.tutorial_login_completed_response())
+    end
+    stop_harness(restarted.pid)
+    if a and b and c and d and e and f and persisted then ok() else failed("wire regressions") end
   end
 end
 

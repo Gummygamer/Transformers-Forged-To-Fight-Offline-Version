@@ -48,6 +48,7 @@ static pthread_mutex_t g_conn_lock = PTHREAD_MUTEX_INITIALIZER;
 static Position g_pos[16];
 static char g_saved_team[TEAM_SIZE_MAX][64];
 static int g_saved_team_count;
+static int g_tutorial_login_seen;
 static int g_connections;
 static int g_started;
 
@@ -189,6 +190,35 @@ static int team_from_lines(const unsigned char *s, size_t n, Team *team) {
     }
     return team->count>0;
 }
+static int fixed_quest_team(const char *qid, Team *team) {
+    if(strcmp(qid,"2.1.1"))return 0;
+    team->count=1;
+    snprintf(team->bid[0],sizeof team->bid[0],"%s","optimusprime_cin_tf");
+    return 1;
+}
+static const char *tutorial_state_path(void) {
+    const char *configured=getenv("TFTF_TUTORIAL_STATE_FILE");
+    if(configured&&configured[0])return configured;
+#ifdef __ANDROID__
+    return "/data/data/com.kabam.bigrobot/files/.tftf-fte-intro-seen";
+#else
+    return NULL;
+#endif
+}
+static int first_tutorial_login(void) {
+    const char *path; int first,fd;
+    pthread_mutex_lock(&g_pos_lock);
+    first=!g_tutorial_login_seen;
+    path=tutorial_state_path();
+    if(first&&path) {
+        fd=open(path,O_WRONLY|O_CREAT|O_EXCL,0600);
+        if(fd>=0) { (void)write(fd,"1",1); close(fd); }
+        else if(errno==EEXIST) first=0;
+    }
+    g_tutorial_login_seen=1;
+    pthread_mutex_unlock(&g_pos_lock);
+    return first;
+}
 static void store_saved_team(const char bids[][64], int count, int invalid) {
     int i;
     pthread_mutex_lock(&g_pos_lock);
@@ -275,6 +305,10 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     }
     if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
     if(has_suffix(p,"/base/active")) { snprintf(key,sizeof key,"%s /base/active",method); v=lookup(key,outn); return v?v:lookup("GET /base/active",outn); }
+    if(has_suffix(p,"/tutorial/get-login-data")) {
+        int first=first_tutorial_login();
+        return lookup(first?"@tutorial:login-first":"@tutorial:login-completed",outn);
+    }
     if(has_suffix(p,"/tutorial/start-tutorial")||has_suffix(p,"/tutorial/start-branch")||has_suffix(p,"/tutorial/early-start-branch")||has_suffix(p,"/tutorial/complete-tutorial")) {
         if(!json_string(body,end,"tid",tid,sizeof tid))if(!json_string(body,end,"tutorialId",tid,sizeof tid))json_string(body,end,"id",tid,sizeof tid);
         if(!safe_id(tid)) return NULL;
@@ -294,7 +328,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
     if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); logmsg("quest-begin qid=%s body=%.*s", qid, (int)(end-body>512?512:end-body), body); /* reset even if response is absent */
-        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
+        int x=0,y=1,fixed=fixed_quest_team(qid,&team);if(!fixed)store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||(!fixed&&!resolve_team(&team))||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
     if(strstr(p,"/quests/quest-movedir/")) {
         int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0;
         const char *z=strrchr(p,'/'), *yseg=z?z+1:"", *z2=z?NULL:NULL;
@@ -316,7 +350,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
         if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}
         if(v&&found&&contains_bytes(v,n,"\"currentBattleState\"")){pthread_mutex_lock(&g_pos_lock);if(slot>=0&&!strcmp(g_pos[slot].qid,qid))g_pos[slot].pending=1;pthread_mutex_unlock(&g_pos_lock);}
-        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
+        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!fixed_quest_team(qid,&team)&&!resolve_team(&team)){free(qteam.p);free(ateam.p);return NULL;}if(!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
         return NULL;
     }
     if(has_suffix(p,"/bcg/setSavedTeam")) { char teamid[64]="0",bids[TEAM_SIZE_MAX][64];int count,invalid;Team team;Out steam={0},ateam={0};TemplateArg args[3];json_string(body,end,"teamID",teamid,sizeof teamid);json_heroes(body,end,bids,&count,&invalid);store_saved_team(bids,count,invalid);v=lookup("@savedteam:template",&n);if(!v||!resolve_team(&team)||!render_steam(&steam,&team)||!render_ateam(&ateam,&team)){free(steam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%TID%",(const unsigned char*)teamid,strlen(teamid)};args[1]=(TemplateArg){"%STEAM%",steam.p,steam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(steam.p);free(ateam.p);return v; }
@@ -406,7 +440,7 @@ static void *accept_loop(void *unused) {
 }
 int tftf_server_start_blob(const void *blob, size_t len) {
     Blob b; int fd,opt=1;struct sockaddr_in sa;pthread_t th;int rc=blob_validate(blob,len,&b);
-    if(rc){logmsg("payload validation failed (%d)",rc);return -1;} pthread_mutex_lock(&g_start_lock);if(g_started){pthread_mutex_unlock(&g_start_lock);return -2;}g_blob=b;
+    if(rc){logmsg("payload validation failed (%d)",rc);return -1;} pthread_mutex_lock(&g_start_lock);if(g_started){pthread_mutex_unlock(&g_start_lock);return -2;}g_blob=b;g_tutorial_login_seen=0;
     fd=socket(AF_INET,SOCK_STREAM,0);if(fd<0)goto fail;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt);memset(&sa,0,sizeof sa);sa.sin_family=AF_INET;sa.sin_addr.s_addr=htonl(INADDR_LOOPBACK);sa.sin_port=htons((uint16_t)b.port);
     for(int i=0;i<5;i++){if(!bind(fd,(struct sockaddr*)&sa,sizeof sa))break;if(i==4)goto failclose;struct timespec ts={0,200000000};nanosleep(&ts,NULL);}if(listen(fd,64))goto failclose;if(pthread_create(&th,NULL,accept_loop,(void*)(intptr_t)fd))goto failclose;pthread_detach(th);g_started=1;pthread_mutex_unlock(&g_start_lock);logmsg("in-apk server listening on 127.0.0.1:%u",b.port);return 0;
 failclose: close(fd);

@@ -143,6 +143,71 @@ function test_tutorial_branches_block_live_and_complete(): boolean
   blocked == "\{\"err\": \"unavailable\", \"error\": \"unavailable\", \"retry\": false, \"fatal\": false, \"result\": \{\}\}" and contains_text(live, "\"s\": \"started\"") and contains_text(complete, "\"s\": \"completed\"") and fakeserver.dynamic("/tutorial/start-tutorial", "") == ""
 end
 
+function test_tutorial_login_starts_intro_once_then_reports_complete(): boolean
+  intent: test
+  fakeserver.reset_tutorial_login()
+  let first: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
+  let first_branches: Json = jsonout.obj_get(first, "branches")
+  let second: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
+  jsonout.as_int(jsonout.obj_get(first, "s")) == 1 and jsonout.as_text(jsonout.obj_get(first, "current_bid")) == "FTEIntroQuest" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(first_branches, "FTEIntroQuest"), "s")) == 1 and jsonout.as_int(jsonout.obj_get(second, "s")) == 2 and jsonout.as_text(jsonout.obj_get(second, "current_bid")) == "FTEComplete"
+end
+
+function test_custom_story_routes_force_optimus_and_keep_template_state_independent(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/bcg/setSavedTeam", "\{\"teamID\":\"0\",\"heroes\":[\"megatron_cin_rotf\"]\}")
+  let detail: Json = result(fakeserver.dynamic("/quests/quest-detail/2.1.1", "\{\}"))
+  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\"tm0\":\"megatron_cin_rotf\"\}"))
+  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "2.1.1")
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
+  let custom_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
+  let moved: Json = result(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
+  let custom_battle: Json = battle(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
+  fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
+  let template_move: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["optimusprime_cin_tf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["optimusprime_cin_tf"] and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
+end
+
+function test_custom_story_set_is_first_without_removing_template_set(): boolean
+  intent: test
+  let sets: a list of Json = jsonout.list_items(result(fakeserver.resolve_response("GET", "/quests/quest-list").body))
+  let first: Json = unwrap_or(get(sets, 0), jsonout.json_obj([]))
+  mutable template_found: boolean = false
+  for quest_set in sets do
+    if jsonout.as_text(jsonout.obj_get(quest_set, "setId")) == "story_act1" then set template_found = true end
+  end
+  jsonout.as_text(jsonout.obj_get(first, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(first, "category")) == "Story" and template_found
+end
+
+function test_quest_list_slots_fit_client_summary_tables(): boolean
+  intent: test
+  -- Legacy.QuestSet.BuildSummaryTable gives each set actCount + 1 act slots and
+  -- indexes every summary by its act/chapter/mission fields. A quest that points
+  -- outside its own set's tables throws IndexOutOfRangeException while the quest
+  -- list is parsed, which closes the client right after login.
+  let sets: a list of Json = jsonout.list_items(result(fakeserver.resolve_response("GET", "/quests/quest-list").body))
+  mutable ok: boolean = length(sets) > 0
+  for quest_set in sets do
+    let act_count: integer = jsonout.as_int(jsonout.obj_get(quest_set, "actCount"))
+    let chapter_counts: a list of Json = jsonout.list_items(jsonout.obj_get(quest_set, "chapterCount"))
+    let set_id: text = jsonout.as_text(jsonout.obj_get(quest_set, "setId"))
+    if length(chapter_counts) != act_count + 1 then set ok = false end
+    for quest in jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests")) do
+      let qid: text = jsonout.as_text(jsonout.obj_get(quest, "id"))
+      let act: integer = jsonout.as_int(jsonout.obj_get(quest, "act"))
+      let chapter: integer = jsonout.as_int(jsonout.obj_get(quest, "chapter"))
+      let mission: integer = jsonout.as_int(jsonout.obj_get(quest, "mission"))
+      if act < 1 or act > act_count or chapter < 1 or mission < 1 then set ok = false end
+      let chapter_cap: integer = jsonout.as_int(unwrap_or(get(chapter_counts, act), jsonout.json_int(0)))
+      if chapter > chapter_cap then set ok = false end
+      let summary: Json = gamedata.build_quest_summary(qid, set_id)
+      if jsonout.as_int(jsonout.obj_get(summary, "act")) != act or jsonout.as_int(jsonout.obj_get(summary, "chapter")) != chapter or jsonout.as_int(jsonout.obj_get(summary, "mission")) != mission then set ok = false end
+    end
+  end
+  ok
+end
+
 function test_movedir_walks_full_board_after_wins(): boolean
   intent: test
   fakeserver.reset_saved_team()
@@ -168,7 +233,7 @@ function test_lost_replays_pending_battle(): boolean
   fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
   resolve("\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}")
   let replay: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  pos_x(replay) == 1 and jsonout.as_int(jsonout.obj_get(move_to(replay), "x")) == 1 and jsonout.as_int(jsonout.obj_get(battle(replay), "x")) == 1 and current_battle_id(replay) == gamedata.first_encounter_blueprint() and current_battle_state(replay) == "activated"
+  pos_x(replay) == 1 and jsonout.as_int(jsonout.obj_get(move_to(replay), "x")) == 1 and jsonout.as_int(jsonout.obj_get(battle(replay), "x")) == 1 and current_battle_id(replay) == gamedata.minion_blueprint() and current_battle_state(replay) == "activated"
 end
 
 function test_nested_won_with_board_qid_advances(): boolean
@@ -310,6 +375,10 @@ function main(): nothing
   set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
   set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
+  set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
+  set failed = failed + report("test_custom_story_routes_force_optimus_and_keep_template_state_independent", test_custom_story_routes_force_optimus_and_keep_template_state_independent())
+  set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
+  set failed = failed + report("test_quest_list_slots_fit_client_summary_tables", test_quest_list_slots_fit_client_summary_tables())
   set failed = failed + report("test_movedir_walks_full_board_after_wins", test_movedir_walks_full_board_after_wins())
   set failed = failed + report("test_lost_replays_pending_battle", test_lost_replays_pending_battle())
   set failed = failed + report("test_nested_won_with_board_qid_advances", test_nested_won_with_board_qid_advances())
@@ -325,7 +394,7 @@ function main(): nothing
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(19 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(23 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
