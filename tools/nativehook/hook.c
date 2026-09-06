@@ -21,6 +21,12 @@
 #include <dlfcn.h>
 #include <time.h>
 #include "inapk_server.h"
+#ifndef TFTF_ENABLE_ARENA
+#define TFTF_ENABLE_ARENA 0
+#endif
+#if TFTF_ENABLE_ARENA
+#include "arena.h"
+#endif
 
 // forward decls (used by seg_handler below, defined later)
 static void flog(const char* fmt, ...);
@@ -2318,6 +2324,16 @@ void* hook_13(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     return r;
 }
 static void* g_p0_controller = NULL;
+#if TFTF_ENABLE_ARENA
+// Arena netcode: the fighter the peer drives. PlayerAttributes.Init is called once per
+// fighter with the owning PlayerController, so Id 0 is this device's player and Id 1 is the
+// one drawn as the opponent -- the same distinction g_p0_controller already relies on.
+static void* g_p1_controller = NULL;
+// il2cpp entry points the arena bridge needs but which arena.c must not hardcode, so the
+// bridge stays testable on a desktop (see tools/netrelay/test_arena.c).
+static void* g_arena_ai_set_paused = NULL;   // AIController.SetPaused(bool) @0xDB1D18
+static void* g_arena_ai_is_paused  = NULL;   // AIController.get_IsPaused()  @0xDB025C
+#endif
 
 // slot 56 FIXFIGHT: PlayerAttributes.Init(this=a0, owner=a1, manager=a2, fighterData=a3,
 // opponentFighterData=a4). At dac178 it does `new HashSet<string>(this._blueprint.Tags)` and
@@ -2344,6 +2360,14 @@ void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         void* at1=fld_p((void*)fd,0x38); void* at2=fld_p((void*)ofd,0x38);
         int player_idx = obj_ok(a1) ? *(int32_t*)((uintptr_t)a1+0xF4) : -1;
         if (player_idx == 0 && obj_ok(a1)) g_p0_controller = a1;
+#if TFTF_ENABLE_ARENA
+        if (player_idx == 1 && obj_ok(a1)) g_p1_controller = a1;
+        // Hand both fighters to the arena bridge as soon as they are known. Re-publishing on
+        // every Init is deliberate: a new fight allocates new controllers, and a stale remote
+        // pointer would replay the peer's input onto a freed object.
+        if (g_p0_controller && g_p1_controller)
+            arena_set_controllers(g_p0_controller, g_p1_controller);
+#endif
         flog("FIXFIGHT player=%d bp1=%s msa=%d attr.specials=%d tags:%p->%p  bp2=%s msa=%d attr.specials=%d tags:%p->%p",
              player_idx, id1, obj_ok(bp1)?*(int32_t*)((uintptr_t)bp1+0xAC):-1,
              obj_ok(at1)?*(int32_t*)((uintptr_t)at1+0x28):-1, t1a,t1b, id2,
@@ -3597,6 +3621,12 @@ void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
 void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r=H[145].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({ sp3_beat_pump(); });
+#if TFTF_ENABLE_ARENA
+    // Arena netcode: this is the combat tick, so it is where the relay is pumped. Doing it
+    // here rather than on a timer keeps every il2cpp call on the Unity main thread, which is
+    // the only thread allowed to touch managed objects.
+    PROTECT({ if (arena_is_started()) arena_tick(); });
+#endif
     return r;
 }
 // AIRANGE (slot 146): the shipped AI behavior tree receives the valid Default/Ranged
@@ -3605,6 +3635,28 @@ void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
 // CanShoot supplies availability and out-of-melee-range gates; TryExecuteAction retains
 // normal action-state, hit-stun, recovery, and blocked-action checks. No custom range/cooldown.
 void hook_146(void* self, float dT, void* method){
+#if TFTF_ENABLE_ARENA
+    PROTECT({
+        // Arena netcode: when the peer is driving this fighter, pause the shipped AI so the
+        // two do not both steer it. Only the AI whose PlayerController IS the remote fighter
+        // is touched -- in a 3v3 the other fighters keep playing locally.
+        //
+        // SetPaused is evaluated every tick in both directions, and only called when the
+        // state actually differs, so the fighter resumes by itself the moment the peer leaves
+        // the room. A one-way pause would strand a standing target if the link dropped
+        // mid-fight, and an unconditional call would be a managed call per fighter per tick.
+        // obj_ok first: arena_should_pause_ai reads AIController.PlayerController straight out
+        // of `self`, and Simulate can be entered with a controller already freed. The two
+        // globals are non-NULL only when arena_install armed a session, which keeps an offline
+        // install off this path entirely -- see the comment there.
+        if (obj_ok(self) && g_arena_ai_set_paused && g_arena_ai_is_paused) {
+            int want = arena_should_pause_ai(self) ? 1 : 0;
+            int have = ((int(*)(void*,void*))g_arena_ai_is_paused)(self, NULL) ? 1 : 0;
+            if (want != have)
+                ((void(*)(void*,int,void*))g_arena_ai_set_paused)(self, want, NULL);
+        }
+    });
+#endif
     ((fn_ai_simulate)H[146].orig)(self,dT,method);
     PROTECT({
         void* player=fld_p(self,0x90);                    // AIController.PlayerController
@@ -3714,6 +3766,11 @@ void* hook_151(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     int index = (int)(intptr_t)a1;
     flog("SPECIAL_ATTACK index=%d called on controller=%p (p0=%p, is_p0=%d)",
          index, self, g_p0_controller, (self == g_p0_controller));
+    // Arena netcode: forward this device's own special to the peer. arena_on_local_special
+    // ignores any controller that is not the local one, which is what stops the echo below.
+#if TFTF_ENABLE_ARENA
+    PROTECT({ arena_on_local_special(self, index); });
+#endif
     PROTECT({
         reset_player_attack_chain(self);
     });
@@ -3725,6 +3782,17 @@ void* hook_152(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
         flog("PLAYER_ACTION action=%d on controller=%p (p0=%p, is_p0=%d)",
              action, self, g_p0_controller, (self == g_p0_controller));
     }
+    // Arena netcode: forward this device's own input to the peer. This runs for every action,
+    // not just the 4..10 range the diagnostic above logs.
+    //
+    // Re-entrancy is safe by construction. Applying a remote packet calls the same hooked
+    // address, so this hook runs again with self == g_p1_controller, and arena_on_local_action
+    // refuses any controller that is not the local one. Identity, not a re-entry flag, is what
+    // breaks the loop -- which also means a genuine local action issued while a remote packet
+    // is being applied is still captured.
+#if TFTF_ENABLE_ARENA
+    PROTECT({ arena_on_local_action(self, action); });
+#endif
     return H[152].orig(self, a1, a2, a3, a4, a5, a6, a7);
 }
 void* hook_153(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7) {
@@ -3929,6 +3997,57 @@ static void poke32(uintptr_t rva, uint32_t word){
     LOG("poked 0x%lx : %08x -> %08x", (long)rva, old, word);
 }
 
+#if TFTF_ENABLE_ARENA
+// Arena netcode: the config file that says whether this device should relay a live fight at
+// all, and to whom. Absent file => no session, and the game behaves exactly as it does today.
+// That is the whole activation switch: nothing below is on unless this file exists and is
+// complete, so a normal offline install is untouched by the netcode path.
+static const char* arena_config_path(void){
+    const char* configured = getenv("TFTF_ARENA_CONFIG");
+    if (configured && configured[0]) return configured;
+    return "/data/data/com.kabam.bigrobot/files/.tftf-arena.conf";
+}
+
+// Called from the installer thread once g_base is known, so every il2cpp address is absolute
+// and the RVAs stay in one place -- the same table hook.c already hooks from.
+static void inapk_log(const char* fmt, ...);
+
+static void arena_install(uintptr_t base){
+    ArenaOps ops;
+    const char* path = arena_config_path();
+    int rc;
+    memset(&ops, 0, sizeof ops);
+    ops.pc_action         = (void*)(base + 0x1179AF4); // PlayerController.Action(int)
+    ops.pc_special_attack = (void*)(base + 0x1174300); // PlayerController.SpecialAttack(int)
+    ops.ai_set_paused     = (void*)(base + 0xDB1D18);  // AIController.SetPaused(bool)
+    ops.attr_get_health   = (void*)(base + 0xDAC660);  // PlayerAttributes.get_Health()
+    ops.attr_set_health   = (void*)(base + 0xDAC67C);  // PlayerAttributes.set_Health(float)
+    arena_set_logger(inapk_log);
+    arena_set_ops(&ops);
+    rc = arena_start_from_file(path);
+    if (rc == 0) {
+        LOG("arena: live fight relay armed from %s", path);
+        // slot 146 drives the AI pause through these two, resolved here rather than inline so
+        // the hook body stays a couple of calls and the RVAs live in one place.
+        //
+        // They are published ONLY for an armed session, which makes the pair double as the
+        // netcode's master switch. arena_set_ops above is unconditional, so gating on the ops
+        // alone would leave slot 146 making a managed get_IsPaused() call per fighter per tick
+        // on a build with no session at all -- exactly the offline install the comment at
+        // arena_config_path promises is untouched. arena_should_pause_ai already returns 0
+        // while stopped, so the only thing that gate ever bought was the crash risk.
+        //
+        // Note this deliberately keys off "armed once", not arena_is_started(): the block must
+        // keep running after a stop so it can still call SetPaused(false) and let a fighter it
+        // paused resume on its own.
+        g_arena_ai_set_paused = ops.ai_set_paused;
+        g_arena_ai_is_paused  = (void*)(base + 0xDB025C);  // AIController.get_IsPaused()
+    } else {
+        LOG("arena: no live fight session (%d) from %s", rc, path);
+    }
+}
+#endif
+
 static void* installer(void* arg){
     for (int i = 0; i < 1200; i++) {           // up to 60s
         g_base = 0; dl_iterate_phdr(find_cb, NULL);
@@ -3942,6 +4061,9 @@ static void* installer(void* arg){
     g_arraynew = (arraynew_t)dlsym(RTLD_DEFAULT, "il2cpp_array_new");
     if (!g_arraynew) { void* h = dlopen("libil2cpp.so", RTLD_NOLOAD); if (h) g_arraynew = (arraynew_t)dlsym(h, "il2cpp_array_new"); }
     LOG("il2cpp_string_new=%p il2cpp_array_new=%p", (void*)g_strnew, (void*)g_arraynew);
+#if TFTF_ENABLE_ARENA
+    arena_install(g_base);
+#endif
     for (int i = 0; i < NH; i++)
         inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
     // FIXSYN (session 10): BCGBlueprintBase.get_SynergyBonuses (@0xC17198) throws
