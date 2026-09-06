@@ -22,6 +22,7 @@ record BuildRequest
   apksigner: text
   java: text
   adb: text
+  device_serial: text
   clang: text
 end
 
@@ -247,6 +248,35 @@ public function find_adb(): text
   executable_in_path("adb")
 end
 
+public function attached_device_serials(adb: text): a list of text
+  intent: list the serials adb reports as attached and authorised
+  -- `adb devices` prints "List of devices attached", then one TAB-separated line per device
+  -- whose second field is its state. Only "device" is usable: "offline" and "unauthorized"
+  -- would install nowhere.
+  if trim(adb) == "" then [] else
+    let listing: text = trim(unwrap_or(get(shell_exec(shell_quote(adb) ++ " devices 2>/dev/null"), "stdout"), ""))
+    mutable serials: a list of text = []
+    for line in split(listing, "\n") do
+      let fields: a list of text = split(line, "\t")
+      if length(fields) >= 2 and trim(unwrap_or(get(fields, 1), "")) == "device" then
+        let serial: text = trim(unwrap_or(get(fields, 0), ""))
+        if serial != "" then set serials = append(serials, serial) end
+      end
+    end
+    serials
+  end
+end
+
+public function find_device_serial(adb: text): text
+  intent: pick the only attached device, or report that the choice is ambiguous
+  -- Returning "" means "let adb choose", which is exactly right with one device and exactly
+  -- wrong with two: adb then aborts every device step with "more than one device/emulator"
+  -- minutes into a build. Resolving it here, once, at defaults time keeps that off the
+  -- per-keystroke /api/validate path.
+  let serials: a list of text = attached_device_serials(adb)
+  if length(serials) == 1 then unwrap_or(get(serials, 0), "") else "" end
+end
+
 public function find_java(): text
   intent: find Java executable
   let java_home: text = unwrap_or(env_get("JAVA_HOME"), "")
@@ -297,6 +327,7 @@ public function default_request_for(abi: text): BuildRequest
   intent: build default request
   let root: text = project_root()
   let patched: text = if abi == armv7() and file_exists(default_patched_il2cpp()) then default_patched_il2cpp() else "" end
+  let adb: text = find_adb()
   BuildRequest {
     source_apk: path_join(root, "Transformers 9.2 offline.apk"),
     dest_apk: path_join(path_join(root, "build"), "Transformers 9.2 offline-revival.apk"),
@@ -318,7 +349,8 @@ public function default_request_for(abi: text): BuildRequest
     zipalign: find_build_tool("zipalign"),
     apksigner: find_build_tool("apksigner"),
     java: find_java(),
-    adb: find_adb(),
+    adb: adb,
+    device_serial: find_device_serial(adb),
     clang: find_ndk_clang(abi)
   }
 end
@@ -390,6 +422,7 @@ public function request_from_mapping(values: a mapping from text to text): Build
     apksigner: mapped(values, "apksigner", defaults.apksigner),
     java: mapped(values, "java", defaults.java),
     adb: mapped(values, "adb", defaults.adb),
+    device_serial: mapped(values, "device_serial", defaults.device_serial),
     clang: mapped(values, "clang", defaults.clang)
   }
 end
@@ -492,14 +525,16 @@ end
 function validate_tools(request: BuildRequest): Validation
   intent: validate
   mutable errors: a list of text = []
+  mutable warnings: a list of text = []
   if trim(request.legible) == "" then set errors = append(errors, "Required tool legible was not found; install it or provide its path.") end
   if trim(request.zipalign) == "" then set errors = append(errors, "Required tool zipalign was not found; install it or provide its path.") end
   if trim(request.apksigner) == "" then set errors = append(errors, "Required tool apksigner was not found; install it or provide its path.") end
   if trim(request.java) == "" then set errors = append(errors, "apksigner requires Java, but no JRE/JDK was found; install one or set JAVA_HOME.") end
   if request.do_install and trim(request.adb) == "" then set errors = append(errors, "adb was not found, but installation to a connected device was requested.") end
+  if request.do_install and trim(request.adb) != "" and trim(request.device_serial) == "" then set warnings = append(warnings, "No device serial is selected, so adb will pick one itself. With more than one device or emulator attached adb refuses and the install step fails; choose a serial.") end
   if request.rebuild_hook and trim(request.clang) == "" then set errors = append(errors, "Android NDK clang was not found, but rebuilding the native hook was requested.") end
   if trim(request.keystore) == "" or not file_exists(request.keystore) then set errors = append(errors, "Signing keystore is missing or is not a file.") end
-  Validation { errors: errors, warnings: [] }
+  Validation { errors: errors, warnings: warnings }
 end
 
 public function native_hook_output(abi: text): text
@@ -512,6 +547,10 @@ public function build_hook_command(request: BuildRequest): a list of text
   intent: build native hook from current sources
   let nativehook: text = path_join(path_join(project_root(), "tools"), "nativehook")
   let source: text = if request.abi == arm64() then path_join(nativehook, "hook.c") else path_join(nativehook, "hook_arm32.c") end
+  -- The realtime Arena bridge is experimental and must be explicitly enabled in a future
+  -- Arena-specific build. The normal APK hook is deliberately limited to the offline server
+  -- and gameplay fixes: linking the transport here makes every post-login process carry an
+  -- extra pthread/socket surface even when no Arena session exists.
   [request.clang, "-shared", "-O2", "-fPIC", "-Wl,-soname,libdothook.so", "-o", native_hook_output(request.abi), source, path_join(nativehook, "inapk_server.c"), "-llog"]
 end
 
@@ -567,14 +606,19 @@ public function verify_signature_command(request: BuildRequest): a list of text
   [request.apksigner, "verify", "--verbose", request.dest_apk]
 end
 
+public function adb_device_arguments(request: BuildRequest): a list of text
+  intent: build the -s serial selector, or nothing when adb should pick the device itself
+  if trim(request.device_serial) == "" then [] else ["-s", trim(request.device_serial)] end
+end
+
 public function adb_install_command(request: BuildRequest): a list of text
   intent: build install command
-  [request.adb, "install", "-r", "--no-incremental", "--abi", request.abi, request.dest_apk]
+  concat(concat([request.adb], adb_device_arguments(request)), ["install", "-r", "--no-incremental", "--abi", request.abi, request.dest_apk])
 end
 
 public function adb_verify_install_command(request: BuildRequest): a list of text
   intent: verify ADB shell package path
-  [request.adb, "shell", "pm", "path", "com.kabam.bigrobot"]
+  concat(concat([request.adb], adb_device_arguments(request)), ["shell", "pm", "path", "com.kabam.bigrobot"])
 end
 
 function file_stem(path: text): text

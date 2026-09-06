@@ -60,7 +60,7 @@ function fixture(): Fixture
       scheme: "http", keep_other_abi: false, patched_il2cpp: "", auto_patch_il2cpp: false,
       il2cpp_source: pristine, keystore: keystore, ks_pass: "android", key_pass: "android",
       do_install: false, rebuild_hook: false, legible: "legible", zipalign: "zipalign", apksigner: "apksigner",
-      java: "/jdk/bin/java", adb: "adb", clang: "ndk-clang"
+      java: "/jdk/bin/java", adb: "adb", device_serial: "", clang: "ndk-clang"
     }
   }
 end
@@ -70,7 +70,106 @@ function native_hook_command_test(fix: Fixture): boolean
   let request: BuildRequest = fix.request with { rebuild_hook: true }
   let command: a list of text = pipeline.build_hook_command(request)
   let steps: a list of Step = pipeline.plan_steps(request)
-  length(command) == 10 and unwrap_or(get(command, 0), "") == request.clang and contains(command, "-Wl,-soname,libdothook.so") and contains(command, pipeline.native_hook_output(pipeline.arm64())) and contains(command, path_join(path_join(path_join(pipeline.project_root(), "tools"), "nativehook"), "hook.c")) and contains(command, path_join(path_join(path_join(pipeline.project_root(), "tools"), "nativehook"), "inapk_server.c")) and length(steps) == 6 and unwrap(get(steps, 0)).name == "build native hook" and unwrap(get(steps, 1)).name == "build APK"
+  let nativehook: text = path_join(path_join(pipeline.project_root(), "tools"), "nativehook")
+  length(command) == 10 and unwrap_or(get(command, 0), "") == request.clang and contains(command, "-Wl,-soname,libdothook.so") and contains(command, pipeline.native_hook_output(pipeline.arm64())) and contains(command, path_join(nativehook, "hook.c")) and contains(command, path_join(nativehook, "inapk_server.c")) and netcode_in_arm64(command, nativehook) and length(steps) == 6 and unwrap(get(steps, 0)).name == "build native hook" and unwrap(get(steps, 1)).name == "build APK"
+end
+
+-- The realtime Arena netcode is experimental and opt-in; production hook commands do not
+-- link it, so ordinary login/offline APKs stay independent of its native transport.
+function netcode_in_arm64(command: a list of text, nativehook: text): boolean
+  intent: test that production commands do not compile Arena sources
+  not contains(command, path_join(nativehook, "arena.c")) and not contains(command, path_join(nativehook, "netclient.c"))
+end
+
+function armv7_hook_command_test(fix: Fixture): boolean
+  intent: test that the armeabi-v7a hook command omits the experimental netcode
+  let request: BuildRequest = fix.request with { rebuild_hook: true, abi: "armeabi-v7a" }
+  let command: a list of text = pipeline.build_hook_command(request)
+  let nativehook: text = path_join(path_join(pipeline.project_root(), "tools"), "nativehook")
+  length(command) == 10 and contains(command, path_join(nativehook, "hook_arm32.c")) and netcode_in_arm64(command, nativehook) and contains(command, pipeline.native_hook_output("armeabi-v7a"))
+end
+
+-- Every device step must name its target. adb aborts with "more than one device/emulator"
+-- when two are attached and no -s is given, which is what made the install step fail nine
+-- tenths of the way through an otherwise successful build. An empty serial keeps today's
+-- behaviour of letting adb choose, so the selector is only emitted when there is one.
+function adb_device_serial_test(fix: Fixture): boolean
+  intent: test that a chosen serial selects the device for install and verify
+  let request: BuildRequest = fix.request with { device_serial: "emulator-5554" }
+  let install: a list of text = pipeline.adb_install_command(request)
+  let verify: a list of text = pipeline.adb_verify_install_command(request)
+  let arguments: a list of text = pipeline.adb_device_arguments(request)
+  length(arguments) == 2 and unwrap_or(get(arguments, 0), "") == "-s" and unwrap_or(get(arguments, 1), "") == "emulator-5554" and unwrap_or(get(install, 0), "") == request.adb and unwrap_or(get(install, 1), "") == "-s" and unwrap_or(get(install, 2), "") == "emulator-5554" and unwrap_or(get(install, 3), "") == "install" and contains(install, "-r") and contains(install, "--no-incremental") and contains(install, "--abi") and contains(install, request.abi) and contains(install, request.dest_apk) and unwrap_or(get(verify, 0), "") == request.adb and unwrap_or(get(verify, 1), "") == "-s" and unwrap_or(get(verify, 2), "") == "emulator-5554" and contains(verify, "com.kabam.bigrobot")
+end
+
+function adb_no_serial_test(fix: Fixture): boolean
+  intent: test that no serial leaves the selector out so adb picks the device itself
+  let install: a list of text = pipeline.adb_install_command(fix.request)
+  let verify: a list of text = pipeline.adb_verify_install_command(fix.request)
+  length(pipeline.adb_device_arguments(fix.request)) == 0 and not contains(install, "-s") and not contains(verify, "-s") and unwrap_or(get(install, 1), "") == "install" and unwrap_or(get(verify, 1), "") == "shell"
+end
+
+-- A serial with surrounding whitespace would reach adb as "-s ' '" and fail, so the command
+-- builders trim it rather than trust the caller.
+function adb_serial_trimming_test(fix: Fixture): boolean
+  intent: test that a padded serial is trimmed before it reaches adb
+  let request: BuildRequest = fix.request with { device_serial: "  RX8R30BF6SZ  " }
+  let arguments: a list of text = pipeline.adb_device_arguments(request)
+  length(arguments) == 2 and unwrap_or(get(arguments, 1), "") == "RX8R30BF6SZ" and not contains(pipeline.adb_install_command(request), "  RX8R30BF6SZ  ")
+end
+
+-- A stand-in for adb, so the listing parser is driven by real `adb devices` output rather
+-- than by a string assembled inside the test. write_file emits the TABs the parser splits on
+-- literally, and the stub just cats them back -- the same bytes a two-device host prints.
+function fake_adb(root: text, name: text, listing: text): text
+  intent: write an executable stub adb that prints a fixed device listing
+  let data: text = path_join(root, name ++ "-devices.txt")
+  let stub: text = path_join(root, name ++ "-adb")
+  write_file(data, listing)
+  write_file(stub, "#!/bin/sh\ncat " ++ pipeline.shell_quote(data) ++ "\n")
+  shell_exec("chmod +x " ++ pipeline.shell_quote(stub))
+  stub
+end
+
+function adb_device_listing_test(fix: Fixture): boolean
+  intent: test that only authorised devices are parsed out of an adb listing
+  -- offline and unauthorized entries must not be offered as install targets: installing to
+  -- them fails after the whole build has already run.
+  let stub: text = fake_adb(fix.root, "mixed", "List of devices attached\nAAA\tdevice usb:1-1 product:x\nBBB\toffline\nCCC\tunauthorized\nDDD\tdevice\n")
+  let serials: a list of text = pipeline.attached_device_serials(stub)
+  length(serials) == 1 and unwrap_or(get(serials, 0), "") == "DDD" and pipeline.find_device_serial(stub) == "DDD"
+end
+
+function adb_two_devices_are_ambiguous_test(fix: Fixture): boolean
+  intent: test that two attached devices resolve to no automatic choice
+  let stub: text = fake_adb(fix.root, "two", "List of devices attached\nAAA\tdevice\nBBB\tdevice\n")
+  let serials: a list of text = pipeline.attached_device_serials(stub)
+  length(serials) == 2 and pipeline.find_device_serial(stub) == ""
+end
+
+function adb_no_devices_test(fix: Fixture): boolean
+  intent: test that an empty listing resolves to no device
+  let stub: text = fake_adb(fix.root, "none", "List of devices attached\n")
+  length(pipeline.attached_device_serials(stub)) == 0 and pipeline.find_device_serial(stub) == ""
+end
+
+function adb_missing_tool_test(): boolean
+  intent: test that a missing adb reports no devices instead of running anything
+  length(pipeline.attached_device_serials("")) == 0 and pipeline.find_device_serial("") == ""
+end
+
+function adb_install_serial_warning_test(fix: Fixture): boolean
+  intent: test that installing with no serial warns about an ambiguous device choice
+  let chosen: BuildRequest = fix.request with { do_install: true, device_serial: "emulator-5554" }
+  let ambiguous: BuildRequest = fix.request with { do_install: true, device_serial: "" }
+  let not_installing: BuildRequest = fix.request with { do_install: false, device_serial: "" }
+  length(pipeline.validate(chosen).warnings) == 0 and length(pipeline.validate(not_installing).warnings) == 0 and length(pipeline.validate(ambiguous).warnings) == 1 and contains_text(join(pipeline.validate(ambiguous).warnings, "\n"), "device serial")
+end
+
+function adb_serial_mapping_test(fix: Fixture): boolean
+  intent: test that the browser can send a device serial
+  let values: a mapping from text to text = {"source_apk": fix.request.source_apk, "dest_apk": fix.request.dest_apk, "device_serial": "emulator-5554"}
+  pipeline.request_from_mapping(values).device_serial == "emulator-5554"
 end
 
 function native_hook_compiler_validation_test(fix: Fixture): boolean
@@ -239,7 +338,17 @@ function main(): nothing
   mutable counts: Counts = Counts { passed: 0, failed: 0 }
   set counts = add(counts, report("bundled build command", bundled_command_test(fix)))
   set counts = add(counts, report("native hook build command", native_hook_command_test(fix)))
+  set counts = add(counts, report("armv7 hook omits the arm64-only netcode", armv7_hook_command_test(fix)))
   set counts = add(counts, report("native hook compiler validation", native_hook_compiler_validation_test(fix)))
+  set counts = add(counts, report("adb install targets the chosen device", adb_device_serial_test(fix)))
+  set counts = add(counts, report("adb without a serial lets adb choose", adb_no_serial_test(fix)))
+  set counts = add(counts, report("adb serial is trimmed", adb_serial_trimming_test(fix)))
+  set counts = add(counts, report("adb listing skips unauthorised devices", adb_device_listing_test(fix)))
+  set counts = add(counts, report("two attached devices are ambiguous", adb_two_devices_are_ambiguous_test(fix)))
+  set counts = add(counts, report("no attached devices resolve to none", adb_no_devices_test(fix)))
+  set counts = add(counts, report("a missing adb reports no devices", adb_missing_tool_test()))
+  set counts = add(counts, report("installing with no serial warns", adb_install_serial_warning_test(fix)))
+  set counts = add(counts, report("browser sends a device serial", adb_serial_mapping_test(fix)))
   set counts = add(counts, report("bundled validation", server_validation_test(fix)))
   set counts = add(counts, report("armv7 patch requirement", armv7_patch_test(fix)))
   set counts = add(counts, report("pipeline command order", command_order_test(fix)))
