@@ -200,6 +200,7 @@ public function run_worker(request: BuildRequest): nothing
   let total: integer = length(steps)
   let parent: text = pipeline.directory_name(request.dest_apk)
   if not is_dir(parent) then create_dir(parent) end
+  pipeline.remove_stale_intermediates(request)
   mutable index: integer = 0
   while index < total and not current_cancelled() do
     let step: Step = unwrap(get(steps, index))
@@ -214,6 +215,8 @@ public function run_worker(request: BuildRequest): nothing
       write_state(RunnerState { status: "failed", step: step.name, step_index: number, step_total: total, exit_code: code })
       return 0
     end
+    if step.name == "zipalign APK" then pipeline.remove_unsigned_intermediate(request) end
+    if step.name == "sign APK" then pipeline.remove_aligned_intermediate(request) end
     set index = index + 1
   end
   if current_cancelled() then return 0 end

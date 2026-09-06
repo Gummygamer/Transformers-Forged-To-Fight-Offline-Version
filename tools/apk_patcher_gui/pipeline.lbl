@@ -591,6 +591,24 @@ public function intermediate_paths(request: BuildRequest): IntermediatePaths
   IntermediatePaths { unsigned: path_join(parent, stem ++ "-unsigned.apk"), aligned: path_join(parent, stem ++ "-aligned.apk") }
 end
 
+public function remove_unsigned_intermediate(request: BuildRequest): nothing
+  intent: remove the unsigned APK after zipalign has copied it
+  let paths: IntermediatePaths = intermediate_paths(request)
+  shell_exec("rm -f -- " ++ shell_quote(paths.unsigned))
+end
+
+public function remove_aligned_intermediate(request: BuildRequest): nothing
+  intent: remove the aligned APK after signing has copied it
+  let paths: IntermediatePaths = intermediate_paths(request)
+  shell_exec("rm -f -- " ++ shell_quote(paths.aligned))
+end
+
+public function remove_stale_intermediates(request: BuildRequest): nothing
+  intent: remove only the request generated intermediates before starting
+  remove_unsigned_intermediate(request)
+  remove_aligned_intermediate(request)
+end
+
 public function plan_steps(request: BuildRequest): a list of Step
   intent: plan build steps
   let paths: IntermediatePaths = intermediate_paths(request)
