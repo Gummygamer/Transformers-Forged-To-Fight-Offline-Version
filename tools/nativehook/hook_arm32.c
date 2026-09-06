@@ -50,6 +50,28 @@
 //      therefore still shows base buildings bleeding into both the pre-battle
 //      squad screen and the BOTS roster/detail pages.
 //
+//   6. ARENA. The realtime Arena netcode in arena.c/netclient.c is deliberately absent.
+//      netclient.c is ABI-neutral transport and would work as-is, but arena.c reads and
+//      writes PlayerController and AIController at arm64 field offsets (Attributes @0x80,
+//      Id @0xF4, Opponent @0xF8; AIController.PlayerController @0x90). On armv7 a managed
+//      header is 8 bytes instead of 16 and a reference field 4 bytes instead of 8, so every
+//      one of those shifts. arena.h now #errors on a 32-bit ARM build rather than let the
+//      bridge write to the wrong field of a live controller.
+//
+//      A port needs, from `patches/abi_map.lbl`:
+//        method  0x1179AF4  PlayerController.Action(int)
+//        method  0x1174300  PlayerController.SpecialAttack(int)
+//        method  0xDB1D18   AIController.SetPaused(bool)
+//        method  0xDB025C   AIController.get_IsPaused()
+//        method  0xDAC660   PlayerAttributes.get_Health()
+//        method  0xDAC67C   PlayerAttributes.set_Health(float)
+//        method  0xDE8750   Simulation.FixedUpdate        (the tick that pumps the relay)
+//        fields  PlayerController, AIController, PlayerAttributes
+//      plus the three arm64 hook points that carry the wiring: FIXFIGHT (both fighters'
+//      controllers, Id 0 local and Id 1 remote), AIRANGE (the AI pause) and PCACTION /
+//      PCSPECIAL (input capture). Note AIRANGE itself is already absent here per item 3, so
+//      a v7a arena port has to add the AI hook before it can pause anything.
+//
 //      A porter must translate every arm64 RVA with
 //      `patches/abi_map.lbl method <arm64 rva>` and every field offset with
 //      `patches/abi_map.lbl fields <Type>`, then re-verify live. The firing
