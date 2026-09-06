@@ -6,6 +6,9 @@
 *.so
 *.apk
 
+# Backups of built native libraries (for example libdothook.so.pre-pr-backup).
+*.so.*
+
 # Local media captures (including screenshots and recordings) must never be committed.
 /media/
 
@@ -14,9 +17,17 @@
 # assets or binaries to this repository").
 /probe/
 
+# Local debugging scratch space: session logs, screenshots, wire captures, payload
+# binaries, and device pulls. Nothing here is an input to any build or test.
+/.scratch/
+
 # Generated IL2CPP metadata dump. Regenerate locally from an entitled copy of
 # the 9.2 APK; do not commit it.
 /re_notes/dump.cs
+
+# Symlinks into /build/dumps, which is itself ignored; the dump they point at is
+# generated locally from an entitled copy of the APK.
+/il2cpp_out/
 
 # Generated local-server artifacts; certificates and request logs can contain
 # private keys and session data and must remain local.
@@ -29,3 +40,9 @@
 /ffmpeg2pass-*.log
 /ffmpeg2pass-*.log.mbtree
 .longtask/
+
+# Compiled netrelay and its test binaries; rebuild them with tools/netrelay/run_tests.sh.
+/tools/netrelay/netrelay
+/tools/netrelay/test_netclient
+/tools/netrelay/test_arena
+/tools/netrelay/test_arena_defaults
