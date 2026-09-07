@@ -152,7 +152,7 @@ function test_tutorial_login_starts_intro_once_then_reports_complete(): boolean
   jsonout.as_int(jsonout.obj_get(first, "s")) == 1 and jsonout.as_text(jsonout.obj_get(first, "current_bid")) == "FTEIntroQuest" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(first_branches, "FTEIntroQuest"), "s")) == 1 and jsonout.as_int(jsonout.obj_get(second, "s")) == 2 and jsonout.as_text(jsonout.obj_get(second, "current_bid")) == "FTEComplete"
 end
 
-function test_custom_story_routes_force_optimus_and_keep_template_state_independent(): boolean
+function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent(): boolean
   intent: test
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
@@ -166,26 +166,16 @@ function test_custom_story_routes_force_optimus_and_keep_template_state_independ
   let custom_battle: Json = battle(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
   let template_move: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["optimusprime_cin_tf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["optimusprime_cin_tf"] and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["megatron_cin_rotf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["megatron_cin_rotf"] and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
 end
 
-function test_first_launch_preloads_custom_story_until_bludgeon_is_defeated(): boolean
+function test_quest_active_does_not_preload_custom_story(): boolean
   intent: test
   fakeserver.reset_tutorial_login()
-  fakeserver.reset_custom_story_progress()
   fakeserver.reset_quest_positions()
   let intro: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
-  let active_result: Json = result(fakeserver.dynamic("/quests/quest-active?categories.0=PvE", ""))
-  let active: Json = jsonout.obj_get(active_result, gamedata.custom_story_qid())
-  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
-  let user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
-  let completed_intro: text = fakeserver.dynamic("/tutorial/complete-tutorial", "\{\"tid\":\"FTE\",\"bid\":\"FTEIntroQuest\"\}")
-  let moved: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
-  fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
-  let after_win: Json = result(fakeserver.dynamic("/quests/quest-active", ""))
-  let ok: boolean = jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and jsonout.as_text(jsonout.obj_get(active, "setId")) == gamedata.custom_story_set_id() and object_keys(jsonout.obj_get(user, "team")) == gamedata.custom_story_team() and contains_text(completed_intro, "\"s\": \"completed\"") and current_battle_id(moved) == gamedata.custom_story_enemy() and jsonout.type_name(after_win) == "list" and length(jsonout.list_items(after_win)) == 0
-  fakeserver.reset_custom_story_progress()
-  ok
+  let active_result: Json = result(fakeserver.resolve_response("GET", "/quests/quest-active?categories.0=PvE").body)
+  jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and jsonout.type_name(active_result) == "list" and length(jsonout.list_items(active_result)) == 0
 end
 
 function test_custom_story_set_is_first_without_removing_template_set(): boolean
@@ -395,8 +385,8 @@ function main(): nothing
   set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
-  set failed = failed + report("test_custom_story_routes_force_optimus_and_keep_template_state_independent", test_custom_story_routes_force_optimus_and_keep_template_state_independent())
-  set failed = failed + report("test_first_launch_preloads_custom_story_until_bludgeon_is_defeated", test_first_launch_preloads_custom_story_until_bludgeon_is_defeated())
+  set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
+  set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
   set failed = failed + report("test_quest_list_slots_fit_client_summary_tables", test_quest_list_slots_fit_client_summary_tables())
   set failed = failed + report("test_movedir_walks_full_board_after_wins", test_movedir_walks_full_board_after_wins())
@@ -414,7 +404,6 @@ function main(): nothing
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  fakeserver.reset_custom_story_progress()
   print(to_text(24 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)

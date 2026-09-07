@@ -222,7 +222,7 @@ function user_data_template(): text
   let values: a list of text = team_values("1.1.1", [])
   let body: text = envelope(gamedata.build_user_data([]))
   let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
-  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 1, "user-data active heroes")
+  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 2, "user-data active heroes")
 end
 
 function tutorial_templates(): Entries
@@ -334,7 +334,6 @@ function build_entries(listen_port: integer): Entries
   set entries = add(entries, "@tutorial:live", join(sort_text(fakeserver.live_tutorials()), "\n"))
   let tutorials: Entries = tutorial_templates()
   for key in tutorials.keys do set entries = add(entries, key, body_for(tutorials, key)) end
-  set entries = add(entries, "@quest-active:custom-story", fakeserver.custom_story_started_active_response())
   set entries = add_heroes(entries)
   add_team_entries(entries)
 end
@@ -482,10 +481,10 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9565 then fail("payload entry count is not 9565: " ++ to_text(length(keys))) end
+  if length(keys) != 9564 then fail("payload entry count is not 9564: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4875104 then fail("payload total size is not 4875104: " ++ to_text(total)) end
+  if total != 4870868 then fail("payload total size is not 4870868: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)

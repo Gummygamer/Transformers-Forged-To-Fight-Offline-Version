@@ -19,6 +19,20 @@ record HarnessStart
   error: text
 end
 
+function object_keys(node: Json): a list of text
+  intent: get
+  match node
+  when JObj { pairs } then 
+    mutable keys: a list of text = []
+    for pair in pairs do
+      set keys = append(keys, pair.k)
+    end
+    keys
+  otherwise then
+    []
+end
+end
+
 function ok(): TestResult
   intent: return
   TestResult { passed: true, detail: "" }
@@ -84,10 +98,9 @@ function start_harness(base: text, harness: text, payload: text, port: integer):
   let out: text = path_join(base, "out.log")
   let err: text = path_join(base, "err.log")
   let marker: text = path_join(base, "tutorial-seen")
-  let custom_marker: text = path_join(base, "custom-story-complete")
   write_file(out, "")
   write_file(err, "")
-  let started: a mapping from text to text = shell_exec("nohup env TFTF_TUTORIAL_STATE_FILE=" ++ marker ++ " TFTF_CUSTOM_STORY_STATE_FILE=" ++ custom_marker ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let started: a mapping from text to text = shell_exec("nohup env TFTF_TUTORIAL_STATE_FILE=" ++ marker ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
   let pid: text = trim(command_output(started))
   let deadline: integer = current_time_ms() + 10000
   mutable ready: boolean = false
@@ -135,6 +148,7 @@ function request(base: text, port: integer, method: text, path: text, body: text
     end
   end
   let ran: a mapping from text to text = shell_exec(command ++ " '" ++ url ++ "'")
+  if command_failed(ran) then print("[!] " ++ method ++ " " ++ path ++ ": " ++ command_error(ran)) end
   HttpReply { status: trim(command_output(ran)), body: reply_file(response), headers: reply_file(headers) }
 end
 
@@ -192,23 +206,25 @@ end
 
 function payload_custom_story_checks(base: text, port: integer): boolean
   intent: test
+  -- A quest response alone is insufficient: QuestFlow also requires its BCG
+  -- active-team record, otherwise it immediately sends quest-begin again.
+  let user_data: HttpReply = request(base, port, "GET", "/bcg/getUserData", "", false, false)
+  if user_data.status != "200" or user_data.body == "" then return false end
+  let updates: Json = jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(user_data.body), "result"), "updates")
+  mutable has_custom_team: boolean = false
+  for team in jsonout.list_items(jsonout.obj_get(updates, "activeTeams")) do
+    if jsonout.as_text(jsonout.obj_get(team, "aid")) == "2.1.1-0" and length(object_keys(jsonout.obj_get(team, "heroes"))) > 0 then set has_custom_team = true end
+  end
   let active_path: text = "/quests/quest-active?categories.0=PvE"
   let begin_path: text = "/quests/quest-begin/2.1.1"
-  let begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}"
+  let begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}"
   let move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
   let active: HttpReply = request(base, port, "GET", active_path, "", false, false)
-  let expected_active: text = fakeserver.dynamic(active_path, "")
   let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
   let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
   let moved: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
   let expected_moved: text = fakeserver.dynamic(move_path, "\{\}")
-  let won_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}"
-  let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
-  fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
-  let after_win: HttpReply = request(base, port, "GET", active_path, "", false, false)
-  let expected_after_win: text = fakeserver.dynamic(active_path, "")
-  let good: boolean = expect("custom active quest", active.body, expected_active) and expect("custom quest begin", begin.body, expected_begin) and expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"chicago\"") and contains_text(moved.body, "\"optimusprime_cin_tf\"") and not contains_text(begin.body, "\"megatron_cin_rotf\"") and won.status == "200" and expect("custom active quest after win", after_win.body, expected_after_win)
-  good
+  has_custom_team and active.status == "200" and expect("custom quest is not preloaded", active.body, fakeserver.resolve_response("GET", active_path).body) and expect("custom quest begin", begin.body, expected_begin) and expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"chicago\"") and contains_text(begin.body, "\"optimusprime_cin_tf\"") and contains_text(begin.body, "\"optimusprimal_bw_mp32\"") and contains_text(begin.body, "\"megatron_gs_leader2015\"")
 end
 
 function payload_session_checks(base: text, port: integer): boolean
@@ -302,8 +318,7 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   fakeserver.reset_tutorial_login()
-  fakeserver.reset_custom_story_progress()
-  shell_exec("rm -f -- " ++ path_join(base, "tutorial-seen") ++ " " ++ path_join(base, "custom-story-complete"))
+  shell_exec("rm -f -- " ++ path_join(base, "tutorial-seen"))
   let started: HarnessStart = start_harness(base, harness, payload, port)
   if started.error != "" then
     stop_harness(started.pid)
@@ -320,8 +335,7 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
     mutable persisted: boolean = false
     if restarted.error == "" then
       let login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
-      let custom: HttpReply = request(base, port, "GET", "/quests/quest-active", "", false, false)
-      set persisted = expect("tutorial login after restart", login.body, fakeserver.tutorial_login_completed_response()) and expect("custom completion after restart", custom.body, fakeserver.dynamic("/quests/quest-active", ""))
+      set persisted = expect("tutorial login after restart", login.body, fakeserver.tutorial_login_completed_response())
     end
     stop_harness(restarted.pid)
     if a and b and c and d and e and f and persisted then ok() else failed("wire regressions") end
