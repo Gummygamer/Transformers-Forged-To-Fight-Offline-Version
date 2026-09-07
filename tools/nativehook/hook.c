@@ -26,6 +26,7 @@
 #endif
 #if TFTF_ENABLE_ARENA
 #include "arena.h"
+#include "netclient.h"
 #endif
 
 // forward decls (used by seg_handler below, defined later)
@@ -4023,6 +4024,7 @@ static void arena_install(uintptr_t base){
     ops.attr_get_health   = (void*)(base + 0xDAC660);  // PlayerAttributes.get_Health()
     ops.attr_set_health   = (void*)(base + 0xDAC67C);  // PlayerAttributes.set_Health(float)
     arena_set_logger(inapk_log);
+    tftf_net_set_logger(inapk_log);
     arena_set_ops(&ops);
     rc = arena_start_from_file(path);
     if (rc == 0) {
