@@ -32,7 +32,9 @@
  *     ST|<frompeer>|<seq>|<payload>      forwarded state
  *     EV|<frompeer>|<seq>|<payload>      forwarded event
  *     ERR|<reason>                       malformed or rejected packet
- *   A peer that has not been heard from for peer_ttl_ms is dropped from the roster.
+ *   A peer that has not been heard from for peer_ttl_ms is dropped from the roster. The
+ *   configured name is only a label: if two clients use the same name, their UDP endpoints
+ *   are kept as separate roster entries and the later one receives a suffixed wire name.
  *
  * BUILD   gcc -O2 -Wall -Wextra -o netrelay netrelay.c
  * RUN     ./netrelay [--port 8777] [--ttl 10000] [--verbose]
@@ -143,6 +145,52 @@ static RelayPeer *find_peer(const char *room, const char *peer) {
     return NULL;
 }
 
+static int same_endpoint(const struct sockaddr_in *a, const struct sockaddr_in *b) {
+    return a->sin_family == b->sin_family &&
+           a->sin_addr.s_addr == b->sin_addr.s_addr &&
+           a->sin_port == b->sin_port;
+}
+
+static RelayPeer *find_peer_at(const char *room, const struct sockaddr_in *addr) {
+    int i;
+    for (i = 0; i < NETRELAY_MAX_PEERS; i++) {
+        if (g_peers[i].used && !strcmp(g_peers[i].room, room) &&
+            same_endpoint(&g_peers[i].addr, addr))
+            return &g_peers[i];
+    }
+    return NULL;
+}
+
+static int peer_name_in_use(const char *room, const char *peer) {
+    return find_peer(room, peer) != NULL;
+}
+
+/* Keep the first client's requested label, but make a duplicate label unique on the wire.
+ * The endpoint is the authoritative identity for subsequent packets, so clients do not
+ * need an extra device-ID API or a hand-edited config just to test two devices. */
+static void unique_peer_name(const char *room, const char *requested, char *out, size_t cap) {
+    int suffix;
+    if (cap == 0) return;
+    snprintf(out, cap, "%s", requested);
+    if (!peer_name_in_use(room, out)) return;
+    for (suffix = 2; suffix < 100000; suffix++) {
+        char suffix_text[16];
+        size_t suffix_len;
+        size_t base_len;
+        snprintf(suffix_text, sizeof suffix_text, "-%d", suffix);
+        suffix_len = strlen(suffix_text);
+        if (suffix_len >= cap) continue;
+        base_len = strlen(requested);
+        if (base_len > cap - suffix_len - 1) base_len = cap - suffix_len - 1;
+        memcpy(out, requested, base_len);
+        memcpy(out + base_len, suffix_text, suffix_len + 1);
+        if (!peer_name_in_use(room, out)) return;
+    }
+    /* The room can only hold NETRELAY_MAX_PEERS entries, so this is unreachable in normal
+     * operation. Leave a valid requested name in place if the suffix search ever exhausts. */
+    snprintf(out, cap, "%s", requested);
+}
+
 static RelayPeer *alloc_peer(const char *room, const char *peer) {
     RelayPeer *found = find_peer(room, peer);
     int i, chosen = -1;
@@ -158,6 +206,15 @@ static RelayPeer *alloc_peer(const char *room, const char *peer) {
     snprintf(g_peers[chosen].room, sizeof g_peers[chosen].room, "%s", room);
     snprintf(g_peers[chosen].peer, sizeof g_peers[chosen].peer, "%s", peer);
     return &g_peers[chosen];
+}
+
+static RelayPeer *alloc_hello_peer(const char *room, const char *requested,
+                                   const struct sockaddr_in *from) {
+    RelayPeer *found = find_peer_at(room, from);
+    char effective[NETRELAY_MAX_PEER];
+    if (found) return found;
+    unique_peer_name(room, requested, effective, sizeof effective);
+    return alloc_peer(room, effective);
 }
 
 /* Build the live roster for a room as "peerA,peerB". Returns the peer count. */
@@ -266,16 +323,17 @@ static void handle_packet(const char *buf, size_t len, const struct sockaddr_in 
             return;
         }
         if (!room[0] || !peer[0]) { reject(from, "empty room or peer"); return; }
-        sender = alloc_peer(room, peer);
+        sender = alloc_hello_peer(room, peer, from);
         if (!sender) { reject(from, "room full"); return; }
         sender->addr = *from;
         sender->last_ms = now_ms();
         sender->packets++;
         cutoff = now_ms() - g_ttl_ms;
         count = room_roster(room, cutoff, roster, sizeof roster);
-        snprintf(line, sizeof line, "OK|%s|%d|%s", peer, count, roster);
+        snprintf(line, sizeof line, "OK|%s|%d|%s", sender->peer, count, roster);
         send_to(from, line);
-        note("HELLO room=%s peer=%s from %s -> %d live peer(s): %s", room, peer,
+        note("HELLO room=%s peer=%s as=%s from %s -> %d live peer(s): %s", room, peer,
+             sender->peer,
              inet_ntoa(from->sin_addr), count, roster);
         send_roster(room, sender);
         return;
@@ -286,9 +344,10 @@ static void handle_packet(const char *buf, size_t len, const struct sockaddr_in 
             reject(from, "BYE needs room and peer");
             return;
         }
-        sender = find_peer(room, peer);
+        sender = find_peer_at(room, from);
+        if (!sender) sender = find_peer(room, peer);
         if (sender) {
-            note("BYE room=%s peer=%s after %llu packets", room, peer, sender->packets);
+            note("BYE room=%s peer=%s after %llu packets", room, sender->peer, sender->packets);
             sender->used = 0;
             send_roster(room, NULL);
         }
@@ -303,11 +362,13 @@ static void handle_packet(const char *buf, size_t len, const struct sockaddr_in 
         reject(from, "forward needs room and peer");
         return;
     }
-    sender = find_peer(room, peer);
+    sender = find_peer_at(room, from);
     if (!sender) {
         /* A client may send input before its HELLO lands; adopt it rather than drop
          * the frame, because dropping input is a visible stall in the fight. */
-        sender = alloc_peer(room, peer);
+        char effective[NETRELAY_MAX_PEER];
+        unique_peer_name(room, peer, effective, sizeof effective);
+        sender = alloc_peer(room, effective);
         if (!sender) { reject(from, "room full"); return; }
         sender->addr = *from;
         send_roster(room, sender);
@@ -320,7 +381,7 @@ static void handle_packet(const char *buf, size_t len, const struct sockaddr_in 
     if (!field(payload, 3, seq, sizeof seq)) seq[0] = 0;
     if (!field(payload, 4, line, sizeof line)) line[0] = 0;
     snprintf(payload, sizeof payload, "%s|%s", seq, line);
-    forward(cmd, room, peer, payload);
+    forward(cmd, room, sender->peer, payload);
 }
 
 static int listen_on(int port) {
