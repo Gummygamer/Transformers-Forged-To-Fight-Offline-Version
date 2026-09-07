@@ -163,8 +163,9 @@ function test_custom_story_walks_from_intro_dialogue_into_bludgeon_battle(base: 
   intent: test
   let intro_reply: HttpReply = post(base, port, "/tutorial/get-login-data", "\{\}")
   let intro: Json = jsonout.obj_get(result(intro_reply), "FTE")
-  let active_reply: HttpReply = http_get(base, port, "/quests/quest-active?categories.0=PvE")
-  let active: Json = jsonout.obj_get(result(active_reply), "2.1.1")
+  let begin_reply: HttpReply = post(base, port, "/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}")
+  let begin: Json = result(begin_reply)
+  let active: Json = jsonout.obj_get(jsonout.obj_get(begin, "activeQuests"), "2.1.1")
   let instance: Json = first_item(jsonout.obj_get(active, "instances"))
   let grid: Json = jsonout.obj_get(jsonout.obj_get(instance, "map"), "grid")
   let encounter: Json = item(item(grid, 1), 1)
@@ -175,7 +176,7 @@ function test_custom_story_walks_from_intro_dialogue_into_bludgeon_battle(base: 
   let results: Json = jsonout.obj_get(moved, "results")
   let battle: Json = jsonout.obj_get(jsonout.obj_get(item(results, 1), "action"), "battle")
   let enemy: Json = jsonout.obj_get(battle, "battleEnemy")
-  intro_reply.status == "200" and jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and active_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and team_matches(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid()), "team"), ["optimusprime_cin_tf"]) and jsonout.as_text(jsonout.obj_get(encounter, "dialogue")) == "custom_opening_intro" and length(jsonout.list_items(jsonout.obj_get(dialogue, "custom_opening_intro"))) == 5 and completed_reply.status == "200" and contains_text(completed_reply.body, "\"s\": \"completed\"") and moved_reply.status == "200" and length(jsonout.list_items(results)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_bool(jsonout.obj_get(battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy, "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == 0 and team_matches(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes"), ["optimusprime_cin_tf"])
+  intro_reply.status == "200" and jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and begin_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and team_matches(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid()), "team"), ["megatron_cin_rotf"]) and jsonout.as_text(jsonout.obj_get(encounter, "dialogue")) == "custom_opening_intro" and length(jsonout.list_items(jsonout.obj_get(dialogue, "custom_opening_intro"))) == 5 and completed_reply.status == "200" and contains_text(completed_reply.body, "\"s\": \"completed\"") and moved_reply.status == "200" and length(jsonout.list_items(results)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and jsonout.as_bool(jsonout.obj_get(battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy, "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == 0 and team_matches(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes"), ["megatron_cin_rotf"])
 end
 
 function last_slash(path: text): integer
@@ -210,12 +211,10 @@ function main(): nothing
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   fakeserver.reset_tutorial_login()
-  fakeserver.reset_custom_story_progress()
   if port == 0 then
     shell_exec("rm -rf -- " ++ base)
     fakeserver.reset_saved_team()
     fakeserver.reset_quest_positions()
-    fakeserver.reset_custom_story_progress()
     print("0 passed, 3 failed")
     exit_process(1)
   else
@@ -224,7 +223,6 @@ function main(): nothing
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
-      fakeserver.reset_custom_story_progress()
       shell_exec("rm -rf -- " ++ base)
       print("0 passed, 3 failed")
       exit_process(1)
@@ -235,7 +233,6 @@ function main(): nothing
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
-      fakeserver.reset_custom_story_progress()
       shell_exec("rm -rf -- " ++ base)
       let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_into_bludgeon_battle", custom)
       print(to_text(3 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")

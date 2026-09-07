@@ -516,13 +516,15 @@ function test_custom_story_encounter_is_bludgeon_on_chicago_streets(): boolean
   jsonout.as_text(jsonout.obj_get(tile, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile, "boss")) == "bludgeon_gs_rd20" and jsonout.as_bool(jsonout.obj_get(tile, "final")) and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "mapOverride")) == "chicago"
 end
 
-function test_custom_story_forces_optimus_without_changing_template_team_rules(): boolean
+function test_custom_story_preserves_explicit_team_and_defaults_to_optimus(): boolean
   intent: test
   let custom: Json = gamedata.build_quest_progression(gamedata.custom_story_qid(), 0, 1, ["megatron_cin_rotf"])
+  let fallback: Json = gamedata.build_quest_progression(gamedata.custom_story_qid(), 0, 1, [])
   let template: Json = gamedata.build_quest_progression("1.1.1", 0, 1, ["megatron_cin_rotf"])
   let custom_user: Json = jsonout.obj_get(jsonout.obj_get(custom, "users"), gamedata.local_uid())
+  let fallback_user: Json = jsonout.obj_get(jsonout.obj_get(fallback, "users"), gamedata.local_uid())
   let template_user: Json = jsonout.obj_get(jsonout.obj_get(template, "users"), gamedata.local_uid())
-  team_object_matches(jsonout.obj_get(custom_user, "team"), ["optimusprime_cin_tf"]) and team_object_matches(jsonout.obj_get(template_user, "team"), ["megatron_cin_rotf"])
+  team_object_matches(jsonout.obj_get(custom_user, "team"), ["megatron_cin_rotf"]) and team_object_matches(jsonout.obj_get(fallback_user, "team"), ["optimusprime_cin_tf"]) and team_object_matches(jsonout.obj_get(template_user, "team"), ["megatron_cin_rotf"])
 end
 
 function test_team_size_max_is_advertised_by_account_and_quest_responses(): boolean
@@ -546,7 +548,7 @@ function run_custom_story_tests(): integer
   set failed = failed + report("test_custom_story_uses_revised_five_scene_script", test_custom_story_uses_revised_five_scene_script(), "custom intro did not match the revised five-scene script")
   set failed = failed + report("test_custom_story_has_independent_identity_and_compact_map", test_custom_story_has_independent_identity_and_compact_map(), "custom story identity or map was wrong")
   set failed = failed + report("test_custom_story_encounter_is_bludgeon_on_chicago_streets", test_custom_story_encounter_is_bludgeon_on_chicago_streets(), "custom encounter was not the authored Chicago Bludgeon fight")
-  set failed = failed + report("test_custom_story_forces_optimus_without_changing_template_team_rules", test_custom_story_forces_optimus_without_changing_template_team_rules(), "custom or template team rules were wrong")
+  set failed = failed + report("test_custom_story_preserves_explicit_team_and_defaults_to_optimus", test_custom_story_preserves_explicit_team_and_defaults_to_optimus(), "custom or template team rules were wrong")
   failed
 end
 
@@ -835,7 +837,8 @@ function test_user_data_uses_the_supplied_saved_and_active_team(): boolean
   let updates: Json = jsonout.obj_get(gamedata.build_user_data(team), "updates")
   let saved: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
   let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
-  saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team)
+  let custom: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 1), jsonout.json_obj([]))
+  saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team) and jsonout.as_text(jsonout.obj_get(custom, "aid")) == gamedata.custom_story_qid() ++ "-0" and team_object_matches(jsonout.obj_get(custom, "heroes"), team)
 end
 
 function test_none_and_empty_team_preserve_default_json(): boolean

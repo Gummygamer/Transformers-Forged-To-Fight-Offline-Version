@@ -126,47 +126,10 @@ function tutorial_state_file(): text
   path_join(log_dir(), ".fakeserver-tutorial")
 end
 
-function custom_story_state_file(): text
-  intent: get
-  path_join(log_dir(), ".fakeserver-custom-story")
-end
-
 public function reset_tutorial_login(): nothing
   intent: reset
   create_dir(log_dir())
   write_file(tutorial_state_file(), "0")
-end
-
-public function reset_custom_story_progress(): nothing
-  intent: reset
-  create_dir(log_dir())
-  write_file(custom_story_state_file(), "active")
-end
-
-function custom_story_is_complete(): boolean
-  intent: check
-  file_exists(custom_story_state_file()) and trim(read_file(custom_story_state_file())) == "complete"
-end
-
-function complete_custom_story(): nothing
-  intent: persist
-  create_dir(log_dir())
-  write_file(custom_story_state_file(), "complete")
-end
-
-public function custom_story_started_active_response(): text
-  intent: encode
-  let qid: text = gamedata.custom_story_qid()
-  compact_envelope(jsonout.json_obj([jsonout.json_pair(qid, gamedata.build_active_quest(qid, gamedata.custom_story_set_id(), gamedata.custom_story_team()))]))
-end
-
-public function custom_story_active_response(): text
-  intent: encode
-  if custom_story_is_complete() then
-  compact_envelope(jsonout.json_list([]))
-else
-  custom_story_started_active_response()
-end
 end
 
 function tutorial_login_seen(): boolean
@@ -1548,8 +1511,6 @@ function static_dynamic(path: text, p: text, btxt: text): text
   auth_login_response(path, btxt)
 else if ends_with(p, "/tutorial/get-login-data") then
   tutorial_login_response()
-else if ends_with(p, "/quests/quest-active") then
-  custom_story_active_response()
 else if ends_with(p, "/bcg/getUserData") then
   compact_envelope(gamedata.build_user_data(get_saved_team()))
 else if ends_with(p, "/autorefresh/grouprefresh") then
@@ -1592,11 +1553,12 @@ function quest_begin_response(p: text, btxt: text): text
 end
   let overflow: text = json_text_or(req, "tm" ++ to_text(gamedata.team_size_max()), "")
   if overflow != "" then set posted = append(posted, overflow) end
-  if length(posted) > 0 and qid != gamedata.custom_story_qid() then
+  if length(posted) > 0 then
   set_saved_team(posted)
 end
   set_position(qid, gamedata.quest_start_x_for(qid), gamedata.quest_start_y_for(qid), false)
-  let team: a list of text = if qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
+  let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
+  if length(posted) == 0 and qid == gamedata.custom_story_qid() then set_saved_team(team) end
   spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team))
 end
 
@@ -1623,7 +1585,7 @@ function movedir_response(p: text): text
     set offy = 0
   end
   end
-  let team: a list of text = if qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
+  let team: a list of text = get_saved_team()
   spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team))
 end
 
@@ -1634,7 +1596,6 @@ function resolve_match_response(path: text, btxt: text): text
   let outcome: text = json_text_or(nested, "result", json_text_or(req, "result", ""))
   if uppercase(outcome) == "WON" then
   let submitted: text = json_text_or(req, "qid", "")
-  if normalize_qid(submitted) == gamedata.custom_story_qid() then complete_custom_story() end
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   for position in state.positions do
