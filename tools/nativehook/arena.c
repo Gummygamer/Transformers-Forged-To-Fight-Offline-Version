@@ -23,6 +23,8 @@ static int g_local_action;      /* pending local action, -1 when none */
 static int g_local_special;     /* pending local special, -1 when none */
 static int g_applied_inbound;
 static int g_ended;             /* the peer reported the fight over */
+static unsigned int g_tick_count;
+static unsigned int g_state_sent;
 
 static void logmsg(const char *fmt, ...) {
     char buf[512];
@@ -163,6 +165,8 @@ int arena_start(const ArenaConfig *cfg) {
     g_local_special = -1;
     g_applied_inbound = 0;
     g_ended = 0;
+    g_tick_count = 0;
+    g_state_sent = 0;
     logmsg("arena: started room=%s peer=%s relay=%s:%d state every %dms",
            cfg->room, cfg->peer, cfg->host, cfg->port, g_state_interval_ms);
     return 0;
@@ -314,6 +318,10 @@ int arena_tick(void) {
     int applied = 0;
     long long now;
     if (!g_started || g_ended) return 0;
+    g_tick_count++;
+    if (g_tick_count <= 3)
+        logmsg("arena: tick=%u local=%p remote=%p ops=%d interval=%d",
+               g_tick_count, g_local, g_remote, g_ops_set, g_state_interval_ms);
 
     /* Mirror this device's own player health so both screens agree on who is alive. The
      * interval exists because a health write every fixed tick would flood the relay with
@@ -327,8 +335,14 @@ int arena_tick(void) {
         if (attrs && (uintptr_t)attrs >= 0x100000 && !((uintptr_t)attrs & 7)) {
             float hp = ((float (*)(void *, void *))g_ops.attr_get_health)(attrs, NULL);
             char st[TFTF_NET_MAX_PAYLOAD];
-            if (arena_encode_state(hp, st, sizeof st) && tftf_net_send(TFTF_NET_ST, ++g_st_seq, st))
+            if (arena_encode_state(hp, st, sizeof st) && tftf_net_send(TFTF_NET_ST, ++g_st_seq, st)) {
                 g_last_state_ms = now;
+                g_state_sent++;
+                if (g_state_sent == 1)
+                    logmsg("arena: first state health=%.4f attrs=%p", (double)hp, attrs);
+            }
+        } else if (g_tick_count <= 3) {
+            logmsg("arena: local attributes unavailable local=%p attrs=%p", g_local, attrs);
         }
     }
 
