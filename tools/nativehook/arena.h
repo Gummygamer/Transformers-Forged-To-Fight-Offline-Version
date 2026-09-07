@@ -67,8 +67,8 @@ typedef struct {
  *   session is baked in at compile time with -D, which the phone APK build already does for
  *   the server host, so the value is known then anyway.
  *
- *   The peer name must differ per device or both ends collide in the relay's roster, so it is
- *   per-build rather than a fixed constant.
+ *   The peer name is a readable label. The relay disambiguates duplicate labels by UDP
+ *   endpoint, although distinct names are still useful for readable logs.
  */
 #ifndef TFTF_ARENA_DEFAULT_HOST
 #define TFTF_ARENA_DEFAULT_HOST ""

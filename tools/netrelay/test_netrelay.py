@@ -183,6 +183,43 @@ def test_input_is_forwarded_to_the_other_peer_only():
         relay.stop()
 
 
+def test_duplicate_peer_names_are_separated_by_endpoint():
+    relay = Relay()
+    try:
+        time.sleep(0.15)
+        a = Client(relay.port)
+        b = Client(relay.port)
+        a.send("HELLO|arena_versus|phone")
+        b.send("HELLO|arena_versus|phone")
+        ack_a = a.wait_for("OK|")
+        ack_b = b.wait_for("OK|")
+        pushed = a.wait_for("PR|")
+        report("same-name clients both receive a handshake", ack_a is not None and ack_b is not None,
+               "%s / %s" % (ack_a, ack_b))
+        report("same-name clients form a two-peer roster", ack_b is not None and
+               ack_b.split("|")[2] == "2", str(ack_b))
+        if ack_b:
+            roster = ack_b.split("|")[3].split(",")
+            report("relay assigns distinct wire names", len(roster) == 2 and len(set(roster)) == 2,
+                   ack_b)
+        report("existing peer receives the duplicate-name roster push", pushed is not None, str(pushed))
+
+        a.send("IN|arena_versus|phone|1|action=1")
+        got_b = b.wait_for("IN|")
+        report("same-name input reaches the other endpoint", got_b is not None, str(got_b))
+        if got_b:
+            report("forwarded duplicate-name input keeps the payload", got_b.endswith("|action=1"), got_b)
+        b.send("IN|arena_versus|phone|2|action=2")
+        got_a = a.wait_for("IN|")
+        report("reverse input reaches the first endpoint", got_a is not None, str(got_a))
+        if got_a:
+            report("reverse input identifies the second wire peer", got_a.split("|")[1] != "phone", got_a)
+        a.close()
+        b.close()
+    finally:
+        relay.stop()
+
+
 def test_state_and_events_forward_independently():
     relay = Relay()
     try:
