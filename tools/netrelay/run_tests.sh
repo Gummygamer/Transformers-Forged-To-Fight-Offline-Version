@@ -58,6 +58,16 @@ if [ -n "$NDK_BIN" ]; then
       && "$CC64" $CFLAGS -fPIC -c ../nativehook/arena.c -o /tmp/arena_arm64.o \
       && echo "[ok] arm64 netcode compiles clean" \
       || { echo "[!] arm64 netcode failed to compile"; FAIL=1; }
+    "$CC64" -shared -O2 -fPIC -Wl,-soname,libdothook.so \
+      -DTFTF_ENABLE_ARENA=1 \
+      -DTFTF_ARENA_DEFAULT_HOST='"192.0.2.10"' \
+      -DTFTF_ARENA_DEFAULT_PORT=8777 \
+      -DTFTF_ARENA_DEFAULT_ROOM='"arena_versus"' \
+      -DTFTF_ARENA_DEFAULT_PEER='"emulator-5554"' \
+      -o /tmp/libdothook_arena_check.so ../nativehook/hook.c ../nativehook/inapk_server.c \
+      ../nativehook/arena.c ../nativehook/netclient.c -llog \
+      && echo "[ok] arm64 Arena-enabled hook links clean" \
+      || { echo "[!] arm64 Arena-enabled hook failed to link"; FAIL=1; }
   else
     echo "[!] $CC64 missing"; FAIL=1
   fi

@@ -1111,13 +1111,23 @@ answer without a second round trip.
 
 ### Limits and retail-client reachability
 
-Retail TFTF Arena is asynchronous by design: the client fights a local AI copy of the opponent's
-stored team. There is no realtime fight netcode in the retail client. Real-time input relay is
-therefore impossible without rewriting the IL2CPP fight simulation, which this project does not
-do. `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP surface, with eight
-network methods relevant to these endpoint mappings. Device captures confirm `GetLoginData` as
-`/pvp/get-login-data` and `FindArenaOpponent` as `/pvp/find-arena-opponent`. The other spellings
-come directly from client string literals, although their live response paths remain unverified.
+Retail TFTF Arena is asynchronous by design: the stock client fights a local AI copy of the
+opponent's stored team and `PVPAPI` (`re_notes/dump.cs` line 416801) has no realtime-fight
+method. The normal APK remains on that compatible async path. The optional arm64 native hook
+adds the missing client half: `arena.c` bridges the two fighters on the Unity main thread, while
+`netclient.c` relays input and health-state packets over UDP through `tools/netrelay/netrelay.c`.
+`Server/build_arena_hook.sh` produces the opt-in hook with a direct relay host, port, fixed Arena
+room, and device-specific peer baked in; `build_phone_apk.lbl` embeds that hook into the next APK.
+The configuration is compile-time because an unrooted phone cannot reliably write an app-private
+configuration file. The relay host must be directly reachable by both devices: ADB reverse is
+TCP-only and cannot transport UDP.
+
+The hook is arm64-only because its controller offsets are arm64 values. It is deliberately absent
+from normal/offline hooks, so the extra transport thread and socket surface are not loaded unless
+the operator explicitly builds the per-device Arena hook. Device captures confirm `GetLoginData`
+as `/pvp/get-login-data` and `FindArenaOpponent` as `/pvp/find-arena-opponent`. The other
+spellings come directly from client string literals, although their live response paths remain
+unverified.
 
 Consequently `/pvp/heartbeat`, `/pvp/lobby`, `/pvp/leave-match`, `/pvp/fight-post`,
 `/pvp/fight-poll`, `/pvp/report-result`, and `/pvp/match-result` will never be called by a
@@ -1127,8 +1137,8 @@ presence with TTL expiry, live two-device matchmaking into one shared `matchID`,
 opponent's actual live team rather than a stale stored roster, and authoritative two-sided
 result reconciliation that both devices read identically.
 
-`tools/nativehook/` is not a netcode surface: its hooks are offline fight mechanics.
-`inapk_server.c` binds only `127.0.0.1:8080`, so it does not enable LAN play.
+`inapk_server.c` still binds only `127.0.0.1:8080`, so it does not itself enable LAN play. The
+optional netcode surface is the separately enabled `arena.c`/`netclient.c` hook and UDP relay.
 
 ## Quest-set summary table bounds
 
