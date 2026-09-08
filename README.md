@@ -338,12 +338,13 @@ Store, Arenas, Special Missions, Alliance Missions, and Daily Missions immediate
 
 Two limits are worth understanding before trying this.
 
-First, retail TFTF Arena is asynchronous by design. The client fights a local AI copy of the
-opponent's stored team; it has no realtime fight netcode. Relaying real-time input would require
-rewriting the IL2CPP fight simulation, which this project does not do. The genuinely reachable
-LAN path on an unmodified retail client is live presence, two-device matchmaking into a shared
-`matchID`, a live opponent team, and two-sided result reconciliation--not a frame-by-frame fight
-between phones.
+First, retail TFTF Arena is asynchronous by design: an unmodified client fights a local AI copy
+of the opponent's stored team. The normal APK path therefore remains the compatible async path:
+live presence, two-device matchmaking into a shared `matchID`, a live opponent team, and
+two-sided result reconciliation. For an arm64 separated-server APK, this project also provides
+an explicit opt-in native Arena relay hook. It relays fight input and health state over UDP while
+leaving normal offline APKs unchanged. It is a modified-client feature, not something a retail
+APK can discover or enable by itself.
 
 Second, `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP network surface.
 Device captures confirm `GET /pvp/get-login-data` and the team-accept request to
@@ -356,6 +357,22 @@ Finally, `POST /auth/login` identifies each device by `credentials.udid` and giv
 device-specific session token. Two phones therefore become separate peers automatically, and
 the manual `?peer=alice` curl workaround is no longer required. The `peer` query override
 remains available as a testing escape hatch.
+
+### Optional live-fight relay for an arm64 separated-server APK
+
+The relay is intentionally built per device. Run `tools/netrelay/netrelay` on the host (UDP
+port 8777 by default), then build the hook immediately before each device's APK:
+
+```sh
+Server/build_arena_hook.sh --relay-host <host-lan-or-tunnel-address> --peer emulator-5554
+legible run Server/build_phone_apk.lbl <source.apk> build/emulator-arena-unsigned.apk --server-host <game-server-address> ...
+```
+
+Repeat the two commands for the phone with its own distinct `--peer` value and output APK. The
+builder embeds the hook that is present at build time, so keep each resulting APK before building
+the next one. For a USB phone, the game API can still use its ordinary ADB-reverse setup, but the
+relay address must be a LAN or tunnel address reachable directly from both devices: ADB reverse
+forwards TCP only and cannot carry the UDP relay. The relay hook currently supports arm64 only.
 
 ### Running on a non-rooted phone over USB
 
