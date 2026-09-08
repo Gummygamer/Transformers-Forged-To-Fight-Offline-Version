@@ -552,6 +552,19 @@ static int g_sp3_beat_du_ms = 800;
    TransformMoveEvent remains diagnostic-only and does not supply this schedule. */
 static int g_sp3_alt_on_ms  = 1000;   /* alternate form appears at this offset */
 static int g_sp3_alt_off_ms = 2500;   /* fallback end when a rig has no measured alternate clip */
+
+#define SP3_MAX_INTERVALS 4
+typedef struct {
+    int count;
+    int on_ms[SP3_MAX_INTERVALS];
+    int off_ms[SP3_MAX_INTERVALS];
+} SP3ActiveTiming;
+
+static SP3ActiveTiming g_current_sp3_timing = {
+    .count = 1,
+    .on_ms = {1000},
+    .off_ms = {2500}
+};
 static int g_sp3_alt_len_ms = 0;      /* measured SpecialAttack03 length for this cinematic */
 static int g_sp3_beat_form = -1;      /* -1 unknown, 1 alt, 0 robot: what is applied right now */
 static int g_sp3_beat_ticks = 0;      /* pump ticks seen in the current cinematic */
@@ -2325,11 +2338,13 @@ void* hook_13(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     return r;
 }
 static void* g_p0_controller = NULL;
+static void* g_p1_controller = NULL;
+static char g_p0_bot_id[80] = {0};
+static char g_p1_bot_id[80] = {0};
 #if TFTF_ENABLE_ARENA
 // Arena netcode: the fighter the peer drives. PlayerAttributes.Init is called once per
 // fighter with the owning PlayerController, so Id 0 is this device's player and Id 1 is the
 // one drawn as the opponent -- the same distinction g_p0_controller already relies on.
-static void* g_p1_controller = NULL;
 // il2cpp entry points the arena bridge needs but which arena.c must not hardcode, so the
 // bridge stays testable on a desktop (see tools/netrelay/test_arena.c).
 static void* g_arena_ai_set_paused = NULL;   // AIController.SetPaused(bool) @0xDB1D18
@@ -2360,9 +2375,20 @@ void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         if(!read_str(fld_p(bp2,0x10),id2,sizeof id2)) strcpy(id2,"<null>");
         void* at1=fld_p((void*)fd,0x38); void* at2=fld_p((void*)ofd,0x38);
         int player_idx = obj_ok(a1) ? *(int32_t*)((uintptr_t)a1+0xF4) : -1;
-        if (player_idx == 0 && obj_ok(a1)) g_p0_controller = a1;
+        if (player_idx == 0 && obj_ok(a1)) {
+            g_p0_controller = a1;
+            strncpy(g_p0_bot_id, id1, sizeof(g_p0_bot_id) - 1);
+            g_p0_bot_id[sizeof(g_p0_bot_id) - 1] = 0;
+            if (id2[0] && strcmp(id2, "<null>") != 0 && !g_p1_bot_id[0]) {
+                strncpy(g_p1_bot_id, id2, sizeof(g_p1_bot_id) - 1);
+                g_p1_bot_id[sizeof(g_p1_bot_id) - 1] = 0;
+            }
+        } else if (player_idx == 1 && obj_ok(a1)) {
+            g_p1_controller = a1;
+            strncpy(g_p1_bot_id, id1, sizeof(g_p1_bot_id) - 1);
+            g_p1_bot_id[sizeof(g_p1_bot_id) - 1] = 0;
+        }
 #if TFTF_ENABLE_ARENA
-        if (player_idx == 1 && obj_ok(a1)) g_p1_controller = a1;
         // Hand both fighters to the arena bridge as soon as they are known. Re-publishing on
         // every Init is deliberate: a new fight allocates new controllers, and a stale remote
         // pointer would replay the peer's input onto a freed object.
@@ -3205,101 +3231,209 @@ static int sp3_prop_mirror(void* prop, int on){
     return applied;
 }
 
-static void* sp3_player(void){
-    for(int i=0;i<4;i++) if(obj_ok(g_sp3_xf[i])) return g_sp3_xf[i];
-    return NULL;
+
+static void sp3_set_default_timing(void) {
+    g_current_sp3_timing.count = 1;
+    g_current_sp3_timing.on_ms[0] = 1000;
+    g_current_sp3_timing.off_ms[0] = 2500;
+    g_sp3_alt_on_ms = 1000;
+    g_sp3_alt_off_ms = 2500;
 }
-static void* sp3_find_body(const char* wanted){
-    for(int i=0;i<8;i++){
-        void* prop=g_sp3_xf_props[i]; char name[64]; name[0]=0;
-        if(obj_ok(prop)){ read_str(fld_p(prop,0x10),name,sizeof name); if(!strcmp(name,wanted)) return prop; }
+
+static int sp3_parse_intervals_from_json(const char* json_str, const char* bot_id) {
+    if (!json_str || !bot_id || !bot_id[0]) return 0;
+
+    const char* p = NULL;
+    char search_id[80];
+    strncpy(search_id, bot_id, sizeof(search_id) - 1);
+    search_id[sizeof(search_id) - 1] = 0;
+
+    // 1. Try matching bot_id, progressively stripping suffix after '_'
+    while (search_id[0]) {
+        char quoted[96];
+        snprintf(quoted, sizeof(quoted), "\"%s\"", search_id);
+        p = strstr(json_str, quoted);
+        if (p) break;
+        p = strstr(json_str, search_id);
+        if (p) break;
+
+        char* last_under = strrchr(search_id, '_');
+        if (last_under) {
+            *last_under = 0;
+        } else {
+            break;
+        }
     }
-    return NULL;
-}
-static int sp3_player_owns_prop(void* prop){
-    void* pc=sp3_player();
-    void* props=pc ? fld_p(pc,0x90) : NULL;
-    void* pname=obj_ok(prop) ? fld_p(prop,0x10) : NULL;
-    if(!obj_ok(props) || !pname) return 0;
-    return ((void*(*)(void*,void*,void*))(g_base+0xEA16C0))(props,pname,NULL)==prop;
-}
-static void sp3_capture_rig(void* prop){
-    if(g_sp3_rig[0] || !obj_ok(prop)) return;
-    void* arr=fld_p(prop,0x70);
-    if(!obj_ok(arr) || *(int32_t*)((char*)arr+0x18)<1) return;
-    void* rr=*(void**)((char*)arr+0x20);
-    void* go=obj_ok(rr) ? ((void*(*)(void*,void*))(g_base+0x1B4BD28))(rr,NULL) : NULL;
-    if(!obj_ok(go)) return;
-    read_str(((void*(*)(void*,void*))(g_base+0x16A16A0))(go,NULL),g_sp3_rig,sizeof g_sp3_rig);
-    g_sp3_aux_rig=!strncmp(g_sp3_rig,"cha_optimusprimal_bw_mp32",25);
-    if(g_sp3rig_lines<8){ g_sp3rig_lines++;
-        flog("SP3RIG rig=%s aux_rig=%d tms=%llu",g_sp3_rig,g_sp3_aux_rig,
-             (unsigned long long)propgo_now_ms()); }
-}
-static void sp3_aux_add(void* prop, int requested){
-    for(int i=0;i<8;i++) if(g_sp3_aux_props[i]==prop){ g_sp3_aux_was_active[i]=requested; return; }
-    for(int i=0;i<8;i++) if(!g_sp3_aux_props[i]){
-        g_sp3_aux_props[i]=prop; g_sp3_aux_was_active[i]=requested;
-        if(g_sp3aux_lines<16){ g_sp3aux_lines++;
-            flog("SP3AUX prop=shoulderguns requested=%d tms=%llu",requested,
-                 (unsigned long long)propgo_now_ms()); }
-        return;
+
+    // If not found, try "_default"
+    if (!p) {
+        p = strstr(json_str, "\"_default\"");
+        if (!p) p = strstr(json_str, "_default");
     }
+    if (!p) return 0;
+
+    const char* block_start = strchr(p, '{');
+    if (!block_start) return 0;
+    const char* block_end = strchr(block_start, '}');
+    if (!block_end) return 0;
+
+    // 2. Retrieve "intervals"
+    const char* inv = strstr(block_start, "\"intervals\"");
+    if (!inv || inv > block_end) return 0;
+
+    const char* arr_start = strchr(inv, '[');
+    if (!arr_start || arr_start > block_end) return 0;
+
+    // Parse [[on1, off1], [on2, off2]]
+    int count = 0;
+    const char* cur = arr_start + 1;
+    while (cur && cur < block_end && count < SP3_MAX_INTERVALS) {
+        const char* sub_start = strchr(cur, '[');
+        if (!sub_start || sub_start > block_end) break;
+        int on_val = 0, off_val = 0;
+        if (sscanf(sub_start + 1, "%d , %d", &on_val, &off_val) == 2 ||
+            sscanf(sub_start + 1, "%d ,%d", &on_val, &off_val) == 2 ||
+            sscanf(sub_start + 1, "%d,%d", &on_val, &off_val) == 2) {
+            g_current_sp3_timing.on_ms[count] = on_val;
+            g_current_sp3_timing.off_ms[count] = off_val;
+            count++;
+        }
+        const char* sub_end = strchr(sub_start, ']');
+        if (!sub_end) break;
+        cur = sub_end + 1;
+    }
+
+    if (count > 0) {
+        g_current_sp3_timing.count = count;
+        g_sp3_alt_on_ms = g_current_sp3_timing.on_ms[0];
+        g_sp3_alt_off_ms = g_current_sp3_timing.off_ms[0];
+        return 1;
+    }
+    return 0;
 }
-static uint64_t sp3_alt_end_ms(void){
-    if(g_sp3_alt_len_ms<=0) return (uint64_t)g_sp3_alt_off_ms;
-    uint64_t end=g_sp3_alt_on_ms+g_sp3_alt_len_ms;
-    if(end<(uint64_t)g_sp3_alt_off_ms) end=(uint64_t)g_sp3_alt_off_ms;
-    if(end>11000u) end=11000u;
-    return end;
+
+static void sp3_load_timing_for_character(const char* bot_id) {
+    sp3_set_default_timing();
+    if (!bot_id || !bot_id[0]) return;
+
+    // 1. Try loading from local hot-reload file
+    const char* hot_paths[] = {
+        "/data/data/com.kabam.bigrobot/files/sp3_timings.json",
+        "/sdcard/Android/media/com.kabam.bigrobot/sp3_timings.json",
+        "/sdcard/Download/sp3_timings.json",
+        "/storage/emulated/0/Download/sp3_timings.json",
+        "/data/local/tmp/sp3_timings.json"
+    };
+    for (size_t hi = 0; hi < sizeof(hot_paths)/sizeof(hot_paths[0]); hi++) {
+        FILE* fp = fopen(hot_paths[hi], "rb");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long len = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            if (len > 10 && len < 262144) {
+                char* buf = (char*)malloc(len + 1);
+                if (buf) {
+                    size_t read_bytes = fread(buf, 1, len, fp);
+                    buf[read_bytes] = 0;
+                    if (sp3_parse_intervals_from_json(buf, bot_id)) {
+                        flog("SP3TIMING: loaded from %s for %s (intervals=%d on0=%d off0=%d)",
+                             hot_paths[hi], bot_id, g_current_sp3_timing.count, g_current_sp3_timing.on_ms[0], g_current_sp3_timing.off_ms[0]);
+                        free(buf);
+                        fclose(fp);
+                        return;
+                    }
+                    free(buf);
+                }
+            }
+            fclose(fp);
+        }
+    }
+
+    // 2. Try loading from APK in-app Payload @sp3_timings
+    size_t payload_len = 0;
+    const unsigned char* pdata = tftf_payload_lookup("@sp3_timings", &payload_len);
+    if (pdata && payload_len > 10) {
+        char* pbuf = (char*)malloc(payload_len + 1);
+        if (pbuf) {
+            memcpy(pbuf, pdata, payload_len);
+            pbuf[payload_len] = 0;
+            if (sp3_parse_intervals_from_json(pbuf, bot_id)) {
+                flog("SP3TIMING: loaded from @sp3_timings payload for %s (intervals=%d on0=%d off0=%d)",
+                     bot_id, g_current_sp3_timing.count, g_current_sp3_timing.on_ms[0], g_current_sp3_timing.off_ms[0]);
+                free(pbuf);
+                return;
+            }
+            free(pbuf);
+        }
+    }
+
+    // 3. Built-in C fallback table
+    if (strstr(bot_id, "optimusprime")) {
+        g_current_sp3_timing.count = 1;
+        g_current_sp3_timing.on_ms[0] = 1150;
+        g_current_sp3_timing.off_ms[0] = 3200;
+    } else if (strstr(bot_id, "starscream")) {
+        g_current_sp3_timing.count = 1;
+        g_current_sp3_timing.on_ms[0] = 850;
+        g_current_sp3_timing.off_ms[0] = 2650;
+    } else if (strstr(bot_id, "bumblebee")) {
+        g_current_sp3_timing.count = 1;
+        g_current_sp3_timing.on_ms[0] = 1300;
+        g_current_sp3_timing.off_ms[0] = 2900;
+    }
+    g_sp3_alt_on_ms = g_current_sp3_timing.on_ms[0];
+    g_sp3_alt_off_ms = g_current_sp3_timing.off_ms[0];
+    flog("SP3TIMING: used fallback for %s: count=%d on0=%d off0=%d",
+         bot_id, g_current_sp3_timing.count, g_current_sp3_timing.on_ms[0], g_current_sp3_timing.off_ms[0]);
 }
+
 /* SP3BEAT (shipped): the scheduled body at a given offset into the cinematic. 1 = alternate
-   (vehicle) form, 0 = robot form. One contiguous alternate block only - see the reference
-   measurements recorded next to g_sp3_alt_on_ms. */
+   (vehicle) form, 0 = robot form. Evaluates all active intervals in g_current_sp3_timing. */
 static int sp3_beat_form_at(uint64_t elapsed_ms){
-    return elapsed_ms >= (uint64_t)g_sp3_alt_on_ms
-        && elapsed_ms < sp3_alt_end_ms();
+    for (int i = 0; i < g_current_sp3_timing.count; i++) {
+        if (elapsed_ms >= (uint64_t)g_current_sp3_timing.on_ms[i] &&
+            elapsed_ms <  (uint64_t)g_current_sp3_timing.off_ms[i]) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* SP3BEAT (shipped): push the scheduled body onto the captured props. Called only when the form
    actually changes. Each captured entry is a PropData*; its name is the string at +0x10 and is
    either "transformed" (the alternate body) or "character_model" (the robot body). */
 static void sp3_beat_apply(int alt){
-    for(int i=0;i<8;i++){
-        void* prop=g_sp3_xf_props[i];
-        if(!obj_ok(prop)) continue;
-        char name[64];
-        name[0]=0;
-        read_str(*(void**)((char*)prop+0x10), name, sizeof name);
-        int want;
-        if(!strcmp(name,"transformed")) want=alt;
-        else if(!strcmp(name,"character_model")) want=!alt;
-        else continue;
-        ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
-            (prop,want,NULL,NULL,NULL,NULL,NULL,NULL);
-        sp3_prop_mirror(prop,want);
-        if(alt && want && !strcmp(name,"transformed") && !g_sp3_anim_played && g_strnew){
-            void* state=g_strnew("SpecialAttack03");
-            if(state){
-                ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,state,NULL);
-                g_sp3_anim_played=1;
-                flog("SP3ANIM prop=%s state=SpecialAttack03 anim=%p tms=%llu",name,
-                     fld_p(prop,0x68),(unsigned long long)propgo_now_ms());
+    PROTECT({
+        for(int i=0;i<8;i++){
+            void* prop=g_sp3_xf_props[i];
+            if(!obj_ok(prop)) continue;
+            char name[64];
+            name[0]=0;
+            void* str_obj = *(void**)((char*)prop+0x10);
+            if(!obj_ok(str_obj)) continue;
+            read_str(str_obj, name, sizeof name);
+            int want;
+            if(!strcmp(name,"transformed")) want=alt;
+            else if(!strcmp(name,"character_model")) want=!alt;
+            else continue;
+            ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
+                (prop,want,NULL,NULL,NULL,NULL,NULL,NULL);
+            int n = sp3_prop_mirror(prop,want);
+            flog("SP3BEAT_PROP name=%s want=%d n=%d pgo=%p", name, want, n, *(void**)((char*)prop+0x60));
+            /* SP3ANIM (shipped): the alternate body renders in bind pose unless its own Animator is
+               driven. If not already started at t=0, drive it here as fallback. */
+            if(!g_sp3_anim_played && alt && want && !strcmp(name,"transformed") && g_strnew){
+                void* st=g_strnew("SpecialAttack03");
+                if(st) ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,st,NULL);
+                void* st2=g_strnew("Base.SpecialAttack03");
+                if(st2) ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,st2,NULL);
+                g_sp3_anim_played = 1;
             }
         }
-    }
-    for(int i=0;i<8;i++) if(obj_ok(g_sp3_aux_props[i])){
-        int want=alt ? 0 : g_sp3_aux_was_active[i];
-        ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
-            (g_sp3_aux_props[i],want,NULL,NULL,NULL,NULL,NULL,NULL);
-        sp3_prop_mirror(g_sp3_aux_props[i],want);
-        if(g_sp3auxf_lines<24){ g_sp3auxf_lines++;
-            flog("SP3AUXF prop=shoulderguns alt=%d applied=%d tms=%llu",alt,want,
-                 (unsigned long long)propgo_now_ms()); }
-    }
+    });
     if(g_sp3_beat_lines<40){ g_sp3_beat_lines++;
-        flog("SP3BEAT apply alt=%d on=%d fallback=%d end=%llu tms=%llu",alt,g_sp3_alt_on_ms,
-             g_sp3_alt_off_ms,(unsigned long long)sp3_alt_end_ms(),(unsigned long long)propgo_now_ms()); }
+        flog("SP3BEAT apply alt=%d on=%d off=%d tms=%llu", alt, g_sp3_alt_on_ms,
+             g_sp3_alt_off_ms, (unsigned long long)propgo_now_ms()); }
 }
 
 /* SP3BEAT (shipped): the pump body, called from Simulation.FixedUpdate. */
@@ -3309,41 +3443,20 @@ static void sp3_beat_pump(void){
     uint64_t elapsed=now-g_sp3_xf_since_ms;
     if(elapsed>12000u) return;               /* the 12 s safety bound used elsewhere */
     g_sp3_beat_ticks++;
-    if(g_sp3_beat_form && !g_sp3_alt_len_ms){
-        void* prop=sp3_find_body("transformed");
-        void* anim=obj_ok(prop) ? fld_p(prop,0x68) : NULL;
-        if(obj_ok(anim) && g_strnew){
-            if(!g_sp3sinfo_hash){
-                void* state=g_strnew("SpecialAttack03");
-                if(state) g_sp3sinfo_hash=((int(*)(void*,void*))(g_base+0x219B864))(state,NULL);
-            }
-            if(g_sp3sinfo_hash){
-                Sp3StateInfo si=((Sp3StateInfo(*)(void*,int,void*))(g_base+0x219B470))(anim,0,NULL);
-                if(si.m_Name==g_sp3sinfo_hash && si.m_Length>0.05f && si.m_Length<10.1f){
-                    g_sp3_alt_len_ms=(int)(si.m_Length*1000.0f);
-                    if(g_sp3altlen_lines<4){ g_sp3altlen_lines++;
-                        flog("SP3ALTLEN rig=%s len_ms=%d end=%llu tms=%llu",g_sp3_rig,g_sp3_alt_len_ms,
-                             (unsigned long long)sp3_alt_end_ms(),(unsigned long long)now); }
-                }
-            }
-        }
-    }
     int want=sp3_beat_form_at(elapsed);
-    if(want!=g_sp3_beat_form){
-        g_sp3_beat_form=want;
-        sp3_beat_apply(want);
-    }
+    if(want==g_sp3_beat_form) return;
+    g_sp3_beat_form=want;
+    sp3_beat_apply(want);
 }
 void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     char name[64]; name[0]=0;
+    int propgo_special=0;
     int req=(intptr_t)a1 ? 1 : 0;
     PROTECT({
         if(obj_ok(a0)) read_str(*(void**)((char*)a0+0x10), name, sizeof name);
         if(!strcmp(name,"character_model") || !strcmp(name,"transformed")){
-            if(g_sp3_xf_capture_props && sp3_player_owns_prop(a0)){
-                sp3_xf_props_add(a0);
-                if(!strcmp(name,"character_model")) sp3_capture_rig(a0);
-            }
+            propgo_special=1;
+            if(g_sp3_xf_capture_props) sp3_xf_props_add(a0);
             if(sp3_xf_props_has(a0) && g_sp3_xf_since_ms){
                 uint64_t now=propgo_now_ms();
                 if(now-g_sp3_xf_since_ms > 12000u){
@@ -3351,26 +3464,16 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
                         g_sp3_xf_timeout_logged=1;
                         flog("SP3XFIX timeout tms=%llu",(unsigned long long)now);
                     }
-                    sp3_beat_apply(0); /* restore bodies and latest auxiliary requests before clear */
                     sp3_xf_clear();
                 }else{
                     int alt=sp3_beat_form_at(now-g_sp3_xf_since_ms);
                     int forced=!strcmp(name,"transformed") ? alt : !alt;
                     if(req!=forced){
-                        if(g_propgoinv_lines<200){ g_propgoinv_lines++;
+                        if(g_propgoinv_lines<500){ g_propgoinv_lines++;
                             flog("PROPGOINV prop=%s req=%d forced=%d tms=%llu",name,req,forced,(unsigned long long)now); }
                         a1=(void*)(intptr_t)forced;
                     }
                 }
-            }
-        }
-        if(g_sp3_xf_since_ms && g_sp3_aux_rig && !strcmp(name,"shoulderguns") && sp3_player_owns_prop(a0)){
-            sp3_aux_add(a0,req);
-            if(sp3_beat_form_at(propgo_now_ms()-g_sp3_xf_since_ms)){
-                a1=NULL;
-                if(g_sp3auxf_lines<24){ g_sp3auxf_lines++;
-                    flog("SP3AUXF prop=shoulderguns requested=%d forced=0 tms=%llu",req,
-                         (unsigned long long)propgo_now_ms()); }
             }
         }
     });
@@ -3378,8 +3481,22 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({
         int on = (intptr_t)a1 ? 1 : 0;
         int applied = sp3_prop_mirror(a0, on);
-        if(applied > 0 && g_propgoact_lines < 200){ g_propgoact_lines++;
+        if(applied > 0 && g_propgoact_lines < 500){ g_propgoact_lines++;
             flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
+        if(propgo_special){
+            if (on && !g_sp3_anim_played && g_sp3_xf_since_ms && sp3_xf_props_has(a0)
+                    && !strcmp(name, "transformed") && g_strnew) {
+                void* st = g_strnew("SpecialAttack03");
+                if (st) {
+                    g_sp3_anim_played = 1;
+                    ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(a0, st, NULL);
+                    void* st2 = g_strnew("Base.SpecialAttack03");
+                    if (st2) ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(a0, st2, NULL);
+                    flog("SP3ANIM prop=%s state=SpecialAttack03 anim=%p tms=%llu",
+                         name, fld_p(a0,0x68), (unsigned long long)propgo_now_ms());
+                }
+            }
+        }
     });
     return r;
 }
@@ -3570,20 +3687,61 @@ void* hook_142(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({
         void* pc=fld_p(a0,0x18);
         if (obj_ok(pc)) {
+            const char* current_bot_id = (pc == g_p0_controller) ? g_p0_bot_id : g_p1_bot_id;
+            if (!current_bot_id || !current_bot_id[0]) {
+                if (g_p0_bot_id[0]) current_bot_id = g_p0_bot_id;
+                else if (g_p1_bot_id[0]) current_bot_id = g_p1_bot_id;
+            }
+            flog("SP3XFIX enter pc=%p bot_id=%s tms=%llu", pc, current_bot_id ? current_bot_id : "unknown",
+                 (unsigned long long)propgo_now_ms());
+
+            sp3_load_timing_for_character(current_bot_id);
+
             sp3_xf_add(pc);
             g_sp3_beat_form = 0;
             g_sp3_beat_ticks = 0;
-            flog("SP3XFIX enter pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
-            flog("SP3SCHED on=%d fallback=%d end=%llu tms=%llu",g_sp3_alt_on_ms,g_sp3_alt_off_ms,
-                 (unsigned long long)sp3_alt_end_ms(),(unsigned long long)propgo_now_ms());
+            g_sp3_anim_played = 0;
+            g_sp3_beat_lines = 0;
+            g_propgoact_lines = 0;
+            g_propgoinv_lines = 0;
+            flog("SP3SCHED intervals=%d on0=%d off0=%d tms=%llu", g_current_sp3_timing.count,
+                 g_sp3_alt_on_ms, g_sp3_alt_off_ms, (unsigned long long)propgo_now_ms());
+
+            sp3_xf_props_clear();
+            void* cpm = *(void**)((char*)pc + 0x90);
+            if (obj_ok(cpm) && g_strnew) {
+                void* prop_trans = ((void*(*)(void*,void*,void*))(g_base + 0xEA16C0))(cpm, g_strnew("transformed"), NULL);
+                void* prop_char  = ((void*(*)(void*,void*,void*))(g_base + 0xEA16C0))(cpm, g_strnew("character_model"), NULL);
+                if (prop_trans) sp3_xf_props_add(prop_trans);
+                if (prop_char)  sp3_xf_props_add(prop_char);
+                flog("SP3PROPS cpm=%p trans=%p char=%p", cpm, prop_trans, prop_char);
+            }
+
             g_sp3_xf_capture_props=1;
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,1,NULL);
             g_sp3_xf_capture_props=0;
-            /* SP3BEAT (shipped): the cinematic opens on the ROBOT wind-up. The Transform(true)
-               call above only exists to route the props through slot 138 so they can be
-               captured; push the robot body back on straight away so the alternate form does
-               not flash at t=0. */
+            /* SP3BEAT (shipped): the cinematic opens on the ROBOT wind-up. */
             sp3_beat_apply(0);
+            /* Start vehicle animation at t=0 so it advances in parallel with the robot cinematic. */
+            if (g_strnew) {
+                for (int pi = 0; pi < 8; pi++) {
+                    void* p = g_sp3_xf_props[pi];
+                    if (!obj_ok(p)) continue;
+                    char pname[64]; pname[0] = 0;
+                    void* strobj = *(void**)((char*)p + 0x10);
+                    if (!obj_ok(strobj)) continue;
+                    read_str(strobj, pname, sizeof pname);
+                    if (!strcmp(pname, "transformed")) {
+                        void* st = g_strnew("SpecialAttack03");
+                        void* st2 = g_strnew("Base.SpecialAttack03");
+                        if (st)  ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(p, st, NULL);
+                        if (st2) ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(p, st2, NULL);
+                        g_sp3_anim_played = 1;
+                        flog("SP3ANIM_START prop=transformed anim=%p tms=%llu",
+                             fld_p(p, 0x68), (unsigned long long)propgo_now_ms());
+                    }
+                }
+            }
         }
     });
     return r;
@@ -3593,19 +3751,11 @@ static void reset_player_attack_chain(void* pc);
 // SP3XFIX (shipped): drop the hold before restoring robot form at cinematic exit.
 void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* pc=fld_p(a0,0x18);
-    PROTECT({
-        void* transformed=sp3_find_body("transformed");
-        void* anim=obj_ok(transformed) ? fld_p(transformed,0x68) : NULL;
-        if(obj_ok(anim) && g_sp3sinfo_hash && g_sp3exit_lines<8){
-            Sp3StateInfo si=((Sp3StateInfo(*)(void*,int,void*))(g_base+0x219B470))(anim,0,NULL);
-            g_sp3exit_lines++;
-            flog("SP3EXIT norm=%.3f len=%.3f tms=%llu",si.m_NormalizedTime,si.m_Length,
-                 (unsigned long long)propgo_now_ms());
-        }
-        sp3_beat_apply(0); /* bodies and player-owned auxiliary props restore before clear */
-        sp3_xf_remove(pc);
-        g_sp3_beat_form=-1;
-    });
+    sp3_beat_apply(0);
+    sp3_xf_remove(pc);
+    sp3_xf_props_clear();
+    g_sp3_beat_form = -1;
+    g_sp3_anim_played = 0;
     void* r=H[143].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({
         if (obj_ok(pc)) {

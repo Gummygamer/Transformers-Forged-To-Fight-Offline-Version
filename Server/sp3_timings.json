@@ -1,0 +1,578 @@
+{
+  "_default": {
+    "intervals": [[1000,2500]],
+    "notes": "全局默认变形时间：1.0秒至2.5秒"
+  },
+  "optimusprime": {
+    "intervals": [[1295,2330]],
+    "notes": "擎天柱 - 卡车冲撞"
+  },
+  "optimusprime_gs": {
+    "intervals": [[1295,2330]],
+    "notes": "G1擎天柱 - 卡车冲撞"
+  },
+  "optimusprime_cin_tf": {
+    "intervals": [[2167, 2633]],
+    "notes": "电影擎天柱 - 卡车冲撞"
+  },
+  "optimusprime_sg_voyager2015": {
+    "intervals": [[1295,2330]],
+    "notes": "镜像擎天柱 - 卡车冲撞"
+  },
+  "fte_optimus_gs_t3": {
+    "intervals": [[1295,2330]],
+    "notes": "新手教学擎天柱 - 卡车冲撞"
+  },
+  "nemesisprime_gs_voyager2015": {
+    "intervals": [[1295,2330]],
+    "notes": "暗黑擎天柱 - 卡车冲撞"
+  },
+  "starscream": {
+    "intervals": [[2230,5230]],
+    "notes": "红蜘蛛 - 喷气机俯冲扫射"
+  },
+  "starscream_gs": {
+    "intervals": [[2230,5230]],
+    "notes": "G1红蜘蛛 - 喷气机俯冲扫射"
+  },
+  "fte_stars_gs_t3": {
+    "intervals": [[2230,5230]],
+    "notes": "新手教学红蜘蛛 - 喷气机俯冲扫射"
+  },
+  "bumblebee": {
+    "intervals": [[1300,2900]],
+    "notes": "大黄蜂 - 甲壳虫漂移甩尾"
+  },
+  "bumblebee_gs_kabam": {
+    "intervals": [[433,3800]],
+    "notes": "G1大黄蜂 - 甲壳虫漂移甩尾"
+  },
+  "bumblebee_cin_dotm": {
+    "intervals": [[1167,3633]],
+    "notes": "电影大黄蜂 - 跑车漂移甩尾"
+  },
+  "special_multi_bot": {
+    "intervals": [[800,1500],[2200,3400]],
+    "notes": "多次变形区间示例"
+  },
+  "acidstorm": {
+    "intervals": [[2230,5230]],
+    "notes": "酸雨系列 - 默认载具/野兽变形区间"
+  },
+  "arcee": {
+    "intervals": [[2000,3230]],
+    "notes": "阿尔茜系列 - 默认载具/野兽变形区间"
+  },
+  "barricade": {
+    "intervals": [[1000,2500]],
+    "notes": "路障系列 - 默认载具/野兽变形区间"
+  },
+  "bitstream": {
+    "intervals": [[2230,5230]],
+    "notes": "比特流系列 - 默认载具/野兽变形区间"
+  },
+  "blaster": {
+    "intervals": [[1000,2500]],
+    "notes": "录音机系列 - 默认载具/野兽变形区间"
+  },
+  "bludgeon": {
+    "intervals": [[1000,2500]],
+    "notes": "雷翼/利刃系列 - 默认载具/野兽变形区间"
+  },
+  "bonecrusher": {
+    "intervals": [[1000,2500]],
+    "notes": "碎骨魔系列 - 默认载具/野兽变形区间"
+  },
+  "cheetor": {
+    "intervals": [[1000,2500]],
+    "notes": "黄豹勇士系列 - 默认载具/野兽变形区间"
+  },
+  "chromia": {
+    "intervals": [[2030,3160]],
+    "notes": "克劳莉娅系列 - 默认载具/野兽变形区间"
+  },
+  "cliffjumper": {
+    "intervals": [[4250,6390]],
+    "notes": "飞过山系列 - 默认载具/野兽变形区间"
+  },
+  "cyclonus": {
+    "intervals": [[1000,2500]],
+    "notes": "狂飙系列 - 默认载具/野兽变形区间"
+  },
+  "deadend": {
+    "intervals": [[1000,2500]],
+    "notes": "封锁系列 - 默认载具/野兽变形区间"
+  },
+  "dinobot": {
+    "intervals": [[1000,2500]],
+    "notes": "恐龙勇士系列 - 默认载具/野兽变形区间"
+  },
+  "dirge": {
+    "intervals": [[930,6850]],
+    "notes": "挽歌系列 - 默认载具/野兽变形区间"
+  },
+  "drift": {
+    "intervals": [[1000,2500]],
+    "notes": "漂移系列 - 默认载具/野兽变形区间"
+  },
+  "galvatron": {
+    "intervals": [[1000,2500]],
+    "notes": "惊破天系列 - 默认载具/野兽变形区间"
+  },
+  "grimlock": {
+    "intervals": [[1000,2500]],
+    "notes": "钢锁系列 - 默认载具/野兽变形区间"
+  },
+  "grindor": {
+    "intervals": [[1000,2500]],
+    "notes": "歼灭者系列 - 默认载具/野兽变形区间"
+  },
+  "hotlink": {
+    "intervals": [[2230,5230]],
+    "notes": "热链系列 - 默认载具/野兽变形区间"
+  },
+  "hotrod": {
+    "intervals": [[1000,2500]],
+    "notes": "热破系列 - 默认载具/野兽变形区间"
+  },
+  "hound": {
+    "intervals": [[1000,2500]],
+    "notes": "探长系列 - 默认载具/野兽变形区间"
+  },
+  "ionstorm": {
+    "intervals": [[2230,5230]],
+    "notes": "离子风暴系列 - 默认载具/野兽变形区间"
+  },
+  "ironhide": {
+    "intervals": [[4250,6390]],
+    "notes": "铁皮系列 - 默认载具/野兽变形区间"
+  },
+  "jazz": {
+    "intervals": [[1000,2500]],
+    "notes": "爵士系列 - 默认载具/野兽变形区间"
+  },
+  "jetfire": {
+    "intervals": [[1000,2500]],
+    "notes": "天火系列 - 默认载具/野兽变形区间"
+  },
+  "kickback": {
+    "intervals": [[1000,2500]],
+    "notes": "反冲系列 - 默认载具/野兽变形区间"
+  },
+  "megatron": {
+    "intervals": [[1000,2500]],
+    "notes": "威震天系列 - 默认载具/野兽变形区间"
+  },
+  "megatronus": {
+    "intervals": [[6730,8370]],
+    "notes": "堕落金刚系列 - 默认载具/野兽变形区间"
+  },
+  "mirage": {
+    "intervals": [[1000,2500]],
+    "notes": "幻影系列 - 默认载具/野兽变形区间"
+  },
+  "mixmaster": {
+    "intervals": [[1000,2500]],
+    "notes": "搅拌大师系列 - 默认载具/野兽变形区间"
+  },
+  "motormaster": {
+    "intervals": [[1000,2500]],
+    "notes": "汽车大师系列 - 默认载具/野兽变形区间"
+  },
+  "necrotronus": {
+    "intervals": [[1000,2500]],
+    "notes": "死灵金刚系列 - 默认载具/野兽变形区间"
+  },
+  "nemesisprime": {
+    "intervals": [[1295,2330]],
+    "notes": "暗黑擎天柱系列 - 默认载具/野兽变形区间"
+  },
+  "novastorm": {
+    "intervals": [[2230,5230]],
+    "notes": "新星风暴系列 - 默认载具/野兽变形区间"
+  },
+  "optimusprimal": {
+    "intervals": [[1000,2500]],
+    "notes": "猩猩队长系列 - 默认载具/野兽变形区间"
+  },
+  "prowl": {
+    "intervals": [[1000,2500]],
+    "notes": "警车系列 - 默认载具/野兽变形区间"
+  },
+  "ramjet": {
+    "intervals": [[930,6850]],
+    "notes": "冲锋系列 - 默认载具/野兽变形区间"
+  },
+  "ratchet": {
+    "intervals": [[4250,6390]],
+    "notes": "救护车系列 - 默认载具/野兽变形区间"
+  },
+  "rhinox": {
+    "intervals": [[1000,2500]],
+    "notes": "犀牛勇士系列 - 默认载具/野兽变形区间"
+  },
+  "rodimusprime": {
+    "intervals": [[1000,2500]],
+    "notes": "补天士系列 - 默认载具/野兽变形区间"
+  },
+  "scorponok": {
+    "intervals": [[1000,2500]],
+    "notes": "巨蝎勇士系列 - 默认载具/野兽变形区间"
+  },
+  "sharkticon": {
+    "intervals": [[1000,2500]],
+    "notes": "饿鲨系列 - 默认载具/野兽变形区间"
+  },
+  "shockwave": {
+    "intervals": [[1000,2500]],
+    "notes": "震荡波系列 - 默认载具/野兽变形区间"
+  },
+  "sideswipe": {
+    "intervals": [[1000,2500]],
+    "notes": "横炮系列 - 默认载具/野兽变形区间"
+  },
+  "skywarp": {
+    "intervals": [[2230,5230]],
+    "notes": "惊天雷系列 - 默认载具/野兽变形区间"
+  },
+  "slipstream": {
+    "intervals": [[2230,5230]],
+    "notes": "滑流系列 - 默认载具/野兽变形区间"
+  },
+  "soundblaster": {
+    "intervals": [[1000,2500]],
+    "notes": "音爆系列 - 默认载具/野兽变形区间"
+  },
+  "soundwave": {
+    "intervals": [[1000,2500]],
+    "notes": "声波系列 - 默认载具/野兽变形区间"
+  },
+  "starsaber": {
+    "intervals": [[1000,2500]],
+    "notes": "皇者之剑史达系列 - 默认载具/野兽变形区间"
+  },
+  "sunstorm": {
+    "intervals": [[2230,5230]],
+    "notes": "太阳风暴系列 - 默认载具/野兽变形区间"
+  },
+  "sunstreaker": {
+    "intervals": [[1000,2500]],
+    "notes": "飞毛腿系列 - 默认载具/野兽变形区间"
+  },
+  "tantrum": {
+    "intervals": [[1000,2500]],
+    "notes": "喧闹/野牛系列 - 默认载具/野兽变形区间"
+  },
+  "thrust": {
+    "intervals": [[930,6850]],
+    "notes": "喷气机系列 - 默认载具/野兽变形区间"
+  },
+  "thundercracker": {
+    "intervals": [[2230,5230]],
+    "notes": "闹翻天系列 - 默认载具/野兽变形区间"
+  },
+  "ultramagnus": {
+    "intervals": [[1000,2500]],
+    "notes": "通天晓系列 - 默认载具/野兽变形区间"
+  },
+  "waspinator": {
+    "intervals": [[1000,2500]],
+    "notes": "黄蜂勇士系列 - 默认载具/野兽变形区间"
+  },
+  "wheeljack": {
+    "intervals": [[1000,2500]],
+    "notes": "千斤顶系列 - 默认载具/野兽变形区间"
+  },
+  "windblade": {
+    "intervals": [[1000,2500]],
+    "notes": "风刃系列 - 默认载具/野兽变形区间"
+  },
+  "acidstorm_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "酸雨 (Acid Storm) - 雨袭战机"
+  },
+  "arcee_gs_deluxe2014": {
+    "intervals": [[2000,3230]],
+    "notes": "阿尔茜 (Arcee) - 摩托车"
+  },
+  "barricade_cin_dotm": {
+    "intervals": [[2033,3100]],
+    "notes": "路障 (Barricade) - 警车追逐"
+  },
+  "bitstream_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "比特流 (Bitstream) - 战机"
+  },
+  "blaster_gs_leader2016": {
+    "intervals": [[0,7300]],
+    "notes": "录音机 (Blaster)"
+  },
+  "bludgeon_gs_rd20": {
+    "intervals": [[3300, 5267]],
+    "notes": "雷翼/利刃 (Bludgeon) - 坦克"
+  },
+  "bonecrusher_cin_rotf": {
+    "intervals": [[2433, 4300]],
+    "notes": "碎骨魔 (Bonecrusher) - 装甲扫雷车"
+  },
+  "cheetor_bw_transmetal": {
+    "intervals": [[2600, 3800]],
+    "notes": "黄豹勇士 (Cheetor) - 金属猎豹"
+  },
+  "chromia_gs_kabam": {
+    "intervals": [[4667, 6867]],    
+    "notes": "克劳莉娅 (Chromia) - 摩托车"
+  },
+  "cliffjumper_gs_kabam": {
+    "intervals": [[4250,6390]],
+    "notes": "飞过山 (Cliffjumper) - 跑车"
+  },
+  "cyclonus_gs_uw06": {
+    "intervals": [[1233, 5600]],
+    "notes": "狂飙 (Cyclonus) - 宇宙战机"
+  },
+  "deadend_gs_deluxe2015": {
+    "intervals": [[1433, 3533]],
+    "notes": "封锁 (Dead End) - 保时捷跑车"
+  },
+  "dinobot_bw_kabam": {
+    "intervals": [[300, 5133]],
+    "notes": "恐龙勇士 (Dinobot) - 迅猛龙"
+  },
+  "dirge_gs_deluxe2008": {
+    "intervals": [[930,6850]],
+    "notes": "挽歌 (Dirge) - 战机"
+  },
+  "drift_cin_aoe": {
+    "intervals": [[530,1500]],
+    "notes": "漂移 (Drift) - 跑车/直升机"
+  },
+  "galvatron_gs_voyager2016": {
+    "intervals": [[5500, 7967]],
+    "notes": "惊破天 (Galvatron) - 粒子加农炮"
+  },
+  "grimlock_gs_mp08": {
+    "intervals": [[633, 6467]],
+    "notes": "钢锁 (Grimlock) - 霸王龙"
+  },
+  "grindor_cin_rotf": {
+    "intervals": [[3200, 5033]],
+    "notes": "歼灭者/眩晕 (Grindor) - 重型直升机"
+  },
+  "hotlink_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "热链 (Hotlink) - 战机"
+  },
+  "hotrod_cin_tlk": {
+    "intervals": [[600, 2500]],
+    "notes": "热破 (Hot Rod) - 超级跑车"
+  },
+  "hound_cin_tlk": {
+    "intervals": [[333, 2233]],
+    "notes": "探长 (Hound) - 重型装甲车"
+  },
+  "ionstorm_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "离子风暴 (Ion Storm) - 战机"
+  },
+  "ironhide_cin_rotf": {
+    "intervals": [[733, 2667]],
+    "notes": "电影铁皮 (Ironhide) - 重型皮卡"
+  },
+  "ironhide_gs_kabam": {
+    "intervals": [[4250,6390]],
+    "notes": "G1铁皮 (Ironhide) - 厢型车/皮卡"
+  },
+  "jazz_gs_twm05": {
+    "intervals": [[600, 2700]],
+    "notes": "爵士 (Jazz) - 保时捷赛车"
+  },
+  "jetfire_gs_leader2014": {
+    "intervals": [[2930,8830]],
+    "notes": "天火 (Jetfire) - 穿梭超音速战机"
+  },
+  "kickback_gs_kabam": {
+    "intervals": [[3833, 8500]],
+    "notes": "反冲 (Kickback) - 机械蝗虫"
+  },
+  "megatron_cin_rotf": {
+    "intervals": [[3033, 4433]],
+    "notes": "电影威震天 (Megatron) - 外星战车/飞船"
+  },
+  "megatron_gs_leader2015": {
+    "intervals": [[2870,4860]],
+    "notes": "G1威震天 (Megatron) - 坦克"
+  },
+  "megatronus_gs_kabam": {
+    "intervals": [[6730,8070]],
+    "notes": "堕落金刚/震天尊 (Megatronus) - 远古战车"
+  },
+  "mirage_gs_deluxe2016": {
+    "intervals": [[4000, 4867]],
+    "notes": "幻影 (Mirage) - F1赛车"
+  },
+  "mixmaster_cin_rotf": {
+    "intervals": [[2433, 7000]],
+    "notes": "搅拌大者(Mixmaster) - 水泥车"
+  },
+  "motormaster_gs_voyager2015": {
+    "intervals": [[6100, 7067]],
+    "notes": "汽车大师 (Motormaster) - 飞虎队重型卡车"
+  },
+  "necrotronus_gs_kabam": {
+    "intervals": [[6730,8070]],
+    "notes": "亡灵天尊 (Necrotronus)-外星战机"
+  },
+  "novastorm_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "新星风暴 (Nova Storm) - 战机"
+  },
+  "optimusprimal_bw_mp32": {
+    "intervals": [[2100, 7967]],
+    "notes": "猩猩队长 (Optimus Primal) - 巨猿"
+  },
+  "prowl_gs_deluxe2016": {
+    "intervals": [[3333, 4967]],
+    "notes": "警车 (Prowl) - 巡逻警车"
+  },
+  "ramjet_gs_deluxe2008": {
+    "intervals": [[930,6850]],
+    "notes": "冲锋 (Ramjet) - 撞击战机"
+  },
+  "ratchet_gs_kabam": {
+    "intervals": [[4250,6390]],
+    "notes": "救护车 (Ratchet) - 救护救险车"
+  },
+  "rhinox_gs_voyager2014": {
+    "intervals": [[600, 1767]],
+    "notes": "犀牛勇士 (Rhinox) - 机械犀牛"
+  },
+  "rodimusprime_gs_mp09": {
+    "intervals": [[2167, 2633]],
+    "notes": "补天士 (Rodimus Prime) - 跑车/旅行车"
+  },
+  "scorponok_bw_kabam": {
+    "intervals": [[1100, 6933]],
+    "notes": "巨蝎勇士 (Scorponok) - 机械巨蝎"
+  },
+  "sharkticon_gs_brawler": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨·斗士 (Sharkticon)"
+  },
+  "sharkticon_gs_demolition": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨·爆破 (Sharkticon)"
+  },
+  "sharkticon_gs_kabam": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨-1000 (Sharkticon) - 机械两栖鲨鱼"
+  },
+  "sharkticon_gs_scout": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨·侦察 (Sharkticon)"
+  },
+  "sharkticon_gs_tactician": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨·战术 (Sharkticon)"
+  },
+  "sharkticon_gs_tech": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨·科技 (Sharkticon)"
+  },
+  "sharkticon_gs_warrior": {
+    "intervals": [[633, 7767]],
+    "notes": "饿鲨·战士 (Sharkticon)"
+  },
+  "shockwave_gs": {
+    "intervals": [[3533, 5800]],
+    "notes": "震荡波 (Shockwave) - 激光重炮"
+  },
+  "sideswipe_gs": {
+    "intervals": [[700, 2133]],
+    "notes": "横炮 (Sideswipe) - 兰博基尼跑车"
+  },
+  "skywarp_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "惊天雷 (Skywarp) - 瞬移战机"
+  },
+  "slipstream_gs": {
+    "intervals": [[1333, 3667]],
+    "notes": "滑流 (Slipstream) - 隐身战机"
+  },
+  "soundblaster_gs_mp13b": {
+    "intervals": [[0, 4533]],
+    "notes": "音板 (Soundblaster)"
+  },
+  "soundwave_gs": {
+    "intervals": [[0, 4533]],
+    "notes": "声波 (Soundwave)"
+  },
+  "starsaber_gs_leader2014": {
+    "intervals": [[2930,8830]],
+    "notes": "皇者之剑史达 (Star Saber) - 超音速战机"
+  },
+  "sunstorm_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "太阳风 (Sunstorm) - 战机"
+  },
+  "sunstreaker_gs_deluxe2008": {
+    "intervals": [[530,1500]],
+    "notes": "飞毛腿 (Sunstreaker) - 跑车"
+  },
+  "tantrum_gs_kabam": {
+    "intervals": [[500, 6267]],
+    "notes": "野牛 (Tantrum) - 机械野牛"
+  },
+  "thrust_gs_deluxe2008": {
+    "intervals": [[930,6850]],
+    "notes": "喷气机 (Thrust) - VTOL战机"
+  },
+  "thundercracker_gs_leader2015": {
+    "intervals": [[2230,5230]],
+    "notes": "闹翻天 (Thundercracker) - 战机"
+  },
+  "ultramagnus_gs_leader": {
+    "intervals": [[3000, 5800]],
+    "notes": "通天晓 (Ultra Magnus) - 重型装甲运输卡车"
+  },
+  "waspinator_gs_deluxe": {
+    "intervals": [[2100, 3300]],
+    "notes": "黄蜂勇士 (Waspinator) - 机械黄蜂"
+  },
+  "wheeljack_gs_mp20": {
+    "intervals": [[733, 2200]],
+    "notes": "千斤顶 (Wheeljack) - 赛车"
+  },
+  "windblade_gs": {
+    "intervals": [[1333, 3667]],
+    "notes": "风刃 (Windblade) - VTOL超音速喷气机"
+  },
+  "cliffjump_gs": {
+    "intervals": [[4250,6390]],
+    "notes": "Group 1"
+  },
+  "stars_gs": {
+    "intervals": [[2230,5230]],
+    "notes": "Group 2 Seekers"
+  },
+  "stars_gs_t3": {
+    "intervals": [[2230,5230]],
+    "notes": "Group 2 Seekers"
+  },
+  "optimus": {
+    "intervals": [[1295,2330]],
+    "notes": "Group 3 Optimus"
+  },
+  "optimus_gs": {
+    "intervals": [[1295,2330]],
+    "notes": "Group 3 Optimus"
+  },
+  "optimus_gs_t3": {
+    "intervals": [[1295,2330]],
+    "notes": "Group 3 Optimus"
+  },
+  "optimus_c_tf": {
+    "intervals": [[1295,2330]],
+    "notes": "Group 3 Optimus"
+  }
+}
