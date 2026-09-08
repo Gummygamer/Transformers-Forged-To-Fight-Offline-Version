@@ -114,6 +114,7 @@ static const Rec *find_key(const char *key) {
 }
 static const unsigned char *body_for(const Rec *r, size_t *n) { if (!r) return NULL; *n=r->bl; return g_blob.p+r->bo; }
 static const unsigned char *lookup(const char *key, size_t *n) { return body_for(find_key(key),n); }
+const unsigned char *tftf_payload_lookup(const char *key, size_t *n) { return lookup(key, n); }
 static int out_reserve(Out *o, size_t add) { size_t cap; unsigned char *p; if (add <= o->cap-o->n) return 1; cap=o->cap?o->cap:256; while(cap-o->n<add) { if(cap>MAX_BODY*8) return 0; cap*=2; } p=realloc(o->p,cap); if(!p)return 0; o->p=p;o->cap=cap;return 1; }
 static int out_add(Out *o, const void *p, size_t n) { if(!out_reserve(o,n))return 0; memcpy(o->p+o->n,p,n);o->n+=n;return 1; }
 static int out_template_args(Out *o, const unsigned char *s, size_t n, const TemplateArg *args, size_t count) {
