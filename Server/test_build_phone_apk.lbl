@@ -56,6 +56,38 @@ function elf(klass: integer, machine: integer, marker: boolean): integer
   data
 end
 
+function elf_with_load_alignment(klass: integer, machine: integer, alignment: integer, marker: boolean): integer
+  intent: build an ELF fixture with one load segment
+  let marker_data: integer = if marker then bytes_from_text(build_phone_apk.payload_asset()) else bytes_new(0) end
+  let header: integer = if klass == 2 then 64 else 52 end
+  let program: integer = if klass == 2 then 56 else 32 end
+  let data: integer = bytes_new(header + program + bytes_length(marker_data))
+  bytes_set(data, 0, 127)
+  bytes_set(data, 1, 69)
+  bytes_set(data, 2, 76)
+  bytes_set(data, 3, 70)
+  bytes_set(data, 4, klass)
+  bytes_set(data, 18, machine % 256)
+  bytes_set(data, 19, floor(machine / 256))
+  if klass == 2 then
+    bytes_write_u32_le(data, 32, 64)
+    bytes_set(data, 54, 56)
+    bytes_set(data, 56, 1)
+    bytes_write_u32_le(data, 64, 1)
+    bytes_write_u32_le(data, 64 + 48, alignment)
+    if marker then bytes_write_bytes(data, 120, marker_data) end
+  else
+    bytes_write_u32_le(data, 28, 52)
+    bytes_set(data, 42, 32)
+    bytes_set(data, 44, 1)
+    bytes_write_u32_le(data, 52, 1)
+    bytes_write_u32_le(data, 52 + 28, alignment)
+    if marker then bytes_write_bytes(data, 84, marker_data) end
+  end
+  bytes_free(marker_data)
+  data
+end
+
 function metadata_with_literals(): integer
   intent: build
   let values: a list of Replacement = build_phone_apk.literal_replacements("127.0.0.1", 8443)
@@ -171,6 +203,20 @@ function test_check_hook_requires_server_for_bundled_builds(): TestResult
   bytes_free(data)
   bytes_free(marked)
   if good then ok() else failed("server marker") end
+end
+
+function test_check_hook_rejects_small_page_alignment(): TestResult
+  intent: test 16 KiB load alignment validation
+  let bad64: integer = elf_with_load_alignment(2, 183, 4096, false)
+  let good64: integer = elf_with_load_alignment(2, 183, 16384, false)
+  let bad7: integer = elf_with_load_alignment(1, 40, 4096, false)
+  let bad_error: text = build_phone_apk.check_hook(bad64, build_phone_apk.arm64(), "bad64", false)
+  let good_error: text = build_phone_apk.check_hook(good64, build_phone_apk.arm64(), "good64", false)
+  let armv7_error: text = build_phone_apk.check_hook(bad7, build_phone_apk.armv7(), "bad7", false)
+  bytes_free(bad64)
+  bytes_free(good64)
+  bytes_free(bad7)
+  if text_contains(bad_error, "max-page-size=16384") and good_error == "" and text_contains(armv7_error, "PT_LOAD alignment") then ok() else failed("16 KiB load alignment") end
 end
 
 function test_local_hook_contains_server_marker(): TestResult
@@ -711,8 +757,8 @@ function main(): nothing
   intent: run
   let base: text = path_join("build", "legible-phone-apk-tests-" ++ to_text(random_int(1000000000)))
   create_dir(base)
-  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_reachability_sites", "test_ensure_reachability_stubs", "test_check_offline_ready_requires_hook_reference", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_build_patches_compressed_metadata", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation", "test_bundled_short_elf_requires_patching"]
-  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_reachability_sites(), test_ensure_reachability_stubs(), test_check_offline_ready_requires_hook_reference(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_build_patches_compressed_metadata(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base), test_bundled_short_elf_requires_patching(base)]
+  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_check_hook_rejects_small_page_alignment", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_reachability_sites", "test_ensure_reachability_stubs", "test_check_offline_ready_requires_hook_reference", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_build_patches_compressed_metadata", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation", "test_bundled_short_elf_requires_patching"]
+  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_check_hook_rejects_small_page_alignment(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_reachability_sites(), test_ensure_reachability_stubs(), test_check_offline_ready_requires_hook_reference(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_build_patches_compressed_metadata(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base), test_bundled_short_elf_requires_patching(base)]
   mutable failures: integer = 0
   mutable index: integer = 0
   while index < length(cases) do
@@ -720,7 +766,7 @@ function main(): nothing
     set index = index + 1
   end
   shell_exec("rm -rf -- " ++ base)
-  print(to_text(30 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(31 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 

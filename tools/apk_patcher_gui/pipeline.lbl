@@ -167,18 +167,10 @@ public function executable_name_variants(name: text): a list of text
   intent: return the name plus its .exe, .bat, and .cmd variants
   -- On Windows the Android SDK ships wrappers as .bat/.cmd (apksigner.bat,
   -- the NDK clang .cmd shims) and real binaries as .exe (zipalign.exe,
-  -- adb.exe, java.exe). Git Bash's `command -v` only auto-resolves .exe, so
-  -- the bare name alone misses apksigner entirely. Probe every variant.
-  [name, name ++ ".exe", name ++ ".bat", name ++ ".cmd"]
-end
-
-function find_name_alternation(name: text): text
-  intent: build a find(1) -name alternation across executable extensions
-  mutable parts: a list of text = []
-  for candidate in executable_name_variants(name) do
-    set parts = append(parts, "-name " ++ shell_quote(candidate))
-  end
-  join(parts, " -o ")
+  -- adb.exe, java.exe). Prefer native Windows launchers there: the extensionless
+  -- NDK clang file is a Bash script and must not win over clang.cmd when the
+  -- worker is launched from the Windows GUI. POSIX keeps the bare name first.
+  if windows_host() then [name ++ ".exe", name ++ ".bat", name ++ ".cmd", name] else [name, name ++ ".exe", name ++ ".bat", name ++ ".cmd"] end
 end
 
 function first_existing_variant(directory: text, name: text): text
@@ -191,12 +183,44 @@ function first_existing_variant(directory: text, name: text): text
 end
 
 function executable_in_path(name: text): text
-  intent: find
-  for candidate in executable_name_variants(name) do
-    let found: text = command_output("command -v " ++ shell_quote(candidate) ++ " 2>/dev/null")
-    if found != "" then return found end
+  intent: find an executable in PATH
+  let separator: text = if windows_host() then ";" else ":" end
+  let path_value: text = unwrap_or(env_get("PATH"), "")
+  for directory in split(path_value, separator) do
+    if trim(directory) != "" then
+      let direct: text = first_existing_variant(directory, name)
+      if direct != "" then return direct end
+    end
   end
-  ""
+  -- Keep the shell fallback for POSIX installations whose PATH entries are
+  -- virtualised by the host shell, but never let a Windows shell fallback
+  -- return an unrelated command shim such as cmd.exe for a missing tool.
+  if windows_host() then "" else command_output("command -v " ++ shell_quote(name) ++ " 2>/dev/null") end
+end
+
+function newest_variant_in_subdirectories(parent: text, name: text): text
+  intent: find the newest named executable below a versioned directory
+  mutable found: text = ""
+  for version in sort_text(list_dir(parent)) do
+    let directory: text = path_join(parent, version)
+    if is_dir(directory) then
+      let candidate: text = first_existing_variant(directory, name)
+      if candidate != "" then set found = candidate end
+    end
+  end
+  found
+end
+
+function newest_ndk_clang(root: text, name: text): text
+  intent: find the newest NDK clang wrapper below an SDK root
+  let ndk: text = path_join(root, "ndk")
+  mutable found: text = ""
+  for version in sort_text(list_dir(ndk)) do
+    let bin: text = path_join(path_join(path_join(path_join(ndk, version), "toolchains"), "llvm"), path_join("prebuilt", if windows_host() then "windows-x86_64" else "linux-x86_64" end))
+    let candidate: text = first_existing_variant(path_join(bin, "bin"), name)
+    if candidate != "" then set found = candidate end
+  end
+  found
 end
 
 function home_dir(): text
@@ -231,8 +255,7 @@ public function find_build_tool(name: text): text
   for root in sdk_roots() do
     let build_tools: text = path_join(root, "build-tools")
     if is_dir(build_tools) then
-      let command: text = "find " ++ shell_quote(build_tools) ++ " -mindepth 2 -maxdepth 2 -type f \\( " ++ find_name_alternation(name) ++ " \\) -print 2>/dev/null | sort -V | tail -n 1"
-      let candidate: text = command_output(command)
+      let candidate: text = newest_variant_in_subdirectories(build_tools, name)
       if candidate != "" then return candidate end
     end
   end
@@ -299,8 +322,7 @@ public function find_ndk_clang(abi: text): text
   for root in sdk_roots() do
     let ndk: text = path_join(root, "ndk")
     if is_dir(ndk) then
-      let command: text = "find " ++ shell_quote(ndk) ++ " -type f \\( " ++ find_name_alternation(name) ++ " \\) -print 2>/dev/null | sort -V | tail -n 1"
-      let candidate: text = command_output(command)
+      let candidate: text = newest_ndk_clang(root, name)
       if candidate != "" then return candidate end
     end
   end
@@ -551,7 +573,7 @@ public function build_hook_command(request: BuildRequest): a list of text
   -- Arena-specific build. The normal APK hook is deliberately limited to the offline server
   -- and gameplay fixes: linking the transport here makes every post-login process carry an
   -- extra pthread/socket surface even when no Arena session exists.
-  [request.clang, "-shared", "-O2", "-fPIC", "-Wl,-soname,libdothook.so", "-o", native_hook_output(request.abi), source, path_join(nativehook, "inapk_server.c"), "-llog"]
+  [request.clang, "-shared", "-O2", "-fPIC", "-Wl,-z,max-page-size=16384", "-Wl,-soname,libdothook.so", "-o", native_hook_output(request.abi), source, path_join(nativehook, "inapk_server.c"), "-llog"]
 end
 
 public function validate(request: BuildRequest): Validation

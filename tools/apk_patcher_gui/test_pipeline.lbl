@@ -71,7 +71,7 @@ function native_hook_command_test(fix: Fixture): boolean
   let command: a list of text = pipeline.build_hook_command(request)
   let steps: a list of Step = pipeline.plan_steps(request)
   let nativehook: text = path_join(path_join(pipeline.project_root(), "tools"), "nativehook")
-  length(command) == 10 and unwrap_or(get(command, 0), "") == request.clang and contains(command, "-Wl,-soname,libdothook.so") and contains(command, pipeline.native_hook_output(pipeline.arm64())) and contains(command, path_join(nativehook, "hook.c")) and contains(command, path_join(nativehook, "inapk_server.c")) and netcode_in_arm64(command, nativehook) and length(steps) == 6 and unwrap(get(steps, 0)).name == "build native hook" and unwrap(get(steps, 1)).name == "build APK"
+  length(command) == 11 and unwrap_or(get(command, 0), "") == request.clang and contains(command, "-Wl,-z,max-page-size=16384") and contains(command, "-Wl,-soname,libdothook.so") and contains(command, pipeline.native_hook_output(pipeline.arm64())) and contains(command, path_join(nativehook, "hook.c")) and contains(command, path_join(nativehook, "inapk_server.c")) and netcode_in_arm64(command, nativehook) and length(steps) == 6 and unwrap(get(steps, 0)).name == "build native hook" and unwrap(get(steps, 1)).name == "build APK"
 end
 
 -- The realtime Arena netcode is experimental and opt-in; production hook commands do not
@@ -86,7 +86,7 @@ function armv7_hook_command_test(fix: Fixture): boolean
   let request: BuildRequest = fix.request with { rebuild_hook: true, abi: "armeabi-v7a" }
   let command: a list of text = pipeline.build_hook_command(request)
   let nativehook: text = path_join(path_join(pipeline.project_root(), "tools"), "nativehook")
-  length(command) == 10 and contains(command, path_join(nativehook, "hook_arm32.c")) and netcode_in_arm64(command, nativehook) and contains(command, pipeline.native_hook_output("armeabi-v7a"))
+  length(command) == 11 and contains(command, "-Wl,-z,max-page-size=16384") and contains(command, path_join(nativehook, "hook_arm32.c")) and netcode_in_arm64(command, nativehook) and contains(command, pipeline.native_hook_output("armeabi-v7a"))
 end
 
 -- Every device step must name its target. adb aborts with "more than one device/emulator"
@@ -319,7 +319,7 @@ end
 function windows_executable_variants_test(): boolean
   intent: test that Windows wrapper extensions are probed for build tools
   let variants: a list of text = pipeline.executable_name_variants("apksigner")
-  contains(variants, "apksigner") and contains(variants, "apksigner.bat") and contains(variants, "apksigner.exe") and contains(variants, "apksigner.cmd")
+  contains(variants, "apksigner") and contains(variants, "apksigner.bat") and contains(variants, "apksigner.exe") and contains(variants, "apksigner.cmd") and (not pipeline.windows_host() or unwrap_or(get(variants, 0), "") == "apksigner.exe")
 end
 
 function windows_native_path_test(): boolean
