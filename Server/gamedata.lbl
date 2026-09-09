@@ -852,6 +852,11 @@ else
 end
 end
 
+public function speaker_faction(bid: text): text
+  intent: get
+  roster_entry(bid).faction
+end
+
 function dialogue_entry(in_shadow: boolean, character: text, side: text, style: text, line: text): Json
   intent: build
   jsonout.json_obj([jsonout.json_pair("inShadow", jsonout.json_bool(in_shadow)), jsonout.json_pair("character", jsonout.json_text(character)), jsonout.json_pair("side", jsonout.json_text(side)), jsonout.json_pair("style", jsonout.json_text(style)), jsonout.json_pair("line", jsonout.json_text(line))])
