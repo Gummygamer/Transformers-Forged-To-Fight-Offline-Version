@@ -389,3 +389,22 @@ server plus a read-only diagnostic hook slot (`DIALOGDIAG`) that logs the client
 dialogue state before calling the original method. It adds no assets, no binaries, no
 recovered server data, no network interception, and no credential access. Nothing under
 `media/`, no APK, and no game asset was added to the repository.
+
+## Custom story 2.1.1 final encounter — Ironhide boss swap
+
+The 2.1.1 custom story's final boss encounter was changed from the shipped Starscream
+blueprint (`fte_stars_gs_t3`) to the already-shipped roster id `ironhide_cin_rotf`
+(demolition, star 3, autobot). The `ironhide_cin_rotf` art is already resolved by the
+existing `art_overrides()` entry (`ironh_c_rotf`); no new art, asset, or roster entry was
+added.
+
+The two dialogue sets that reference the final boss — the pre-battle ambush set (renamed
+`custom_ironhide_ambush`) and the post-battle defeated set (`custom_ironhide_defeated`) —
+were re-voiced with new 100%-original lines written for this repository. None of these
+lines transcribes or paraphrases any Transformers media, game dialogue, or copyrighted
+source. Optimus Prime's lines remain original writing created for this project. The
+`custom_opening_intro` (5 entries) and `custom_bludgeon_defeated` (2 entries) sets are
+unchanged.
+
+No asset, binary, APK, recovered Kabam server data, or network interception was added.
+Nothing under `media/` was touched.

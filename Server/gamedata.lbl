@@ -632,7 +632,7 @@ public function quest_encounter_for(qid: text, row: integer): QuestEncounter
     if row == 1 then
       QuestEncounter { key: custom_story_enemy(), final_boss: false, label: "Bludgeon's Ambush" }
     else
-      QuestEncounter { key: "fte_stars_gs_t3", final_boss: true, label: "Starscream's Betrayal" }
+      QuestEncounter { key: "ironhide_cin_rotf", final_boss: true, label: "Ironhide's Challenge" }
     end
 else
   quest_encounter(row)
@@ -875,7 +875,7 @@ end
 public function build_custom_story_dialogue_sets(): Json
   intent: build
   -- Opening image order: Optimus, spaceship, alert screen, Bludgeon, Optimus ready.
-  jsonout.json_obj([jsonout.json_pair("custom_opening_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone."), dialogue_entry(true, "optimusprime_cin_tf", "left", "default", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!"), dialogue_entry(false, "bludgeon_gs_rd20", "right", "default", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")])), jsonout.json_pair("custom_bludgeon_defeated", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon is down."), dialogue_entry(false, "fte_marissa_t1", "left", "default", "Excellent. Let's move on.")])), jsonout.json_pair("custom_starscream_ambush", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Starscream! I should have known Decepticon air command was behind this."), dialogue_entry(true, "fte_stars_gs_t3", "right", "default", "Your victory over Bludgeon was... expected. Now face the true power of the Decepticon fleet!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then let's finish this. Autobots, take to the sky!")])), jsonout.json_pair("custom_starscream_defeated", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Teletran scanned a Decepticon designated as Starscream, though his signature differed vastly from any foes we've faced previously. It feels as if he crossed over from an alternate dimension, and judging by the signs, additional threats are heading our way")]))])
+  jsonout.json_obj([jsonout.json_pair("custom_opening_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone."), dialogue_entry(true, "optimusprime_cin_tf", "left", "default", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!"), dialogue_entry(false, "bludgeon_gs_rd20", "right", "default", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")])), jsonout.json_pair("custom_bludgeon_defeated", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon is down."), dialogue_entry(false, "fte_marissa_t1", "left", "default", "Excellent. Let's move on.")])), jsonout.json_pair("custom_ironhide_ambush", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Ironhide! You've turned against your own kind?"), dialogue_entry(true, "ironhide_cin_rotf", "right", "default", "This isn't about factions, Prime. It's about seeing who really has the grit to lead."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then we settle this the old way. No ranks, no badges -- just sparks.")])), jsonout.json_pair("custom_ironhide_defeated", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Ironhide's stubbornness was never in question, but his spark still burns Autobot. Whatever pushed him to this, it won't be the last challenge we face.")]))])
 end
 
 
@@ -981,8 +981,8 @@ function custom_story_encounter_tile(row: integer): Json
     set pairs = append(pairs, jsonout.json_pair("dialoguePE", jsonout.json_text("custom_bludgeon_defeated")))
   end
   if row == 2 then
-    set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_starscream_ambush")))
-    set pairs = append(pairs, jsonout.json_pair("dialoguePE", jsonout.json_text("custom_starscream_defeated")))
+    set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_ironhide_ambush")))
+    set pairs = append(pairs, jsonout.json_pair("dialoguePE", jsonout.json_text("custom_ironhide_defeated")))
   end
   jsonout.json_obj(pairs)
 end
