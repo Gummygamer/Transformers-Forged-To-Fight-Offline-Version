@@ -494,7 +494,53 @@ function test_custom_story_uses_revised_five_scene_script(): boolean
   let entries: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_custom_story_dialogue_sets(), "custom_opening_intro"))
   length(entries) == 5 and dialogue_entry_matches(entries, 0, "optimusprime_cin_tf", "left", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector.") and dialogue_entry_matches(entries, 1, "optimusprime_cin_tf", "left", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone.") and dialogue_entry_matches(entries, 2, "optimusprime_cin_tf", "left", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!") and dialogue_entry_matches(entries, 3, "bludgeon_gs_rd20", "right", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!") and dialogue_entry_matches(entries, 4, "optimusprime_cin_tf", "left", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")
 end
+function test_dialogue_speaker_factions_are_accurate(): boolean
+  intent: test
+  mutable passed: boolean = true
+  let standard: Json = gamedata.build_dialogue_sets()
+  -- arrival_intro: Optimus (autobot), Sharkticon (decepticon), Optimus (autobot)
+  let arrival: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "arrival_intro"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(arrival, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(arrival, 1), jsonout.json_obj([])), "character"))) == "decepticon"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(arrival, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  -- midpoint_rally: Primal (autobot), Soundwave (decepticon), Optimus (autobot)
+  let midpoint: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "midpoint_rally"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(midpoint, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(midpoint, 1), jsonout.json_obj([])), "character"))) == "decepticon"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(midpoint, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  -- final_stand: Nemesis (decepticon), Optimus (autobot)
+  let final: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "final_stand"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(final, 0), jsonout.json_obj([])), "character"))) == "decepticon"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(final, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  -- shore_secured: Optimus (autobot), Primal (autobot)
+  let shore: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "shore_secured"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(shore, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(shore, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  passed
+end
 
+function test_custom_story_dialogue_factions_match_their_speakers(): boolean
+  intent: test
+  let custom: Json = gamedata.build_custom_story_dialogue_sets()
+  -- custom_opening_intro: Optimus (autobot), Optimus (autobot), Optimus (autobot), Bludgeon (decepticon), Optimus (autobot)
+  let intro: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_opening_intro"))
+  mutable passed: boolean = length(intro) == 5
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 3), jsonout.json_obj([])), "character"))) == "decepticon"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 4), jsonout.json_obj([])), "character"))) == "autobot"
+  -- custom_bludgeon_defeated: Optimus (autobot), Marissa (autobot)
+  let defeated: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_bludgeon_defeated"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  -- custom_starscream_ambush: Optimus (autobot), Starscream (decepticon), Optimus (autobot)
+  let ambush: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_starscream_ambush"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 1), jsonout.json_obj([])), "character"))) == "decepticon"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  passed
+end
 function test_custom_story_has_independent_identity_and_compact_map(): boolean
   intent: test
   let qid: text = gamedata.custom_story_qid()
@@ -563,6 +609,8 @@ function run_custom_story_tests(): integer
   set failed = failed + report("test_custom_story_has_independent_identity_and_compact_map", test_custom_story_has_independent_identity_and_compact_map(), "custom story identity or map was wrong")
   set failed = failed + report("test_custom_story_encounter_is_bludgeon_then_starscream_on_chicago_streets", test_custom_story_encounter_is_bludgeon_then_starscream_on_chicago_streets(), "custom encounter was not the authored Bludgeon-then-Starscream chain")
   set failed = failed + report("test_custom_story_preserves_explicit_team_and_defaults_to_optimus", test_custom_story_preserves_explicit_team_and_defaults_to_optimus(), "custom or template team rules were wrong")
+  set failed = failed + report("test_dialogue_speaker_factions_are_accurate", test_dialogue_speaker_factions_are_accurate(), "dialogue speaker factions were wrong")
+  set failed = failed + report("test_custom_story_dialogue_factions_match_their_speakers", test_custom_story_dialogue_factions_match_their_speakers(), "custom story dialogue factions were wrong")
   failed
 end
 
@@ -604,7 +652,7 @@ function main(): nothing
   set failed = failed + report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing")
   set failed = failed + run_custom_story_tests() + run_slice3_tests()
   set failed = failed + run_slice4_tests()
-  print(to_text(70 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(72 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
