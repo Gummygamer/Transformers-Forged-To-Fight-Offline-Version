@@ -1,6 +1,7 @@
 use build_phone_apk
 use gamedata
 use jsonout
+use server_paths
 
 record HttpReply
   status: text
@@ -33,6 +34,16 @@ function command_failed(result: a mapping from text to text): boolean
   unwrap_or(get(result, "exit_code"), -1) != 0
 end
 
+function server_script(): text
+  intent: resolve run_local.lbl next to this test so the suite is checkout-location independent
+  path_join(server_paths.entry_directory("Server/test_lan_tunnel.lbl"), "run_local.lbl")
+end
+
+function shell_quote(value: text): text
+  intent: replace the quote characters in value
+  "'" ++ replace(value, "'", "'\\''") ++ "'"
+end
+
 function first_non_loopback_ipv4(): text
   intent: find
   let listed: a mapping from text to text = shell_exec("hostname -I 2>/dev/null")
@@ -55,7 +66,7 @@ function start_server(base: text, port: integer): ServerStart
   intent: start
   let out: text = path_join(base, "server-" ++ to_text(port) ++ ".out")
   let err: text = path_join(base, "server-" ++ to_text(port) ++ ".err")
-  let command: text = "nohup env HTTP_PORT=" ++ to_text(port) ++ " legible run /projects/transformers-forged-to-fight-revival/Server/run_local.lbl > " ++ out ++ " 2> " ++ err ++ " & echo $!"
+  let command: text = "nohup env HTTP_PORT=" ++ to_text(port) ++ " legible run " ++ shell_quote(server_script()) ++ " > " ++ shell_quote(out) ++ " 2> " ++ shell_quote(err) ++ " & echo $!"
   let started: a mapping from text to text = shell_exec(command)
   let pid: text = trim(command_output(started))
   mutable attempts: integer = 0
@@ -105,6 +116,11 @@ function test_advertised_base_url(): boolean
   gamedata.advertised_base_url() == "https://tform-0901-hzlhiniyfcwf.tf-cdn.net" and gamedata.build_advertised_base_url("25.13.240.7", "", "") == "https://25.13.240.7" and gamedata.build_advertised_base_url("25.13.240.7", "", "8443") == "https://25.13.240.7:8443" and gamedata.build_advertised_base_url("25.13.240.7", "http", "8443") == "http://25.13.240.7:8443"
 end
 
+function test_resolved_server_script_exists(): boolean
+  intent: test that the server script file exists beside this test
+  file_exists(server_script())
+end
+
 function test_real_server_reaches_all_interfaces(): boolean
   intent: test
   let curl: a mapping from text to text = shell_exec("command -v curl")
@@ -114,6 +130,9 @@ function test_real_server_reaches_all_interfaces(): boolean
   true
 else if address == "" then
   print("skipping: no non-loopback IPv4 address")
+  true
+else if not file_exists(server_script()) then
+  print("skipping: run_local.lbl was not found beside this test")
   true
 else
   let base: text = "/tmp/tftf-lan-tunnel-" ++ to_text(random_int(1000000000))
@@ -143,9 +162,11 @@ function main(): nothing
   set failures = failures + report("tunnel-range hosts validate for APK builds", test_tunnel_host_validation())
   print("running advertised URL checks")
   set failures = failures + report("advertised base URL default and overrides", test_advertised_base_url())
+  print("running checkout-relative path checks")
+  set failures = failures + report("run_local.lbl resolves beside this test file", test_resolved_server_script_exists())
   print("running live listener checks")
   set failures = failures + report("real server reaches non-loopback and loopback interfaces", test_real_server_reaches_all_interfaces())
-  print(to_text(3 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  print(to_text(4 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end
 
