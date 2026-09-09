@@ -539,6 +539,11 @@ function test_custom_story_dialogue_factions_match_their_speakers(): boolean
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 0), jsonout.json_obj([])), "character"))) == "autobot"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 1), jsonout.json_obj([])), "character"))) == "decepticon"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  -- custom_starscream_defeated: Optimus (autobot)
+  let defeated_stars: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_starscream_defeated"))
+  set passed = passed and length(defeated_stars) == 1
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and dialogue_entry_matches(defeated_stars, 0, "optimusprime_cin_tf", "left", "Teletran scanned a Decepticon designated as Starscream, though his signature differed vastly from any foes we've faced previously. It feels as if he crossed over from an alternate dimension, and judging by the signs, additional threats are heading our way")
   passed
 end
 function test_custom_story_has_independent_identity_and_compact_map(): boolean
@@ -572,7 +577,7 @@ function test_custom_story_encounter_is_bludgeon_then_starscream_on_chicago_stre
   -- Bludgeon assertions
   jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and
   -- Starscream assertions
-  jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(tile2, "final")) and jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))
+  jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "dialoguePE")) == "custom_starscream_defeated" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(tile2, "final")) and jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))
 end
 
 
