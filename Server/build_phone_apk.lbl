@@ -293,6 +293,47 @@ function to_hex_lower(number: integer): text
   end
 end
 
+function check_load_segment_alignment(data: integer, path: text): text
+  intent: reject native hooks that cannot load on 16 KiB Android pages
+  mutable error: text = ""
+  if bytes_length(data) < 5 then
+    ""
+  else if bytes_get(data, 4) == 2 and bytes_length(data) >= 64 then
+    let phoff_high: integer = bytes_read_u32_le(data, 36)
+    let phoff: integer = bytes_read_u32_le(data, 32)
+    let phentsize: integer = bytes_read_u16_le(data, 54)
+    let phnum: integer = bytes_read_u16_le(data, 56)
+    if phoff_high == 0 and phentsize >= 56 and phnum > 0 and phoff + phentsize * phnum <= bytes_length(data) then
+      mutable index: integer = 0
+      while index < phnum and error == "" do
+        let entry: integer = phoff + index * phentsize
+        let alignment_high: integer = bytes_read_u32_le(data, entry + 52)
+        let alignment: integer = bytes_read_u32_le(data, entry + 48)
+        if bytes_read_u32_le(data, entry) == 1 and alignment_high == 0 and alignment > 0 and alignment < 16384 then
+          set error = "runtime hook " ++ path ++ " has a PT_LOAD alignment of " ++ to_text(alignment) ++ " bytes; rebuild it with -Wl,-z,max-page-size=16384 for 16 KiB Android devices"
+        end
+        set index = index + 1
+      end
+    end
+  else if bytes_get(data, 4) == 1 and bytes_length(data) >= 52 then
+    let phoff: integer = bytes_read_u32_le(data, 28)
+    let phentsize: integer = bytes_read_u16_le(data, 42)
+    let phnum: integer = bytes_read_u16_le(data, 44)
+    if phentsize >= 32 and phnum > 0 and phoff + phentsize * phnum <= bytes_length(data) then
+      mutable index: integer = 0
+      while index < phnum and error == "" do
+        let entry: integer = phoff + index * phentsize
+        let alignment: integer = bytes_read_u32_le(data, entry + 28)
+        if bytes_read_u32_le(data, entry) == 1 and alignment > 0 and alignment < 16384 then
+          set error = "runtime hook " ++ path ++ " has a PT_LOAD alignment of " ++ to_text(alignment) ++ " bytes; rebuild it with -Wl,-z,max-page-size=16384 for 16 KiB Android devices"
+        end
+        set index = index + 1
+      end
+    end
+  end
+  error
+end
+
 function bytes_hex_at(data: integer, offset: integer, count: integer): text
   intent: format a byte range as lowercase hexadecimal
   mutable out: text = ""
@@ -341,7 +382,9 @@ end
 public function check_hook(data: integer, abi: text, path: text, bundle_server: boolean): text
   intent: validate
   let elf_error: text = check_elf(data, abi, path, "runtime hook")
+  let alignment_error: text = check_load_segment_alignment(data, path)
   if elf_error != "" then elf_error
+  else if alignment_error != "" then alignment_error
   else if bundle_server and bytes_index_of(data, payload_asset(), 0) < 0 then
     "runtime hook " ++ path ++ " was built without the in-app server (no " ++ payload_asset() ++ " reference); rebuild it with tools/nativehook/inapk_server.c"
   else "" end

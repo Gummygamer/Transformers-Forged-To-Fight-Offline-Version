@@ -202,9 +202,9 @@ setx ANDROID_SDK_ROOT "!ANDROID_HOME!" >nul
 exit /b 0
 
 :ndk_clang_present
-rem Succeeds (exit 0) when a usable NDK clang wrapper is installed.
+rem Succeeds (exit 0) when both GUI-selectable NDK clang wrappers are installed.
 if not defined ANDROID_NDK_DIR exit /b 1
-if exist "!ANDROID_NDK_DIR!\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android28-clang.cmd" exit /b 0
+if exist "!ANDROID_NDK_DIR!\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android28-clang.cmd" if exist "!ANDROID_NDK_DIR!\toolchains\llvm\prebuilt\windows-x86_64\bin\armv7a-linux-androideabi21-clang.cmd" exit /b 0
 exit /b 1
 
 :ensure_cmdline_tools

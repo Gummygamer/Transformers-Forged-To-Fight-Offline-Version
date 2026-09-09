@@ -103,7 +103,7 @@ Return to Command Prompt:
 
 ```cmd
 cd /d C:\TFTF-Offline
-"%ANDROID_NDK_ROOT%\toolchains\llvm\prebuilt\windows-x86_64\bin\armv7a-linux-androideabi21-clang.cmd" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools\nativehook\libdothook-armeabi-v7a.so tools\nativehook\hook_arm32.c tools\nativehook\inapk_server.c -llog
+"%ANDROID_NDK_ROOT%\toolchains\llvm\prebuilt\windows-x86_64\bin\armv7a-linux-androideabi21-clang.cmd" -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -Wl,-soname,libdothook.so -o tools\nativehook\libdothook-armeabi-v7a.so tools\nativehook\hook_arm32.c tools\nativehook\inapk_server.c -llog
 ```
 
 Confirm the output exists:

@@ -236,7 +236,7 @@ everything the GUI does not cover (certs, the native hook, the emulator/device s
 2. Build the patched library once: `legible run patches/patch_il2cpp.lbl path/to/original/libil2cpp.so --apply`.
    That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
 3. Build the arm64 hook locally:
-   `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
+   `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
    `tools/nativehook/deploy.sh` has historical Windows paths and is not the current command.
 4. Start the fake server on the PC: `legible run Server/fakeserver.lbl --https 443` and
    `legible run Server/fakeserver.lbl --http 80` (one process per listener). They need to be reachable
@@ -551,7 +551,7 @@ were verified firing during that run.
    verified alias string and spare dynamic-table slot without moving code or changing any
    patch offset. Either route can be selected explicitly with `--needed patchelf` or
    `--needed inplace`.
-2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so
+2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -Wl,-soname,libdothook.so
    -o tools/nativehook/libdothook-armeabi-v7a.so tools/nativehook/hook_arm32.c tools/nativehook/inapk_server.c -llog`.
    Keep API level 21 for old 32-bit phones and `-Wl,-soname,libdothook.so` because
    `libil2cpp.so`'s `DT_NEEDED` names `libdothook.so`. The resulting `.so` is a local build
