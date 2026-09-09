@@ -1172,3 +1172,7 @@ The `2.1.1` custom story quest lives in its own single-act set (`custom_story_ac
 qid is an opaque routing key; the numeric slot fields, not the qid, drive the client's table
 indexing. `Server/test_fakeserver.lbl::test_quest_list_slots_fit_client_summary_tables` encodes
 these bounds so a future set cannot regress them.
+
+The 2.1.1 custom story's final boss is `ironhide_cin_rotf` with `dialogue=custom_ironhide_ambush`
+and `dialoguePE=custom_ironhide_defeated` on the chicago/todIndex-0 tile. The encounter tile
+still uses `mapOverride "chicago"` and `todIndex 0` as required for the client fight prefab.
