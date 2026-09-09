@@ -179,12 +179,12 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 4943968 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
+  if bytes_length(blob) != 4952112 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9716 then set detail = "entry count is not 9716" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9721 then set detail = "entry count is not 9721" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
   if detail == "" and (bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0) then set detail = "reserved fields are non-zero" end
@@ -296,7 +296,7 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   let custom_actual_move: text = fakeserver.dynamic(custom_move_path, "\{\}")
   let custom_expanded_move: text = expand_team_template(payload, entry_body(payload, "@movedir:2.1.1:0:1:1:0"), custom_team, "0")
   if detail == "" and not same_json(custom_expanded_move, custom_actual_move) then set detail = "custom movedir template differs" end
-  if detail == "" and (not contains_text(custom_actual_move, "\"key\": \"bludgeon_gs_rd20\"") or not contains_text(custom_actual_move, "\"mapOverride\": \"chicago\"") or not contains_text(custom_actual_move, "\"todIndex\": 0") or not contains_text(custom_actual_move, "\"isFinalBoss\": true")) then set detail = "custom movedir encounter differs" end
+  if detail == "" and (not contains_text(custom_actual_move, "\"key\": \"bludgeon_gs_rd20\"") or not contains_text(custom_actual_move, "\"mapOverride\": \"chicago\"") or not contains_text(custom_actual_move, "\"todIndex\": 0") or not contains_text(custom_actual_move, "\"isFinalBoss\": false")) then set detail = "custom movedir encounter differs" end
   if detail == "" and (not contains_text(custom_actual_begin, "\"optimusprime_cin_tf\"") or not contains_text(custom_actual_begin, "\"optimusprimal_bw_mp32\"") or not contains_text(custom_actual_begin, "\"megatron_gs_leader2015\"")) then set detail = "custom quest did not preserve the selected team" end
   if bytes_length(blob) == 0 and detail == "" then set detail = "built blob is empty" end
   if detail == "" then ok() else failed(detail) end
