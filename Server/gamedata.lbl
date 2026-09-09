@@ -603,7 +603,7 @@ end
 
 public function quest_dim_for(qid: text): integer
   intent: get
-  if qid == custom_story_qid() then 2 else quest_dim() end
+  if qid == custom_story_qid() then 3 else quest_dim() end
 end
 
 public function quest_path_col_for(qid: text): integer
@@ -623,13 +623,17 @@ end
 
 public function quest_has_encounter_for(qid: text, row: integer): boolean
   intent: check
-  if qid == custom_story_qid() then row == 1 else quest_has_encounter(row) end
+  if qid == custom_story_qid() then row == 1 or row == 2 else quest_has_encounter(row) end
 end
 
 public function quest_encounter_for(qid: text, row: integer): QuestEncounter
   intent: get
   if qid == custom_story_qid() then
-  QuestEncounter { key: custom_story_enemy(), final_boss: true, label: "Bludgeon's Ambush" }
+    if row == 1 then
+      QuestEncounter { key: custom_story_enemy(), final_boss: false, label: "Bludgeon's Ambush" }
+    else
+      QuestEncounter { key: "fte_stars_gs_t3", final_boss: true, label: "Starscream's Betrayal" }
+    end
 else
   quest_encounter(row)
 end
@@ -866,8 +870,9 @@ end
 public function build_custom_story_dialogue_sets(): Json
   intent: build
   -- Opening image order: Optimus, spaceship, alert screen, Bludgeon, Optimus ready.
-  jsonout.json_obj([jsonout.json_pair("custom_opening_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone."), dialogue_entry(true, "optimusprime_cin_tf", "left", "default", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!"), dialogue_entry(false, "bludgeon_gs_rd20", "right", "default", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")])), jsonout.json_pair("custom_bludgeon_defeated", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon is down."), dialogue_entry(false, "fte_marissa_t1", "left", "default", "Excellent. Let's move on.")]))])
+  jsonout.json_obj([jsonout.json_pair("custom_opening_intro", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector."), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone."), dialogue_entry(true, "optimusprime_cin_tf", "left", "default", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!"), dialogue_entry(false, "bludgeon_gs_rd20", "right", "default", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")])), jsonout.json_pair("custom_bludgeon_defeated", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Bludgeon is down."), dialogue_entry(false, "fte_marissa_t1", "left", "default", "Excellent. Let's move on.")])), jsonout.json_pair("custom_starscream_ambush", dialogue_set([dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Starscream! I should have known Decepticon air command was behind this."), dialogue_entry(true, "fte_stars_gs_t3", "right", "default", "Your victory over Bludgeon was... expected. Now face the true power of the Decepticon fleet!"), dialogue_entry(false, "optimusprime_cin_tf", "left", "default", "Then let's finish this. Autobots, take to the sky!")]))])
 end
+
 
 public function build_dialogue_sets_for(qid: text): Json
   intent: build
@@ -959,20 +964,30 @@ end
   jsonout.json_obj(pairs)
 end
 
-function custom_story_encounter_tile(): Json
+function custom_story_encounter_tile(row: integer): Json
   intent: build
-  let enemy_key: text = custom_story_enemy()
-  let links: Json = jsonout.json_list([vec2(0, 1)])
-  let enemy: Json = build_quest_enemy_for("chicago", 0, enemy_key, true)
-  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(true)), jsonout.json_pair("lab", jsonout.json_text("Bludgeon's Ambush")), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(enemy_key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)])), jsonout.json_pair("dialogue", jsonout.json_text("custom_opening_intro")), jsonout.json_pair("dialoguePE", jsonout.json_text("custom_bludgeon_defeated"))])
+  let encounter: QuestEncounter = quest_encounter_for(custom_story_qid(), row)
+  let enemy_key: text = encounter.key
+  let links: Json = if row == 1 then jsonout.json_list([vec2(0, 1)]) else jsonout.json_list([vec2(1, 1)]) end
+  let enemy: Json = build_quest_enemy_for("chicago", 0, enemy_key, encounter.final_boss)
+  mutable pairs: a list of Pair = [jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("lab", jsonout.json_text(encounter.label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(enemy_key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)]))]
+  if row == 1 then
+    set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_opening_intro")))
+    set pairs = append(pairs, jsonout.json_pair("dialoguePE", jsonout.json_text("custom_bludgeon_defeated")))
+  end
+  if row == 2 then
+    set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_starscream_ambush")))
+  end
+  jsonout.json_obj(pairs)
 end
 
 function build_custom_story_map(qid: text): Json
   intent: build
   let first_links: Json = jsonout.json_list([vec2(1, 1)])
-  let grid: Json = jsonout.json_list([jsonout.json_list([filler_tile(), start_tile(first_links)]), jsonout.json_list([filler_tile(), custom_story_encounter_tile()])])
-  let path: Json = jsonout.json_list([vec2(0, 1), vec2(1, 1)])
-  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(2)), jsonout.json_pair("grid", grid), jsonout.json_pair("walkableCount", jsonout.json_int(2)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(2)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
+  let second_links: Json = jsonout.json_list([vec2(1, 1)])
+  let grid: Json = jsonout.json_list([jsonout.json_list([filler_tile(), start_tile(first_links)]), jsonout.json_list([filler_tile(), custom_story_encounter_tile(1)]), jsonout.json_list([filler_tile(), custom_story_encounter_tile(2)])])
+  let path: Json = jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
+  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(3)), jsonout.json_pair("grid", grid), jsonout.json_pair("walkableCount", jsonout.json_int(3)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(3)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
 end
 
 public function build_quest_map(qid: text): Json
@@ -1065,7 +1080,7 @@ end
 function revealed_tiles_for(qid: text): Json
   intent: build
   if qid == custom_story_qid() then
-  jsonout.json_list([vec2(0, 1), vec2(1, 1)])
+  jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
 else
   revealed_tiles()
 end

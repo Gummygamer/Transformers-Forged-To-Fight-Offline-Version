@@ -501,20 +501,34 @@ function test_custom_story_has_independent_identity_and_compact_map(): boolean
   let summary: Json = gamedata.build_quest_summary(qid, gamedata.custom_story_set_id())
   let map: Json = gamedata.build_quest_map(qid)
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
-  qid == "2.1.1" and gamedata.custom_story_set_id() == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Bludgeon's Ambush" and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "act")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(summary, "hash")) == gamedata.custom_story_set_hash() and gamedata.quest_dim_for(qid) == 2 and length(grid) == 2 and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == 2 and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 2
+  qid == "2.1.1" and gamedata.custom_story_set_id() == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Bludgeon's Ambush" and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "act")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(summary, "hash")) == gamedata.custom_story_set_hash() and gamedata.quest_dim_for(qid) == 3 and length(grid) == 3 and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == 2 and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 3
 end
 
-function test_custom_story_encounter_is_bludgeon_on_chicago_streets(): boolean
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_on_chicago_streets(): boolean
   intent: test
   let qid: text = gamedata.custom_story_qid()
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map(qid), "grid"))
-  let row: Json = unwrap_or(get(grid, 1), jsonout.json_list([]))
-  let tile: Json = unwrap_or(get(jsonout.list_items(row), 1), jsonout.json_obj([]))
-  let enemy: Json = jsonout.obj_get(jsonout.obj_get(tile, "entities"), gamedata.custom_story_enemy())
-  let moved: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 1, [])
-  let battle: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  jsonout.as_text(jsonout.obj_get(tile, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile, "boss")) == "bludgeon_gs_rd20" and jsonout.as_bool(jsonout.obj_get(tile, "final")) and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle, "battleEnemy"), "mapOverride")) == "chicago"
+  -- Row 1: Bludgeon (non-final)
+  let row1: Json = unwrap_or(get(grid, 1), jsonout.json_list([]))
+  let tile1: Json = unwrap_or(get(jsonout.list_items(row1), 1), jsonout.json_obj([]))
+  let enemy1: Json = jsonout.obj_get(jsonout.obj_get(tile1, "entities"), gamedata.custom_story_enemy())
+  -- Row 2: Starscream (final)
+  let row2: Json = unwrap_or(get(grid, 2), jsonout.json_list([]))
+  let tile2: Json = unwrap_or(get(jsonout.list_items(row2), 1), jsonout.json_obj([]))
+  let enemy2: Json = jsonout.obj_get(jsonout.obj_get(tile2, "entities"), "fte_stars_gs_t3")
+  -- Movedir to Bludgeon
+  let moved1: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 1, [])
+  let battle1: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved1, "results")), 1), jsonout.json_obj([])), "action"), "battle")
+  -- Movedir to Starscream
+  let moved2: Json = gamedata.build_quest_movedir(qid, 1, 0, 1, 1, [])
+  let battle2: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved2, "results")), 1), jsonout.json_obj([])), "action"), "battle")
+  -- Bludgeon assertions
+  jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and
+  -- Starscream assertions
+  jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(tile2, "final")) and jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))
 end
+
 
 function test_custom_story_preserves_explicit_team_and_defaults_to_optimus(): boolean
   intent: test
@@ -547,7 +561,7 @@ function run_custom_story_tests(): integer
   mutable failed: integer = 0
   set failed = failed + report("test_custom_story_uses_revised_five_scene_script", test_custom_story_uses_revised_five_scene_script(), "custom intro did not match the revised five-scene script")
   set failed = failed + report("test_custom_story_has_independent_identity_and_compact_map", test_custom_story_has_independent_identity_and_compact_map(), "custom story identity or map was wrong")
-  set failed = failed + report("test_custom_story_encounter_is_bludgeon_on_chicago_streets", test_custom_story_encounter_is_bludgeon_on_chicago_streets(), "custom encounter was not the authored Chicago Bludgeon fight")
+  set failed = failed + report("test_custom_story_encounter_is_bludgeon_then_starscream_on_chicago_streets", test_custom_story_encounter_is_bludgeon_then_starscream_on_chicago_streets(), "custom encounter was not the authored Bludgeon-then-Starscream chain")
   set failed = failed + report("test_custom_story_preserves_explicit_team_and_defaults_to_optimus", test_custom_story_preserves_explicit_team_and_defaults_to_optimus(), "custom or template team rules were wrong")
   failed
 end
