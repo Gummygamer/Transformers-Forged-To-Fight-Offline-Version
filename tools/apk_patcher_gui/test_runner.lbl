@@ -51,6 +51,14 @@ function state_roundtrip_test(): boolean
   actual.status == wanted.status and actual.step == wanted.step and actual.step_index == 3 and actual.step_total == 4 and actual.exit_code == 7
 end
 
+function dead_worker_completion_test(): boolean
+  intent: test successful and failed worker exit states
+  let running: RunnerState = RunnerState { status: "running", step: "sign APK", step_index: 4, step_total: 4, exit_code: 0 }
+  let succeeded: RunnerState = runner.dead_worker_state(running, true)
+  let failed: RunnerState = runner.dead_worker_state(running, false)
+  succeeded.status == "succeeded" and succeeded.step == "" and succeeded.step_index == 4 and succeeded.step_total == 4 and succeeded.exit_code == 0 and failed.status == "failed" and failed.step == "sign APK" and failed.exit_code == 127
+end
+
 function snapshot_offset_test(): boolean
   intent: test runner log offsets
   write_file(pipeline.log_file(), "first\nsecond\n")
@@ -76,9 +84,10 @@ function main(): nothing
   set failed = failed + report("process check commands", process_check_command_test())
   set failed = failed + report("cancel commands", cancel_command_test())
   set failed = failed + report("state roundtrip", state_roundtrip_test())
+  set failed = failed + report("dead worker completion", dead_worker_completion_test())
   set failed = failed + report("snapshot offsets", snapshot_offset_test())
   set failed = failed + report("idle cancellation", cancel_test())
-  print(to_text(8 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(9 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then exit_process(1) end
 end
 

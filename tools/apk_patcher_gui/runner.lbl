@@ -133,15 +133,34 @@ function append_worker_start_log(): nothing
   if file_exists(error_log) and trim(read_file(error_log)) != "" then append_log("Worker startup error:\n" ++ trim(read_file(error_log))) end
 end
 
+public function worker_logged_success(): boolean
+  intent: check success marker in worker log
+  file_exists(pipeline.log_file()) and contains_text(read_file(pipeline.log_file()), "SUCCESS: finished signed APK at ")
+end
+
+public function dead_worker_state(state: RunnerState, success_logged: boolean): RunnerState
+  intent: set successful or failed state when a worker exits
+  if success_logged then
+    state with { status: "succeeded", step: "", step_index: state.step_total, exit_code: 0 }
+  else
+    state with { status: "failed", exit_code: 127 }
+  end
+end
+
 function refresh_stale_state(): RunnerState
   intent: update
   let state: RunnerState = read_state()
   if state.status == "running" and not process_alive(pid_value()) then
-    let failed: RunnerState = state with { status: "failed", exit_code: 127 }
-    append_worker_start_log()
-    append_log("ERROR: build worker exited unexpectedly.")
-    write_state(failed)
-    failed
+    -- The worker appends its success marker just before persisting the final
+    -- state. A status poll can observe the exited process in that tiny window;
+    -- keep the successful result instead of replacing it with a false failure.
+    let completed: RunnerState = dead_worker_state(state, worker_logged_success())
+    if completed.status == "failed" then
+      append_worker_start_log()
+      append_log("ERROR: build worker exited unexpectedly.")
+    end
+    write_state(completed)
+    completed
   else
     state
   end
