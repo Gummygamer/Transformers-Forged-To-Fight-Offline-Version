@@ -783,7 +783,12 @@ end
 
 function arena_command(environment: text): a mapping from text to text
   intent: run
-  shell_exec(environment ++ " legible run " ++ path_join(gamedata.here(), "gamedata.lbl") ++ " --dump-arena")
+  shell_exec(environment ++ " legible run " ++ gamedata_script_argument() ++ " --dump-arena")
+end
+
+function gamedata_script_argument(): text
+  intent: quote the script path for the shell on Windows and Unix
+  "'" ++ replace(replace(path_join(gamedata.here(), "gamedata.lbl"), "\\", "/"), "'", "'\"'\"'") ++ "'"
 end
 
 function command_code(result: a mapping from text to text): integer
@@ -1105,7 +1110,7 @@ end
 
 function mana_command(environment: text): a mapping from text to text
   intent: run
-  shell_exec(environment ++ " legible run " ++ path_join(gamedata.here(), "gamedata.lbl") ++ " --dump-mana-start")
+  shell_exec(environment ++ " legible run " ++ gamedata_script_argument() ++ " --dump-mana-start")
 end
 
 function test_mana_start_diagnostic_can_be_enabled(): boolean
