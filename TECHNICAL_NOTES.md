@@ -690,7 +690,9 @@ halving. `SetAction`'s own copy of the chain resolves to the same slot, which is
 cross-check, and both slots are in `.got` in their respective binaries. Live log:
 `SETACTFIX clk=652.300 ts=652.800`, the clock advancing monotonically across taps.
 
-`FIXSYN` is a branch rewrite inside `BCGBlueprintBase.get_SynergyBonuses`. arm64 re-points
+`FIXSYN` is a static `patch_il2cpp.lbl` branch rewrite inside
+`BCGBlueprintBase.get_SynergyBonuses`. Applying it before the APK is launched avoids stale
+translated instructions on BlueStacks and other ARM-on-x86 emulators. arm64 re-points
 a `cbz` from the throw block to the empty-list return. ARM32 has no throw block to
 re-point: the compiler emits the il2cpp null check as a *call* that only falls through.
 

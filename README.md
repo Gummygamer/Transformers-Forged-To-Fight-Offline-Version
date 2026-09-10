@@ -77,14 +77,10 @@ Kabam.
 
 1. Native binary patches. The game is Unity IL2CPP, so the logic lives in a compiled ARM
    library, `libil2cpp.so`, not in editable script files. `patches/patch_il2cpp.lbl` rewrites
-   twelve functions in that library to get past the dead server checks: it defeats two
-   certificate pinning paths so our own TLS cert is accepted, forces the manager
-   registration block to run even though the live config is null, lets login succeed with
-   our local device session, and silences the subsystem fatal errors that would otherwise
-   pop the "failed to log in" dialog. Two more stub the Unity reachability getter and the
-   endpoint's connectivity check, so the client will talk to the bundled loopback server on a
-   phone with no Wi-Fi access point. The last four stub the profile-level padlock checks, so
-   game modes are never locked behind account level. It also re-injects a single dependency entry (see the
+   sixteen sites in that library to get past the dead server checks. These cover certificate
+   validation, manager registration, offline login, subsystem errors, loopback reachability,
+   profile-level locks, offline alliance-event gates, and the null synergy list encountered
+   after selecting a Story team. It also re-injects a single dependency entry (see the
    Gotchas section) so the runtime hook actually loads. The output is `libil2cpp.patched.so`.
 
 2. A fake Sparx server. `Server/fakeserver.lbl` stands in for Kabam's backend. It listens on
@@ -122,7 +118,7 @@ README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
 patches/
-  patch_il2cpp.lbl            the twelve native patches plus the dependency re-injection
+  patch_il2cpp.lbl            the sixteen native patches plus the dependency re-injection
   abi_map.lbl                 translate arm64 addresses and field offsets to armeabi-v7a
   disasm_fn.lbl               helper: disassemble a function at an offset
   find_callers.lbl            helper: find callers of a function
@@ -542,7 +538,7 @@ were verified firing during that run.
 
 1. Patch the 32-bit library:
    `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
-   All twelve sites apply to `armeabi-v7a`. Both reachability sites are ordinary IL2CPP method
+   All sixteen sites apply to `armeabi-v7a`. Both reachability sites are ordinary IL2CPP method
    addresses that `abi_map.lbl` maps directly: arm64 `0x1B462F4` to armv7 `0x1A0EA0C`, and arm64
    `0x1333E48` to armv7 `0x105ACFC`. A 32-bit bundled APK therefore no longer needs a network
    interface to be up, and its game modes are not padlocked by profile level.

@@ -494,27 +494,6 @@ static int inline_hook(void* target, void* handler, fn8* orig_out, const char* t
     return 0;
 }
 
-// Overwrite a single A32 instruction in libil2cpp, for fixes that are a branch rewrite
-// rather than a function hook. `expect` is the instruction the RE was done against; a
-// mismatch means this is not the binary the offset was derived from, so refuse rather
-// than corrupt a function -- same policy as relocate() returning -1.
-static int poke32(uint32_t rva, uint32_t expect, uint32_t insn, const char* tag){
-    uintptr_t a  = g_base + rva;
-    uintptr_t pg = a & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){
-        LOG("%s: mprotect fail rva=0x%x", tag, rva); return -1;
-    }
-    uint32_t was = *(uint32_t*)a;
-    if (was != expect){
-        LOG("%s: rva=0x%x holds %08x, expected %08x -- NOT poked", tag, rva, was, expect);
-        return -1;
-    }
-    *(uint32_t*)a = insn;
-    __builtin___clear_cache((char*)a, (char*)a + 4);
-    LOG("%s: poked 0x%x  %08x -> %08x", tag, rva, was, insn);
-    return 0;
-}
-
 static int find_cb(struct dl_phdr_info* info, size_t sz, void* data){
     if (info->dlpi_name && strstr(info->dlpi_name, "libil2cpp.so")) {
         g_base = (uintptr_t)info->dlpi_addr; return 1;
@@ -539,24 +518,8 @@ static void* installer(void* arg){
     for (int i = 0; i < NH; i++)
         if (inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig, H[i].tag) == 0) ok++;
     LOG("install done (%d/%d hooks)", ok, NH);
-    // FIXSYN: BCGBlueprintBase.get_SynergyBonuses (armv7 0x7A3DC8, a64 0xC17198) throws
-    // NullReferenceException on a null _synergyBonuses (field 0x7C here, a64 0xE0), which
-    // is always the offline state; see hook.c for why. arm64 fixes this by re-pointing a
-    // `cbz` from the throw block to the empty-list return. ARM32 has no throw block to
-    // re-point -- it emits the il2cpp null-check as a CALL that only falls through:
-    //
-    //     0x7A3EA4  ldr r4,[r6,#0x7c]     ; this->_synergyBonuses
-    //     0x7A3EA8  cmp r4,#0
-    //     0x7A3EAC  bne 0x7A3EB4          ; non-null: run the loop
-    //     0x7A3EB0  bl  0x4F1EA4          ; null: throw (noreturn)
-    //
-    // so 0x7A3EB0 is reached ONLY when the field is null, and nothing else branches to it.
-    // Overwriting that one call with a jump to the empty-list return is therefore exactly
-    // the arm64 fix. The return is at 0x7A3FB8: `ldr r0,[sp,#4]` (the fresh List<string>
-    // built at 0x7A3EA0, before the null-check) followed by the epilogue. Jumping straight
-    // there also skips the enumerator's Dispose at 0x7A3FA4, which is correct -- we skip
-    // its construction too, and the slot was zeroed at function entry.
-    poke32(0x7A3EB0, 0xEBF537FB, 0xEA000040, "FIXSYN");   // bl 0x4F1EA4 -> b 0x7A3FB8
+    // FIXSYN is applied directly to libil2cpp by patch_il2cpp.lbl so translated
+    // runtimes cannot cache the original null-throw instruction.
     return NULL;
 }
 
