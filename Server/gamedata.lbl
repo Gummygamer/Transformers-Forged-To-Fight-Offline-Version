@@ -990,8 +990,9 @@ end
 function build_custom_story_map(qid: text): Json
   intent: build
   let first_links: Json = jsonout.json_list([vec2(1, 1)])
-  let second_links: Json = jsonout.json_list([vec2(1, 1)])
-  let grid: Json = jsonout.json_list([jsonout.json_list([filler_tile(), start_tile(first_links)]), jsonout.json_list([filler_tile(), custom_story_encounter_tile(1)]), jsonout.json_list([filler_tile(), custom_story_encounter_tile(2)])])
+  -- Map.Deserialize indexes gridDimension cells in every row, including hidden
+  -- filler cells. A 3-by-2 grid throws before the Story board can load.
+  let grid: Json = jsonout.json_list([jsonout.json_list([filler_tile(), start_tile(first_links), filler_tile()]), jsonout.json_list([filler_tile(), custom_story_encounter_tile(1), filler_tile()]), jsonout.json_list([filler_tile(), custom_story_encounter_tile(2), filler_tile()])])
   let path: Json = jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)])
   jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(3)), jsonout.json_pair("grid", grid), jsonout.json_pair("walkableCount", jsonout.json_int(3)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(3)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
 end

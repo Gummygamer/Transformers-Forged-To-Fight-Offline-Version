@@ -1176,3 +1176,15 @@ these bounds so a future set cannot regress them.
 The 2.1.1 custom story's final boss is `ironhide_cin_rotf` with `dialogue=custom_ironhide_ambush`
 and `dialoguePE=custom_ironhide_defeated` on the chicago/todIndex-0 tile. The encounter tile
 still uses `mapOverride "chicago"` and `todIndex 0` as required for the client fight prefab.
+
+### Story start: square map contract
+
+The BlueStacks trace on 2026-09-09 identified the post-team-select failure as
+`ArgumentOutOfRangeException` in `EB.Missions.Map.Deserialize`, called by
+`Legacy.QuestMap.Deserialize` immediately after `/quests/quest-begin/2.1.1`.
+The custom map declared `gridDimension: 3` but contained three rows of only two
+tiles. The client indexes a square grid, including hidden cells. Each row now
+includes the missing third filler tile; the walkable path remains in column 1.
+`Server/test_quest_map_shape.lbl` checks both Story maps against their declared
+dimensions, start count, walkable count, and link targets. APKs must be rebuilt
+because the bundled server stores these responses in its generated payload.

@@ -1,0 +1,41 @@
+use gamedata
+use jsonout
+
+function flag(node: Json, key: text): boolean
+  intent: read optional boolean field
+  if jsonout.obj_has(node, key) then jsonout.as_bool(jsonout.obj_get(node, key)) else false end
+end
+
+function main(): nothing
+  intent: test quest map dimensions against the client square grid contract
+  mutable failed: integer = 0
+  for qid in ["1.1.1", gamedata.custom_story_qid()] do
+    let map: Json = gamedata.build_quest_map(qid)
+    let dim: integer = jsonout.as_int(jsonout.obj_get(map, "gridDimension"))
+    let rows: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+    mutable valid: boolean = dim > 0 and length(rows) == dim
+    mutable starts: integer = 0
+    mutable walkable: integer = 0
+    for row in rows do
+      set valid = valid and length(jsonout.list_items(row)) == dim
+      for tile in jsonout.list_items(row) do
+        if flag(tile, "start") then set starts = starts + 1 end
+        if flag(tile, "walkable") then set walkable = walkable + 1 end
+        let links: a list of Json = if jsonout.obj_has(tile, "links") then jsonout.list_items(jsonout.obj_get(tile, "links")) else [] end
+        for link in links do
+          let x: integer = jsonout.as_int(jsonout.obj_get(link, "x"))
+          let y: integer = jsonout.as_int(jsonout.obj_get(link, "y"))
+          let target_row: Json = unwrap_or(get(rows, x), jsonout.json_list([]))
+          let target: Json = unwrap_or(get(jsonout.list_items(target_row), y), jsonout.json_obj([]))
+          set valid = valid and x >= 0 and x < dim and y >= 0 and y < dim and flag(target, "walkable")
+        end
+      end
+    end
+    set valid = valid and starts == 1 and walkable == jsonout.as_int(jsonout.obj_get(map, "walkableCount"))
+    if valid then print("[ok] map shape " ++ qid)
+    else print("[!] map shape " ++ qid) set failed = failed + 1 end
+  end
+  if failed > 0 then exit_process(1) end
+end
+
+main()
