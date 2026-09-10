@@ -4135,19 +4135,6 @@ static int find_cb(struct dl_phdr_info* info, size_t sz, void* data){
     return 0;
 }
 
-// Single 32-bit instruction rewrite at (g_base+rva). Installed before the target is first
-// executed (constructor thread runs at app start; the patched funcs run only later), so
-// libnb's lazy translation picks up the new word -- same guarantee as the inline hooks.
-static void poke32(uintptr_t rva, uint32_t word){
-    uint8_t* t = (uint8_t*)(g_base + rva);
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
-    uint32_t old = *(uint32_t*)t;
-    *(uint32_t*)t = word;
-    __builtin___clear_cache((char*)t, (char*)t + 4);
-    LOG("poked 0x%lx : %08x -> %08x", (long)rva, old, word);
-}
-
 #if TFTF_ENABLE_ARENA
 // Arena netcode: the config file that says whether this device should relay a live fight at
 // all, and to whom. Absent file => no session, and the game behaves exactly as it does today.
@@ -4218,17 +4205,9 @@ static void* installer(void* arg){
 #endif
     for (int i = 0; i < NH; i++)
         inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
-    // FIXSYN (session 10): BCGBlueprintBase.get_SynergyBonuses (@0xC17198) throws
-    // NullReferenceException when this._synergyBonuses (List<string> @0xE0) is null -- which it
-    // ALWAYS is offline (the blueprint ctor never parses a synergy key). Adding a bot to the STORY
-    // squad runs TeamData.RefreshSynergyBonusData -> b__56_0 -> get_SynergyBonuses on each hero's
-    // blueprint and the throw surfaces as the "unknown error" dialog. The getter already allocates
-    // a fresh empty result List<string> (x19) BEFORE the null-check and returns it at 0xC17340;
-    // the null branch instead jumps to the throw at 0xC17370. Redirect that one `cbz x0` from the
-    // throw to the normal empty-list return -> get_SynergyBonuses returns an empty list for a null
-    // field instead of throwing. (Same spirit as the Tags empty-collection fix; done as a targeted
-    // instruction poke rather than fabricating a List<string> whose RGCTX may be uninitialized.)
-    poke32(0xC17278, 0xB4000640);   // cbz x0, 0xC17370 (throw) -> cbz x0, 0xC17340 (return empty)
+    // FIXSYN is now applied directly to libil2cpp by patch_il2cpp.lbl. Keeping this
+    // branch rewrite out of the runtime installer matters on ARM-translation emulators:
+    // BlueStacks can cache the original instruction before an in-memory poke is visible.
     LOG("install done (%d hooks)", NH);
     return NULL;
 }

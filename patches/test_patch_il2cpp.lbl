@@ -52,9 +52,14 @@ function test_new_level_lock_sites_patch_to_mov_w0_zero_ret(): boolean
   patch_bytes_match(sites, 15779872, "00008052c0035fd6") and patch_bytes_match(sites, 15782864, "00008052c0035fd6") and patch_bytes_match(sites, 15783048, "00008052c0035fd6") and patch_bytes_match(sites, 15868548, "00008052c0035fd6")
 end
 
-function test_arm64_site_count_is_fifteen(): boolean
+function test_arm64_site_count_is_sixteen(): boolean
   intent: test
-  length(patch_il2cpp.arm64_sites()) == 15
+  length(patch_il2cpp.arm64_sites()) == 16
+end
+
+function test_arm64_synergy_null_branch_is_static(): boolean
+  intent: test arm64 synergy null branch patch
+  patch_bytes_match(patch_il2cpp.arm64_sites(), 12677752, "400600b4")
 end
 
 function test_alliance_gate_arm64_sites_present(): boolean
@@ -105,9 +110,14 @@ function test_new_armv7_reachability_sites_patch_to_constants(): boolean
   patch_bytes_match(sites, 27322892, "0200a0e31eff2fe1") and patch_bytes_match(sites, 17149180, "0100a0e31eff2fe1")
 end
 
-function test_armv7_site_count_is_fifteen(): boolean
+function test_armv7_site_count_is_sixteen(): boolean
   intent: test
-  length(patch_il2cpp.armv7_sites()) == 15
+  length(patch_il2cpp.armv7_sites()) == 16
+end
+
+function test_armv7_synergy_null_branch_is_static(): boolean
+  intent: test armv7 synergy null branch patch
+  patch_bytes_match(patch_il2cpp.armv7_sites(), 8011440, "400000ea")
 end
 
 function test_alliance_gate_armv7_sites_present(): boolean
@@ -139,7 +149,8 @@ function main(): nothing
   mutable failed: integer = 0
   set failed = failed + report("test_new_level_lock_sites_present", test_new_level_lock_sites_present())
   set failed = failed + report("test_new_level_lock_sites_patch_to_mov_w0_zero_ret", test_new_level_lock_sites_patch_to_mov_w0_zero_ret())
-  set failed = failed + report("test_arm64_site_count_is_fifteen", test_arm64_site_count_is_fifteen())
+  set failed = failed + report("test_arm64_site_count_is_sixteen", test_arm64_site_count_is_sixteen())
+  set failed = failed + report("test_arm64_synergy_null_branch_is_static", test_arm64_synergy_null_branch_is_static())
   set failed = failed + report("test_alliance_gate_arm64_sites_present", test_alliance_gate_arm64_sites_present())
   set failed = failed + report("test_alliance_gate_arm64_patch_bytes", test_alliance_gate_arm64_patch_bytes())
   set failed = failed + report("test_ave_no_events_arm64_site_present_and_true", test_ave_no_events_arm64_site_present_and_true())
@@ -148,12 +159,13 @@ function main(): nothing
   set failed = failed + report("test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr", test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr())
   set failed = failed + report("test_new_armv7_reachability_sites_present", test_new_armv7_reachability_sites_present())
   set failed = failed + report("test_new_armv7_reachability_sites_patch_to_constants", test_new_armv7_reachability_sites_patch_to_constants())
-  set failed = failed + report("test_armv7_site_count_is_fifteen", test_armv7_site_count_is_fifteen())
+  set failed = failed + report("test_armv7_site_count_is_sixteen", test_armv7_site_count_is_sixteen())
+  set failed = failed + report("test_armv7_synergy_null_branch_is_static", test_armv7_synergy_null_branch_is_static())
   set failed = failed + report("test_alliance_gate_armv7_sites_present", test_alliance_gate_armv7_sites_present())
   set failed = failed + report("test_alliance_gate_armv7_patch_bytes", test_alliance_gate_armv7_patch_bytes())
   set failed = failed + report("test_ave_no_events_armv7_site_present_and_true", test_ave_no_events_armv7_site_present_and_true())
   set failed = failed + report("test_preexisting_armv7_sites_retained", test_preexisting_armv7_sites_retained())
-  print(to_text(16 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(18 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
