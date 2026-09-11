@@ -4187,6 +4187,36 @@ static void arena_install(uintptr_t base){
 }
 #endif
 
+static void poke32(uintptr_t rva, uint32_t word){
+    uint8_t* t = (uint8_t*)(g_base + rva);
+    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
+    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
+    uint32_t old = *(uint32_t*)t;
+    *(uint32_t*)t = word;
+    __builtin___clear_cache((char*)t, (char*)t + 4);
+    LOG("poked 0x%lx : %08x -> %08x", (long)rva, old, word);
+}
+
+static fn8 orig_set_targetFrameRate = NULL;
+static void* hooked_set_targetFrameRate(void* fps, void* m, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    int req_fps = (int)(intptr_t)fps;
+    LOG("Application.set_targetFrameRate: req=%d -> forcing 60", req_fps);
+    if (orig_set_targetFrameRate) {
+        return orig_set_targetFrameRate((void*)(intptr_t)60, m, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_set_vSyncCount = NULL;
+static void* hooked_set_vSyncCount(void* count, void* m, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    int req_vsync = (int)(intptr_t)count;
+    LOG("QualitySettings.set_vSyncCount: req=%d -> forcing 0", req_vsync);
+    if (orig_set_vSyncCount) {
+        return orig_set_vSyncCount((void*)(intptr_t)0, m, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
 static void* installer(void* arg){
     for (int i = 0; i < 1200; i++) {           // up to 60s
         g_base = 0; dl_iterate_phdr(find_cb, NULL);
@@ -4208,6 +4238,19 @@ static void* installer(void* arg){
     // FIXSYN is now applied directly to libil2cpp by patch_il2cpp.lbl. Keeping this
     // branch rewrite out of the runtime installer matters on ARM-translation emulators:
     // BlueStacks can cache the original instruction before an in-memory poke is visible.
+
+    // 60 FPS UNLOCK:
+    // 1) PerformanceManager..cctor (@0xDA5168): default targetFrameRate 60 (was 30) & vSyncCount 0 (was 2)
+    poke32(0xDA52E0, 0x52800780);   // mov w0, #60
+    poke32(0xDA52F8, 0x2A1F03E0);   // mov w0, wzr (vSyncCount = 0)
+
+    // 2) PerformanceManager.ApplyOnce (@0xDA65DC): unconditionally branch to _60NoVSync (0xDA6724)
+    poke32(0xDA6700, 0x14000009);   // b 0xDA6724
+
+    // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
+    inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
+    inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
+
     LOG("install done (%d hooks)", NH);
     return NULL;
 }
