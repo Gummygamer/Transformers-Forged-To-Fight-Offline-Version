@@ -126,9 +126,9 @@ end
   passed
 end
 
-function test_fte_optimus_uses_real_optimus_prime_mesh(): boolean
+function test_fte_optimus_uses_shipped_g1_mesh(): boolean
   intent: test
-  gamedata.model_id("fte_optimus_gs_t3") == "optimusprime_cin_tf" and field_text(blueprint("fte_optimus_gs_t3"), "mdl") == "optimusprime_cin_tf"
+  gamedata.model_id("fte_optimus_gs_t3") == "optimusprime_gs_v" and field_text(blueprint("fte_optimus_gs_t3"), "mdl") == "optimusprime_gs_v" and field_text(blueprint("fte_optimus_gs_t3"), "img") == "optimus_gs"
 end
 
 function test_portrait_stays_short_art_base(): boolean
@@ -643,7 +643,7 @@ function main(): nothing
   set failed = failed + report("test_specials_escalate_by_index", test_specials_escalate_by_index(), "special ratios did not escalate")
   set failed = failed + report("test_blueprint_model_id_matches_model_id_helper", test_blueprint_model_id_matches_model_id_helper(), "blueprint model id differed")
   set failed = failed + report("test_non_override_model_id_is_the_full_bid", test_non_override_model_id_is_the_full_bid(), "non-override model id changed")
-  set failed = failed + report("test_fte_optimus_uses_real_optimus_prime_mesh", test_fte_optimus_uses_real_optimus_prime_mesh(), "FTE Optimus mesh was wrong")
+  set failed = failed + report("test_fte_optimus_uses_shipped_g1_mesh", test_fte_optimus_uses_shipped_g1_mesh(), "FTE Optimus G1 mesh or portrait was wrong")
   set failed = failed + report("test_portrait_stays_short_art_base", test_portrait_stays_short_art_base(), "portrait base was wrong")
   set failed = failed + report("test_all_roster_portraits_ship_both_sizes", test_all_roster_portraits_ship_both_sizes(), "a portrait size was missing")
   set failed = failed + report("test_art_base_overrides_cover_only_irregular_roster_bots", test_art_base_overrides_cover_only_irregular_roster_bots(), "override coverage was wrong")

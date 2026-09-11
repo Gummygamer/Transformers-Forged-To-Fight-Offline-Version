@@ -272,7 +272,7 @@ end
 
 public function model_overrides(): a list of TextEntry
   intent: return
-  [TextEntry { key: "fte_optimus_gs_t3", value: "optimusprime_cin_tf" }, TextEntry { key: "fte_marissa_t1", value: "optimusprime_cin_tf" }, TextEntry { key: "fte_stars_gs_t3", value: "skywarp_gs_leader2015" }]
+  [TextEntry { key: "fte_optimus_gs_t3", value: "optimusprime_gs_v" }, TextEntry { key: "fte_marissa_t1", value: "optimusprime_cin_tf" }, TextEntry { key: "fte_stars_gs_t3", value: "skywarp_gs_leader2015" }]
 end
 
 public function model_id(bid: text): text
