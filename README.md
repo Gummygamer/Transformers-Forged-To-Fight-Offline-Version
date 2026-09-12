@@ -221,6 +221,15 @@ then launches the GUI; re-running it later is fast because it finds `legible` al
 installed. This does not replace the manual steps below, which are still needed for
 everything the GUI does not cover (certs, the native hook, the emulator/device setup).
 
+The Linux launcher downloads the public `Gummygamer/legible-lang` repository from GitHub's
+anonymous HTTPS endpoint, using its `development` branch. A GitHub account, password, token,
+or SSH key is not needed for this clone. If Git prints a credential prompt, the launcher will
+now stop with the repository, branch, and underlying error instead; check the URL, network or
+proxy settings, and local Git configuration. An existing cache is updated only when it points
+to that repository and branch and has no local changes. An incomplete or unrelated cache is
+moved aside with an `.invalid-*` suffix before a fresh clone; a modified matching cache is
+left untouched and reported so it cannot be overwritten.
+
 1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
    Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
    real shell (Git Bash on Windows). Do not run it with `python`/`python3` and do not
