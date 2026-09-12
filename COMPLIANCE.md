@@ -408,3 +408,27 @@ unchanged.
 
 No asset, binary, APK, recovered Kabam server data, or network interception was added.
 Nothing under `media/` was touched.
+
+## Guard `read_file` behind nested `if` — Legible's `and` does not short-circuit
+
+Contributed by **@galvatron** (Discord).
+
+Four call sites were changed so that a `read_file` is only reached after its
+`file_exists` guard has actually passed. `Server/fakeserver.lbl` (`tutorial_login_seen`)
+and `tools/apk_patcher_gui/runner.lbl` (`append_worker_start_log` ×2,
+`worker_logged_success`) each expressed the guard as
+`file_exists(path) and <something that reads path>`. Because `and` evaluates both
+operands, the read ran even when the file was absent and aborted the process. Each site
+now places the read inside a nested `if`, which is the existing idiom elsewhere in these
+same files.
+
+This is a control-flow correction to this repository's own Legible source. It is
+100% original work written for this repository. No logic, string, constant, or value was
+transcribed or paraphrased from Transformers: Forged to Fight, from any decompiled or
+disassembled game code, or from any other copyrighted source. The behaviour of each
+function is unchanged when the file exists; only the absent-file path differs, and it
+now returns the same result the guard already intended rather than terminating.
+
+Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game
+data, network capture, or credential was added. Nothing under `media/` was touched. No
+new dependency was introduced.
