@@ -129,13 +129,25 @@ function append_worker_start_log(): nothing
   intent: preserve worker startup diagnostics
   let launch_log: text = path_join(pipeline.state_dir(), "worker-start.log")
   let error_log: text = launch_log ++ ".err"
-  if file_exists(launch_log) and trim(read_file(launch_log)) != "" then append_log("Worker startup output:\n" ++ trim(read_file(launch_log))) end
-  if file_exists(error_log) and trim(read_file(error_log)) != "" then append_log("Worker startup error:\n" ++ trim(read_file(error_log))) end
+  -- `and` does not short-circuit, so each read_file needs its own enclosing if.
+  -- These logs are absent until a worker has started, which is exactly the first run.
+  if file_exists(launch_log) then
+  if trim(read_file(launch_log)) != "" then append_log("Worker startup output:\n" ++ trim(read_file(launch_log))) end
+end
+  if file_exists(error_log) then
+  if trim(read_file(error_log)) != "" then append_log("Worker startup error:\n" ++ trim(read_file(error_log))) end
+end
 end
 
 public function worker_logged_success(): boolean
   intent: check success marker in worker log
-  file_exists(pipeline.log_file()) and contains_text(read_file(pipeline.log_file()), "SUCCESS: finished signed APK at ")
+  -- `and` does not short-circuit, so the read must sit inside the existence check.
+  -- The pipeline log does not exist until a build has run.
+  if file_exists(pipeline.log_file()) then
+  contains_text(read_file(pipeline.log_file()), "SUCCESS: finished signed APK at ")
+else
+  false
+end
 end
 
 public function dead_worker_state(state: RunnerState, success_logged: boolean): RunnerState
