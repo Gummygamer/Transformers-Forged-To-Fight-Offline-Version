@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TFTF APK Patcher</string>
+    <string name="select_source_apk">Select source APK</string>
+    <string name="no_apk_selected">No APK selected</string>
+    <string name="build_apk">Build APK</string>
+    <string name="cancel">Cancel</string>
+    <string name="share_save">Share / Save patched APK</string>
+    <string name="architecture">Architecture</string>
+    <string name="arm64_recommended">64-bit (arm64-v8a) — recommended</string>
+    <string name="armv7">32-bit (armeabi-v7a)</string>
+    <string name="keep_other_abi">Keep the other ABI\'s libraries</string>
+    <string name="armv7_warning">32-bit builds need a patched libil2cpp.so. Enable auto-patching or supply one, or the hook will not run.</string>
+    <string name="server">Server</string>
+    <string name="bundled_server">Bundled server — self-contained, no PC needed</string>
+    <string name="separate_server">Separate server running on a PC</string>
+    <string name="bundled_note">Bundled mode is fixed at 127.0.0.1:8080 over http.</string>
+    <string name="host">Host</string>
+    <string name="port">Port</string>
+    <string name="scheme">Scheme</string>
+    <string name="libil2cpp_patch">libil2cpp patch</string>
+    <string name="auto_patch">Auto-patch libil2cpp from source APK</string>
+    <string name="select_patched_il2cpp">Or select patched libil2cpp.so</string>
+    <string name="auto_patch_label">(auto-patch from source)</string>
+    <string name="signing_and_install">Signing and install</string>
+    <string name="select_keystore">Select keystore (optional)</string>
+    <string name="generated_keystore">(uses generated on-device keystore)</string>
+    <string name="keystore_password">Keystore password</string>
+    <string name="key_password_hint">Key password (same as keystore if blank)</string>
+    <string name="offer_install">Offer install when finished</string>
+    <string name="checks">Checks</string>
+    <string name="steps_preview">Steps that will run</string>
+    <string name="build_log">Build log</string>
+    <string name="apk_files">APK files</string>
+    <string name="select_apk">Select source APK</string>
+    <string name="select_apk_first">Select a source APK to begin.</string>
+</resources>
