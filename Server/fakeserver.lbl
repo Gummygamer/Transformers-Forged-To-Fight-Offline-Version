@@ -134,7 +134,14 @@ end
 
 function tutorial_login_seen(): boolean
   intent: check
-  file_exists(tutorial_state_file()) and trim(read_file(tutorial_state_file())) == "1"
+  -- `and` does not short-circuit, so read_file must be guarded by a nested if rather
+  -- than by the left-hand operand. On a fresh clone Server/logs/ is gitignored and the
+  -- state file does not exist, so the unguarded read aborted the server mid-session.
+  if file_exists(tutorial_state_file()) then
+  trim(read_file(tutorial_state_file())) == "1"
+else
+  false
+end
 end
 
 public function tutorial_login_started_response(): text
