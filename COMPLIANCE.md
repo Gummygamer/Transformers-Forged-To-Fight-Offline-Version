@@ -432,3 +432,21 @@ now returns the same result the guard already intended rather than terminating.
 Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game
 data, network capture, or credential was added. Nothing under `media/` was touched. No
 new dependency was introduced.
+
+## Unicode round-tripping in `Server/jsonout.lbl`
+
+`Server/jsonout.lbl` previously replaced every non-ASCII scalar with an ASCII `?` on the
+decode side and aborted the process on the encode side, so any JSON string containing a
+non-ASCII character was silently corrupted on a parse/encode round trip. The decoder now
+turns a `\uXXXX` escape (including a UTF-16 surrogate pair, for codepoints above U+FFFF)
+into the corresponding UTF-8 bytes, and maps a lone or unpaired surrogate to U+FFFD. The
+encoder walks UTF-8 sequences back to codepoints and re-emits them as `\uXXXX`, using a
+surrogate pair above U+FFFF, so output stays pure ASCII exactly as before. Malformed,
+overlong, out-of-range and surrogate-encoded UTF-8 are rejected loudly rather than
+substituted. Output was verified byte-identical to Python `json.dumps(ensure_ascii=True)`.
+
+This is a correctness fix to this repository's own Legible source. **It adds no game
+content of any kind** — no authored values, no identifiers, no wire keys. Nothing was
+transcribed from recovered Kabam server data. No asset, binary, APK, game data, network
+capture, or credential was added. Nothing under `media/` was touched. No new dependency was
+introduced.
