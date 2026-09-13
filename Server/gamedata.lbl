@@ -1109,19 +1109,29 @@ public function build_quest_progression(qid: text, start_x: integer, start_y: in
   jsonout.json_obj([jsonout.json_pair("version", jsonout.json_int(1)), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("cleared", jsonout.json_list([])), jsonout.json_pair("previouslyCleared", jsonout.json_list([])), jsonout.json_pair("revealed", revealed_tiles_for(qid)), jsonout.json_pair("users", jsonout.json_obj([jsonout.json_pair(local_uid(), user)]))])
 end
 
-public function build_active_quest(qid: text, set_id: text, team: a list of text): Json
+function build_active_quest_at(qid: text, set_id: text, team: a list of text, start_x: integer, start_y: integer): Json
   intent: build
   let qmap: Json = build_quest_map(qid)
-  let progression: Json = build_quest_progression(qid, quest_start_x_for(qid), quest_start_y_for(qid), team)
+  let progression: Json = build_quest_progression(qid, start_x, start_y, team)
   let base_instance: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("index", jsonout.json_int(0)), jsonout.json_pair("instanceIndex", jsonout.json_int(0)), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("startTime", jsonout.json_int(0)), jsonout.json_pair("expiryTime", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap)])
   let nested_instance: Json = jsonout.obj_set(base_instance, "progression", progression)
   let instance: Json = jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(nested_instance, "version", jsonout.obj_get(progression, "version")), "currentPos", jsonout.obj_get(progression, "currentPos")), "cleared", jsonout.obj_get(progression, "cleared")), "previouslyCleared", jsonout.obj_get(progression, "previouslyCleared")), "revealed", jsonout.obj_get(progression, "revealed")), "users", jsonout.obj_get(progression, "users"))
   jsonout.json_obj([jsonout.json_pair("uniqueId", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("category", jsonout.json_text("PvE")), jsonout.json_pair("mode", jsonout.json_text("PvE")), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text(quest_set_hash_for(qid))), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap), jsonout.json_pair("progression", jsonout.json_obj([])), jsonout.json_pair("instances", jsonout.json_list([instance]))])
 end
 
+public function build_active_quest(qid: text, set_id: text, team: a list of text): Json
+  intent: build
+  build_active_quest_at(qid, set_id, team, quest_start_x_for(qid), quest_start_y_for(qid))
+end
+
+public function build_quest_begin_at(qid: text, set_id: text, team: a list of text, start_x: integer, start_y: integer): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("activeQuests", jsonout.json_obj([jsonout.json_pair(qid, build_active_quest_at(qid, set_id, team, start_x, start_y))]))])
+end
+
 public function build_quest_begin(qid: text, set_id: text, team: a list of text): Json
   intent: build
-  jsonout.json_obj([jsonout.json_pair("activeQuests", jsonout.json_obj([jsonout.json_pair(qid, build_active_quest(qid, set_id, team))]))])
+  build_quest_begin_at(qid, set_id, team, quest_start_x_for(qid), quest_start_y_for(qid))
 end
 
 function battle_user(user: Json, x: integer, y: integer, key: text): Json

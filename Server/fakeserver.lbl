@@ -236,8 +236,21 @@ end
 
 function set_saved_team(team: a list of text): nothing
   intent: save
+  -- A malformed or transient squad update must never erase the last valid choice.
+  -- The default trio is only used when no squad has ever been saved.
+  let resolved: a list of text = gamedata.resolve_team(team)
+  if length(team) > 0 and resolved == team then
   let state: ServerState = load_state()
-  save_state(ServerState { team: gamedata.resolve_team(team), positions: state.positions })
+  save_state(ServerState { team: resolved, positions: state.positions })
+end
+end
+
+function position_exists(qid: text): boolean
+  intent: check
+  for position in load_state().positions do
+    if position.qid == qid then return true end
+  end
+  false
 end
 
 function position_for(qid: text): Position
@@ -1562,16 +1575,14 @@ function quest_begin_response(p: text, btxt: text): text
 end
   let overflow: text = json_text_or(req, "tm" ++ to_text(gamedata.team_size_max()), "")
   if overflow != "" then set posted = append(posted, overflow) end
-  if length(posted) > 0 then
-  set_saved_team(posted)
-end
+  if length(posted) > 0 then set_saved_team(posted) end
   let previous: Position = position_for(qid)
-  let preserve_completion: boolean = previous.completed
-  set_position(qid, if preserve_completion then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_completion then previous.y else gamedata.quest_start_y_for(qid) end, false, preserve_completion)
+  let preserve_progress: boolean = position_exists(qid)
+  set_position(qid, if preserve_progress then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end, previous.pending and preserve_progress, previous.completed and preserve_progress)
   let saved: a list of text = get_saved_team()
   let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.resolve_team(saved) else saved end
   if length(posted) == 0 and qid == gamedata.custom_story_qid() and team != saved then set_saved_team(team) end
-  spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team))
+  spaced_envelope(gamedata.build_quest_begin_at(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, previous.x, previous.y))
 end
 
 function movedir_response(p: text): text
@@ -1655,8 +1666,9 @@ end)
   let session: Session = session_for_token(peer)
   let default_name: text = if session.name != "" then session.name else "Commander" end
   let name: text = if jsonout.obj_has(req, "name") and jsonout.type_name(jsonout.obj_get(req, "name")) == "text" then jsonout.as_text(jsonout.obj_get(req, "name")) else default_name end
-  store_roster(peer, name, heroes)
-  saved_team_envelope(team_id, heroes)
+  let saved: a list of text = get_saved_team()
+  store_roster(peer, name, saved)
+  saved_team_envelope(team_id, saved)
 end
 
 function quest_dynamic(path: text, p: text, btxt: text): text
