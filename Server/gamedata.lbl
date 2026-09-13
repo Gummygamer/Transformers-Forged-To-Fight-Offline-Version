@@ -646,7 +646,7 @@ end
 
 public function resolve_quest_team(qid: text, team: a list of text): a list of text
   intent: return
-  -- Keep Optimus as the authored fallback, but preserve an explicit squad.
+  -- Use the authored default only when no valid squad is supplied.
   if qid == custom_story_qid() and length(team) == 0 then custom_story_team() else resolve_team(team) end
 end
 

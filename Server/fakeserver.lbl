@@ -1568,8 +1568,9 @@ end
   let previous: Position = position_for(qid)
   let preserve_completion: boolean = previous.completed
   set_position(qid, if preserve_completion then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_completion then previous.y else gamedata.quest_start_y_for(qid) end, false, preserve_completion)
-  let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
-  if length(posted) == 0 and qid == gamedata.custom_story_qid() then set_saved_team(team) end
+  let saved: a list of text = get_saved_team()
+  let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.resolve_team(saved) else saved end
+  if length(posted) == 0 and qid == gamedata.custom_story_qid() and team != saved then set_saved_team(team) end
   spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team))
 end
 

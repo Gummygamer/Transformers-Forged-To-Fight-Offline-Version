@@ -292,7 +292,7 @@ function native_progression_restart_checks(harness: text, payload: text, port: i
   fakeserver.reset_quest_positions()
   let begin_path: text = "/quests/quest-begin/2.1.1"
   let move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
-  let begin_body: text = "\{\"tm0\":\"megatron_cin_rotf\"\}"
+  let begin_body: text = "\{\"tm0\":\"megatron_cin_rotf\",\"tm1\":\"grimlock_gs_mp08\"\}"
   let started: HarnessStart = start_harness(base, harness, payload, port)
   if started.error != "" then
     stop_harness(started.pid)
@@ -316,7 +316,7 @@ function native_progression_restart_checks(harness: text, payload: text, port: i
       let resumed: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
       stop_harness(restarted.pid)
       shell_exec("rm -rf -- " ++ base)
-      let good: boolean = begin.status == "200" and begin.body == expected_begin and first.status == "200" and first.body == expected_first and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and resumed_begin.status == "200" and resumed.status == "200" and contains_text(resumed.body, "fte_stars_gs_t3")
+      let good: boolean = begin.status == "200" and begin.body == expected_begin and first.status == "200" and first.body == expected_first and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and resumed_begin.status == "200" and resumed.status == "200" and contains_text(resumed_begin.body, "megatron_cin_rotf") and contains_text(resumed_begin.body, "grimlock_gs_mp08") and contains_text(resumed.body, "megatron_cin_rotf") and contains_text(resumed.body, "grimlock_gs_mp08") and contains_text(resumed.body, "fte_stars_gs_t3")
       if good then ok() else failed("completed quest position was not restored across native server restart") end
     end
   end
