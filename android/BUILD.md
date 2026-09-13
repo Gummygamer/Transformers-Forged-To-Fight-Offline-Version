@@ -128,6 +128,13 @@ Desktop-only steps replaced:
   16 KiB for uncompressed native libraries, and preserved compression elsewhere)
 - **apksigner** → APK Signature Scheme v2 in pure Kotlin/Java
 
+After changing `tools/nativehook/hook.c` or `hook_arm32.c`, rebuild the native
+libraries with the matching Android NDK and rerun `tools/prepare-assets.sh` before
+building the patcher. The hook logs its runtime page size under the `TFTFHOOK`
+tag; capture that line with the game's first-start log when diagnosing a startup
+exit. The native patcher computes the page range for `mprotect()` at runtime, so
+the same asset can be tested on 4 KiB and 16 KiB-page devices.
+
 ## Engine API
 
 ```kotlin

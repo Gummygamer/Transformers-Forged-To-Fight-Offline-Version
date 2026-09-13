@@ -36,6 +36,20 @@ static uintptr_t g_base;
 static __thread sigjmp_buf g_jb;
 static __thread volatile int g_prot;
 static struct sigaction g_oldsegv, g_oldbus;
+
+/* Android devices may use 16 KiB pages.  Never assume a 4 KiB page when
+ * changing executable IL2CPP pages: an unaligned mprotect() fails with EINVAL
+ * and a partially protected range can leave the process executing stale code. */
+static int make_code_range_writable(void *address, size_t length){
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) page_size = 4096;
+    uintptr_t page = (uintptr_t)address & ~((uintptr_t)page_size - 1U);
+    uintptr_t end = (uintptr_t)address + length;
+    uintptr_t protected_end = (end + (uintptr_t)page_size - 1U) & ~((uintptr_t)page_size - 1U);
+    if (protected_end <= page) protected_end = page + (uintptr_t)page_size;
+    return mprotect((void*)page, (size_t)(protected_end - page),
+                    PROT_READ|PROT_WRITE|PROT_EXEC);
+}
 static void seg_handler(int sig, siginfo_t* si, void* uc){
     if (g_prot) siglongjmp(g_jb, 1);
     // Real game fault (il2cpp null-check reads offset 0 -> SIGSEGV -> Unity converts to
@@ -4116,8 +4130,7 @@ extern void* handlers[];
 static int inline_hook(void* target, void* handler, fn8* orig_out){
     uint8_t* t = (uint8_t*)target;
     uint32_t first = *(uint32_t*)t;
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0) { LOG("mprotect fail %p", t); return -1; }
+    if (make_code_range_writable(t, 16) != 0) { LOG("mprotect fail %p", t); return -1; }
     uint8_t* tr = (uint8_t*)mmap(NULL, 256, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if (tr == MAP_FAILED) { LOG("mmap fail"); return -1; }
     int trlen = relocate(tr, t, 4);     // relocate 4 prologue instrs (PC-relative fixed up)
@@ -4189,8 +4202,7 @@ static void arena_install(uintptr_t base){
 
 static void poke32(uintptr_t rva, uint32_t word){
     uint8_t* t = (uint8_t*)(g_base + rva);
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
+    if (make_code_range_writable(t, 4) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
     uint32_t old = *(uint32_t*)t;
     *(uint32_t*)t = word;
     __builtin___clear_cache((char*)t, (char*)t + 4);
@@ -4233,8 +4245,9 @@ static void* installer(void* arg){
 #if TFTF_ENABLE_ARENA
     arena_install(g_base);
 #endif
+    int ok = 0;
     for (int i = 0; i < NH; i++)
-        inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
+        if (inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig) == 0) ok++;
     // FIXSYN is now applied directly to libil2cpp by patch_il2cpp.lbl. Keeping this
     // branch rewrite out of the runtime installer matters on ARM-translation emulators:
     // BlueStacks can cache the original instruction before an in-memory poke is visible.
@@ -4251,7 +4264,7 @@ static void* installer(void* arg){
     inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
     inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
 
-    LOG("install done (%d hooks)", NH);
+    LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;
 }
 
@@ -4269,6 +4282,7 @@ static void init(void){
     sigaction(SIGSEGV, &sa, &g_oldsegv);
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK loaded (segv-guarded)");
+    LOG("runtime page size: %ld", sysconf(_SC_PAGESIZE));
     tftf_server_set_logger(inapk_log);
     int inapk_rc = tftf_server_start_from_apk();
     LOG("in-apk server start: %d", inapk_rc);
