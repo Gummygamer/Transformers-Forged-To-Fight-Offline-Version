@@ -468,7 +468,9 @@ class PatcherEngine(context: Context) {
     // ---- Output ----
 
     private fun writeTempApk(signedApk: File, outputName: String): File {
-        val outputDir = File(appContext.cacheDir, "patched_apks")
+        // Keep completed artifacts in filesDir. cacheDir may be reclaimed by Android
+        // before the user has a chance to export or retry the installation.
+        val outputDir = File(appContext.filesDir, "patched_apks")
         outputDir.mkdirs()
         val safeName = outputName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "patched.apk" }
         val outputFile = File(outputDir, safeName)

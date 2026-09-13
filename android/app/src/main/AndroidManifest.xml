@@ -35,7 +35,7 @@
         <!-- Receiver for PackageInstaller session commit result -->
         <receiver
             android:name=".InstallResultReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.gummygamer.apkpatcher.INSTALL_COMPLETE" />
             </intent-filter>
