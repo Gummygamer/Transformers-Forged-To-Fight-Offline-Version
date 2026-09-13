@@ -191,7 +191,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
             "3. load hook library (${if (s.serverMode == PatchRequest.BUNDLED) "bundled 127.0.0.1:${s.serverPort}" else "separate ${s.scheme}://${s.serverHost}:${s.serverPort}"})",
             "4. prepare patched libil2cpp (${if (s.autoPatchIl2cpp) "auto-patch" else if (s.patchedIl2cppUri.isNotBlank()) "user-supplied" else "none"})",
             "5. build patched APK (drop signatures${if (!s.keepOtherAbi) ", drop other ABI" else ""})",
-            "6. sign APK (v2 scheme, ${if (s.keystoreUri.isNotBlank()) "user keystore" else "generated JKS"})",
+            "6. sign APK (v2 scheme, ${if (s.keystoreUri.isNotBlank()) "user keystore" else "generated PKCS12"})",
             "7. write signed APK → ${s.outputName}"
         )
 

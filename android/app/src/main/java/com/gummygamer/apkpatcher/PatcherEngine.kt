@@ -437,10 +437,13 @@ class PatcherEngine(context: Context) {
                     alias = request.keyAlias.ifBlank { "patcher" },
                     keyPassword = request.keyPassword
                 )
-                    ?: throw IOException("Failed to load keystore: invalid password or format")
+                    ?: throw IOException(
+                        "Unable to load signing keystore. Check the store/key passwords and alias, " +
+                            "and ensure it is a PKCS12 or JKS store containing a private key with an X.509 certificate."
+                    )
             } else {
                 onLog(LogLine("Using the app's persistent on-device signing identity"))
-                KeystoreManager.loadOrCreateDefault(File(appContext.noBackupFilesDir, "patcher-signing.jks"), request.keyAlias.ifBlank { "patcher" })
+                KeystoreManager.loadOrCreateDefault(File(appContext.noBackupFilesDir, "patcher-signing.p12"), request.keyAlias.ifBlank { "patcher" })
             }
 
             val result = ApksigSigner.sign(unsignedApk, signedApk, loadedKs.privateKey, loadedKs.certificate)

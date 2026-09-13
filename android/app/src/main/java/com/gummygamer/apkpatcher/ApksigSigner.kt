@@ -1,5 +1,6 @@
 package com.gummygamer.apkpatcher
 
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -47,7 +48,7 @@ object ApksigSigner {
                 val result = sign(input, output, privateKey, certificate)
                 if (!result.isSuccess) result else SignResult(output.readBytes(), null)
             } finally { input.delete(); output.delete() }
-        } catch (e: Exception) { SignResult(null, "Signing failed: ${e.message}") }
+        } catch (e: Exception) { SignResult(null, "Signing failed: ${describe(e)}") }
     }
 
     /** Sign an APK into a file without creating a whole-APK byte array. */
@@ -82,14 +83,14 @@ object ApksigSigner {
                 out.fd.sync()
             }
             SignResult(null, null)
-        } catch (e: Exception) { SignResult(null, "Signing failed: ${e.message}") }
+        } catch (e: Exception) { SignResult(null, "Signing failed: ${describe(e)}") }
     }
 
     fun verify(signedApk: ByteArray): VerifyResult {
         return try {
             val file = File.createTempFile("tftf-verify-", ".apk")
             try { file.writeBytes(signedApk); verify(file) } finally { file.delete() }
-        } catch (e: Exception) { VerifyResult(false, "Verification error: ${e.message}") }
+        } catch (e: Exception) { VerifyResult(false, "Verification error: ${describe(e)}") }
     }
 
     /** Verify both the RSA signature and the v2 content digest. */
@@ -98,12 +99,12 @@ object ApksigSigner {
             val layout = readSignedLayout(signedApk)
             val pair = findV2Pair(signedApk, layout.blockStart, layout.pairsEnd) ?: return VerifyResult(false, "No v2 signature found")
             val signer = parseSigner(pair)
-            val certificate = CertificateFactory.getInstance("X.509")
+            val certificate = certificateFactory()
                 .generateCertificate(ByteArrayInputStream(signer.certificate)) as X509Certificate
             if (signer.publicKey.isEmpty() || !signer.publicKey.contentEquals(certificate.publicKey.encoded)) {
                 return VerifyResult(false, "v2 public key does not match the signing certificate")
             }
-            val verifier = Signature.getInstance(SIGNATURE_ALGORITHM)
+            val verifier = signature()
             verifier.initVerify(certificate.publicKey)
             verifier.update(signer.signedData)
             if (!verifier.verify(signer.signature)) return VerifyResult(false, "v2 signature cryptographic verification failed")
@@ -117,7 +118,44 @@ object ApksigSigner {
             )
             if (!expected.contentEquals(signer.digest)) return VerifyResult(false, "v2 content digest does not match APK bytes")
             VerifyResult(true, "v2 signature verified (cryptographic and content digest checks)")
-        } catch (e: Exception) { VerifyResult(false, "Verification error: ${e.message}") }
+        } catch (e: Exception) { VerifyResult(false, "Verification error: ${describe(e)}") }
+    }
+
+    /**
+     * Android vendor images do not all expose the same provider services. Try the
+     * platform implementation first, then an application-owned BC instance without
+     * registering it under the potentially conflicting global name "BC".
+     */
+    private fun certificateFactory(): CertificateFactory = try {
+        CertificateFactory.getInstance("X.509")
+    } catch (first: Exception) {
+        try {
+            CertificateFactory.getInstance("X.509", BouncyCastleProvider())
+        } catch (second: Exception) {
+            first.addSuppressed(second)
+            throw first
+        }
+    }
+
+    private fun signature(): Signature = try {
+        Signature.getInstance(SIGNATURE_ALGORITHM)
+    } catch (first: Exception) {
+        try {
+            Signature.getInstance(SIGNATURE_ALGORITHM, BouncyCastleProvider())
+        } catch (second: Exception) {
+            first.addSuppressed(second)
+            throw first
+        }
+    }
+
+    private fun describe(error: Exception): String {
+        val messages = mutableListOf<String>()
+        var current: Throwable? = error
+        while (current != null) {
+            current.message?.takeIf { it.isNotBlank() }?.let { messages += it }
+            current = current.cause
+        }
+        return messages.distinct().joinToString("; ").ifBlank { error.javaClass.simpleName }
     }
 
     private data class Layout(val centralDirectoryOffset: Long, val eocdOffset: Long, val eocd: ByteArray)
@@ -200,7 +238,7 @@ object ApksigSigner {
         val digestRecord = le32(DIGEST_ALGORITHM_ID.toLong()) + lp(digest)
         return lp(lp(digestRecord)) + lp(lp(certificate)) + lp(ByteArray(0))
     }
-    private fun signData(data: ByteArray, key: PrivateKey): ByteArray = Signature.getInstance(SIGNATURE_ALGORITHM).run { initSign(key); update(data); sign() }
+    private fun signData(data: ByteArray, key: PrivateKey): ByteArray = signature().run { initSign(key); update(data); sign() }
     private fun buildSigner(signedData: ByteArray, signature: ByteArray, publicKey: ByteArray): ByteArray {
         val signatureRecord = le32(DIGEST_ALGORITHM_ID.toLong()) + lp(signature)
         // APK Signature Scheme v2 requires the signer's SubjectPublicKeyInfo

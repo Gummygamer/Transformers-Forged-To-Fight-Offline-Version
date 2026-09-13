@@ -24,7 +24,7 @@ android/
         EndpointConfigPatch.kt assets/bin/Data/e1917… patch (fixed-size)
         Il2cppPatch.kt         16-site byte patches + DT_NEEDED injection (arm64/armv7)
         ApksigSigner.kt        APK Signature Scheme v2 (file-backed)
-        KeystoreManager.kt     Portable JKS generation + PKCS12/JKS import
+        KeystoreManager.kt     Portable PKCS12 generation + PKCS12/JKS import
         PatcherEngine.kt       Pipeline orchestrator (7 steps: read→validate→hook→il2cpp→build→sign→write)
         MainActivity.kt        SAF-based patcher form and progress UI
       res/values/
@@ -62,9 +62,15 @@ export PATH=$JAVA_HOME/bin:$PATH
 
 # Run unit tests
 ./gradlew :app:testDebugUnitTest
+
+# Run provider checks on a connected Android device
+./gradlew :app:connectedDebugAndroidTest
 ```
 
 Output at `app/build/outputs/apk/debug/app-debug.apk`.
+
+The device test exercises RSA certificate generation, X.509 parsing, PKCS12
+serialization, and keystore reload using Android's actual security providers.
 
 ## Locally generated assets
 
@@ -98,7 +104,7 @@ All web GUI patcher operations run fully on-device:
 | Separate → host/port/scheme | Text fields |
 | Patched libil2cpp | SAF pick or auto-patch |
 | Auto-patch il2cpp | On by default; engine patches 16 sites + DT_NEEDED |
-| Keystore + passwords | Generated JKS or SAF-imported PKCS12/JKS |
+| Keystore + passwords | Generated PKCS12 or SAF-imported PKCS12/JKS |
 | Command preview | Step list preview |
 | Install (adb) | PackageInstaller session handoff |
 
@@ -136,8 +142,10 @@ inflated, and signing uses private temporary files.
    il2cpp offsets and will fail validation.
 3. **No v1 (JAR) signature**: Only APK Signature Scheme v2 is applied.
    Android 7.0+ (API 24+) supports v2; the app's minSdk is 26.
-4. **Signing identity**: The default RSA/JKS identity is generated once in
-   app-private no-backup storage and reused. It is not the game's original key,
-   so replacing an original installation may require uninstalling it first.
+4. **Signing identity**: The default RSA/PKCS12 identity is generated once in
+   app-private no-backup storage and reused. An older `patcher-signing.jks` is
+   imported and migrated when present so upgrades retain the same certificate.
+   It is not the game's original key, so replacing an original installation may
+   require uninstalling it first.
 5. **Build environment**: Requires a writable Android SDK directory for Gradle
    build cache and platform installation.
