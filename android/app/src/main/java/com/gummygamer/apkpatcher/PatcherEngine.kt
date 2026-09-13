@@ -2,12 +2,12 @@ package com.gummygamer.apkpatcher
 
 import android.content.Context
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.*
 import java.io.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
 import java.util.zip.CRC32
 
 /**
@@ -75,17 +75,28 @@ class PatcherEngine(context: Context) {
             checkCancelled()
             reportStep(onStep, onLog, 1, steps.size, "reading source APK")
 
-            val sourceUri = Uri.parse(request.sourceApkUri)
-            val sourceZip = openSourceZip(sourceUri)
-            val workDir = File(appContext.cacheDir, "patching").also { it.mkdirs() }
-            val unsignedFile = File.createTempFile("unsigned-", ".apk", workDir)
-            val signedFile = File.createTempFile("signed-", ".apk", workDir)
+            cleanupStaleWorkDirs()
+            val workDir = File(appContext.cacheDir, "patching/${UUID.randomUUID()}").also {
+                if (!it.mkdirs() && !it.isDirectory) throw IOException("Unable to create patch workspace")
+            }
+            var sourceZip: ZipReader? = null
+            var sourceFile: File? = null
+            var unsignedFile: File? = null
+            var signedFile: File? = null
 
             try {
+                // SAF providers may return a pipe or a descriptor that cannot be
+                // reopened through /proc/self/fd. Stage the source through the
+                // provider API so the ZIP reader always receives a real file.
+                sourceFile = stageSourceApk(Uri.parse(request.sourceApkUri), workDir, onLog)
+                sourceZip = openSourceZip(sourceFile!!)
+                unsignedFile = File.createTempFile("unsigned-", ".apk", workDir)
+                signedFile = File.createTempFile("signed-", ".apk", workDir)
+
                 // Step 2: Validate source APK contents
                 checkCancelled()
                 reportStep(onStep, onLog, 2, steps.size, "validating source APK")
-                validateApkContents(sourceZip, request)
+                validateApkContents(sourceZip!!, request)
 
                 // Step 3: Load hook library
                 checkCancelled()
@@ -95,26 +106,26 @@ class PatcherEngine(context: Context) {
                 // Step 4: Extract and/or patch libil2cpp
                 checkCancelled()
                 reportStep(onStep, onLog, 4, steps.size, "preparing patched libil2cpp")
-                val il2cppData = prepareIl2cpp(sourceZip, request, onLog)
+                val il2cppData = prepareIl2cpp(sourceZip!!, request, onLog)
 
                 // Step 5: Build patched APK
                 checkCancelled()
                 reportStep(onStep, onLog, 5, steps.size, "building patched APK")
-                buildPatchedApk(sourceZip, request, hookData, il2cppData, unsignedFile, onLog)
-                validateAndroidApkPackaging(unsignedFile)
+                buildPatchedApk(sourceZip!!, request, hookData, il2cppData, unsignedFile!!, onLog)
+                validateAndroidApkPackaging(unsignedFile!!)
 
                 // Step 6: Sign APK (v2 scheme)
                 checkCancelled()
                 reportStep(onStep, onLog, 6, steps.size, "signing APK")
-                signApk(unsignedFile, signedFile, request, onLog)
-                validateAndroidApkPackaging(signedFile)
+                signApk(unsignedFile!!, signedFile!!, request, onLog)
+                validateAndroidApkPackaging(signedFile!!)
 
                 // Step 7: Write output to temp file
                 checkCancelled()
                 reportStep(onStep, onLog, 7, steps.size, "writing signed APK")
-                val outputFile = writeTempApk(signedFile, request.outputName)
+                val outputFile = writeTempApk(signedFile!!, request.outputName)
 
-                onLog(LogLine("SUCCESS: finished signed APK (${signedFile.length()} bytes)"))
+                onLog(LogLine("SUCCESS: finished signed APK (${signedFile!!.length()} bytes)"))
                 onStep(StepProgress(PatcherState.SUCCEEDED, "done", steps.size, steps.size))
 
                 PatchOutcome.Success(
@@ -125,12 +136,12 @@ class PatcherEngine(context: Context) {
                         "tform-0901-hzlhiniyfcwf.tf-cdn.net"
                     ),
                     abi = request.abi,
-                    outputSizeBytes = signedFile.length()
+                    outputSizeBytes = signedFile!!.length()
                 )
             } finally {
-                sourceZip.close()
-                unsignedFile.delete()
-                signedFile.delete()
+                try { sourceZip?.close() } catch (_: Exception) {}
+                listOf(sourceFile, unsignedFile, signedFile).forEach { it?.delete() }
+                workDir.delete()
             }
         } catch (e: CancellationException) {
             onStep(StepProgress(PatcherState.CANCELLED, "cancelled", 0, 0))
@@ -160,11 +171,60 @@ class PatcherEngine(context: Context) {
 
     // ---- APK I/O ----
 
-    private fun openSourceZip(uri: Uri): ZipReader {
-        val fd = appContext.contentResolver.openFileDescriptor(uri, "r")
-            ?: throw IOException("Cannot open source APK: permission denied or file not found")
-        val channel = ParcelFileDescriptorChannel(fd)
-        return ZipReader.open(channel)
+    private fun openSourceZip(file: File): ZipReader {
+        if (!file.isFile || !file.canRead()) throw IOException("Prepared source APK is not readable")
+        val channel = FileSeekableByteChannel(file)
+        return try {
+            ZipReader.open(channel)
+        } catch (e: Exception) {
+            try { channel.close() } catch (_: Exception) {}
+            throw e
+        }
+    }
+
+    private fun cleanupStaleWorkDirs() {
+        val root = File(appContext.cacheDir, "patching")
+        val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+        root.listFiles()?.forEach { child ->
+            if (child.isDirectory && child.lastModified() in 1 until cutoff) {
+                child.deleteRecursively()
+            }
+        }
+    }
+
+    private fun stageSourceApk(uri: Uri, workDir: File, onLog: (LogLine) -> Unit): File {
+        val source = File(workDir, "source.apk")
+        try {
+            val input = appContext.contentResolver.openInputStream(uri)
+                ?: throw IOException("Cannot read source APK: access was denied or the document no longer exists")
+            input.use { stream ->
+                SourceApkStager.copy(stream, source, ::checkCancelled) { total ->
+                    onLog(LogLine("Preparing source APK (${total / (1024 * 1024)} MiB copied)"))
+                }
+            }
+            if (source.length() == 0L) throw IOException("Source APK is empty")
+            onLog(LogLine("Prepared source APK (${source.length()} bytes)"))
+            return source
+        } catch (e: CancellationException) {
+            source.delete()
+            throw e
+        } catch (e: IOException) {
+            source.delete()
+            val detail = e.message ?: "read failed"
+            val prefix = if (detail.contains("No space", ignoreCase = true) ||
+                detail.contains("ENOSPC", ignoreCase = true)) {
+                "Not enough storage to prepare source APK"
+            } else {
+                "Unable to prepare source APK: $detail"
+            }
+            throw IOException(prefix, e)
+        } catch (e: SecurityException) {
+            source.delete()
+            throw IOException("Unable to prepare source APK: access was denied", e)
+        } catch (e: Exception) {
+            source.delete()
+            throw IOException("Unable to prepare source APK: ${e.message ?: "read failed"}", e)
+        }
     }
 
     // ---- Validation ----
@@ -599,28 +659,38 @@ class PatcherEngine(context: Context) {
     }
 }
 
-/**
- * Bridge from Android ParcelFileDescriptor to the ZipReader's SeekableByteChannel.
- * Supports random-access reads needed for ZIP parsing.
- */
-class ParcelFileDescriptorChannel(
-    private val fd: ParcelFileDescriptor
-) : SeekableByteChannel {
-    private val raf = RandomAccessFile("/proc/self/fd/${fd.fd}", "r")
-    private val length = raf.length()
-
-    override fun size(): Long = length
-
-    override fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
-        synchronized(raf) {
-            raf.seek(position)
-            return raf.read(buffer, offset, length)
+/** Copies a provider stream to a seekable private file without buffering the APK in memory. */
+object SourceApkStager {
+    fun copy(
+        input: InputStream,
+        target: File,
+        checkCancelled: () -> Unit = {},
+        onProgress: (Long) -> Unit = {}
+    ) {
+        try {
+            var total = 0L
+            var lastReport = 0L
+            target.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    checkCancelled()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count == 0) continue
+                    output.write(buffer, 0, count)
+                    total += count
+                    if (total - lastReport >= 4L * 1024L * 1024L) {
+                        onProgress(total)
+                        lastReport = total
+                    }
+                }
+                output.flush()
+                output.fd.sync()
+            }
+        } catch (e: Exception) {
+            target.delete()
+            throw e
         }
-    }
-
-    override fun close() {
-        try { raf.close() } catch (_: Exception) {}
-        try { fd.close() } catch (_: Exception) {}
     }
 }
 

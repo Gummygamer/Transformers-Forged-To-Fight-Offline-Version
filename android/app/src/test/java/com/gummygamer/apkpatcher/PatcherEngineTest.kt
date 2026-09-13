@@ -3,9 +3,13 @@ package com.gummygamer.apkpatcher
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
 
 /**
  * Comprehensive unit and integration tests for the APK patcher engine.
@@ -17,6 +21,68 @@ import java.nio.ByteOrder
  * Revision: android/ development branch
  */
 class PatcherEngineTest {
+
+    @Test
+    fun `source stager copies provider stream to seekable file`() {
+        val dir = Files.createTempDirectory("source-stager-").toFile()
+        try {
+            val payload = ByteArray(128 * 1024) { (it % 251).toByte() }
+            val target = File(dir, "source.apk")
+            SourceApkStager.copy(ByteArrayInputStream(payload), target)
+            assertTrue(target.isFile)
+            assertArrayEquals(payload, target.readBytes())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `source stager removes partial file when cancelled`() {
+        val dir = Files.createTempDirectory("source-stager-cancel-").toFile()
+        try {
+            val target = File(dir, "source.apk")
+            try {
+                SourceApkStager.copy(
+                    ByteArrayInputStream(ByteArray(1024)), target,
+                    checkCancelled = { throw kotlinx.coroutines.CancellationException("cancelled") }
+                )
+                fail("expected cancellation")
+            } catch (_: kotlinx.coroutines.CancellationException) {
+                // expected
+            }
+            assertFalse(target.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `source stager removes partial file when provider read fails`() {
+        val dir = Files.createTempDirectory("source-stager-failure-").toFile()
+        try {
+            val target = File(dir, "source.apk")
+            val failing = object : InputStream() {
+                private var reads = 0
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (reads++ == 0) {
+                        buffer[offset] = 7
+                        return 1
+                    }
+                    throw IOException("provider disconnected")
+                }
+                override fun read(): Int = throw IOException("provider disconnected")
+            }
+            try {
+                SourceApkStager.copy(failing, target)
+                fail("expected provider failure")
+            } catch (_: IOException) {
+                // expected
+            }
+            assertFalse(target.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Metadata Patch Tests

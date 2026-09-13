@@ -124,6 +124,11 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         revalidate()
     }
 
+    /** Surface a document-provider issue while retaining a usable transient grant. */
+    fun reportInputSelectionIssue(message: String) {
+        _uiState.update { it.copy(resultMessage = message) }
+    }
+
     fun setAbi(abi: String) {
         _uiState.update {
             val autoPatch = if (abi == PatchRequest.ARMV7 && it.patchedIl2cppUri.isBlank()) true else it.autoPatchIl2cpp
