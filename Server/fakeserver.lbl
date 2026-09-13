@@ -1617,9 +1617,9 @@ function resolve_match_response(path: text, btxt: text): text
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   for position in state.positions do
-    let clears: boolean = if submitted == "" then true else position.qid == normalize_qid(submitted) end
-    set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end })
-  end
+  let clears: boolean = if submitted == "" then position.pending else position.qid == normalize_qid(submitted) end
+  set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end })
+end
   save_state(ServerState { team: state.team, positions: positions })
 end
   let peer: text = peer_key(path)

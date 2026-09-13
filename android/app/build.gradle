@@ -11,7 +11,12 @@ def keystoreProperties = new Properties()
 def hasReleaseKey = keystorePropertiesFile.exists()
 if (hasReleaseKey) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
-    hasReleaseKey = keystoreProperties.getProperty("storeFile") != null
+    // A stale properties file must not make every release build fail when the
+    // machine-local keystore was moved or is unavailable. Keep the documented
+    // unsigned-release fallback for fresh clones and CI as well as for a
+    // maintainer with missing signing material.
+    def configuredStore = keystoreProperties.getProperty("storeFile")
+    hasReleaseKey = configuredStore != null && rootProject.file(configuredStore).isFile()
 }
 
 android {
@@ -22,8 +27,8 @@ android {
         applicationId = "com.gummygamer.apkpatcher"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 4
+        versionName = "1.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

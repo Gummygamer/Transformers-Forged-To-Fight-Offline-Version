@@ -9,7 +9,7 @@
  "availableQuests":[
    {
      "id":"2.1.1",
-     "act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":1,
+     "act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,
      "friendlyName":"Bludgeon's Ambush","description":"Optimus Prime confronts Bludgeon in the city streets.",
      "category":"story","difficulty":"normal",
      "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,

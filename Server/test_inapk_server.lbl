@@ -98,9 +98,10 @@ function start_harness(base: text, harness: text, payload: text, port: integer):
   let out: text = path_join(base, "out.log")
   let err: text = path_join(base, "err.log")
   let marker: text = path_join(base, "tutorial-seen")
+  let quest_state: text = path_join(base, "quest-state")
   write_file(out, "")
   write_file(err, "")
-  let started: a mapping from text to text = shell_exec("nohup env TFTF_TUTORIAL_STATE_FILE=" ++ marker ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let started: a mapping from text to text = shell_exec("nohup env TFTF_TUTORIAL_STATE_FILE=" ++ marker ++ " TFTF_QUEST_STATE_FILE=" ++ quest_state ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
   let pid: text = trim(command_output(started))
   let deadline: integer = current_time_ms() + 10000
   mutable ready: boolean = false
@@ -283,6 +284,44 @@ function native_retry_gate_checks(base: text, port: integer): boolean
   expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and completed_revisit.status == "200" and expect("retry completed revisit", completed_revisit.body, expected_completed_revisit) and expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
 end
 
+function native_progression_restart_checks(harness: text, payload: text, port: integer): TestResult
+  intent: test
+  let base: text = "/tmp/tftf-inapk-restart-" ++ random_hex(8)
+  create_dir(base)
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  let begin_path: text = "/quests/quest-begin/2.1.1"
+  let move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
+  let begin_body: text = "\{\"tm0\":\"megatron_cin_rotf\"\}"
+  let started: HarnessStart = start_harness(base, harness, payload, port)
+  if started.error != "" then
+    stop_harness(started.pid)
+    failed(started.error)
+  else
+    let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
+    let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
+    let first: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+    let expected_first: text = fakeserver.dynamic(move_path, "\{\}")
+    let won_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}"
+    let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
+    fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
+    stop_harness(started.pid)
+    let restarted: HarnessStart = start_harness(base, harness, payload, port)
+    if restarted.error != "" then
+      stop_harness(restarted.pid)
+      shell_exec("rm -rf -- " ++ base)
+      failed(restarted.error)
+    else
+      let resumed_begin: HttpReply = request(base, port, "POST", begin_path, "\{\}", false, true)
+      let resumed: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+      stop_harness(restarted.pid)
+      shell_exec("rm -rf -- " ++ base)
+      let good: boolean = begin.status == "200" and begin.body == expected_begin and first.status == "200" and first.body == expected_first and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and resumed_begin.status == "200" and resumed.status == "200" and contains_text(resumed.body, "fte_stars_gs_t3")
+      if good then ok() else failed("completed quest position was not restored across native server restart") end
+    end
+  end
+end
+
 function normalize_profile_timestamp(body: text, key: text): text
   intent: get
   let needle: text = "\"" ++ key ++ "\":"
@@ -389,6 +428,7 @@ function test_selected_squad_session_matches_fake_server(base: text, harness: te
   intent: test
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
+  shell_exec("rm -f -- " ++ path_join(base, "quest-state"))
   let started: HarnessStart = start_harness(base, harness, payload, port)
   if started.error != "" then
     stop_harness(started.pid)
@@ -477,8 +517,9 @@ function run_suite(): nothing
     let blob: integer = export_payload.build_payload(port)
     write_file_bytes(payload, blob)
     bytes_free(blob)
-    let names: a list of text = ["test_payload_server_matches_fake_server", "test_user_profile_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
-    let results: a list of TestResult = [test_payload_server_matches_fake_server(base, harness, payload, port), test_user_profile_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
+    let restart: TestResult = native_progression_restart_checks(harness, payload, port)
+    let names: a list of text = ["test_payload_server_matches_fake_server", "test_user_profile_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_native_progression_restart_checks", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
+    let results: a list of TestResult = [test_payload_server_matches_fake_server(base, harness, payload, port), test_user_profile_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), restart, test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
     mutable failures: integer = 0
     mutable index: integer = 0
     while index < length(names) do
@@ -486,7 +527,7 @@ function run_suite(): nothing
       set index = index + 1
     end
     shell_exec("rm -rf -- " ++ base)
-    print(to_text(5 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+    print(to_text(6 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
     if failures != 0 then exit_process(1) end
   end
 end
