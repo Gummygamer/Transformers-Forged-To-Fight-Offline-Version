@@ -11,7 +11,7 @@ import java.util.zip.CRC32
  * Streaming ZIP writer for APK reconstruction.
  *
  * Writes entries in order to an OutputStream, computing CRCs for stored entries,
- * and aligning .so entries on 4-byte boundaries per zipalign -p 4 convention.
+ * and aligning uncompressed entries according to Android APK packaging rules.
  * Output is a valid ZIP with local headers, data, central directory, and EOCD.
  */
 class ZipWriter(
@@ -57,12 +57,7 @@ class ZipWriter(
         private const val DEFAULT_EXTERNAL_ATTR = 0x81B60000L
     }
 
-    /**
-     * Write a stored (uncompressed) entry to the archive.
-     *
-     * When [name] starts with "lib/" and ends with ".so", the entry data is aligned
-     * to [soAlignment] bytes by adding a padding extra-field record before the data.
-     */
+    /** Write a stored (uncompressed) entry to the archive. */
     fun writeStored(
         name: String,
         data: ByteArray,
@@ -76,11 +71,7 @@ class ZipWriter(
         internalAttr: Int = 0,
         externalAttr: Long = DEFAULT_EXTERNAL_ATTR
     ) {
-        val effectiveExtra = if (name.endsWith(".so") && name.startsWith("lib/")) {
-            alignmentPadding(name, extra)
-        } else {
-            extra
-        }
+        val effectiveExtra = alignmentPadding(name, extra, alignmentFor(name, compressType = 0))
         writeStream(
             name = name,
             input = ByteArrayInputStream(data),
@@ -120,8 +111,7 @@ class ZipWriter(
         internalAttr: Int = 0,
         externalAttr: Long = DEFAULT_EXTERNAL_ATTR
     ) {
-        val isNative = name.startsWith("lib/") && name.endsWith(".so")
-        val effectiveExtra = if (isNative && compressType == 0) alignmentPadding(name, extra) else extra
+        val effectiveExtra = alignmentPadding(name, extra, alignmentFor(name, compressType))
         writeStream(
             name = name,
             input = input,
@@ -143,25 +133,35 @@ class ZipWriter(
     }
 
     /**
-     * Compute alignment padding for a .so entry.
+     * Compute alignment padding for an uncompressed entry.
      *
      * Returns an extra-field byte array that, when placed in the local header,
-     * makes the entry data start at a [soAlignment]-byte boundary.
+     * makes the entry data start at the requested boundary.
      *
      * The minimum ZIP extra-field record is 4 bytes (2-byte ID + 2-byte size).
      * If the alignment gap is 1-3 bytes we add one full alignment unit so that the
      * extra field is always >= 4 bytes and the data offset ends up aligned.
      */
-    private fun alignmentPadding(name: String, existingExtra: ByteArray): ByteArray {
+    private fun alignmentFor(name: String, compressType: Int): Int? {
+        if (compressType != 0) return null
+        return when {
+            name == "resources.arsc" -> 4
+            name.startsWith("lib/") && name.endsWith(".so") -> soAlignment
+            else -> null
+        }
+    }
+
+    private fun alignmentPadding(name: String, existingExtra: ByteArray, alignment: Int?): ByteArray {
+        if (alignment == null) return existingExtra
         val nameBytes = name.toByteArray(Charsets.UTF_8)
         val dataStartWithoutPad = bytesWritten + LOCAL_HEADER_SIZE + nameBytes.size + existingExtra.size
-        val misalignment = (dataStartWithoutPad % soAlignment).toInt()
+        val misalignment = (dataStartWithoutPad % alignment).toInt()
         if (misalignment == 0) return existingExtra
 
         // Compute the smallest padding size >= 4 that achieves alignment.
-        var padSize = soAlignment - misalignment
+        var padSize = alignment - misalignment
         while (padSize < 4) {
-            padSize += soAlignment
+            padSize += alignment
         }
 
         val pad = extraPadding(padSize)
@@ -169,13 +169,14 @@ class ZipWriter(
     }
 
     /**
-     * Build a ZIP extra-field record with [totalSize] bytes: 2-byte ID (zero),
-     * 2-byte length, and the remaining bytes zero-filled.
+     * Build a ZIP alignment padding extra-field record with [totalSize] bytes.
+     * The 0xffff ID is reserved for padding by Android's zipalign tooling;
+     * it is followed by a two-byte payload length and zero-filled payload.
      */
     private fun extraPadding(totalSize: Int): ByteArray {
         val dataSize = totalSize - 4
         val buf = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
-        buf.putShort(0)
+        buf.putShort(0xffff.toShort())
         buf.putShort(dataSize.toShort())
         for (i in 0 until dataSize) buf.put(0)
         return buf.array()

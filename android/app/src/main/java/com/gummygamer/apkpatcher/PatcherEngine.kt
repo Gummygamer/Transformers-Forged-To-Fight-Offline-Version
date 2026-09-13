@@ -35,6 +35,7 @@ class PatcherEngine(context: Context) {
         const val SPARX_MANIFEST_NAME = "res/raw/sparxmanifest"
         const val ENDPOINT_CONFIG_NAME = "assets/bin/Data/e1917cd7a6bdb4492a247b8f758df2ae"
         const val PAYLOAD_ASSET = "assets/tftf_offline_payload.bin"
+        const val RESOURCES_NAME = "resources.arsc"
     }
 
     /** Cancel any in-progress patch. Idempotent. */
@@ -100,11 +101,13 @@ class PatcherEngine(context: Context) {
                 checkCancelled()
                 reportStep(onStep, onLog, 5, steps.size, "building patched APK")
                 buildPatchedApk(sourceZip, request, hookData, il2cppData, unsignedFile, onLog)
+                validateAndroidApkPackaging(unsignedFile)
 
                 // Step 6: Sign APK (v2 scheme)
                 checkCancelled()
                 reportStep(onStep, onLog, 6, steps.size, "signing APK")
                 signApk(unsignedFile, signedFile, request, onLog)
+                validateAndroidApkPackaging(signedFile)
 
                 // Step 7: Write output to temp file
                 checkCancelled()
@@ -169,6 +172,7 @@ class PatcherEngine(context: Context) {
     private fun validateApkContents(zip: ZipReader, request: PatchRequest) {
         val requiredEntries = listOf(
             "AndroidManifest.xml",
+            RESOURCES_NAME,
             METADATA_NAME,
             SPARX_MANIFEST_NAME,
             ENDPOINT_CONFIG_NAME,
@@ -339,8 +343,9 @@ class PatcherEngine(context: Context) {
                 }
                 else -> {
                     val native = entry.name.startsWith("lib/") && entry.name.endsWith(".so")
-                    val outputType = if (native) 0 else entry.compressType
-                    sourceZip.openEntryStream(i, inflate = native).use { input ->
+                    val resourceTable = entry.name == RESOURCES_NAME
+                    val outputType = if (native || resourceTable) 0 else entry.compressType
+                    sourceZip.openEntryStream(i, inflate = native || resourceTable).use { input ->
                         writer.writeRaw(
                             name = entry.name, input = input, compressType = outputType,
                             crc = entry.crc,
@@ -465,6 +470,29 @@ class PatcherEngine(context: Context) {
 
     }
 
+    /**
+     * Android 11+ rejects APKs targeting API 30 or newer when resources.arsc is
+     * compressed or its local-entry data is not four-byte aligned. Check the
+     * actual artifact after each ZIP/signing stage so export cannot report an
+     * APK that PackageInstaller will reject.
+     */
+    private fun validateAndroidApkPackaging(apk: File) {
+        val reader = ZipReader.open(FileSeekableByteChannel(apk))
+        try {
+            val index = reader.find(RESOURCES_NAME)
+            if (index < 0) throw IOException("APK is missing required entry: $RESOURCES_NAME")
+            val entry = reader.entries[index]
+            if (entry.compressType != 0) {
+                throw IOException("$RESOURCES_NAME must be stored uncompressed (compression method ${entry.compressType})")
+            }
+            if (entry.dataOffset % 4L != 0L) {
+                throw IOException("$RESOURCES_NAME data is not 4-byte aligned (offset ${entry.dataOffset})")
+            }
+        } finally {
+            reader.close()
+        }
+    }
+
     // ---- Output ----
 
     private fun writeTempApk(signedApk: File, outputName: String): File {
@@ -581,5 +609,25 @@ class ParcelFileDescriptorChannel(
     override fun close() {
         try { raf.close() } catch (_: Exception) {}
         try { fd.close() } catch (_: Exception) {}
+    }
+}
+
+/** File-backed channel used for post-build ZIP layout validation. */
+class FileSeekableByteChannel(
+    file: File
+) : SeekableByteChannel {
+    private val raf = RandomAccessFile(file, "r")
+
+    override fun size(): Long = raf.length()
+
+    override fun read(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
+        synchronized(raf) {
+            raf.seek(position)
+            return raf.read(buffer, offset, length)
+        }
+    }
+
+    override fun close() {
+        raf.close()
     }
 }
