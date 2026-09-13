@@ -1155,7 +1155,11 @@ end
   let initial: Json = build_quest_progression(qid, next_x, next_y, team)
   let with_cleared: Json = jsonout.obj_set(initial, "cleared", jsonout.json_list([vec2(start_x, start_y)]))
   let progression: Json = jsonout.obj_set(with_cleared, "revealed", revealed_tiles_for(qid))
-  let final_progression: Json = if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) then
+  -- A cleared node must not advertise a second active battle through the
+  -- progression fields. The action list above already suppresses the battle
+  -- action for this case; keeping currentBattleId/currentBattleState here
+  -- makes QuestFlow reopen the defeated encounter when it refreshes the map.
+  let final_progression: Json = if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) and not (completed and next_x == start_x and next_y == start_y) then
   let encounter: QuestEncounter = quest_encounter_for(qid, next_x)
   let with_id: Json = jsonout.obj_set(progression, "currentBattleId", jsonout.json_text(encounter.key))
   let with_pos: Json = jsonout.obj_set(with_id, "currentBattlePos", vec2(next_x, next_y))

@@ -65,13 +65,15 @@ end
 
 function current_battle_id(body: text): text
   intent: get
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "currentBattleId"))
+  let progression: Json = jsonout.obj_get(result(body), "progression")
+  if jsonout.obj_has(progression, "currentBattleId") then jsonout.as_text(jsonout.obj_get(progression, "currentBattleId")) else "" end
 end
 
 function current_battle_state(body: text): text
   intent: get
   let users: Json = jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "users")
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "currentBattleState"))
+  let user: Json = jsonout.obj_get(users, gamedata.local_uid())
+  if jsonout.obj_has(user, "currentBattleState") then jsonout.as_text(jsonout.obj_get(user, "currentBattleState")) else "" end
 end
 
 function pos_x(body: text): integer
@@ -307,7 +309,7 @@ function test_completed_node_does_not_replay_on_zero_offset_or_rebegin(): boolea
   fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
   let after_rebegin: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/0/0", "")
   let starscream: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
-  length(jsonout.list_items(jsonout.obj_get(result(revisit), "results"))) == 1 and length(jsonout.list_items(jsonout.obj_get(result(after_rebegin), "results"))) == 1 and pos_x(starscream) == 2 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle(starscream), "battleEnemy"), "key")) == "fte_stars_gs_t3"
+  length(jsonout.list_items(jsonout.obj_get(result(revisit), "results"))) == 1 and length(jsonout.list_items(jsonout.obj_get(result(after_rebegin), "results"))) == 1 and current_battle_id(revisit) == "" and current_battle_state(revisit) == "" and current_battle_id(after_rebegin) == "" and current_battle_state(after_rebegin) == "" and pos_x(starscream) == 2 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle(starscream), "battleEnemy"), "key")) == "fte_stars_gs_t3"
 end
 
 function test_quit_and_empty_keep_pending(): boolean
