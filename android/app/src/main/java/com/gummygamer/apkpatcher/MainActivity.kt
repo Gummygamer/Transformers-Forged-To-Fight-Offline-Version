@@ -90,12 +90,9 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            // Take persistent read permission
-            contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
             val name = queryDisplayName(uri) ?: "unknown.apk"
             viewModel.setSourceApk(uri.toString(), name)
+            persistReadPermission(uri, "source APK")
         }
     }
 
@@ -103,11 +100,9 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
             val name = queryDisplayName(uri) ?: "libil2cpp.so"
             viewModel.setPatchedIl2cpp(uri.toString(), name)
+            persistReadPermission(uri, "patched libil2cpp")
         }
     }
 
@@ -115,11 +110,9 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
             val name = queryDisplayName(uri) ?: "keystore.jks"
             viewModel.setKeystore(uri.toString(), name)
+            persistReadPermission(uri, "keystore")
         }
     }
 
@@ -445,12 +438,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun queryDisplayName(uri: Uri): String? {
         var name: String? = null
-        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0) name = cursor.getString(idx)
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) name = cursor.getString(idx)
+                }
             }
+        } catch (_: SecurityException) {
+            // The build will report a precise access error if the provider cannot be read.
+        } catch (_: IllegalArgumentException) {
+            // Some providers reject metadata queries while still allowing stream reads.
         }
         return name
+    }
+
+    private fun persistReadPermission(uri: Uri, description: String) {
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: SecurityException) {
+            viewModel.reportInputSelectionIssue(
+                "The selected $description can be used for this build, but its access could not be saved. Re-select it if a later build cannot read it."
+            )
+        } catch (_: IllegalArgumentException) {
+            viewModel.reportInputSelectionIssue(
+                "The selected $description provider does not support persistent access. Re-select it if a later build cannot read it."
+            )
+        }
     }
 }
