@@ -176,7 +176,7 @@ function quest_begin_template(qid: text, set_id: text): text
   replace_exact(with_lead, quest, "%QTEAM%", 2, "quest-begin " ++ qid ++ " team")
 end
 
-function move_body(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+function move_body_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text
   intent: build
   mutable actual_dx: integer = dx
   mutable actual_dy: integer = dy
@@ -186,19 +186,33 @@ function move_body(qid: text, sx: integer, sy: integer, dx: integer, dy: integer
     set actual_dx = 0
     set actual_dy = 0
   end
+  if completed then
+  envelope(gamedata.build_quest_movedir_completed(qid, actual_dx, actual_dy, sx, sy, []))
+else
   envelope(gamedata.build_quest_movedir(qid, actual_dx, actual_dy, sx, sy, []))
 end
+end
 
-function movedir_template(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+function movedir_template_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text
   intent: build
   let values: a list of text = team_values(qid, [])
   let active: text = unwrap_or(get(values, 1), "")
   let quest: text = unwrap_or(get(values, 2), "")
   let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
-  let body: text = move_body(qid, sx, sy, dx, dy)
+  let body: text = move_body_state(qid, sx, sy, dx, dy, completed)
   let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
   let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
   replace_exact(with_quest, active, "%ATEAM%", 1, "movedir " ++ qid ++ " active team")
+end
+
+function movedir_template(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: build
+  movedir_template_state(qid, sx, sy, dx, dy, false)
+end
+
+function movedir_completed_template(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: build
+  movedir_template_state(qid, sx, sy, dx, dy, true)
 end
 
 function saved_team_template(): text
@@ -268,6 +282,7 @@ function add_quests(entries: Entries): Entries
         let ny: integer = path_col + dy
         if nx >= 0 and nx < dim and ny == path_col then set legal = append(legal, to_text(sx) ++ " " ++ to_text(path_col) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
         set output = add(output, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, path_col, dx, dy))
+        if dx == 0 and dy == 0 then set output = add(output, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":0:0", movedir_completed_template(qid, sx, path_col, 0, 0)) end
       end
       set sx = sx + 1
     end
@@ -481,10 +496,10 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9726 then fail("payload entry count is not 9726: " ++ to_text(length(keys))) end
+  if length(keys) != 9774 then fail("payload entry count is not 9774: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
-  if total != 4963008 then fail("payload total size is not 4963008: " ++ to_text(total)) end
+  if total != 5003988 then fail("payload total size is not 5003988: " ++ to_text(total)) end
   let blob: integer = bytes_new(total)
   let prefix_offset: integer = 64 + 16 * length(keys)
   let values_offset: integer = prefix_offset + 16 * length(pref.keys)

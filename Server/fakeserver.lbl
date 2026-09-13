@@ -12,6 +12,7 @@ record Position
   x: integer
   y: integer
   pending: boolean
+  completed: boolean
 end
 
 record ServerState
@@ -196,8 +197,9 @@ else if kind == "Q" then
   let x: integer = unwrap_or(to_integer(unwrap_or(get(fields, 2), "0")), 0)
   let y: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "1")), 1)
   let pending: boolean = unwrap_or(get(fields, 5), "0") == "1"
+  let completed: boolean = unwrap_or(get(fields, 6), "0") == "1"
   if qid != "" then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed })
 end
 end
   end
@@ -210,7 +212,7 @@ function save_state(state: ServerState): nothing
   create_dir(log_dir())
   mutable lines: a list of text = ["S|" ++ join(state.team, ",")]
   for position in state.positions do
-    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y) ++ "|1|" ++ if position.pending then "1" else "0" end)
+    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y) ++ "|1|" ++ if position.pending then "1" else "0" end ++ "|" ++ if position.completed then "1" else "0" end)
   end
   write_file(state_file(), join(lines, "\n"))
 end
@@ -246,24 +248,24 @@ function position_for(qid: text): Position
   return position
 end
   end
-  Position { qid: qid, x: 0, y: 1, pending: false }
+  Position { qid: qid, x: 0, y: 1, pending: false, completed: false }
 end
 
-function set_position(qid: text, x: integer, y: integer, pending: boolean): nothing
+function set_position(qid: text, x: integer, y: integer, pending: boolean, completed: boolean): nothing
   intent: save
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   mutable replaced: boolean = false
   for position in state.positions do
     if position.qid == qid then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed })
   set replaced = true
 else
   set positions = append(positions, position)
 end
   end
   if not replaced then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed })
 end
   save_state(ServerState { team: state.team, positions: positions })
 end
@@ -1563,7 +1565,9 @@ end
   if length(posted) > 0 then
   set_saved_team(posted)
 end
-  set_position(qid, gamedata.quest_start_x_for(qid), gamedata.quest_start_y_for(qid), false)
+  let previous: Position = position_for(qid)
+  let preserve_completion: boolean = previous.completed
+  set_position(qid, if preserve_completion then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_completion then previous.y else gamedata.quest_start_y_for(qid) end, false, preserve_completion)
   let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.custom_story_team() else get_saved_team() end
   if length(posted) == 0 and qid == gamedata.custom_story_qid() then set_saved_team(team) end
   spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team))
@@ -1579,6 +1583,7 @@ function movedir_response(p: text): text
   set offy = 0
   end
   let start: Position = position_for(qid)
+  let requested_zero_offset: boolean = offx == 0 and offy == 0
   if start.pending then
   set offx = 0
   set offy = 0
@@ -1586,14 +1591,20 @@ function movedir_response(p: text): text
   let candidate_x: integer = start.x + offx
   let candidate_y: integer = start.y + offy
   if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and candidate_y == gamedata.quest_path_col_for(qid) then
-  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_for(qid, candidate_x))
+  let revisiting_completed: boolean = start.completed and candidate_x == start.x and candidate_y == start.y
+  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_for(qid, candidate_x) and not revisiting_completed, revisiting_completed)
   else
     set offx = 0
     set offy = 0
   end
   end
   let team: a list of text = get_saved_team()
-  spaced_envelope(gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team))
+  let progression: Json = if start.completed and requested_zero_offset then
+  gamedata.build_quest_movedir_completed(qid, offx, offy, start.x, start.y, team)
+else
+  gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team)
+end
+  spaced_envelope(progression)
 end
 
 function resolve_match_response(path: text, btxt: text): text
@@ -1607,7 +1618,7 @@ function resolve_match_response(path: text, btxt: text): text
   mutable positions: a list of Position = []
   for position in state.positions do
     let clears: boolean = if submitted == "" then true else position.qid == normalize_qid(submitted) end
-    set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end })
+    set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end })
   end
   save_state(ServerState { team: state.team, positions: positions })
 end

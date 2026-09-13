@@ -256,6 +256,21 @@ function test_nested_won_with_board_qid_advances(): boolean
   reply == "" and pos_x(moved) == 2
 end
 
+function test_completed_node_does_not_replay_on_zero_offset_or_rebegin(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
+  resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
+  let revisit: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/0/0", "")
+  fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
+  let after_rebegin: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/0/0", "")
+  let starscream: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
+  length(jsonout.list_items(jsonout.obj_get(result(revisit), "results"))) == 1 and length(jsonout.list_items(jsonout.obj_get(result(after_rebegin), "results"))) == 1 and pos_x(starscream) == 2 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle(starscream), "battleEnemy"), "key")) == "fte_stars_gs_t3"
+end
+
 function test_quit_and_empty_keep_pending(): boolean
   intent: test
   fakeserver.reset_saved_team()
@@ -392,6 +407,7 @@ function main(): nothing
   set failed = failed + report("test_movedir_walks_full_board_after_wins", test_movedir_walks_full_board_after_wins())
   set failed = failed + report("test_lost_replays_pending_battle", test_lost_replays_pending_battle())
   set failed = failed + report("test_nested_won_with_board_qid_advances", test_nested_won_with_board_qid_advances())
+  set failed = failed + report("test_completed_node_does_not_replay_on_zero_offset_or_rebegin", test_completed_node_does_not_replay_on_zero_offset_or_rebegin())
   set failed = failed + report("test_quit_and_empty_keep_pending", test_quit_and_empty_keep_pending())
   set failed = failed + report("test_qidless_won_clears_only_pending_quest", test_qidless_won_clears_only_pending_quest())
   set failed = failed + report("test_plain_and_board_qids_normalize", test_plain_and_board_qids_normalize())
@@ -404,7 +420,7 @@ function main(): nothing
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(24 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(25 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

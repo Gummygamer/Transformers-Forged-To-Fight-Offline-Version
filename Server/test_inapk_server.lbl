@@ -271,13 +271,16 @@ function native_retry_gate_checks(base: text, port: integer): boolean
   let expected_replay: text = fakeserver.dynamic(move_path, "\{\}")
   let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
   fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
+  let completed_revisit_path: text = "/quests/quest-movedir/1.1.1-0/0/0"
+  let completed_revisit: HttpReply = request(base, port, "POST", completed_revisit_path, "\{\}", false, true)
+  let expected_completed_revisit: text = fakeserver.dynamic(completed_revisit_path, "\{\}")
   let advanced: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
   let expected_advanced: text = fakeserver.dynamic(move_path, "\{\}")
   let missing: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", "\{\}", false, true)
   fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\}")
   let held: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
   let expected_held: text = fakeserver.dynamic(move_path, "\{\}")
-  expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
+  expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and completed_revisit.status == "200" and expect("retry completed revisit", completed_revisit.body, expected_completed_revisit) and expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
 end
 
 function normalize_profile_timestamp(body: text, key: text): text
