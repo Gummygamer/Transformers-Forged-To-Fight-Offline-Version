@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Release signing material is machine-local and never committed. See BUILD.md
+// "Release signing". Without keystore.properties the release variant simply
+// stays unsigned, so a fresh clone still configures successfully.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKey = keystorePropertiesFile.exists()
+if (hasReleaseKey) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+    hasReleaseKey = keystoreProperties.getProperty("storeFile") != null
+}
+
 android {
     namespace = "com.gummygamer.apkpatcher"
     compileSdk = 35
@@ -11,15 +22,40 @@ android {
         applicationId = "com.gummygamer.apkpatcher"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(keystoreProperties.getProperty("storeFile"))
+                storeType keystoreProperties.getProperty("storeType", "PKCS12")
+                storePassword keystoreProperties.getProperty("storePassword")
+                keyAlias keystoreProperties.getProperty("keyAlias")
+                keyPassword keystoreProperties.getProperty(
+                    "keyPassword", keystoreProperties.getProperty("storePassword"))
+                // Distributable identity: v2 for all supported devices, v3 so
+                // Android 9+ can rotate the key later without breaking upgrades.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
         release {
-            minifyEnabled = false
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            minifyEnabled = false
         }
     }
 

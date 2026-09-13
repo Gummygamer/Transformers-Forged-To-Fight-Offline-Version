@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon foreground: a patch/wrench glyph inside the safe zone.
+     The outer 18dp ring of a 108dp adaptive canvas is cropped by the mask, so all
+     strokes stay within 18..90. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Hexagonal bolt head: the thing this app bolts into the game APK. -->
+    <path
+        android:fillColor="#A5D6A7"
+        android:pathData="M54,26L78,40L78,68L54,82L30,68L30,40Z" />
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M54,33L72,43.5L72,64.5L54,75L36,64.5L36,43.5Z" />
+    <!-- Downward arrow: patch applied. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50,40L58,40L58,54L66,54L54,68L42,54L50,54Z" />
+</vector>

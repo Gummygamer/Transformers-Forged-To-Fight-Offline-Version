@@ -72,6 +72,60 @@ Output at `app/build/outputs/apk/debug/app-debug.apk`.
 The device test exercises RSA certificate generation, X.509 parsing, PKCS12
 serialization, and keystore reload using Android's actual security providers.
 
+## Release signing
+
+Distribution builds are signed with a long-lived, machine-local identity. Nothing
+about it is committed.
+
+| Item | Location | Mode |
+|---|---|---|
+| Keystore | `~/.android-keys/tftf-apk-patcher-release.pkcs12` | `600` (parent `700`) |
+| Credentials | `android/keystore.properties` | `600`, gitignored |
+
+`keystore.properties` keys: `storeFile`, `storeType`, `storePassword`, `keyAlias`,
+`keyPassword`. `app/build.gradle` reads it defensively: if the file is absent the
+release variant is simply left **unsigned**, so a fresh clone still configures and
+builds without a key.
+
+Signing config is v1 off, **v2 + v3 on**. v3 lets Android 9+ rotate the key later
+without breaking upgrades for existing installs.
+
+Create an identity (once, per maintainer):
+
+```bash
+keytool -genkeypair -keystore ~/.android-keys/tftf-apk-patcher-release.pkcs12 \
+  -storetype PKCS12 -storepass "$PW" -keyalg RSA -keysize 2048 -validity 10950 \
+  -alias tftfapkpatcher \
+  -dname "CN=TFTF APK Patcher, OU=Offline Mod Tooling, O=Gummygamer, L=Internet, C=US"
+```
+
+> **Back the keystore up off-machine.** If it is lost, no future build installs as
+> an update: every user must uninstall first, which also discards the on-device
+> signing identity the patcher generated for their patched games.
+
+Build and verify a distributable APK:
+
+```bash
+./gradlew :app:assembleRelease
+$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs --verbose \
+  app/build/outputs/apk/release/app-release.apk
+$ANDROID_HOME/build-tools/35.0.0/zipalign -c -P 16 -v 4 \
+  app/build/outputs/apk/release/app-release.apk
+```
+
+Release uses R8 (`minifyEnabled` + `shrinkResources`). **Archive
+`app/build/outputs/mapping/release/mapping.txt` with every published build** or
+crash traces cannot be deobfuscated. `proguard-rules.pro` keeps the manifest
+components, the view-binding classes, and all of `org.bouncycastle.**`; the app
+instantiates its own `BouncyCastleProvider`, so letting R8 strip or rename those
+classes breaks on-device keystore generation and v2 signing of patched output.
+
+`:app:connectedDebugAndroidTest` installs the **debug** variant, so it fails with
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE` whenever a release-signed build is already on
+the device. `adb uninstall com.gummygamer.apkpatcher` first. The symptom is a
+report claiming failing tests while the XML reads `tests="0"`; the real cause is
+in `app/build/outputs/androidTest-results/connected/debug/*/test-result.textproto`.
+
 ## Locally generated assets
 
 Run `./tools/prepare-assets.sh <port>` from `android/` before a bundled build.
