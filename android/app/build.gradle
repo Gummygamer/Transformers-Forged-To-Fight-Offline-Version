@@ -88,6 +88,24 @@ android {
     }
 }
 
+// A release APK contains generated native hooks and the bundled response
+// payload.  They are intentionally ignored by Git, so a clean checkout (and
+// an automated release worker) must regenerate them as part of the release
+// build instead of accidentally packaging whatever happened to be left in the
+// workspace.  The script also validates the payload port and rebuilds hooks
+// whose sources changed.
+def prepareReleaseAssets = tasks.register("prepareReleaseAssets", Exec) {
+    workingDir(rootProject.projectDir)
+    environment("TFTF_FORCE_ASSETS", "1")
+    commandLine("bash", rootProject.file("tools/prepare-assets.sh").absolutePath, "8080")
+}
+
+// AGP creates the variant lifecycle task lazily, after this script is
+// evaluated, so attach the dependency when that task appears.
+tasks.whenTaskAdded { task ->
+    if (task.name == "preReleaseBuild") task.dependsOn(prepareReleaseAssets)
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
