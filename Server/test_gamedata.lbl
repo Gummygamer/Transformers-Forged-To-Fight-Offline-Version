@@ -548,11 +548,13 @@ function test_custom_story_dialogue_factions_match_their_speakers(): boolean
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 0), jsonout.json_obj([])), "character"))) == "autobot"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 1), jsonout.json_obj([])), "character"))) == "autobot"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 2), jsonout.json_obj([])), "character"))) == "autobot"
-  -- custom_ironhide_defeated: Optimus (autobot)
+  -- custom_ironhide_defeated: Optimus (autobot), Marissa (autobot)
   let defeated_stars: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_ironhide_defeated"))
-  set passed = passed and length(defeated_stars) == 1
+  set passed = passed and length(defeated_stars) == 2
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 0), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and dialogue_entry_matches(defeated_stars, 0, "optimusprime_cin_tf", "left", "Ironhide's stubbornness was never in question, but his spark still burns Autobot. Whatever pushed him to this, it won't be the last challenge we face.")
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and dialogue_entry_matches(defeated_stars, 0, "optimusprime_cin_tf", "left", "Ironhide is dead.")
+  set passed = passed and dialogue_entry_matches(defeated_stars, 1, "fte_marissa_t1", "left", "Great, excellent progress. We will definitely find out what planet we are on--it's certainly an unknown world, but I sense it's packed with Energon energy. And we will surely figure out which dimension or world these guys came from")
   passed
 end
 function test_custom_story_has_independent_identity_and_compact_map(): boolean
