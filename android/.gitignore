@@ -5,3 +5,7 @@ app/src/main/assets/*.bin
 /.scratch/
 *.keystore
 *.jks
+
+# Machine-local Android SDK path, written by the Gradle plugin. Each developer
+# points this at their own SDK install; see BUILD.md for the SDK requirements.
+local.properties
