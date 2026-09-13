@@ -169,6 +169,29 @@ function test_custom_story_routes_preserve_selected_team_and_keep_template_state
   jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["megatron_cin_rotf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["megatron_cin_rotf"] and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
 end
 
+function test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry(): boolean
+  intent: test
+  let selected: a list of text = ["megatron_cin_rotf", "grimlock_gs_mp08"]
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
+  let empty_fallback_ok: boolean = fakeserver.get_saved_team() == gamedata.default_team()
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/bcg/setSavedTeam", "\{\"teamID\":\"0\",\"heroes\":[\"megatron_cin_rotf\",\"grimlock_gs_mp08\"]\}")
+  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\"\}"))
+  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "2.1.1")
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
+  let user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
+  let moved: Json = result(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
+  let moved_team: Json = jsonout.obj_get(moved, "teamData")
+  let reentered: Json = result(fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}"))
+  let reentered_active: Json = jsonout.obj_get(jsonout.obj_get(reentered, "activeQuests"), "2.1.1")
+  let reentered_instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(reentered_active, "instances")), 0), jsonout.json_obj([]))
+  let reentered_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(reentered_instance, "progression"), "users"), gamedata.local_uid())
+  empty_fallback_ok and fakeserver.get_saved_team() == selected and object_keys(jsonout.obj_get(user, "team")) == selected and object_keys(jsonout.obj_get(moved_team, "heroes")) == selected and object_keys(jsonout.obj_get(reentered_user, "team")) == selected
+end
+
 function test_quest_active_does_not_preload_custom_story(): boolean
   intent: test
   fakeserver.reset_tutorial_login()
@@ -402,6 +425,7 @@ function main(): nothing
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
+  set failed = failed + report("test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry", test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
   set failed = failed + report("test_quest_list_slots_fit_client_summary_tables", test_quest_list_slots_fit_client_summary_tables())
@@ -421,7 +445,7 @@ function main(): nothing
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(25 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(26 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
