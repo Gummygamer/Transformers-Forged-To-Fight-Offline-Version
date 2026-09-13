@@ -1,7 +1,6 @@
 package com.gummygamer.apkpatcher
 
 import org.bouncycastle.asn1.x500.X500Name
-import org.bouncycastle.cert.X509CertificateHolder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -13,7 +12,6 @@ import java.math.BigInteger
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
-import java.security.Security
 import java.security.SecureRandom
 import java.security.cert.Certificate
 import java.security.cert.X509Certificate
@@ -27,9 +25,8 @@ object KeystoreManager {
     private const val KEY_SIZE = 2048
     private const val VALIDITY_DAYS = 36500L
 
-    /** Generate a JKS using only APIs and Bouncy Castle classes available on Android. */
+    /** Generate a PKCS12 identity without relying on Android's provider named "BC". */
     fun generateKeystore(password: CharArray, alias: String = DEFAULT_ALIAS): GeneratedKeystore {
-        ensureProvider()
         val keyGen = KeyPairGenerator.getInstance("RSA")
         keyGen.initialize(KEY_SIZE, SecureRandom())
         val keyPair = keyGen.generateKeyPair()
@@ -39,10 +36,16 @@ object KeystoreManager {
         val builder = JcaX509v3CertificateBuilder(
             subject, BigInteger.valueOf(now.time).abs(), now, expiry, subject, keyPair.public
         )
-        val signer = JcaContentSignerBuilder("SHA256withRSA").build(keyPair.private)
-        val cert = JcaX509CertificateConverter().setProvider("BC")
+        // Use an application-owned provider instance. Some Android releases expose a
+        // provider named BC whose X.509 implementation is incomplete or incompatible
+        // with the Bouncy Castle PKIX classes bundled by this app.
+        val provider = BouncyCastleProvider()
+        val signer = JcaContentSignerBuilder("SHA256withRSA")
+            .setProvider(provider)
+            .build(keyPair.private)
+        val cert = JcaX509CertificateConverter().setProvider(provider)
             .getCertificate(builder.build(signer))
-        val ks = KeyStore.getInstance("JKS")
+        val ks = KeyStore.getInstance("PKCS12")
         ks.load(null, password)
         ks.setKeyEntry(alias, keyPair.private, password, arrayOf<Certificate>(cert))
         val bytes = ByteArrayOutputStream().also { ks.store(it, password) }.toByteArray()
@@ -60,21 +63,34 @@ object KeystoreManager {
         alias: String = DEFAULT_ALIAS,
         keyPassword: CharArray = password
     ): LoadedKeystore? =
-        tryLoad(keystoreBytes, password, keyPassword, alias, "JKS") ?:
-            tryLoad(keystoreBytes, password, keyPassword, alias, "PKCS12")
+        tryLoad(keystoreBytes, password, keyPassword, alias, "PKCS12") ?:
+            tryLoad(keystoreBytes, password, keyPassword, alias, "JKS")
 
     /** Keep the generated identity stable so repeated patches can update an installed APK. */
     fun loadOrCreateDefault(storage: File, alias: String = DEFAULT_ALIAS): LoadedKeystore {
         val password = DEFAULT_PASSWORD.toCharArray()
         if (storage.isFile) {
             loadKeystore(storage.readBytes(), password, alias)?.let { return it }
-            throw IllegalStateException("The app signing identity is unreadable; remove it from app storage and retry")
+            throw IllegalStateException("The app signing identity could not be read; check its format and password")
+        }
+        // Versions before the provider fix generated a JKS at this location. Load it
+        // first so upgrading the patcher never silently changes the signing identity.
+        val legacy = File(storage.parentFile, "patcher-signing.jks")
+        if (legacy.isFile) {
+            val loaded = loadKeystore(legacy.readBytes(), password, alias)
+                ?: throw IllegalStateException("The legacy app signing identity could not be read")
+            writePkcs12(storage, password, loaded)
+            return loaded
         }
         storage.parentFile?.mkdirs()
         val generated = generateKeystore(password, alias)
         val part = File(storage.parentFile, "${storage.name}.part")
         try {
-            part.outputStream().use { it.write(generated.jksBytes); it.flush() }
+            part.outputStream().use { out ->
+                out.write(generated.keystoreBytes)
+                out.flush()
+                out.fd.sync()
+            }
             if (!part.renameTo(storage)) throw IllegalStateException("Unable to save the app signing identity")
         } finally { part.delete() }
         return LoadedKeystore(generated.privateKey, generated.certificate, generated.alias)
@@ -95,10 +111,18 @@ object KeystoreManager {
         LoadedKeystore(key, cert, effective)
     } catch (_: Exception) { null }
 
-    private fun ensureProvider() {
-        if (Security.getProvider("BC") == null) Security.addProvider(BouncyCastleProvider())
+    private fun writePkcs12(storage: File, password: CharArray, loaded: LoadedKeystore) {
+        storage.parentFile?.mkdirs()
+        val ks = KeyStore.getInstance("PKCS12")
+        ks.load(null, password)
+        ks.setKeyEntry(loaded.alias, loaded.privateKey, password, arrayOf<Certificate>(loaded.certificate))
+        val part = File(storage.parentFile, "${storage.name}.part")
+        try {
+            part.outputStream().use { out -> ks.store(out, password); out.flush(); out.fd.sync() }
+            if (!part.renameTo(storage)) throw IllegalStateException("Unable to save the app signing identity")
+        } finally { part.delete() }
     }
 
-    data class GeneratedKeystore(val jksBytes: ByteArray, val privateKey: PrivateKey, val certificate: X509Certificate, val alias: String)
+    data class GeneratedKeystore(val keystoreBytes: ByteArray, val privateKey: PrivateKey, val certificate: X509Certificate, val alias: String)
     data class LoadedKeystore(val privateKey: PrivateKey, val certificate: X509Certificate, val alias: String)
 }

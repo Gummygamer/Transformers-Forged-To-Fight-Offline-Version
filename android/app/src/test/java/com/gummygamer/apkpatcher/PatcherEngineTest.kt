@@ -764,14 +764,14 @@ class PatcherEngineTest {
         val password = "testpass".toCharArray()
         val generated = KeystoreManager.generateKeystore(password, "testalias")
 
-        assertNotNull(generated.jksBytes)
-        assertTrue(generated.jksBytes.isNotEmpty())
+        assertNotNull(generated.keystoreBytes)
+        assertTrue(generated.keystoreBytes.isNotEmpty())
         assertNotNull(generated.privateKey)
         assertNotNull(generated.certificate)
         assertEquals("testalias", generated.alias)
 
         // Load it back
-        val loaded = KeystoreManager.loadKeystore(generated.jksBytes, password, "testalias")
+        val loaded = KeystoreManager.loadKeystore(generated.keystoreBytes, password, "testalias")
         assertNotNull("should load generated keystore", loaded)
         assertEquals("testalias", loaded!!.alias)
     }
@@ -779,7 +779,7 @@ class PatcherEngineTest {
     @Test
     fun `keystore manager fails with wrong password`() {
         val generated = KeystoreManager.generateKeystore("correct".toCharArray())
-        val loaded = KeystoreManager.loadKeystore(generated.jksBytes, "wrong".toCharArray())
+        val loaded = KeystoreManager.loadKeystore(generated.keystoreBytes, "wrong".toCharArray())
         assertNull("should fail with wrong password", loaded)
     }
 
@@ -796,12 +796,50 @@ class PatcherEngineTest {
     }
 
     @Test
+    fun `keystore manager generates a PKCS12 store`() {
+        val password = "test".toCharArray()
+        val generated = KeystoreManager.generateKeystore(password, "pkcs12")
+        val store = java.security.KeyStore.getInstance("PKCS12")
+        store.load(java.io.ByteArrayInputStream(generated.keystoreBytes), password)
+        assertTrue(store.containsAlias("pkcs12"))
+        assertEquals(generated.certificate.publicKey, store.getCertificate("pkcs12").publicKey)
+    }
+
+    @Test
+    fun `default identity is stable and migrates a legacy JKS`() {
+        val directory = java.nio.file.Files.createTempDirectory("tftf-keystore-").toFile()
+        try {
+            val legacyIdentity = KeystoreManager.generateKeystore("android".toCharArray(), "legacy")
+            val legacyStore = java.security.KeyStore.getInstance("JKS")
+            legacyStore.load(null, "android".toCharArray())
+            legacyStore.setKeyEntry(
+                "legacy", legacyIdentity.privateKey, "android".toCharArray(),
+                arrayOf<java.security.cert.Certificate>(legacyIdentity.certificate)
+            )
+            val legacyFile = File(directory, "patcher-signing.jks")
+            java.io.FileOutputStream(legacyFile).use { legacyStore.store(it, "android".toCharArray()) }
+
+            val storage = File(directory, "patcher-signing.p12")
+            val first = KeystoreManager.loadOrCreateDefault(storage, "legacy")
+            val second = KeystoreManager.loadOrCreateDefault(storage, "legacy")
+            assertTrue(storage.isFile)
+            assertArrayEquals(first.certificate.encoded, second.certificate.encoded)
+            assertArrayEquals(legacyIdentity.certificate.encoded, first.certificate.encoded)
+            val migrated = java.security.KeyStore.getInstance("PKCS12")
+            migrated.load(storage.inputStream(), "android".toCharArray())
+            assertTrue(migrated.containsAlias("legacy"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `keystore manager supports a distinct private key password`() {
         val storePassword = "store-pass".toCharArray()
         val keyPassword = "key-pass".toCharArray()
         val generated = KeystoreManager.generateKeystore(storePassword, "separate-pass")
         val store = java.security.KeyStore.getInstance("JKS")
-        store.load(java.io.ByteArrayInputStream(generated.jksBytes), storePassword)
+        store.load(java.io.ByteArrayInputStream(generated.keystoreBytes), storePassword)
         store.setKeyEntry(
             generated.alias,
             generated.privateKey,

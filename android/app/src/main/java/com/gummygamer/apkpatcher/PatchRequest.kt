@@ -35,7 +35,7 @@ data class PatchRequest(
     /** Whether to auto-patch the pristine libil2cpp extracted from the source APK. */
     val autoPatchIl2cpp: Boolean,
 
-    /** Content URI for a custom keystore (JKS or PKCS12), or empty to use the app's generated default. */
+    /** Content URI for a custom keystore (PKCS12 or JKS), or empty to use the app's generated default. */
     val keystoreUri: String,
 
     /** Keystore password (zeroed after use). */
