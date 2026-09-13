@@ -415,7 +415,7 @@ Contributed by **@galvatron** (Discord).
 
 Four call sites were changed so that a `read_file` is only reached after its
 `file_exists` guard has actually passed. `Server/fakeserver.lbl` (`tutorial_login_seen`)
-and `tools/apk_patcher_gui/runner.lbl` (`append_worker_start_log` ×2,
+and the former desktop GUI runner (`append_worker_start_log` ×2,
 `worker_logged_success`) each expressed the guard as
 `file_exists(path) and <something that reads path>`. Because `and` evaluates both
 operands, the read ran even when the file was absent and aborted the process. Each site

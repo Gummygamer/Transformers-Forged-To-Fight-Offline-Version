@@ -54,7 +54,8 @@ export JAVA_HOME=$HOME/jdk17
 export ANDROID_HOME=$HOME/Android/Sdk
 export PATH=$JAVA_HOME/bin:$PATH
 
-# Generate hook libraries and the port-specific bundled payload.
+# Generate hook libraries and the port-specific bundled payload for a debug build.
+# Release builds run this step automatically through the prepareReleaseAssets task.
 ./tools/prepare-assets.sh 8080
 
 # Build debug APK
@@ -113,6 +114,14 @@ $ANDROID_HOME/build-tools/35.0.0/zipalign -c -P 16 -v 4 \
   app/build/outputs/apk/release/app-release.apk
 ```
 
+`:app:assembleRelease` always invokes `tools/prepare-assets.sh 8080` with forced asset
+regeneration before packaging.
+This is required because hooks and the bundled payload are generated inputs ignored by
+Git; an automated release worker must never reuse files left by another checkout or
+source revision. A release build therefore needs the Legible interpreter and Android
+NDK even when those tools were not needed by a debug-only build. Archive the generated
+`mapping.txt` with the exact APK published by the release job.
+
 Release uses R8 (`minifyEnabled` + `shrinkResources`). **Archive
 `app/build/outputs/mapping/release/mapping.txt` with every published build** or
 crash traces cannot be deobfuscated. `proguard-rules.pro` keeps the manifest
@@ -147,9 +156,9 @@ must be regenerated locally.
 
 ## Supported operations
 
-All web GUI patcher operations run fully on-device:
+The Android patcher performs the complete patch-and-install workflow on-device:
 
-| Web GUI option | Android equivalent |
+| Operation | Android behavior |
 |---|---|
 | Source APK picker | SAF OpenDocument `.apk` |
 | ABI: arm64-v8a / armeabi-v7a | Radio group, same coercion |
@@ -177,15 +186,17 @@ success, cancellation, signature conflict, policy, storage, and invalid-APK stat
 the result back to the activity. The same saved artifact can be installed again without
 rebuilding.
 
-Desktop-only steps replaced:
+Legacy desktop steps replaced:
 - **NDK hook rebuild** → prebuilt `.bin` assets in APK
 - **zipalign** → in-process alignment during ZIP write (4-byte for `resources.arsc`,
   16 KiB for uncompressed native libraries, and preserved compression elsewhere)
 - **apksigner** → APK Signature Scheme v2 in pure Kotlin/Java
 
 After changing `tools/nativehook/hook.c`, `hook_arm32.c`, or
-`inapk_server.c`, rerun `tools/prepare-assets.sh`; it rebuilds both hooks with
-the matching Android NDK before copying them into the patcher assets. The hook logs its runtime page size under the `TFTFHOOK`
+`inapk_server.c`, a release build regenerates both hooks automatically. For a
+debug build or an asset-only check, run `tools/prepare-assets.sh`; it rebuilds
+both hooks with the matching Android NDK before copying them into the patcher
+assets. The hook logs its runtime page size under the `TFTFHOOK`
 tag; capture that line with the game's first-start log when diagnosing a startup
 exit. The native patcher computes the page range for `mprotect()` at runtime, so
 the same asset can be tested on 4 KiB and 16 KiB-page devices.
@@ -200,7 +211,7 @@ suspend fun patch(
 ): PatchOutcome
 ```
 
-States mirror the web runner: `idle → running → succeeded/failed/cancelled`.
+States are `idle → running → succeeded/failed/cancelled`.
 Single-run lock enforced; cancellation checked between steps. Untouched ZIP
 entries are copied in 64 KiB chunks; only patch targets, `resources.arsc`, and
 native libraries are inflated, and signing uses private temporary files.

@@ -14,7 +14,8 @@ import java.nio.file.Files
 /**
  * Comprehensive unit and integration tests for the APK patcher engine.
  *
- * Mirrors the test_pipeline.lbl + test_runner.lbl conventions from tools/apk_patcher_gui.
+ * Covers the Android patching pipeline directly; the retired desktop GUI had no
+ * runtime behavior that belongs in these tests.
  * All tests use synthetic or authorized fixtures; no proprietary APK, keystore, or
  * media file is committed.
  *

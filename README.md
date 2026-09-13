@@ -212,25 +212,18 @@ should generate your own.
 
 ## How to run what exists today
 
+For the supported unified APK patching flow, build and install the Android patcher by
+following [android/BUILD.md](android/BUILD.md). It performs source selection, ABI-aware
+auto-patching, bundled or separate-server configuration, signing, export, and optional
+installation on the device. The Legible commands below remain for the fake server,
+payload generation, emulator provisioning, and native/reverse-engineering workflows.
+
 You need the APK installed on an ARM translation capable emulator (LDPlayer 9 was used, with
 root and writable system), the `legible` interpreter on the PC, and the items from the section above.
 
-To get the `legible` interpreter and launch the [APK patcher GUI](#patching-the-apk-from-a-gui)
-without doing any of that setup by hand, run `./launch_linux.sh` (Linux) or
-`launch_windows.bat` (Windows) from the repository root. Either script installs `legible`
-and the build tools it needs (Rust via rustup, git, a C compiler) only if they are missing,
-then launches the GUI; re-running it later is fast because it finds `legible` already
-installed. This does not replace the manual steps below, which are still needed for
-everything the GUI does not cover (certs, the native hook, the emulator/device setup).
-
-The Linux launcher downloads the public `Gummygamer/legible-lang` repository from GitHub's
-anonymous HTTPS endpoint, using its `development` branch. A GitHub account, password, token,
-or SSH key is not needed for this clone. If Git prints a credential prompt, the launcher will
-now stop with the repository, branch, and underlying error instead; check the URL, network or
-proxy settings, and local Git configuration. An existing cache is updated only when it points
-to that repository and branch and has no local changes. An incomplete or unrelated cache is
-moved aside with an `.invalid-*` suffix before a fresh clone; a modified matching cache is
-left untouched and reported so it cannot be overwritten.
+Install the `legible` interpreter separately when you need the server, payload, or
+reverse-engineering tools below. APK patching itself is provided by the Android patcher
+application described in `android/BUILD.md`.
 
 1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
    Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
@@ -418,51 +411,13 @@ reconnection.
 
 If it hangs at login, check the very first item in the Gotchas section before anything else.
 
-### Patching the APK from a GUI
+### Legacy Legible APK builder (developer/reference)
 
-From the repository root, launch the local browser UI with:
+The Android patcher is the supported way to patch and install a game APK. The
+Legible recipes in this section remain only for native/server development and
+regression fixtures; they are not a second end-user patching flow.
 
-```sh
-legible run tools/apk_patcher_gui/server.lbl
-```
-
-It prints a token-protected `http://127.0.0.1:<port>/` URL and opens it in the default
-browser. The GUI, planner, background worker, and tests are all Legible; Python is not
-required. Use `--port N` to choose a port instead of the default random free port, or
-`--no-browser` when working headlessly. Legible's HTTP listener binds all interfaces, so
-the GUI requires an unguessable per-launch token on every page and API request; keep the
-printed URL private.
-
-The page exposes the APK source and destination, signing keystore and passwords, and an
-optional install-to-device step. Choose `arm64-v8a` (64-bit, the default) or
-`armeabi-v7a` (32-bit), and choose whether to keep the other ABI's libraries. The server
-mode is either bundled (self-contained, no PC, fixed to `http` and `127.0.0.1`) or
-separate (a PC-hosted fake server, with a host, port, and `http`/`https` supplied by you).
-It also accepts a patched `libil2cpp.so` path, or can auto-patch one with
-`patches/patch_il2cpp.lbl`. The pristine-library field is optional: when it is empty or
-does not point to a file, the workflow extracts the selected ABI's stock `libil2cpp.so`
-directly from the source APK before patching it.
-
-Pressing **Build APK** runs the same pipeline documented below: native-hook compilation
-from `hook.c`/`hook_arm32.c` plus `inapk_server.c` when its default checkbox is enabled, optional
-`patch_il2cpp.lbl`, then `legible run Server/build_phone_apk.lbl`, then
-`zipalign -f -p 4`, then `apksigner sign` with the debug keystore, followed by
-`zipalign -c -p 4` and `apksigner verify --verbose` against the final signed APK, and
-optionally `adb install -r --no-incremental` followed by `adb shell pm path` to confirm
-the package is installed. Each command's output streams live into
-the page, and the build can be cancelled. **Build succeeded** means the final signed APK
-passed both Android signature and page-alignment checks.
-
-Before starting the multi-minute, multi-hundred-megabyte build, the UI catches a bundled
-server configured with `https` or a non-loopback host (that mode only accepts `http` plus
-`127.0.0.1`) and a 32-bit build with no patched `libil2cpp.so`. The latter is the failure
-described in the 32-bit section below: the APK installs cleanly, but `TFTFHOOK` never
-appears in the log and nothing listens on port 8080.
-
-The manual recipes below remain the ground truth and are the fallback if the GUI is not
-available.
-
-### Building a self-contained APK (bundled server, no PC)
+#### Building a self-contained APK (bundled server, no PC)
 
 Build, align, sign, and install an arm64 APK with the fake-server response payload embedded:
 

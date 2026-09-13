@@ -4,6 +4,7 @@ set -euo pipefail
 ANDROID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="$(cd "$ANDROID_DIR/.." && pwd)"
 PORT="${1:-8080}"
+FORCE_ASSETS="${TFTF_FORCE_ASSETS:-0}"
 ASSET_DIR="$ANDROID_DIR/app/src/main/assets"
 
 find_toolchain_binary() {
@@ -15,7 +16,10 @@ find_toolchain_binary() {
     return 0
   fi
 
-  for root in "${ANDROID_NDK_HOME:-}" "${ANDROID_NDK_ROOT:-}" "${ANDROID_HOME:-}"; do
+  # Also inspect the conventional SDK location.  Release workers often have
+  # a local.properties file (or a standard SDK install) without exporting
+  # ANDROID_HOME, and silently reusing an old hook in that case is unsafe.
+  for root in "${ANDROID_NDK_HOME:-}" "${ANDROID_NDK_ROOT:-}" "${ANDROID_HOME:-}" "${HOME:-}/Android/Sdk"; do
     [ -n "$root" ] || continue
     if [[ "$root" == */ndk/* ]]; then
       candidate="$root/toolchains/llvm/prebuilt/linux-x86_64/bin/$name"
@@ -41,7 +45,8 @@ mkdir -p "$ASSET_DIR"
 # server predates the payload it embeds.
 ARM64_CLANG="$(find_toolchain_binary aarch64-linux-android28-clang || true)"
 ARMV7_CLANG="$(find_toolchain_binary armv7a-linux-androideabi21-clang || true)"
-if [ "$ROOT_DIR/tools/nativehook/hook.c" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
+if [ "$FORCE_ASSETS" = "1" ] ||
+   [ "$ROOT_DIR/tools/nativehook/hook.c" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/inapk_server.c" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
    [ ! -s "$ROOT_DIR/tools/nativehook/libdothook.so" ]; then
   [ -n "$ARM64_CLANG" ] || { echo "error: Android NDK clang is required to rebuild the arm64 hook" >&2; exit 1; }
@@ -49,7 +54,8 @@ if [ "$ROOT_DIR/tools/nativehook/hook.c" -nt "$ROOT_DIR/tools/nativehook/libdoth
     -Wl,-soname,libdothook.so -o "$ROOT_DIR/tools/nativehook/libdothook.so" \
     "$ROOT_DIR/tools/nativehook/hook.c" "$ROOT_DIR/tools/nativehook/inapk_server.c" -llog
 fi
-if [ "$ROOT_DIR/tools/nativehook/hook_arm32.c" -nt "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ] ||
+if [ "$FORCE_ASSETS" = "1" ] ||
+   [ "$ROOT_DIR/tools/nativehook/hook_arm32.c" -nt "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/inapk_server.c" -nt "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ] ||
    [ ! -s "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ]; then
   [ -n "$ARMV7_CLANG" ] || { echo "error: Android NDK clang is required to rebuild the armv7 hook" >&2; exit 1; }
