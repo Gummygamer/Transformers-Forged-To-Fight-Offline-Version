@@ -18,7 +18,7 @@ android/
       java/com/gummygamer/apkpatcher/
         PatchRequest.kt        Data model + validation
         ZipReader.kt           Streaming ZIP parser (EOCD → central dir → local headers)
-        ZipWriter.kt           ZIP writer with .so alignment (4-byte boundaries)
+        ZipWriter.kt           ZIP writer with Android APK alignment rules
         MetadataPatch.kt       global-metadata.dat literal-table patcher
         SparxPatch.kt          res/raw/sparxmanifest endpoint replacer
         EndpointConfigPatch.kt assets/bin/Data/e1917… patch (fixed-size)
@@ -124,7 +124,8 @@ rebuilding.
 
 Desktop-only steps replaced:
 - **NDK hook rebuild** → prebuilt `.bin` assets in APK
-- **zipalign** → in-process alignment during ZIP write (4-byte for .so entries)
+- **zipalign** → in-process alignment during ZIP write (4-byte for `resources.arsc`,
+  16 KiB for uncompressed native libraries, and preserved compression elsewhere)
 - **apksigner** → APK Signature Scheme v2 in pure Kotlin/Java
 
 ## Engine API
@@ -139,8 +140,8 @@ suspend fun patch(
 
 States mirror the web runner: `idle → running → succeeded/failed/cancelled`.
 Single-run lock enforced; cancellation checked between steps. Untouched ZIP
-entries are copied in 64 KiB chunks; only patch targets and native libraries are
-inflated, and signing uses private temporary files.
+entries are copied in 64 KiB chunks; only patch targets, `resources.arsc`, and
+native libraries are inflated, and signing uses private temporary files.
 
 ## Known limitations
 

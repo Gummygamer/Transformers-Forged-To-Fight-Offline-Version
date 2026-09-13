@@ -701,6 +701,23 @@ class PatcherEngineTest {
     }
 
     @Test
+    fun `zip writer stores and aligns resources arsc`() {
+        val bos = ByteArrayOutputStream()
+        val writer = ZipWriter(bos, soAlignment = 4)
+        writer.writeStored("prefix.bin", ByteArray(3))
+        val resources = byteArrayOf(1, 2, 3, 4, 5)
+        writer.writeStored("resources.arsc", resources)
+        writer.finish()
+
+        val reader = ZipReader.open(ByteArrayChannel(bos.toByteArray()))
+        val entry = reader.entries.single { it.name == PatcherEngine.RESOURCES_NAME }
+        assertEquals("resources.arsc must be stored", 0, entry.compressType)
+        assertEquals("resources.arsc data must be 4-byte aligned", 0L, entry.dataOffset % 4L)
+        assertArrayEquals(resources, reader.readEntryDataInflated(reader.find("resources.arsc")))
+        reader.close()
+    }
+
+    @Test
     fun `zip writer defaults native libraries to 16KiB page alignment`() {
         val bos = ByteArrayOutputStream()
         val writer = ZipWriter(bos)
@@ -939,6 +956,7 @@ class PatcherEngineTest {
             ByteArrayOutputStream().also { bos ->
                 ZipWriter(bos).apply {
                     writeStored("one.txt", "one".toByteArray())
+                    writeStored("resources.arsc", ByteArray(5) { it.toByte() })
                     writeStored("two.txt", "two".toByteArray())
                     finish()
                 }
@@ -948,6 +966,11 @@ class PatcherEngineTest {
             val result = ApksigSigner.sign(unsigned, signed, generated.privateKey, generated.certificate)
             assertTrue("file signing should succeed: ${result.error}", result.isSuccess)
             assertTrue(ApksigSigner.verify(signed).isVerified)
+            val signedZip = ZipReader.open(FileSeekableByteChannel(signed))
+            val resourcesEntry = signedZip.entries.single { it.name == PatcherEngine.RESOURCES_NAME }
+            assertEquals(0, resourcesEntry.compressType)
+            assertEquals(0L, resourcesEntry.dataOffset % 4L)
+            signedZip.close()
         } finally {
             unsigned.delete(); signed.delete()
         }
@@ -963,6 +986,7 @@ class PatcherEngineTest {
         val reader = ZipReader.open(ByteArrayChannel(apk))
 
         assertTrue(reader.find("AndroidManifest.xml") >= 0)
+        assertTrue(reader.find(PatcherEngine.RESOURCES_NAME) >= 0)
         assertTrue(reader.find(PatcherEngine.METADATA_NAME) >= 0)
         assertTrue(reader.find(PatcherEngine.SPARX_MANIFEST_NAME) >= 0)
         assertTrue(reader.find(PatcherEngine.ENDPOINT_CONFIG_NAME) >= 0)
@@ -1139,6 +1163,9 @@ class PatcherEngineTest {
     android:versionCode="1" android:versionName="1.0">
 </manifest>""".toByteArray(Charsets.UTF_8)
             writer.writeStored("AndroidManifest.xml", manifest)
+
+            // Resource table must be stored and 4-byte aligned for API 30+ APKs.
+            writer.writeStored("resources.arsc", ByteArray(17) { it.toByte() })
 
             // global-metadata.dat
             val metadata = buildSyntheticMetadataForTest()
