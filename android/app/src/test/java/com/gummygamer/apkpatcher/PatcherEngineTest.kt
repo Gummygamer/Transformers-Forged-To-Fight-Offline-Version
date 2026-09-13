@@ -303,7 +303,21 @@ class PatcherEngineTest {
         val data = ByteArray(maxOffset + 4096)
         data[0] = 0x7f; data[1] = 'E'.code.toByte(); data[2] = 'L'.code.toByte(); data[3] = 'F'.code.toByte()
         data[4] = 2
+        data[5] = 1
         data[18] = 183.toByte()
+        // Model the stock ELF's dynamic metadata so the byte-cave injection can
+        // prove that it extends DT_STRSZ along with DT_NEEDED.
+        val dynamic = 45781192
+        val sectionHeaders = 45781616L
+        val dynamicBuf = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+        dynamicBuf.putLong(40, sectionHeaders) // e_shoff
+        dynamicBuf.putShort(58, 64) // e_shentsize
+        dynamicBuf.putShort(60, 1) // e_shnum
+        dynamicBuf.putLong(dynamic + 10 * 16 + 8, 0x1000L) // DT_STRTAB file offset
+        dynamicBuf.putLong(dynamic + 12 * 16 + 8, 0x100L)  // original DT_STRSZ
+        dynamicBuf.putInt(sectionHeaders.toInt() + 4, 3) // SHT_STRTAB
+        dynamicBuf.putLong(sectionHeaders.toInt() + 24, 0x1000L) // sh_offset
+        dynamicBuf.putLong(sectionHeaders.toInt() + 32, 0x100L) // original sh_size
 
         val result = Il2cppPatch.autoPatch(data, PatchRequest.ARM64)
         assertTrue("autoPatch arm64 should succeed: ${result.error}", result.isSuccess)
@@ -318,6 +332,15 @@ class PatcherEngineTest {
             }
         }
         assertTrue("libdothook.so should be present in auto-patched output", found)
+        val patchedBuf = ByteBuffer.wrap(result.data).order(ByteOrder.LITTLE_ENDIAN)
+        assertEquals(1L, patchedBuf.getLong(dynamic + 25 * 16))
+        assertEquals(8204340L - 0x1000L + hookName.size + 1L,
+            patchedBuf.getLong(dynamic + 12 * 16 + 8))
+        assertEquals(8204340L - 0x1000L + hookName.size + 1L,
+            patchedBuf.getLong(sectionHeaders.toInt() + 32))
+        val rerun = Il2cppPatch.autoPatch(result.data, PatchRequest.ARM64)
+        assertTrue("autoPatch should be idempotent: ${rerun.error}", rerun.isSuccess)
+        assertArrayEquals(result.data, rerun.data)
     }
 
     @Test

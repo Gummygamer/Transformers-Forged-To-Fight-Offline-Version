@@ -210,30 +210,115 @@ object Il2cppPatch {
 
     /**
      * Inject DT_NEEDED libdothook.so into an arm64 library using the byte-cave method.
-     * Three hard-coded writes:
-     * 1. Write "libdothook.so\0" at offset 8204340 (cave string slot)
-     * 2. Set byte at 45781592 to 1
-     * 3. Write bytes 5c fe 7b at 45781600
+     * The 9.2.0 library has a zero-filled cave and spare dynamic-table entries at
+     * fixed offsets. The name is outside the original .dynstr section, so DT_STRSZ
+     * must be extended as well as writing DT_NEEDED; omitting that update makes
+     * Android's linker abort while reading the dependency name before Unity starts.
      */
     fun injectNeededArm64(data: ByteArray): PatchResult {
         val out = data.copyOf()
         val hookName = "libdothook.so".toByteArray(Charsets.UTF_8)
-        val requiredSize = maxOf(8204340 + hookName.size, 45781592 + 1, 45781600 + 3)
+        val hookFileOffset = 8204340
+        val dynamicOffset = 45781192
+        val dynamicEntrySize = 16
+        val strtabValueOffset = dynamicOffset + 10 * dynamicEntrySize + 8
+        val strszValueOffset = dynamicOffset + 12 * dynamicEntrySize + 8
+        val neededTagOffset = dynamicOffset + 25 * dynamicEntrySize
+        val neededValueOffset = neededTagOffset + 8
+        val requiredSize = maxOf(
+            hookFileOffset + hookName.size + 1,
+            strtabValueOffset + 8,
+            strszValueOffset + 8,
+            neededValueOffset + 8,
+            neededTagOffset + 2 * dynamicEntrySize + 16
+        )
 
         if (requiredSize > out.size) {
             return PatchResult(out, false, "arm64 library too small for DT_NEEDED byte-cave injection")
         }
 
-        // Write "libdothook.so" at cave offset
-        for (i in hookName.indices) {
-            out[8204340 + i] = hookName[i]
+        val buf = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN)
+        val strtabFileOffset = buf.getLong(strtabValueOffset).toInt()
+        val oldStrsz = buf.getLong(strszValueOffset)
+        if (strtabFileOffset <= 0 || oldStrsz <= 0 || strtabFileOffset >= hookFileOffset) {
+            return PatchResult(out, false, "arm64 dynamic string-table metadata is invalid")
         }
 
-        // Cave fixup bytes
-        out[45781592] = 1
-        out[45781600] = 0x5c.toByte()
-        out[45781601] = 0xfe.toByte()
-        out[45781602] = 0x7b.toByte()
+        val nameOffset = hookFileOffset - strtabFileOffset
+        val newStrsz = nameOffset.toLong() + hookName.size + 1L
+        if (newStrsz < oldStrsz || newStrsz > 0xFFFFFFFFL) {
+            return PatchResult(out, false, "arm64 DT_STRSZ cannot cover the hook dependency name")
+        }
+
+        // Android's linker maps .dynstr from its ELF section header and uses
+        // that mapped fragment's size for bounds checks.  Extend the matching
+        // SHT_STRTAB header as well as DT_STRSZ, otherwise get_string() still
+        // sees the original (short) table and aborts on the new DT_NEEDED.
+        if (out.size < 64 || out[0].toInt() != 0x7f || out[1].toInt() != 'E'.code ||
+            out[2].toInt() != 'L'.code || out[3].toInt() != 'F'.code || out[4].toInt() != 2 ||
+            out[5].toInt() != 1
+        ) {
+            return PatchResult(out, false, "arm64 section-header metadata is missing")
+        }
+        val sectionHeaderOffset = buf.getLong(40)
+        val sectionHeaderEntrySize = buf.getShort(58).toInt() and 0xFFFF
+        val sectionHeaderCount = buf.getShort(60).toInt() and 0xFFFF
+        if (sectionHeaderOffset <= 0L || sectionHeaderEntrySize < 64 || sectionHeaderCount <= 0 ||
+            sectionHeaderOffset > Int.MAX_VALUE.toLong() ||
+            sectionHeaderOffset + sectionHeaderEntrySize.toLong() * sectionHeaderCount > out.size
+        ) {
+            return PatchResult(out, false, "arm64 section-header table is invalid")
+        }
+        var dynstrHeaderOffset = -1
+        for (i in 0 until sectionHeaderCount) {
+            val headerOffset = sectionHeaderOffset.toInt() + i * sectionHeaderEntrySize
+            val sectionType = buf.getInt(headerOffset + 4)
+            val sectionOffset = buf.getLong(headerOffset + 24)
+            if (sectionType == 3 && sectionOffset == strtabFileOffset.toLong()) {
+                dynstrHeaderOffset = headerOffset
+                break
+            }
+        }
+        if (dynstrHeaderOffset < 0) {
+            return PatchResult(out, false, "arm64 .dynstr section header was not found")
+        }
+
+        // The cave must be unused data, or already contain the injected name
+        // when this operation is re-run on an APK that was partially patched.
+        val existingCave = out.copyOfRange(hookFileOffset, hookFileOffset + hookName.size)
+        val caveIsEmpty = existingCave.all { it == 0.toByte() }
+        if (!caveIsEmpty && !existingCave.contentEquals(hookName)) {
+            return PatchResult(out, false, "arm64 DT_NEEDED string cave is not empty")
+        }
+
+        // Treat a complete prior injection as a no-op.  This keeps autoPatch
+        // safe when a user selects an APK that was already processed.
+        if (!caveIsEmpty && oldStrsz >= newStrsz &&
+            buf.getLong(neededTagOffset) == 1L &&
+            buf.getLong(neededValueOffset) == nameOffset.toLong()
+        ) {
+            return PatchResult(out, false, null)
+        }
+
+        // Require two consecutive DT_NULL entries: one becomes DT_NEEDED and the
+        // following one remains the dynamic-table terminator.
+        if (buf.getLong(neededTagOffset) != 0L || buf.getLong(neededTagOffset + dynamicEntrySize) != 0L) {
+            return PatchResult(out, false, "arm64 dynamic table has no spare DT_NEEDED entry")
+        }
+
+        // Write "libdothook.so\0" at the cave offset.
+        for (i in hookName.indices) {
+            out[hookFileOffset + i] = hookName[i]
+        }
+        out[hookFileOffset + hookName.size] = 0
+
+        // DT_NEEDED's value is an offset into .dynstr. Because the cave is beyond
+        // the original table, extend both string-table size fields so bionic's
+        // linker maps and accepts it.
+        buf.putLong(strszValueOffset, newStrsz)
+        buf.putLong(dynstrHeaderOffset + 32, newStrsz)
+        buf.putLong(neededTagOffset, 1L)
+        buf.putLong(neededValueOffset, nameOffset.toLong())
 
         return PatchResult(out, true, null)
     }
