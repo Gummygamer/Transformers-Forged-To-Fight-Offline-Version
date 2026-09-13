@@ -116,6 +116,19 @@
 #include <dlfcn.h>
 #include "inapk_server.h"
 
+/* Android devices may use 16 KiB pages. Compute the complete page range
+ * before mprotect instead of assuming a 4 KiB mask and a fixed 0x2000 span. */
+static int make_code_range_writable(void *address, size_t length){
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) page_size = 4096;
+    uintptr_t page = (uintptr_t)address & ~((uintptr_t)page_size - 1U);
+    uintptr_t end = (uintptr_t)address + length;
+    uintptr_t protected_end = (end + (uintptr_t)page_size - 1U) & ~((uintptr_t)page_size - 1U);
+    if (protected_end <= page) protected_end = page + (uintptr_t)page_size;
+    return mprotect((void*)page, (size_t)(protected_end - page),
+                    PROT_READ|PROT_WRITE|PROT_EXEC);
+}
+
 static void flog(const char* fmt, ...);
 static uintptr_t g_base;
 
@@ -472,8 +485,7 @@ static int relocate(uint8_t* tr, uint8_t* src, int ninstr){
 
 static int inline_hook(void* target, void* handler, fn8* orig_out, const char* tag){
     uint8_t* t = (uint8_t*)target;
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0) {
+    if (make_code_range_writable(t, 16) != 0) {
         LOG("%s: mprotect fail %p", tag, t); return -1;
     }
     uint8_t* tr = (uint8_t*)mmap(NULL, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
@@ -537,6 +549,7 @@ static void init(void){
     sigaction(SIGSEGV, &sa, &g_oldsegv);
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK (armv7) loaded (segv-guarded)");
+    LOG("runtime page size: %ld", sysconf(_SC_PAGESIZE));
     tftf_server_set_logger(inapk_log);
     int inapk_rc = tftf_server_start_from_apk();
     LOG("in-apk server start: %d", inapk_rc);

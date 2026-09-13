@@ -488,6 +488,18 @@ class PatcherEngine(context: Context) {
             if (entry.dataOffset % 4L != 0L) {
                 throw IOException("$RESOURCES_NAME data is not 4-byte aligned (offset ${entry.dataOffset})")
             }
+
+            // Native libraries are loaded directly from the APK on modern
+            // devices. Keep the same 16 KiB boundary used by ZipWriter so a
+            // build cannot pass packaging checks while still failing at the
+            // linker on a 16 KiB-page device.
+            for (nativeEntry in reader.entries) {
+                if (nativeEntry.name.startsWith("lib/") && nativeEntry.name.endsWith(".so") &&
+                    nativeEntry.compressType == 0 && nativeEntry.dataOffset % (16L * 1024L) != 0L
+                ) {
+                    throw IOException("${nativeEntry.name} data is not 16 KiB aligned (offset ${nativeEntry.dataOffset})")
+                }
+            }
         } finally {
             reader.close()
         }
