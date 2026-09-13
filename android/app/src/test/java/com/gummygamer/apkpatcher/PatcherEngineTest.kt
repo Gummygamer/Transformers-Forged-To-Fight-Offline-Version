@@ -37,6 +37,44 @@ class PatcherEngineTest {
     }
 
     @Test
+    fun `source stager handles non-seekable provider short and empty reads`() {
+        val dir = Files.createTempDirectory("source-stager-stream-").toFile()
+        try {
+            val payload = ByteArray(4 * 1024 * 1024 + 123) { (it * 31 % 251).toByte() }
+            val target = File(dir, "source.apk")
+            val progress = mutableListOf<Long>()
+            val input = object : InputStream() {
+                private var position = 0
+                private var returnedEmpty = false
+
+                override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                    if (!returnedEmpty) {
+                        returnedEmpty = true
+                        return 0
+                    }
+                    if (position == payload.size) return -1
+                    val count = minOf(17, payload.size - position, length)
+                    payload.copyInto(buffer, offset, position, position + count)
+                    position += count
+                    return count
+                }
+
+                override fun read(): Int {
+                    if (position == payload.size) return -1
+                    return payload[position++].toInt() and 0xff
+                }
+            }
+
+            SourceApkStager.copy(input, target, onProgress = { progress += it })
+
+            assertArrayEquals(payload, target.readBytes())
+            assertTrue("large streams should report preparation progress", progress.any { it >= 4L * 1024L * 1024L })
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `source stager removes partial file when cancelled`() {
         val dir = Files.createTempDirectory("source-stager-cancel-").toFile()
         try {

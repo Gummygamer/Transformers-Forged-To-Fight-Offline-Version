@@ -31,6 +31,8 @@ team selection, and battle model IDs are generated from the same original data s
 so combat uses the matching 3D mesh instead of a generic placeholder.
 Pre-mission squad selection exposes all five client slots; the initial saved squad remains
 the original three bots, leaving the fourth and fifth slots available to fill.
+The custom Bludgeon's Ambush story also advertises the same five-slot contract, so any
+robot in the supplied offline roster can replace the initial squad and carry into combat.
 During a STORY fight, the special-attack meter is no longer locked: it charges from landed
 and received hits, and a special attack can be fired for real damage. Every bot has all three
 special-meter segments available immediately.

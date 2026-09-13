@@ -129,8 +129,9 @@ in `app/build/outputs/androidTest-results/connected/debug/*/test-result.textprot
 ## Locally generated assets
 
 Run `./tools/prepare-assets.sh <port>` from `android/` before a bundled build.
-It creates ignored assets from repository sources; native binaries, game APKs,
-and private keys must not be committed:
+It rebuilds stale native hooks from the current sources when an Android NDK is
+available, then generates the current payload from the server sources. Native
+binaries, game APKs, and private keys must not be committed:
 
 | File | Source | Notes |
 |------|--------|-------|
@@ -182,9 +183,9 @@ Desktop-only steps replaced:
   16 KiB for uncompressed native libraries, and preserved compression elsewhere)
 - **apksigner** → APK Signature Scheme v2 in pure Kotlin/Java
 
-After changing `tools/nativehook/hook.c` or `hook_arm32.c`, rebuild the native
-libraries with the matching Android NDK and rerun `tools/prepare-assets.sh` before
-building the patcher. The hook logs its runtime page size under the `TFTFHOOK`
+After changing `tools/nativehook/hook.c`, `hook_arm32.c`, or
+`inapk_server.c`, rerun `tools/prepare-assets.sh`; it rebuilds both hooks with
+the matching Android NDK before copying them into the patcher assets. The hook logs its runtime page size under the `TFTFHOOK`
 tag; capture that line with the game's first-start log when diagnosing a startup
 exit. The native patcher computes the page range for `mprotect()` at runtime, so
 the same asset can be tested on 4 KiB and 16 KiB-page devices.

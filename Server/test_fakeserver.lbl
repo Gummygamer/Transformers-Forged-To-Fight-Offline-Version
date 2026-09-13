@@ -290,8 +290,9 @@ function test_qidless_won_clears_only_pending_quest(): boolean
   fakeserver.reset_quest_positions()
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
   fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
+  fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
   resolve("\{\"results\":\{\"result\":\"WON\"\}\}")
-  pos_x(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) == 2
+  pos_x(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) == 2 and contains_text(read_file(fakeserver.log_dir() ++ "/.fakeserver-state"), "Q|2.1.1|0|1|1|0|0")
 end
 
 function test_plain_and_board_qids_normalize(): boolean
