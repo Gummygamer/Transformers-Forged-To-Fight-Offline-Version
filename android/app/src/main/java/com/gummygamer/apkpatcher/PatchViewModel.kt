@@ -2,13 +2,16 @@ package com.gummygamer.apkpatcher
 
 import android.app.Application
 import android.content.Intent
+import android.content.ComponentName
 import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,6 +70,33 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
     private var patchJob: Job? = null
+    private var pendingInstallPath: String? = null
+    private var permissionPromptShown = false
+
+    init {
+        val prefs = application.getSharedPreferences("patcher_state", 0)
+        // Accept an artifact produced by the previous cache-based build so an app
+        // upgrade does not strand a successful patch before the user exports it.
+        val legacyPath = File(application.cacheDir, "patched_apks").listFiles()
+            ?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
+            ?.maxByOrNull { it.lastModified() }?.absolutePath
+        val savedPath = prefs.getString("output_path", null)?.takeIf { File(it).isFile } ?: legacyPath
+        if (!savedPath.isNullOrBlank() && File(savedPath).isFile) {
+            val savedName = prefs.getString("output_name", File(savedPath).name) ?: File(savedPath).name
+            val savedSize = prefs.getLong("output_size", File(savedPath).length())
+            _uiState.update {
+                it.copy(
+                    engineState = PatcherState.SUCCEEDED,
+                    outputName = savedName,
+                    outputFilePath = savedPath,
+                    resultMessage = "Previous patched APK available: $savedName (${formatSize(savedSize)}). Use Save / Install below."
+                )
+            }
+            prefs.getString("install_result", null)?.let { installText ->
+                _uiState.update { it.copy(installResult = installText) }
+            }
+        }
+    }
 
     override fun onCleared() {
         engine.cancel()
@@ -78,6 +108,8 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSourceApk(uri: String, displayName: String) {
         val baseName = displayName.substringBeforeLast(".")
+        getApplication<Application>().getSharedPreferences("patcher_state", 0).edit()
+            .remove("install_result").apply()
         _uiState.update {
             it.copy(
                 sourceApkUri = uri,
@@ -265,11 +297,17 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
 
             when (outcome) {
                 is PatchOutcome.Success -> {
+                    val outputPath = Uri.parse(outcome.outputApkUri).path ?: ""
+                    getApplication<Application>().getSharedPreferences("patcher_state", 0).edit()
+                        .putString("output_path", outputPath)
+                        .putString("output_name", request.outputName)
+                        .putLong("output_size", outcome.outputSizeBytes)
+                        .apply()
                     _uiState.update {
                         it.copy(
                             engineState = PatcherState.SUCCEEDED,
-                            resultMessage = "Build succeeded: ${request.outputName} (${formatSize(outcome.outputSizeBytes)})",
-                            outputFilePath = Uri.parse(outcome.outputApkUri).path ?: "",
+                            resultMessage = "Build succeeded: ${request.outputName} (${formatSize(outcome.outputSizeBytes)}). Saved in the patcher's storage; use Save / Install below.",
+                            outputFilePath = outputPath,
                             validationErrors = emptyList(),
                             validationWarnings = emptyList()
                         )
@@ -314,7 +352,32 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startInstall(apkUri: String) {
         val uri = Uri.parse(apkUri)
-        val file = File(uri.path ?: return)
+        val path = uri.path ?: run {
+            _uiState.update { it.copy(isInstalling = false, installResult = "Install failed: the output APK path is invalid.") }
+            return
+        }
+        val file = File(path)
+        if (!file.isFile) {
+            _uiState.update { it.copy(isInstalling = false, installResult = "Install failed: the patched APK is no longer available. Export it or rebuild it.") }
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !getApplication<Application>().packageManager.canRequestPackageInstalls()
+        ) {
+            pendingInstallPath = file.absolutePath
+            _uiState.update { it.copy(isInstalling = false, installResult = "Allow this patcher to install unknown apps, then return here to continue.") }
+            if (!permissionPromptShown) {
+                permissionPromptShown = true
+                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${getApplication<Application>().packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                runCatching { getApplication<Application>().startActivity(intent) }
+            }
+            return
+        }
+        pendingInstallPath = null
+        permissionPromptShown = false
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // Use PackageInstaller session API for better feedback
@@ -327,53 +390,86 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun installViaSession(file: File) {
         _uiState.update { it.copy(isInstalling = true, installResult = "Starting install...") }
-        try {
-            val installer = getApplication<Application>().packageManager.packageInstaller
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            val sessionId = installer.createSession(params)
-            val session = installer.openSession(sessionId)
-
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                FileInputStream(file).use { input ->
-                    session.openWrite("package", 0, file.length()).use { outStream ->
-                        input.copyTo(outStream)
-                        session.fsync(outStream)
+                val installer = getApplication<Application>().packageManager.packageInstaller
+                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                val sessionId = installer.createSession(params)
+                val session = installer.openSession(sessionId)
+
+                try {
+                    FileInputStream(file).use { input ->
+                        session.openWrite("package", 0, file.length()).use { outStream ->
+                            input.copyTo(outStream)
+                            session.fsync(outStream)
+                        }
+                    }
+
+                    // Commit with a broadcast receiver for result
+                    val callbackIntent = Intent(InstallResultReceiver.ACTION_INSTALL_COMPLETE).apply {
+                        component = ComponentName(getApplication(), InstallResultReceiver::class.java)
+                    }
+                    val mutability = if (Build.VERSION.SDK_INT >= 35) {
+                        android.app.PendingIntent.FLAG_MUTABLE
+                    } else {
+                        android.app.PendingIntent.FLAG_IMMUTABLE
+                    }
+                    val pendingIntent = android.app.PendingIntent.getBroadcast(
+                        getApplication(),
+                        sessionId,
+                        callbackIntent,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                            mutability
+                    )
+                    session.commit(pendingIntent.intentSender)
+                    session.close()
+
+                    _uiState.update { it.copy(isInstalling = true, installResult = "Install submitted; waiting for Android confirmation…") }
+                } catch (e: Exception) {
+                    session.close()
+                    installer.abandonSession(sessionId)
+                    _uiState.update {
+                        it.copy(
+                            isInstalling = false,
+                            installResult = "Install failed: ${e.message}. " +
+                                "The APK may already be installed with a different signature. " +
+                                "Uninstall the existing app first."
+                        )
                     }
                 }
-
-                // Commit with a broadcast receiver for result
-                val pendingIntent = android.app.PendingIntent.getBroadcast(
-                    getApplication(),
-                    sessionId,
-                    Intent("com.gummygamer.apkpatcher.INSTALL_COMPLETE"),
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or
-                        android.app.PendingIntent.FLAG_IMMUTABLE
-                )
-                session.commit(pendingIntent.intentSender)
-                session.close()
-
-                _uiState.update { it.copy(isInstalling = false, installResult = "Install offered to system.") }
             } catch (e: Exception) {
-                session.close()
-                installer.abandonSession(sessionId)
                 _uiState.update {
                     it.copy(
                         isInstalling = false,
                         installResult = "Install failed: ${e.message}. " +
-                            "The APK may already be installed with a different signature. " +
-                            "Uninstall the existing app first."
+                            "If a different-signed version is installed, uninstall it first."
                     )
                 }
             }
-        } catch (e: Exception) {
-            _uiState.update {
-                it.copy(
-                    isInstalling = false,
-                    installResult = "Install failed: ${e.message}. " +
-                        "If a different-signed version is installed, uninstall it first."
-                )
-            }
         }
+    }
+
+    /** Called by the activity after returning from settings or receiving an install result. */
+    fun resumeInstallIfPossible() {
+        val path = pendingInstallPath ?: return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            getApplication<Application>().packageManager.canRequestPackageInstalls()
+        ) {
+            startInstall(Uri.fromFile(File(path)).toString())
+        }
+    }
+
+    fun setInstallResult(result: String) {
+        _uiState.update { it.copy(isInstalling = false, installResult = result) }
+    }
+
+    fun installExisting() {
+        val path = _uiState.value.outputFilePath
+        if (path.isBlank()) {
+            _uiState.update { it.copy(installResult = "No patched APK is available yet.") }
+            return
+        }
+        startInstall(Uri.fromFile(File(path)).toString())
     }
 
     private fun installViaIntent(file: File) {
@@ -425,6 +521,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+            _uiState.update { it.copy(resultMessage = "APK exported successfully: ${targetUri.lastPathSegment ?: "selected destination"}") }
             true
         } catch (e: Exception) {
             _uiState.update {

@@ -1,7 +1,10 @@
 package com.gummygamer.apkpatcher
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -74,6 +77,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnBuild: MaterialButton
     private lateinit var btnCancel: MaterialButton
     private lateinit var btnExport: MaterialButton
+    private lateinit var btnInstall: MaterialButton
+
+    private val installResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            intent.getStringExtra("result")?.let(viewModel::setInstallResult)
+        }
+    }
 
     // SAF launchers
     private val selectSourceLauncher = registerForActivityResult(
@@ -132,6 +142,26 @@ class MainActivity : AppCompatActivity() {
         observeState()
     }
 
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter(InstallResultReceiver.ACTION_INSTALL_RESULT)
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(installResultReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION") registerReceiver(installResultReceiver, filter)
+        }
+    }
+
+    override fun onStop() {
+        unregisterReceiver(installResultReceiver)
+        super.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::viewModel.isInitialized) viewModel.resumeInstallIfPossible()
+    }
+
     private fun bindViews() {
         btnSelectSource = findViewById(R.id.btnSelectSource)
         txtSourceName = findViewById(R.id.txtSourceName)
@@ -166,6 +196,7 @@ class MainActivity : AppCompatActivity() {
         btnBuild = findViewById(R.id.btnBuild)
         btnCancel = findViewById(R.id.btnCancel)
         btnExport = findViewById(R.id.btnExport)
+        btnInstall = findViewById(R.id.btnInstall)
 
         txtLog.movementMethod = ScrollingMovementMethod()
 
@@ -231,8 +262,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnExport.setOnClickListener {
-            exportLauncher.launch("patched-transformers.apk")
+            exportLauncher.launch(viewModel.uiState.value.outputName.ifBlank { "patched-transformers.apk" })
         }
+        btnInstall.setOnClickListener { viewModel.installExisting() }
     }
 
     private fun observeState() {
@@ -328,6 +360,8 @@ class MainActivity : AppCompatActivity() {
         btnBuild.isEnabled = !isRunning && s.validationErrors.isEmpty() && s.sourceApkUri.isNotBlank()
         btnCancel.isEnabled = isRunning
         btnExport.isVisible = s.engineState == PatcherState.SUCCEEDED && s.outputFilePath.isNotBlank()
+        btnInstall.isVisible = s.engineState == PatcherState.SUCCEEDED && s.outputFilePath.isNotBlank()
+        btnInstall.isEnabled = !s.isInstalling
 
         // Install result
         if (s.installResult.isNotBlank() && s.engineState == PatcherState.SUCCEEDED) {

@@ -108,11 +108,19 @@ All web GUI patcher operations run fully on-device:
 | Command preview | Step list preview |
 | Install (adb) | PackageInstaller session handoff |
 
-The patch result is first written atomically into app-private storage. **Export** then
-copies the complete signed APK to the SAF destination selected by the user; a provider
-that cannot open the destination is reported as an export failure. **Install** hands the
-same private file to Android's PackageInstaller, which reports signature conflicts and
-other device-side failures through the app UI.
+The patch result is first written atomically into persistent app-private storage at
+`files/patched_apks/` (rather than the reclaimable cache). The result card identifies the
+saved artifact and provides **Save / Share** and **Install patched APK** actions. Save copies
+the complete signed APK to the SAF destination selected by the user, so choose Downloads (or
+another visible folder) when you need to find it outside the patcher. A provider that cannot
+open the destination is reported as an export failure.
+
+Install checks Android's per-app "install unknown apps" permission and opens its settings page
+when needed. Returning to the patcher resumes the same APK. PackageInstaller confirmation is
+shown when Android requires user approval; the receiver handles pending confirmation and final
+success, cancellation, signature conflict, policy, storage, and invalid-APK statuses and sends
+the result back to the activity. The same saved artifact can be installed again without
+rebuilding.
 
 Desktop-only steps replaced:
 - **NDK hook rebuild** → prebuilt `.bin` assets in APK
