@@ -35,15 +35,16 @@ class InstallResultReceiver : BroadcastReceiver() {
             return
         }
 
+        val detail = message.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""
         val resultText = when (status) {
             PackageInstaller.STATUS_SUCCESS -> "Install succeeded."
             PackageInstaller.STATUS_FAILURE_ABORTED -> "Install aborted by user."
-            PackageInstaller.STATUS_FAILURE_BLOCKED -> "Install blocked by device policy."
-            PackageInstaller.STATUS_FAILURE_CONFLICT -> "Install failed: signature conflict. The existing app was signed with a different key. Uninstall it first."
-            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "Install failed: app incompatible with this device."
-            PackageInstaller.STATUS_FAILURE_INVALID -> "Install failed: invalid APK."
-            PackageInstaller.STATUS_FAILURE_STORAGE -> "Install failed: insufficient storage."
-            else -> "Install ended with status $status: $message"
+            PackageInstaller.STATUS_FAILURE_BLOCKED -> "Install blocked by device policy$detail"
+            PackageInstaller.STATUS_FAILURE_CONFLICT -> "Install failed: signature conflict. The existing app was signed with a different key. Uninstall it first.$detail"
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> "Install failed: app incompatible with this device$detail"
+            PackageInstaller.STATUS_FAILURE_INVALID -> "Install failed: invalid APK$detail"
+            PackageInstaller.STATUS_FAILURE_STORAGE -> "Install failed: insufficient storage$detail"
+            else -> "Install ended with status $status$detail"
         }
 
         notifyUi(context, resultText)

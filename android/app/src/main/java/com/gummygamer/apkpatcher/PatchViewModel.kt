@@ -409,11 +409,12 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
                     val callbackIntent = Intent(InstallResultReceiver.ACTION_INSTALL_COMPLETE).apply {
                         component = ComponentName(getApplication(), InstallResultReceiver::class.java)
                     }
-                    val mutability = if (Build.VERSION.SDK_INT >= 35) {
-                        android.app.PendingIntent.FLAG_MUTABLE
-                    } else {
-                        android.app.PendingIntent.FLAG_IMMUTABLE
-                    }
+                    // PackageInstaller fills the committed PendingIntent with
+                    // status extras (and, when needed, a confirmation Intent).
+                    // The callback must therefore be mutable on every API
+                    // level; an immutable callback can lose the result or the
+                    // pending-user-action payload on older Android releases.
+                    val mutability = android.app.PendingIntent.FLAG_MUTABLE
                     val pendingIntent = android.app.PendingIntent.getBroadcast(
                         getApplication(),
                         sessionId,
