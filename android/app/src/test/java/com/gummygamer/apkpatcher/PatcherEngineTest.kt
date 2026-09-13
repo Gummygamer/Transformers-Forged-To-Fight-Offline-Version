@@ -701,6 +701,20 @@ class PatcherEngineTest {
     }
 
     @Test
+    fun `zip writer defaults native libraries to 16KiB page alignment`() {
+        val bos = ByteArrayOutputStream()
+        val writer = ZipWriter(bos)
+        writer.writeStored("assets/prefix.bin", ByteArray(37))
+        writer.writeStored("lib/arm64-v8a/libtest.so", ByteArray(11))
+        writer.finish()
+
+        val reader = ZipReader.open(ByteArrayChannel(bos.toByteArray()))
+        val soEntry = reader.entries.single { it.name.endsWith(".so") }
+        assertEquals("native library data must be 16KiB page aligned", 0, soEntry.dataOffset % (16 * 1024))
+        reader.close()
+    }
+
+    @Test
     fun `zip writer roundtrip preserves entry data`() {
         val originalData = ByteArray(4096) { (it % 256).toByte() }
         val bos = ByteArrayOutputStream()

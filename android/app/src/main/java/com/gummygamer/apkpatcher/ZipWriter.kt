@@ -16,8 +16,15 @@ import java.util.zip.CRC32
  */
 class ZipWriter(
     private val output: OutputStream,
-    /** Alignment boundary in bytes for .so entries (4 = zipalign -p 4). */
-    private val soAlignment: Int = 4
+    /**
+     * Alignment boundary in bytes for uncompressed native libraries.
+     *
+     * Android devices with 16 KiB memory pages require native libraries to be
+     * page aligned in the APK. 16 KiB also satisfies 4 KiB devices. Callers
+     * that intentionally target an older device can still provide a smaller
+     * boundary explicitly (the unit tests do this for their synthetic fixtures).
+     */
+    private val soAlignment: Int = 16 * 1024
 ) {
     private data class WrittenEntry(
         val name: String,
