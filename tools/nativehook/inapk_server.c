@@ -35,7 +35,7 @@
 
 typedef struct { uint32_t ko, kl, bo, bl; } Rec;
 typedef struct { const unsigned char *p; size_t n; uint32_t count, eo, pc, po, dfo, dfl, port; } Blob;
-typedef struct { char qid[64]; int x, y, pending; } Position;
+typedef struct { char qid[64]; int x, y, pending, completed; } Position;
 typedef struct { unsigned char *p; size_t n, cap; } Out;
 typedef struct { char bid[TEAM_SIZE_MAX][64]; int count; } Team;
 typedef struct { const char *token; const unsigned char *p; size_t n; } TemplateArg;
@@ -281,7 +281,7 @@ static void resolve_match(const char *body, const char *end) {
     json_string(body,end,"qid",submitted,sizeof submitted);
     normalize_qid(submitted,qid);
     pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && (!submitted[0] || !strcmp(g_pos[i].qid,qid))) g_pos[i].pending=0;
+    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && (!submitted[0] || !strcmp(g_pos[i].qid,qid))) { g_pos[i].pending=0; g_pos[i].completed=1; }
     pthread_mutex_unlock(&g_pos_lock);
 }
 static const unsigned char *dynamic(const char *method, const char *p, const char *query, const char *body, size_t bn, Out *o, size_t *outn) {
@@ -322,10 +322,10 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
-    if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); logmsg("quest-begin qid=%s body=%.*s", qid, (int)(end-body>512?512:end-body), body); /* reset even if response is absent */
-        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
+    if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); logmsg("quest-begin qid=%s body=%.*s", qid, (int)(end-body>512?512:end-body), body); /* reset unless this quest already has a completed node */
+        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){int preserve=!strcmp(g_pos[slot].qid,qid)&&g_pos[slot].completed;if(!preserve){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].completed=0;}g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
     if(strstr(p,"/quests/quest-movedir/")) {
-        int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0;
+        int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0,completed=0;
         const char *z=strrchr(p,'/'), *yseg=z?z+1:"", *z2=z?NULL:NULL;
         char xs[32], ys[32], seg[96], *ep; long lx,ly;
         if(z){z2=z-1;while(z2>p&&*z2!='/')z2--;if(*z2=='/')z2++;}
@@ -337,12 +337,12 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         pthread_mutex_lock(&g_pos_lock);
         for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
         if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
-        if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
+        if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
         snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
         if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}
-        if(found&&slot>=0){g_pos[slot].x=nx;g_pos[slot].y=ny;}
+        if(found&&slot>=0){if(!(completed&&dx==0&&dy==0))g_pos[slot].completed=0;g_pos[slot].x=nx;g_pos[slot].y=ny;}
         pthread_mutex_unlock(&g_pos_lock);
-        snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
+        if(completed&&dx==0&&dy==0)snprintf(key,sizeof key,"@movedir-completed:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);else snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
         if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}
         if(v&&found&&contains_bytes(v,n,"\"currentBattleState\"")){pthread_mutex_lock(&g_pos_lock);if(slot>=0&&!strcmp(g_pos[slot].qid,qid))g_pos[slot].pending=1;pthread_mutex_unlock(&g_pos_lock);}
         if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)){free(qteam.p);free(ateam.p);return NULL;}if(!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}

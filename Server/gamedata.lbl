@@ -1128,12 +1128,12 @@ function battle_user(user: Json, x: integer, y: integer, key: text): Json
   jsonout.obj_set(with_pos, "currentBattleState", jsonout.json_text("activated"))
 end
 
-public function build_quest_movedir(qid: text, offx: integer, offy: integer, start_x: integer, start_y: integer, team: a list of text): Json
+function build_quest_movedir_state(qid: text, offx: integer, offy: integer, start_x: integer, start_y: integer, team: a list of text, completed: boolean): Json
   intent: build
   let next_x: integer = start_x + offx
   let next_y: integer = start_y + offy
   mutable results: a list of Json = [jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("moveto", vec2(next_x, next_y))]))])]
-  if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) then
+  if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) and not (completed and next_x == start_x and next_y == start_y) then
   let encounter: QuestEncounter = quest_encounter_for(qid, next_x)
   let battle_enemy: Json = if qid == custom_story_qid() then build_quest_enemy_for("chicago", 0, encounter.key, encounter.final_boss) else build_quest_enemy_for("", -1, encounter.key, encounter.final_boss) end
   let battle: Json = jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(next_x)), jsonout.json_pair("y", jsonout.json_int(next_y)), jsonout.json_pair("isFinalBoss", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("battleEnemy", battle_enemy)])
@@ -1155,6 +1155,16 @@ else
 end
   let team_data: Json = build_active_team(qid ++ "-0", resolve_quest_team(qid, team))
   jsonout.json_obj([jsonout.json_pair("results", jsonout.json_list(results)), jsonout.json_pair("progression", final_progression), jsonout.json_pair("teamData", team_data)])
+end
+
+public function build_quest_movedir(qid: text, offx: integer, offy: integer, start_x: integer, start_y: integer, team: a list of text): Json
+  intent: build
+  build_quest_movedir_state(qid, offx, offy, start_x, start_y, team, false)
+end
+
+public function build_quest_movedir_completed(qid: text, offx: integer, offy: integer, start_x: integer, start_y: integer, team: a list of text): Json
+  intent: build
+  build_quest_movedir_state(qid, offx, offy, start_x, start_y, team, true)
 end
 
 function dump_slice3(): nothing
