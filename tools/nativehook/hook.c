@@ -4229,6 +4229,206 @@ static void* hooked_set_vSyncCount(void* count, void* m, void* a2, void* a3, voi
     return NULL;
 }
 
+static fn8 orig_RefreshDisplay = NULL;
+static void* hooked_RefreshDisplay(void* self, void* onReady, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        uintptr_t s = (uintptr_t)self;
+        if (!s || (s < 0x100000) || (s & 7)) {
+            LOG("KITPROBE self=NULL");
+        } else {
+            uintptr_t heroData = *(uintptr_t*)(s + 0x80);
+            if (!heroData || (heroData < 0x100000) || (heroData & 7)) {
+                LOG("KITPROBE _heroData is NULL");
+            } else {
+                const char* branch = "neither";
+                uintptr_t attributes = 0;
+                uintptr_t userTeamHero = *(uintptr_t*)(heroData + 0x58);
+                uintptr_t userHero = *(uintptr_t*)(heroData + 0x50);
+
+                if (userTeamHero && userTeamHero >= 0x100000 && !(userTeamHero & 7)) {
+                    branch = "userTeamHero";
+                    attributes = *(uintptr_t*)(userTeamHero + 0x40);
+                } else if (userHero && userHero >= 0x100000 && !(userHero & 7)) {
+                    branch = "userHero";
+                    attributes = *(uintptr_t*)(userHero + 0x38);
+                }
+
+                if (!attributes || (attributes < 0x100000) || (attributes & 7)) {
+                    LOG("KITPROBE heroData=%p branch=%s attributes=NULL", (void*)heroData, branch);
+                } else {
+                    uintptr_t statMods = *(uintptr_t*)(attributes + 0x10);
+                    uintptr_t sigMods  = *(uintptr_t*)(attributes + 0x18);
+                    uintptr_t buffMods = *(uintptr_t*)(attributes + 0x20);
+
+                    int statSize = (statMods && statMods >= 0x100000 && !(statMods & 7)) ? *(int32_t*)(statMods + 0x18) : -1;
+                    int sigSize  = (sigMods  && sigMods  >= 0x100000 && !(sigMods  & 7)) ? *(int32_t*)(sigMods  + 0x18) : -1;
+                    int buffSize = (buffMods && buffMods >= 0x100000 && !(buffMods & 7)) ? *(int32_t*)(buffMods + 0x18) : -1;
+
+                    LOG("KITPROBE heroData=%p branch=%s attributes=%p StatMods=%p (_size=%d) sig_mods=%p (_size=%d) buff_mods=%p (_size=%d)",
+                        (void*)heroData, branch, (void*)attributes,
+                        (void*)statMods, statSize,
+                        (void*)sigMods, sigSize,
+                        (void*)buffMods, buffSize);
+
+                    if (statMods && statMods >= 0x100000 && !(statMods & 7) && statSize > 0) {
+                        uintptr_t items = *(uintptr_t*)(statMods + 0x10);
+                        if (items && items >= 0x100000 && !(items & 7)) {
+                            for (int i = 0; i < statSize && i < 100; i++) {
+                                uintptr_t strPtr = *(uintptr_t*)(items + 0x20 + i * 8);
+                                char strBuf[65];
+                                strBuf[0] = 0;
+                                if (strPtr && strPtr >= 0x100000 && !(strPtr & 7)) {
+                                    int32_t len = *(int32_t*)(strPtr + 0x10);
+                                    if (len > 0) {
+                                        if (len > 64) len = 64;
+                                        uint16_t* chars = (uint16_t*)(strPtr + 0x14);
+                                        for (int j = 0; j < len; j++) {
+                                            strBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                                        }
+                                        strBuf[len] = 0;
+                                    }
+                                }
+                                LOG("KITPROBE StatMods[%d]='%s' (strPtr=%p)", i, strBuf[0] ? strBuf : "<empty/null>", (void*)strPtr);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // KITGATE3 extended logging
+        typedef void* (*fn_get_instance)(void);
+        fn_get_instance get_bcg_instance = (fn_get_instance)(g_base + 0xa5c688);
+        void* bcgInst = get_bcg_instance ? get_bcg_instance() : NULL;
+        uintptr_t inst = (uintptr_t)bcgInst;
+        if (!inst || inst < 0x100000 || (inst & 7)) {
+            LOG("KITGATE3 BCGManager.Instance is NULL (ptr=%p)", bcgInst);
+        } else {
+            uintptr_t globalStatModsDict = *(uintptr_t*)(inst + 0x38);
+            int globalStatModsCount = (globalStatModsDict && globalStatModsDict >= 0x100000 && !(globalStatModsDict & 7))
+                                      ? *(int32_t*)(globalStatModsDict + 0x20) : -1;
+            LOG("KITGATE3 global statMods dict=%p count(unverified offset)=%d", (void*)globalStatModsDict, globalStatModsCount);
+
+            uintptr_t appDict = *(uintptr_t*)(inst + 0x40);
+            if (!appDict || appDict < 0x100000 || (appDict & 7)) {
+                LOG("KITGATE3 appearance dict is NULL (ptr=%p)", (void*)appDict);
+            } else {
+                int appCount = *(int32_t*)(appDict + 0x20);
+                LOG("KITGATE3 appearance dict=%p count(unverified offset)=%d", (void*)appDict, appCount);
+            }
+
+            // StatMods[0] lookup ("kit_bleed") & AppearanceID check
+            if (globalStatModsDict && globalStatModsDict >= 0x100000 && !(globalStatModsDict & 7)) {
+                uintptr_t entries = *(uintptr_t*)(globalStatModsDict + 0x18);
+                int count = *(int32_t*)(globalStatModsDict + 0x20);
+                void* firstMod = NULL;
+                if (entries && entries >= 0x100000 && !(entries & 7) && count > 0 && count < 10000) {
+                    for (int i = 0; i < count; i++) {
+                        uintptr_t entry = entries + 0x20 + i * 0x18;
+                        uintptr_t keyStr = *(uintptr_t*)(entry + 0x8);
+                        if (keyStr && keyStr >= 0x100000 && !(keyStr & 7)) {
+                            int32_t klen = *(int32_t*)(keyStr + 0x10);
+                            if (klen > 0 && klen < 128) {
+                                uint16_t* kchars = (uint16_t*)(keyStr + 0x14);
+                                char kbuf[128];
+                                for (int j = 0; j < klen; j++) kbuf[j] = (kchars[j] < 128) ? (char)kchars[j] : '?';
+                                kbuf[klen] = 0;
+                                if (strcmp(kbuf, "kit_bleed") == 0) {
+                                    firstMod = (void*)*(uintptr_t*)(entry + 0x10);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                LOG("KITGATE3 globalStatModsDict lookup(kit_bleed) mod=%p", firstMod);
+                if (firstMod && (uintptr_t)firstMod >= 0x100000 && !((uintptr_t)firstMod & 7)) {
+                    uintptr_t appIDStr = *(uintptr_t*)((uintptr_t)firstMod + 0x78);
+                    if (!appIDStr) {
+                        LOG("KITGATE3 AppearanceID is NULL on modifier kit_bleed (%p)", firstMod);
+                    } else if (appIDStr < 0x100000 || (appIDStr & 7)) {
+                        LOG("KITGATE3 AppearanceID is INVALID pointer %p on modifier kit_bleed (%p)", (void*)appIDStr, firstMod);
+                    } else {
+                        int32_t len = *(int32_t*)(appIDStr + 0x10);
+                        char appBuf[65];
+                        appBuf[0] = 0;
+                        if (len > 0) {
+                            if (len > 64) len = 64;
+                            uint16_t* chars = (uint16_t*)(appIDStr + 0x14);
+                            for (int j = 0; j < len; j++) {
+                                appBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                            }
+                            appBuf[len] = 0;
+                        }
+                        LOG("KITGATE3 mod kit_bleed AppearanceID='%s' (ptr=%p)", appBuf[0] ? appBuf : "<empty/null>", (void*)appIDStr);
+                    }
+                } else {
+                    LOG("KITGATE3 mod kit_bleed NOT FOUND in global statMods dict");
+                }
+            }
+        }
+    });
+    if (orig_RefreshDisplay) {
+        return orig_RefreshDisplay(self, onReady, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_ShouldDisplayStatModifier = NULL;
+static void* hooked_ShouldDisplayStatModifier(void* statModId, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_ShouldDisplayStatModifier) {
+        ret = orig_ShouldDisplayStatModifier(statModId, a1, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char idBuf[65];
+        idBuf[0] = 0;
+        uintptr_t s = (uintptr_t)statModId;
+        if (s && s >= 0x100000 && !(s & 7)) {
+            int32_t len = *(int32_t*)(s + 0x10);
+            if (len > 0) {
+                if (len > 64) len = 64;
+                uint16_t* chars = (uint16_t*)(s + 0x14);
+                for (int j = 0; j < len; j++) {
+                    idBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                }
+                idBuf[len] = 0;
+            }
+        }
+        LOG("KITGATE1 statModId='%s' (ptr=%p) ret=%d", idBuf[0] ? idBuf : "<empty/null>", statModId, (int)(uintptr_t)ret);
+    });
+    return ret;
+}
+
+static fn8 orig_AbilityItem_SetData = NULL;
+static void* hooked_AbilityItem_SetData(void* self, void* statModifier, void* statModAppearance, void* width, void* useLong, void* a5, void* a6, void* a7){
+    PROTECT({
+        char strBuf[65];
+        strBuf[0] = 0;
+        uintptr_t app = (uintptr_t)statModAppearance;
+        if (app && app >= 0x100000 && !(app & 7)) {
+            uintptr_t s = *(uintptr_t*)(app + 0x20);
+            if (s && s >= 0x100000 && !(s & 7)) {
+                int32_t len = *(int32_t*)(s + 0x10);
+                if (len > 0) {
+                    if (len > 64) len = 64;
+                    uint16_t* chars = (uint16_t*)(s + 0x14);
+                    for (int j = 0; j < len; j++) {
+                        strBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                    }
+                    strBuf[len] = 0;
+                }
+            }
+        }
+        LOG("KITGATE4 called self=%p statModifier=%p statModAppearance=%p ShortStringID='%s'",
+            self, statModifier, statModAppearance, strBuf[0] ? strBuf : "<empty/null>");
+    });
+    if (orig_AbilityItem_SetData) {
+        return orig_AbilityItem_SetData(self, statModifier, statModAppearance, width, useLong, a5, a6, a7);
+    }
+    return NULL;
+}
+
 static void* installer(void* arg){
     for (int i = 0; i < 1200; i++) {           // up to 60s
         g_base = 0; dl_iterate_phdr(find_cb, NULL);
@@ -4263,6 +4463,9 @@ static void* installer(void* arg){
     // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
     inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
     inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
+    inline_hook((void*)(g_base + 0x1121538), (void*)hooked_RefreshDisplay, &orig_RefreshDisplay);
+    inline_hook((void*)(g_base + 0xC1C0F0), (void*)hooked_ShouldDisplayStatModifier, &orig_ShouldDisplayStatModifier);
+    inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);
 
     LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;
