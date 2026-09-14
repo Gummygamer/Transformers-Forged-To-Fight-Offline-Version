@@ -531,6 +531,8 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x15890C0, "WINOPEN",  0, 0 },  // 159 WindowManager.Open(layer,name,...) -> log layer+name+info
     { 0x1580674, "WINCLOSE", 0, 0 },  // 160 WindowManager.Close(layer,name,...) -> log layer+name
     { 0x1580548, "WINBLOCK", 0, 0 },  // 161 WindowInputBlocker.BlockWindow(info,enabled) -> log name+enabled
+    { 0xD9FF50, "GETDEFTAB", 2, 0 },  // 162 PayoutsModel.GetDefaultTabId -> prevent IndexOutOfRangeException on empty tabs
+    { 0xD9F9E0, "PAYOUTSAWAKE", 2, 0 },// 163 PayoutsModel.Awake -> catch exception if any
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -928,6 +930,12 @@ void* hook_69(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 void* hook_70(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     static int n = 0;
     if (n < 3) { PROTECT( flog("FORCEUNLK -> true"); ); n++; }
+    PROTECT(
+        uintptr_t qs = (uintptr_t)a0;
+        if (qs >= 0x100000 && !(qs & 7)) {
+            *(unsigned char*)(qs + 0xC0) = 1;
+        }
+    );
     return (void*)1;
 }
 // slot 71 FORCEACT: Act.UpdateProgression @0xC2ADC8. Run original, then force this.unlocked=1
@@ -4043,6 +4051,29 @@ void* hook_161(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
         LOG("WINBLOCK name=%s enabled=%d", nm[0]?nm:"?", (int)(intptr_t)a2); });
     return H[161].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+void* hook_162(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        uintptr_t tabs = (uintptr_t)a1;
+        if (!tabs || tabs < 0x100000 || (tabs & 7) != 0) {
+            LOG("GETDEFTAB null/invalid tabs=%p -> return empty string", (void*)tabs);
+            return g_strnew ? g_strnew("") : NULL;
+        }
+        int len = *(int*)(tabs + 0x18);
+        if (len <= 0) {
+            LOG("GETDEFTAB empty tabs array (len=%d) -> return empty string", len);
+            return g_strnew ? g_strnew("") : NULL;
+        }
+    });
+    return H[162].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_163(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("PAYOUTSAWAKE called");
+    PROTECT({
+        return H[163].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    });
+    LOG("PAYOUTSAWAKE caught exception!");
+    return NULL;
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -4060,7 +4091,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
     hook_145,hook_146,hook_147,hook_148,hook_149,hook_150,
     hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158,
-    hook_159,hook_160,hook_161 };
+    hook_159,hook_160,hook_161,hook_162,hook_163 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
@@ -4429,6 +4460,134 @@ static void* hooked_AbilityItem_SetData(void* self, void* statModifier, void* st
     return NULL;
 }
 
+static fn8 orig_Damage_BuffEffect_OnTick = NULL;
+static void hooked_Damage_BuffEffect_OnTick(void* self, float dt, void* method){
+    PROTECT({
+        float val = 0.0f;
+        if (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) {
+            val = *(float*)((uintptr_t)self + 0x44);
+        }
+        LOG("KITFIGHT Damage_BuffEffect.OnTick self=%p buff.Value=%.4f dt=%.4f", self, (double)val, (double)dt);
+    });
+    if (orig_Damage_BuffEffect_OnTick) {
+        ((void(*)(void*, float, void*))orig_Damage_BuffEffect_OnTick)(self, dt, method);
+    }
+}
+
+static void try_extract_string(void* ptr, char* buf, size_t max_len) {
+    if (!buf || max_len < 2) return;
+    buf[0] = 0;
+    uintptr_t p = (uintptr_t)ptr;
+    if (p >= 0x100000 && !(p & 7)) {
+        int32_t len = *(int32_t*)(p + 0x10);
+        if (len > 0 && len < 512) {
+            if (len > (int)max_len - 1) len = (int)max_len - 1;
+            uint16_t* chars = (uint16_t*)(p + 0x14);
+            int printable = 1;
+            for (int j = 0; j < len; j++) {
+                if (chars[j] < 0x20 || chars[j] >= 0x7f) {
+                    printable = 0;
+                    break;
+                }
+            }
+            if (printable) {
+                for (int j = 0; j < len; j++) {
+                    buf[j] = (char)chars[j];
+                }
+                buf[len] = 0;
+            }
+        }
+    }
+}
+
+// KITREG1: TFormStatModsUtil.RegisterStatModifier(controller, key, sigLevel) RVA 0x10DAABC
+static fn8 orig_KITREG1 = NULL;
+static void* hooked_KITREG1(void* controller, void* key, void* sigLevel, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        char keyBuf[65];
+        keyBuf[0] = 0;
+        try_extract_string(key, keyBuf, 64);
+        if (!keyBuf[0]) {
+            try_extract_string(sigLevel, keyBuf, 64);
+        }
+        LOG("KITREG1 controller=%p key='%s' (keyPtr=%p) sigLevel=%d (a2=%p)",
+            controller, keyBuf[0] ? keyBuf : "<empty/null>", key, (int)(uintptr_t)sigLevel, sigLevel);
+    });
+    if (orig_KITREG1) {
+        return orig_KITREG1(controller, key, sigLevel, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+// KITREG2: StatModifierController.RegisterStatModifier(...) RVA 0xCCE8D8
+static fn8 orig_KITREG2 = NULL;
+static void* hooked_KITREG2(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        LOG("KITREG2 called first_arg=%p (a1=%p a2=%p a3=%p)", a0, a1, a2, a3);
+    });
+    if (orig_KITREG2) {
+        return orig_KITREG2(a0, a1, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+// KITREG3: BuffsDB.GetBuffDetails(...) RVA 0x1492B74
+static fn8 orig_KITREG3 = NULL;
+static void* hooked_KITREG3(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_KITREG3) {
+        ret = orig_KITREG3(a0, a1, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char idBuf[65];
+        idBuf[0] = 0;
+        try_extract_string(a0, idBuf, 64);
+        if (!idBuf[0]) {
+            try_extract_string(a1, idBuf, 64);
+        }
+        LOG("KITREG3 requested_id='%s' (a0=%p a1=%p) ret=%p is_null=%s",
+            idBuf[0] ? idBuf : "<empty/null>", a0, a1, ret, (ret == NULL) ? "YES" : "NO");
+    });
+    return ret;
+}
+
+// KITREG4: BuffEffectFactory.CreateBuffEffect(...) RVA 0xE5DB00
+static fn8 orig_KITREG4 = NULL;
+static void* hooked_KITREG4(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_KITREG4) {
+        ret = orig_KITREG4(a0, a1, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char typeBuf[65];
+        typeBuf[0] = 0;
+        try_extract_string(a0, typeBuf, 64);
+        if (!typeBuf[0]) try_extract_string(a1, typeBuf, 64);
+        if (!typeBuf[0]) try_extract_string(a2, typeBuf, 64);
+
+        if (!typeBuf[0] && a0 && (uintptr_t)a0 >= 0x100000 && !((uintptr_t)a0 & 7)) {
+            uintptr_t p1 = *(uintptr_t*)((uintptr_t)a0 + 0x10); try_extract_string((void*)p1, typeBuf, 64);
+            if (!typeBuf[0]) { uintptr_t p2 = *(uintptr_t*)((uintptr_t)a0 + 0x18); try_extract_string((void*)p2, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p3 = *(uintptr_t*)((uintptr_t)a0 + 0x20); try_extract_string((void*)p3, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p4 = *(uintptr_t*)((uintptr_t)a0 + 0x28); try_extract_string((void*)p4, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p5 = *(uintptr_t*)((uintptr_t)a0 + 0x30); try_extract_string((void*)p5, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p6 = *(uintptr_t*)((uintptr_t)a0 + 0x38); try_extract_string((void*)p6, typeBuf, 64); }
+        }
+        if (!typeBuf[0] && a1 && (uintptr_t)a1 >= 0x100000 && !((uintptr_t)a1 & 7)) {
+            uintptr_t p1 = *(uintptr_t*)((uintptr_t)a1 + 0x10); try_extract_string((void*)p1, typeBuf, 64);
+            if (!typeBuf[0]) { uintptr_t p2 = *(uintptr_t*)((uintptr_t)a1 + 0x18); try_extract_string((void*)p2, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p3 = *(uintptr_t*)((uintptr_t)a1 + 0x20); try_extract_string((void*)p3, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p4 = *(uintptr_t*)((uintptr_t)a1 + 0x28); try_extract_string((void*)p4, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p5 = *(uintptr_t*)((uintptr_t)a1 + 0x30); try_extract_string((void*)p5, typeBuf, 64); }
+            if (!typeBuf[0]) { uintptr_t p6 = *(uintptr_t*)((uintptr_t)a1 + 0x38); try_extract_string((void*)p6, typeBuf, 64); }
+        }
+
+        LOG("KITREG4 buffType='%s' (a0=%p a1=%p a2=%p) ret=%p is_null=%s",
+            typeBuf[0] ? typeBuf : "<empty/null>", a0, a1, a2, ret, (ret == NULL) ? "YES" : "NO");
+    });
+    return ret;
+}
+
 static void* installer(void* arg){
     for (int i = 0; i < 1200; i++) {           // up to 60s
         g_base = 0; dl_iterate_phdr(find_cb, NULL);
@@ -4466,6 +4625,11 @@ static void* installer(void* arg){
     inline_hook((void*)(g_base + 0x1121538), (void*)hooked_RefreshDisplay, &orig_RefreshDisplay);
     inline_hook((void*)(g_base + 0xC1C0F0), (void*)hooked_ShouldDisplayStatModifier, &orig_ShouldDisplayStatModifier);
     inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);
+    inline_hook((void*)(g_base + 0xBB18A0), (void*)hooked_Damage_BuffEffect_OnTick, &orig_Damage_BuffEffect_OnTick);
+    inline_hook((void*)(g_base + 0x10DAABC), (void*)hooked_KITREG1, &orig_KITREG1);
+    inline_hook((void*)(g_base + 0xCCE8D8),  (void*)hooked_KITREG2, &orig_KITREG2);
+    inline_hook((void*)(g_base + 0x1492B74), (void*)hooked_KITREG3, &orig_KITREG3);
+    inline_hook((void*)(g_base + 0xE5DB00),  (void*)hooked_KITREG4, &orig_KITREG4);
 
     LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;

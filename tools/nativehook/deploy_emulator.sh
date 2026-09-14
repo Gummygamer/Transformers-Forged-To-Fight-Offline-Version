@@ -8,7 +8,7 @@ set -e
 export PATH="$HOME/Android/Sdk/platform-tools:$PATH"
 D="${D:-emulator-5554}"; PKG=com.kabam.bigrobot
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CC="$HOME/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
+CC="${CC:-$HOME/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang}"
 LOGF=/data/data/$PKG/files/dotkeys.log
 echo "[*] build"
 # Keep the emulator deploy on the production/offline hook. The experimental Arena transport
