@@ -978,7 +978,7 @@ function custom_story_encounter_tile(row: integer): Json
   intent: build
   let encounter: QuestEncounter = quest_encounter_for(custom_story_qid(), row)
   let enemy_key: text = encounter.key
-  let links: Json = if row == 1 then jsonout.json_list([vec2(0, 1)]) else if row == 2 then jsonout.json_list([vec2(1, 1)]) else jsonout.json_list([vec2(2, 1)]) end
+  let links: Json = if row < 3 then jsonout.json_list([vec2(row - 1, 1), vec2(row + 1, 1)]) else jsonout.json_list([vec2(row - 1, 1)]) end
   let enemy: Json = build_quest_enemy_for("chicago", 0, enemy_key, encounter.final_boss)
   mutable pairs: a list of Pair = [jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("lab", jsonout.json_text(encounter.label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(enemy_key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)]))]
   if row == 1 then
@@ -1102,17 +1102,22 @@ else
 end
 end
 
-public function build_quest_progression(qid: text, start_x: integer, start_y: integer, team: a list of text): Json
+public function build_quest_progression_with_cleared(qid: text, start_x: integer, start_y: integer, team: a list of text, cleared: Json): Json
   intent: build
   let bids: a list of text = resolve_quest_team(qid, team)
   let user: Json = jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("Commander")), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("strongestHero", jsonout.json_text(unwrap_or(get(bids, 0), ""))), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("team", quest_team(bids)), jsonout.json_pair("points", jsonout.json_int(0))])
-  jsonout.json_obj([jsonout.json_pair("version", jsonout.json_int(1)), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("cleared", jsonout.json_list([])), jsonout.json_pair("previouslyCleared", jsonout.json_list([])), jsonout.json_pair("revealed", revealed_tiles_for(qid)), jsonout.json_pair("users", jsonout.json_obj([jsonout.json_pair(local_uid(), user)]))])
+  jsonout.json_obj([jsonout.json_pair("version", jsonout.json_int(1)), jsonout.json_pair("currentPos", vec2(start_x, start_y)), jsonout.json_pair("cleared", cleared), jsonout.json_pair("previouslyCleared", jsonout.json_list([])), jsonout.json_pair("revealed", revealed_tiles_for(qid)), jsonout.json_pair("users", jsonout.json_obj([jsonout.json_pair(local_uid(), user)]))])
 end
 
-function build_active_quest_at(qid: text, set_id: text, team: a list of text, start_x: integer, start_y: integer): Json
+public function build_quest_progression(qid: text, start_x: integer, start_y: integer, team: a list of text): Json
+  intent: build
+  build_quest_progression_with_cleared(qid, start_x, start_y, team, jsonout.json_list([]))
+end
+
+function build_active_quest_at(qid: text, set_id: text, team: a list of text, start_x: integer, start_y: integer, cleared: Json): Json
   intent: build
   let qmap: Json = build_quest_map(qid)
-  let progression: Json = build_quest_progression(qid, start_x, start_y, team)
+  let progression: Json = build_quest_progression_with_cleared(qid, start_x, start_y, team, cleared)
   let base_instance: Json = jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(qid)), jsonout.json_pair("qid", jsonout.json_text(qid)), jsonout.json_pair("index", jsonout.json_int(0)), jsonout.json_pair("instanceIndex", jsonout.json_int(0)), jsonout.json_pair("phase", jsonout.json_int(0)), jsonout.json_pair("startTime", jsonout.json_int(0)), jsonout.json_pair("expiryTime", jsonout.json_int(0)), jsonout.json_pair("data", build_quest_summary(qid, set_id)), jsonout.json_pair("map", qmap)])
   let nested_instance: Json = jsonout.obj_set(base_instance, "progression", progression)
   let instance: Json = jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(jsonout.obj_set(nested_instance, "version", jsonout.obj_get(progression, "version")), "currentPos", jsonout.obj_get(progression, "currentPos")), "cleared", jsonout.obj_get(progression, "cleared")), "previouslyCleared", jsonout.obj_get(progression, "previouslyCleared")), "revealed", jsonout.obj_get(progression, "revealed")), "users", jsonout.obj_get(progression, "users"))
@@ -1121,12 +1126,17 @@ end
 
 public function build_active_quest(qid: text, set_id: text, team: a list of text): Json
   intent: build
-  build_active_quest_at(qid, set_id, team, quest_start_x_for(qid), quest_start_y_for(qid))
+  build_active_quest_at(qid, set_id, team, quest_start_x_for(qid), quest_start_y_for(qid), jsonout.json_list([]))
 end
 
 public function build_quest_begin_at(qid: text, set_id: text, team: a list of text, start_x: integer, start_y: integer): Json
   intent: build
-  jsonout.json_obj([jsonout.json_pair("activeQuests", jsonout.json_obj([jsonout.json_pair(qid, build_active_quest_at(qid, set_id, team, start_x, start_y))]))])
+  build_quest_begin_with_cleared(qid, set_id, team, start_x, start_y, jsonout.json_list([]))
+end
+
+public function build_quest_begin_with_cleared(qid: text, set_id: text, team: a list of text, start_x: integer, start_y: integer, cleared: Json): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("activeQuests", jsonout.json_obj([jsonout.json_pair(qid, build_active_quest_at(qid, set_id, team, start_x, start_y, cleared))]))])
 end
 
 public function build_quest_begin(qid: text, set_id: text, team: a list of text): Json
@@ -1146,20 +1156,21 @@ function build_quest_movedir_state(qid: text, offx: integer, offy: integer, star
   let next_x: integer = start_x + offx
   let next_y: integer = start_y + offy
   mutable results: a list of Json = [jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("moveto", vec2(next_x, next_y))]))])]
-  if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) and not (completed and next_x == start_x and next_y == start_y) then
+  if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) and not completed then
   let encounter: QuestEncounter = quest_encounter_for(qid, next_x)
   let battle_enemy: Json = if qid == custom_story_qid() then build_quest_enemy_for("chicago", 0, encounter.key, encounter.final_boss) else build_quest_enemy_for("", -1, encounter.key, encounter.final_boss) end
   let battle: Json = jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(next_x)), jsonout.json_pair("y", jsonout.json_int(next_y)), jsonout.json_pair("isFinalBoss", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("battleEnemy", battle_enemy)])
   set results = append(results, jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("battle", battle)]))]))
 end
-  let initial: Json = build_quest_progression(qid, next_x, next_y, team)
-  let with_cleared: Json = jsonout.obj_set(initial, "cleared", jsonout.json_list([vec2(start_x, start_y)]))
+  let cleared: Json = jsonout.json_list([vec2(start_x, start_y)])
+  let initial: Json = build_quest_progression_with_cleared(qid, next_x, next_y, team, cleared)
+  let with_cleared: Json = jsonout.obj_set(initial, "cleared", cleared)
   let progression: Json = jsonout.obj_set(with_cleared, "revealed", revealed_tiles_for(qid))
   -- A cleared node must not advertise a second active battle through the
   -- progression fields. The action list above already suppresses the battle
   -- action for this case; keeping currentBattleId/currentBattleState here
   -- makes QuestFlow reopen the defeated encounter when it refreshes the map.
-  let final_progression: Json = if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) and not (completed and next_x == start_x and next_y == start_y) then
+  let final_progression: Json = if next_y == quest_path_col_for(qid) and quest_has_encounter_for(qid, next_x) and not completed then
   let encounter: QuestEncounter = quest_encounter_for(qid, next_x)
   let with_id: Json = jsonout.obj_set(progression, "currentBattleId", jsonout.json_text(encounter.key))
   let with_pos: Json = jsonout.obj_set(with_id, "currentBattlePos", vec2(next_x, next_y))

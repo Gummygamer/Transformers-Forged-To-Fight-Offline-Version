@@ -36,7 +36,7 @@
 
 typedef struct { uint32_t ko, kl, bo, bl; } Rec;
 typedef struct { const unsigned char *p; size_t n; uint32_t count, eo, pc, po, dfo, dfl, port; } Blob;
-typedef struct { char qid[64]; int x, y, pending, completed; } Position;
+typedef struct { char qid[64]; int x, y, pending, completed; int cleared_count; char cleared[16][32]; } Position;
 typedef struct { unsigned char *p; size_t n, cap; } Out;
 typedef struct { char bid[TEAM_SIZE_MAX][64]; int count; } Team;
 typedef struct { const char *token; const unsigned char *p; size_t n; } TemplateArg;
@@ -119,6 +119,7 @@ static const unsigned char *lookup(const char *key, size_t *n) { return body_for
 const unsigned char *tftf_payload_lookup(const char *key, size_t *n) { return lookup(key, n); }
 static int out_reserve(Out *o, size_t add) { size_t cap; unsigned char *p; if (add <= o->cap-o->n) return 1; cap=o->cap?o->cap:256; while(cap-o->n<add) { if(cap>MAX_BODY*8) return 0; cap*=2; } p=realloc(o->p,cap); if(!p)return 0; o->p=p;o->cap=cap;return 1; }
 static int out_add(Out *o, const void *p, size_t n) { if(!out_reserve(o,n))return 0; memcpy(o->p+o->n,p,n);o->n+=n;return 1; }
+static int out_int(Out *o, int value) { char text[32]; int n=snprintf(text,sizeof text,"%d",value); return n>0 && (size_t)n<sizeof text && out_add(o,text,(size_t)n); }
 static int out_template_args(Out *o, const unsigned char *s, size_t n, const TemplateArg *args, size_t count) {
     size_t i=0;
     while(i<n) { size_t j; int found=0;
@@ -242,8 +243,12 @@ static void persist_quest_state_locked(void) {
         fputs(g_saved_team[i],f);
     }
     fputc('\n',f);
-    for(i=0;i<16;i++)if(g_pos[i].qid[0])
-        fprintf(f,"Q|%s|%d|%d|%d|%d\n",g_pos[i].qid,g_pos[i].x,g_pos[i].y,g_pos[i].pending,g_pos[i].completed);
+    for(i=0;i<16;i++)if(g_pos[i].qid[0]) {
+        int k;
+        fprintf(f,"Q|%s|%d|%d|%d|%d|",g_pos[i].qid,g_pos[i].x,g_pos[i].y,g_pos[i].pending,g_pos[i].completed);
+        for(k=0;k<g_pos[i].cleared_count;k++)fprintf(f,"%s%s",k?";":"",g_pos[i].cleared[k]);
+        fputc('\n',f);
+    }
     if(fflush(f)||fclose(f)){unlink(tmp);return;}
     if(rename(tmp,path))unlink(tmp);
 }
@@ -281,8 +286,20 @@ static void load_quest_state(void) {
             }
         } else if(!strncmp(line,"Q|",2)){
             Position loaded;
-            if(sscanf(line+2,"%63[^|]|%d|%d|%d|%d",loaded.qid,&loaded.x,&loaded.y,&loaded.pending,&loaded.completed)!=5)continue;
+            char cleared[STATE_PATH_MAX]="";
+            memset(&loaded,0,sizeof loaded);
+            if(sscanf(line+2,"%63[^|]|%d|%d|%d|%d|%4095[^\n]",loaded.qid,&loaded.x,&loaded.y,&loaded.pending,&loaded.completed,cleared)<5)continue;
             if(!safe_id(loaded.qid)||loaded.x<0||loaded.y<0)continue;
+            if(cleared[0]) {
+                char *part=cleared;
+                while(*part&&loaded.cleared_count<16) {
+                    char *sep=strchr(part,';'); size_t n=sep?(size_t)(sep-part):strlen(part);
+                    if(n>=sizeof loaded.cleared[0])break;
+                    memcpy(loaded.cleared[loaded.cleared_count],part,n); loaded.cleared[loaded.cleared_count][n]=0; loaded.cleared_count++;
+                    if(!sep)break; part=sep+1;
+                }
+            }
+            if(loaded.completed && loaded.cleared_count==0) { snprintf(loaded.cleared[0],sizeof loaded.cleared[0],"%d,%d",loaded.x,loaded.y); loaded.cleared_count=1; }
             slot=-1;
             for(int k=0;k<16;k++)if(!g_pos[k].qid[0]){slot=k;break;}
             if(slot>=0)g_pos[slot]=loaded;
@@ -330,6 +347,20 @@ static int resolve_team(Team *team) {
     pthread_mutex_unlock(&g_pos_lock);
     return 1;
 }
+static int cleared_has(const Position *p, int x, int y) {
+    char key[32]; int i; snprintf(key,sizeof key,"%d,%d",x,y);
+    for(i=0;i<p->cleared_count;i++)if(!strcmp(p->cleared[i],key))return 1;
+    return 0;
+}
+static void cleared_add(Position *p, int x, int y) {
+    char key[32]; if(cleared_has(p,x,y)||p->cleared_count>=16)return;
+    snprintf(key,sizeof key,"%d,%d",x,y); snprintf(p->cleared[p->cleared_count],sizeof p->cleared[0],"%s",key); p->cleared_count++;
+}
+static int render_cleared(Out *o, const Position *p) {
+    int i; if(!out_add(o,"[",1))return 0;
+    for(i=0;i<p->cleared_count;i++) { int x=0,y=1; if(sscanf(p->cleared[i],"%d,%d",&x,&y)!=2)continue; if(i&&!out_add(o,",",1))return 0; if(!out_add(o,"{\"x\":",5)||!out_int(o,x)||!out_add(o,",\"y\":",5)||!out_int(o,y)||!out_add(o,"}",1))return 0; }
+    return out_add(o,"]",1);
+}
 static int render_qteam(Out *o, const Team *team) {
     int i; char key[96]; const unsigned char *v; size_t n;
     if(!out_add(o,"{",1))return 0;
@@ -375,9 +406,9 @@ static void resolve_match(const char *body, const char *end) {
     json_string(body,end,"qid",submitted,sizeof submitted);
     normalize_qid(submitted,qid);
     pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16;i++) if(g_pos[i].qid[0] &&
-        ((!submitted[0] && g_pos[i].pending) || (submitted[0] && !strcmp(g_pos[i].qid,qid)))) {
-        g_pos[i].pending=0; g_pos[i].completed=1;
+    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && g_pos[i].pending &&
+        (!submitted[0] || !strcmp(g_pos[i].qid,qid))) {
+        g_pos[i].pending=0; g_pos[i].completed=1; cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);
     }
     persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
@@ -420,10 +451,39 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
-    if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[4];char posx[16],posy[16];snprintf(qid,sizeof qid,"%.63s",path_last(p)); logmsg("quest-begin qid=%s body=%.*s", qid, (int)(end-body>512?512:end-body), body); /* preserve an existing run, including a pending encounter */
-        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){int existing=!strcmp(g_pos[slot].qid,qid);int preserve=existing&&(g_pos[slot].pending||g_pos[slot].completed||g_pos[slot].x!=x||g_pos[slot].y!=y);if(!preserve){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;g_pos[slot].completed=0;}persist_quest_state_locked();x=g_pos[slot].x;y=g_pos[slot].y;}pthread_mutex_unlock(&g_pos_lock);snprintf(posx,sizeof posx,"%d",x);snprintf(posy,sizeof posy,"%d",y);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%POSX%",(const unsigned char*)posx,strlen(posx)};args[3]=(TemplateArg){"%POSY%",(const unsigned char*)posy,strlen(posy)};v=template_spaced(o,v,n,args,4,outn);free(qteam.p);return v; }
+    if(strstr(p,"/quests/quest-begin/")) {
+        Team team; Position snapshot={0}; Out qteam={0},cleared={0};
+        TemplateArg args[5]; char posx[16],posy[16]; int x=0,y=1,slot=-1;
+        snprintf(qid,sizeof qid,"%.63s",path_last(p));
+        store_quest_team(body,end);
+        snprintf(key,sizeof key,"@quest:start:%s",qid); v=lookup(key,&n);
+        if(!v)return NULL;
+        sscanf((const char*)v,"%d %d",&x,&y);
+        pthread_mutex_lock(&g_pos_lock);
+        for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
+        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){
+            slot=i; snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);
+            g_pos[i].x=x;g_pos[i].y=y;break;
+        }
+        if(slot>=0){snapshot=g_pos[slot];persist_quest_state_locked();}
+        pthread_mutex_unlock(&g_pos_lock);
+        if(slot<0)return NULL;
+        snprintf(posx,sizeof posx,"%d",snapshot.x);snprintf(posy,sizeof posy,"%d",snapshot.y);
+        snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);
+        if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_cleared(&cleared,&snapshot)){
+            free(qteam.p);free(cleared.p);return NULL;
+        }
+        args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};
+        args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};
+        args[2]=(TemplateArg){"%POSX%",(const unsigned char*)posx,strlen(posx)};
+        args[3]=(TemplateArg){"%POSY%",(const unsigned char*)posy,strlen(posy)};
+        args[4]=(TemplateArg){"%CLEARED%",cleared.p,cleared.n};
+        logmsg("quest-begin qid=%s pos=%s,%s squad=%d lead=%s",qid,posx,posy,team.count,team.bid[0]);
+        v=template_spaced(o,v,n,args,5,outn);free(qteam.p);free(cleared.p);return v;
+    }
     if(strstr(p,"/quests/quest-movedir/")) {
         int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0,completed=0;
+        Position snapshot={0};
         const char *z=strrchr(p,'/'), *yseg=z?z+1:"", *z2=z?NULL:NULL;
         char xs[32], ys[32], seg[96], *ep; long lx,ly;
         if(z){z2=z-1;while(z2>p&&*z2!='/')z2--;if(*z2=='/')z2++;}
@@ -438,13 +498,39 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
         snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
         if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}
-        if(found&&slot>=0){if(!(completed&&dx==0&&dy==0))g_pos[slot].completed=0;g_pos[slot].x=nx;g_pos[slot].y=ny;}
-        if(slot>=0)persist_quest_state_locked();
+        if(!found){dx=0;dy=0;nx=sx;ny=sy;}
+        if(slot>=0){
+            /* The start tile has no encounter; entering it is always safe. */
+            int start_x=0,start_y=1;
+            snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);
+            if(v)sscanf((const char*)v,"%d %d",&start_x,&start_y);
+            if(sx==start_x&&sy==start_y)cleared_add(&g_pos[slot],sx,sy);
+            completed=cleared_has(&g_pos[slot],nx,ny);
+            g_pos[slot].x=nx;g_pos[slot].y=ny;g_pos[slot].completed=completed;
+        }
+        if(completed) snprintf(key,sizeof key,"@movedir-completed:%s:%d:%d:0:0",qid,sx,sy);
+        else snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);
+        v=lookup(key,&n);
+        if(slot>=0){
+            g_pos[slot].pending=v&&contains_bytes(v,n,"\"currentBattleState\"");
+            snapshot=g_pos[slot];persist_quest_state_locked();
+        }
         pthread_mutex_unlock(&g_pos_lock);
-        if(completed&&dx==0&&dy==0)snprintf(key,sizeof key,"@movedir-completed:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);else snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
-        if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}
-        if(v&&found&&contains_bytes(v,n,"\"currentBattleState\"")){pthread_mutex_lock(&g_pos_lock);if(slot>=0&&!strcmp(g_pos[slot].qid,qid)){g_pos[slot].pending=1;persist_quest_state_locked();}pthread_mutex_unlock(&g_pos_lock);}
-        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)){free(qteam.p);free(ateam.p);return NULL;}if(!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
+        if(v){
+            Team team;Out qteam={0},ateam={0},cleared={0};TemplateArg args[6]; char nextx[16],nexty[16];
+            if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)||!render_cleared(&cleared,&snapshot)){
+                free(qteam.p);free(ateam.p);free(cleared.p);return NULL;
+            }
+            args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};
+            args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};
+            args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};
+            args[3]=(TemplateArg){"%CLEARED%",cleared.p,cleared.n};
+            snprintf(nextx,sizeof nextx,"%d",nx); snprintf(nexty,sizeof nexty,"%d",ny);
+            args[4]=(TemplateArg){"%POSX%",(const unsigned char*)nextx,strlen(nextx)};
+            args[5]=(TemplateArg){"%POSY%",(const unsigned char*)nexty,strlen(nexty)};
+            logmsg("quest-move qid=%s pos=%d,%d pending=%d cleared=%d squad=%d lead=%s",qid,nx,ny,snapshot.pending,snapshot.cleared_count,team.count,team.bid[0]);
+            v=template_spaced(o,v,n,args,6,outn);free(qteam.p);free(ateam.p);free(cleared.p);return v;
+        }
         return NULL;
     }
     if(has_suffix(p,"/bcg/setSavedTeam")) { char teamid[64]="0",bids[TEAM_SIZE_MAX][64];int count,invalid;Team team;Out steam={0},ateam={0};TemplateArg args[3];json_string(body,end,"teamID",teamid,sizeof teamid);json_heroes(body,end,bids,&count,&invalid);store_saved_team(bids,count,invalid);v=lookup("@savedteam:template",&n);if(!v||!resolve_team(&team)||!render_steam(&steam,&team)||!render_ateam(&ateam,&team)){free(steam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%TID%",(const unsigned char*)teamid,strlen(teamid)};args[1]=(TemplateArg){"%STEAM%",steam.p,steam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(steam.p);free(ateam.p);return v; }

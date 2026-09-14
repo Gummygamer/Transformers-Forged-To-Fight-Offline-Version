@@ -181,7 +181,8 @@ function quest_begin_template(qid: text, set_id: text): text
   let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
   let body: text = quest_begin_position_body(envelope(gamedata.build_quest_begin(qid, set_id, [])), qid)
   let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 2, "quest-begin " ++ qid ++ " lead")
-  replace_exact(with_lead, quest, "%QTEAM%", 2, "quest-begin " ++ qid ++ " team")
+  let with_team: text = replace_exact(with_lead, quest, "%QTEAM%", 2, "quest-begin " ++ qid ++ " team")
+  replace_exact(with_team, "\"cleared\":[]", "\"cleared\":%CLEARED%", 2, "quest-begin cleared")
 end
 
 function move_body_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text
@@ -208,7 +209,15 @@ function movedir_template_state(qid: text, sx: integer, sy: integer, dx: integer
   let quest: text = unwrap_or(get(values, 2), "")
   let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
   let body: text = move_body_state(qid, sx, sy, dx, dy, completed)
-  let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
+  let cleared: text = jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(body), "result"), "progression"), "cleared"))
+  let with_history: text = replace_exact(body, "\"cleared\":" ++ cleared, "\"cleared\":%CLEARED%", 1, "movedir cleared")
+  let with_move: text = if completed then
+  let moved: text = replace_exact(with_history, "\"moveto\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"moveto\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 1, "completed moveto")
+  replace_exact(moved, "\"currentPos\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"currentPos\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 2, "completed position")
+else
+  with_history
+end
+  let with_lead: text = replace_exact(with_move, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
   let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
   replace_exact(with_quest, active, "%ATEAM%", 1, "movedir " ++ qid ++ " active team")
 end
@@ -236,7 +245,7 @@ function saved_team_template(): text
   let saved: text = unwrap_or(get(values, 0), "")
   let active: text = unwrap_or(get(values, 1), "")
   let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
-  replace_exact(one, active, "%ATEAM%", 1, "saved-team active heroes")
+  replace_exact(one, active, "%ATEAM%", 2, "saved-team active heroes")
 end
 
 function user_data_template(): text
