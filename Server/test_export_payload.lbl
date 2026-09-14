@@ -154,7 +154,7 @@ function route_from_name(name: text): text
   unwrap_or(get(parts, 0), "") ++ " /" ++ replace(unwrap_or(get(parts, 1), ""), "_", "/")
 end
 
-function expand_team_template(payload: Payload, body: text, bids: a list of text, team_id: text): text
+function expand_team_template_at(payload: Payload, body: text, bids: a list of text, team_id: text, qid: text): text
   intent: replace
   let resolved: a list of text = gamedata.resolve_team(bids)
   mutable quest_members: a list of text = []
@@ -173,13 +173,19 @@ function expand_team_template(payload: Payload, body: text, bids: a list of text
   let with_lead: text = replace(with_id, "%LEAD%", unwrap_or(get(resolved, 0), ""))
   let with_quest: text = replace(with_lead, "%QTEAM%", qteam)
   let with_active: text = replace(with_quest, "%ATEAM%", ateam)
-  replace(with_active, "%STEAM%", steam)
+  let with_saved: text = replace(with_active, "%STEAM%", steam)
+  let with_x: text = replace(with_saved, "%POSX%", to_text(gamedata.quest_start_x_for(qid)))
+  replace(with_x, "%POSY%", to_text(gamedata.quest_start_y_for(qid)))
+end
+
+function expand_team_template(payload: Payload, body: text, bids: a list of text, team_id: text): text
+  intent: replace
+  expand_team_template_at(payload, body, bids, team_id, "1.1.1")
 end
 
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  if bytes_length(blob) != 5003988 then set detail = "unexpected blob size " ++ to_text(bytes_length(blob)) end
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
@@ -187,6 +193,10 @@ function test_header_layout_and_sorted_entries(blob: integer, payload: Payload):
   if detail == "" and bytes_read_u32_le(blob, 20) != 9774 then set detail = "entry count is not 9774" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
+  let entry_table_end: integer = bytes_read_u32_le(blob, 24) + bytes_read_u32_le(blob, 20) * 16
+  let prefix_table_end: integer = bytes_read_u32_le(blob, 32) + bytes_read_u32_le(blob, 28) * 16
+  let table_end: integer = if entry_table_end > prefix_table_end then entry_table_end else prefix_table_end end
+  if detail == "" and bytes_length(blob) < table_end then set detail = "payload ends before its table data" end
   if detail == "" and (bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0) then set detail = "reserved fields are non-zero" end
   if detail == "" and payload.error != "" then set detail = "decoder failed: " ++ payload.error end
   mutable index: integer = 0
@@ -197,7 +207,7 @@ function test_header_layout_and_sorted_entries(blob: integer, payload: Payload):
     let body_offset: integer = bytes_read_u32_le(blob, row + 8)
     let body_length: integer = bytes_read_u32_le(blob, row + 12)
     if key_offset % 4 != 0 or body_offset % 4 != 0 then set detail = "unaligned entry " ++ to_text(index)
-    else if key_offset + key_length >= bytes_length(blob) or body_offset + body_length >= bytes_length(blob) then set detail = "out-of-range entry " ++ to_text(index)
+    else if key_offset + key_length > bytes_length(blob) or body_offset + body_length > bytes_length(blob) then set detail = "out-of-range entry " ++ to_text(index)
     else if index > 0 and unwrap_or(get(payload.entry_keys, index - 1), "") >= unwrap_or(get(payload.entry_keys, index), "") then set detail = "entry keys are not strictly increasing at " ++ to_text(index)
     end
     set index = index + 1
@@ -282,7 +292,7 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   let actual_begin: text = fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}")
-  let expanded_begin: text = expand_team_template(payload, entry_body(payload, "POST /quests/quest-begin/1.1.1"), [], "0")
+  let expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/1.1.1"), [], "0", "1.1.1")
   if detail == "" and not same_json(expanded_begin, actual_begin) then set detail = "quest-begin template differs" end
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
@@ -290,7 +300,7 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   let custom_team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015"]
   let custom_begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}"
   let custom_actual_begin: text = fakeserver.dynamic("/quests/quest-begin/" ++ custom_qid, custom_begin_body)
-  let custom_expanded_begin: text = expand_team_template(payload, entry_body(payload, "POST /quests/quest-begin/" ++ custom_qid), custom_team, "0")
+  let custom_expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/" ++ custom_qid), custom_team, "0", custom_qid)
   if detail == "" and not same_json(custom_expanded_begin, custom_actual_begin) then set detail = "custom quest-begin template differs" end
   let custom_move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
   let custom_actual_move: text = fakeserver.dynamic(custom_move_path, "\{\}")

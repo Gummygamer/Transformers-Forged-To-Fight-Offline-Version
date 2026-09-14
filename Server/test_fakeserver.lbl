@@ -65,13 +65,15 @@ end
 
 function current_battle_id(body: text): text
   intent: get
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "currentBattleId"))
+  let progression: Json = jsonout.obj_get(result(body), "progression")
+  if jsonout.obj_has(progression, "currentBattleId") then jsonout.as_text(jsonout.obj_get(progression, "currentBattleId")) else "" end
 end
 
 function current_battle_state(body: text): text
   intent: get
   let users: Json = jsonout.obj_get(jsonout.obj_get(result(body), "progression"), "users")
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "currentBattleState"))
+  let user: Json = jsonout.obj_get(users, gamedata.local_uid())
+  if jsonout.obj_has(user, "currentBattleState") then jsonout.as_text(jsonout.obj_get(user, "currentBattleState")) else "" end
 end
 
 function pos_x(body: text): integer
@@ -110,7 +112,8 @@ function test_sparse_and_overflow_quest_team_fields_follow_capacity_rules(): boo
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"tm0\":\"optimusprime_cin_tf\",\"tm2\":\"megatron_gs_leader2015\",\"tm4\":\"megatron_cin_rotf\"\}")
   let sparse_ok: boolean = fakeserver.get_saved_team() == sparse
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\",\"tm5\":\"soundwave_gs\"\}")
-  sparse_ok and fakeserver.get_saved_team() == gamedata.default_team()
+  -- An over-capacity update is rejected without destroying the last valid squad.
+  sparse_ok and fakeserver.get_saved_team() == sparse
 end
 
 function test_resp_path_for_maps_routes_to_response_files(): boolean
@@ -190,6 +193,21 @@ function test_custom_story_begin_without_team_preserves_saved_squad_across_navig
   let reentered_instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(reentered_active, "instances")), 0), jsonout.json_obj([]))
   let reentered_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(reentered_instance, "progression"), "users"), gamedata.local_uid())
   empty_fallback_ok and fakeserver.get_saved_team() == selected and object_keys(jsonout.obj_get(user, "team")) == selected and object_keys(jsonout.obj_get(moved_team, "heroes")) == selected and object_keys(jsonout.obj_get(reentered_user, "team")) == selected
+end
+
+function test_pending_bludgeon_survives_reentry_and_reaches_starscream(): boolean
+  intent: test
+  let selected: a list of text = ["megatron_cin_rotf", "grimlock_gs_mp08"]
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/bcg/setSavedTeam", "\{\"heroes\":[\"megatron_cin_rotf\",\"grimlock_gs_mp08\"]\}")
+  fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
+  let first: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
+  fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
+  let replay: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
+  resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
+  let starscream: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
+  current_battle_id(first) == "bludgeon_gs_rd20" and current_battle_id(replay) == "bludgeon_gs_rd20" and current_battle_id(starscream) == "fte_stars_gs_t3" and fakeserver.get_saved_team() == selected
 end
 
 function test_quest_active_does_not_preload_custom_story(): boolean
@@ -291,7 +309,7 @@ function test_completed_node_does_not_replay_on_zero_offset_or_rebegin(): boolea
   fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}")
   let after_rebegin: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/0/0", "")
   let starscream: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "")
-  length(jsonout.list_items(jsonout.obj_get(result(revisit), "results"))) == 1 and length(jsonout.list_items(jsonout.obj_get(result(after_rebegin), "results"))) == 1 and pos_x(starscream) == 2 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle(starscream), "battleEnemy"), "key")) == "fte_stars_gs_t3"
+  length(jsonout.list_items(jsonout.obj_get(result(revisit), "results"))) == 1 and length(jsonout.list_items(jsonout.obj_get(result(after_rebegin), "results"))) == 1 and current_battle_id(revisit) == "" and current_battle_state(revisit) == "" and current_battle_id(after_rebegin) == "" and current_battle_state(after_rebegin) == "" and pos_x(starscream) == 2 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle(starscream), "battleEnemy"), "key")) == "fte_stars_gs_t3"
 end
 
 function test_quit_and_empty_keep_pending(): boolean
@@ -329,7 +347,7 @@ function test_plain_and_board_qids_normalize(): boolean
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
   fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
   resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}")
-  pos_x(plain) == 2 and pos_x(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) == 2
+  pos_x(plain) == 2 and pos_x(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) == 3
 end
 
 function test_quest_resets_and_legacy_state_disarm_pending(): boolean
@@ -344,7 +362,7 @@ function test_quest_resets_and_legacy_state_disarm_pending(): boolean
   let reset_by_begin: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
   fakeserver.reset_quest_positions()
   let reset_positions: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  pos_x(legacy) == 2 and pos_x(reset_by_begin) == 1 and pos_x(reset_positions) == 1
+  pos_x(legacy) == 2 and pos_x(reset_by_begin) == 2 and pos_x(reset_positions) == 1
 end
 
 function test_resolve_response_prefers_canned_then_rule_then_default(): boolean
@@ -426,6 +444,7 @@ function main(): nothing
   set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
   set failed = failed + report("test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry", test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry())
+  set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
   set failed = failed + report("test_quest_list_slots_fit_client_summary_tables", test_quest_list_slots_fit_client_summary_tables())
@@ -445,7 +464,7 @@ function main(): nothing
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(26 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(27 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

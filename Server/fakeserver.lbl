@@ -13,6 +13,7 @@ record Position
   y: integer
   pending: boolean
   completed: boolean
+  cleared: a list of text
 end
 
 record ServerState
@@ -198,8 +199,9 @@ else if kind == "Q" then
   let y: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "1")), 1)
   let pending: boolean = unwrap_or(get(fields, 5), "0") == "1"
   let completed: boolean = unwrap_or(get(fields, 6), "0") == "1"
+  let cleared: a list of text = if unwrap_or(get(fields, 7), "") == "" then [] else split(unwrap_or(get(fields, 7), ""), ";") end
   if qid != "" then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed, cleared: cleared })
 end
 end
   end
@@ -212,7 +214,7 @@ function save_state(state: ServerState): nothing
   create_dir(log_dir())
   mutable lines: a list of text = ["S|" ++ join(state.team, ",")]
   for position in state.positions do
-    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y) ++ "|1|" ++ if position.pending then "1" else "0" end ++ "|" ++ if position.completed then "1" else "0" end)
+    set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y) ++ "|1|" ++ if position.pending then "1" else "0" end ++ "|" ++ if position.completed then "1" else "0" end ++ "|" ++ join(position.cleared, ";"))
   end
   write_file(state_file(), join(lines, "\n"))
 end
@@ -236,8 +238,21 @@ end
 
 function set_saved_team(team: a list of text): nothing
   intent: save
+  -- A malformed or transient squad update must never erase the last valid choice.
+  -- The default trio is only used when no squad has ever been saved.
+  let resolved: a list of text = gamedata.resolve_team(team)
+  if length(team) > 0 and resolved == team then
   let state: ServerState = load_state()
-  save_state(ServerState { team: gamedata.resolve_team(team), positions: state.positions })
+  save_state(ServerState { team: resolved, positions: state.positions })
+end
+end
+
+function position_exists(qid: text): boolean
+  intent: check
+  for position in load_state().positions do
+    if position.qid == qid then return true end
+  end
+  false
 end
 
 function position_for(qid: text): Position
@@ -248,24 +263,25 @@ function position_for(qid: text): Position
   return position
 end
   end
-  Position { qid: qid, x: 0, y: 1, pending: false, completed: false }
+  Position { qid: qid, x: 0, y: 1, pending: false, completed: false, cleared: [] }
 end
 
-function set_position(qid: text, x: integer, y: integer, pending: boolean, completed: boolean): nothing
+function set_position(qid: text, x: integer, y: integer, pending: boolean, completed: boolean, cleared: a list of text): nothing
   intent: save
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   mutable replaced: boolean = false
   for position in state.positions do
     if position.qid == qid then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed, cleared: cleared })
   set replaced = true
 else
   set positions = append(positions, position)
 end
+
   end
   if not replaced then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed })
+  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed, cleared: cleared })
 end
   save_state(ServerState { team: state.team, positions: positions })
 end
@@ -1549,6 +1565,16 @@ else
 end
 end
 
+function cleared_json(points: a list of text): Json
+  intent: build
+  mutable nodes: a list of Json = []
+  for point in points do
+    let coords: a list of text = split(point, ",")
+    set nodes = append(nodes, jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(to_integer(unwrap_or(get(coords, 0), "0")))), jsonout.json_pair("y", jsonout.json_int(to_integer(unwrap_or(get(coords, 1), "1"))))]))
+  end
+  jsonout.json_list(nodes)
+end
+
 function quest_begin_response(p: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
@@ -1562,16 +1588,14 @@ function quest_begin_response(p: text, btxt: text): text
 end
   let overflow: text = json_text_or(req, "tm" ++ to_text(gamedata.team_size_max()), "")
   if overflow != "" then set posted = append(posted, overflow) end
-  if length(posted) > 0 then
-  set_saved_team(posted)
-end
+  if length(posted) > 0 then set_saved_team(posted) end
   let previous: Position = position_for(qid)
-  let preserve_completion: boolean = previous.completed
-  set_position(qid, if preserve_completion then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_completion then previous.y else gamedata.quest_start_y_for(qid) end, false, preserve_completion)
+  let preserve_progress: boolean = position_exists(qid)
+  set_position(qid, if preserve_progress then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end, previous.pending and preserve_progress, previous.completed and preserve_progress, previous.cleared)
   let saved: a list of text = get_saved_team()
   let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.resolve_team(saved) else saved end
   if length(posted) == 0 and qid == gamedata.custom_story_qid() and team != saved then set_saved_team(team) end
-  spaced_envelope(gamedata.build_quest_begin(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team))
+  spaced_envelope(gamedata.build_quest_begin_with_cleared(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, previous.x, previous.y, cleared_json(previous.cleared)))
 end
 
 function movedir_response(p: text): text
@@ -1584,7 +1608,9 @@ function movedir_response(p: text): text
   set offy = 0
   end
   let start: Position = position_for(qid)
-  let requested_zero_offset: boolean = offx == 0 and offy == 0
+  mutable cleared: a list of text = start.cleared
+  let start_point: text = to_text(start.x) ++ "," ++ to_text(start.y)
+  if not gamedata.quest_has_encounter_for(qid, start.x) and not contains(cleared, start_point) then set cleared = append(cleared, start_point) end
   if start.pending then
   set offx = 0
   set offy = 0
@@ -1592,20 +1618,21 @@ function movedir_response(p: text): text
   let candidate_x: integer = start.x + offx
   let candidate_y: integer = start.y + offy
   if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and candidate_y == gamedata.quest_path_col_for(qid) then
-  let revisiting_completed: boolean = start.completed and candidate_x == start.x and candidate_y == start.y
-  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_for(qid, candidate_x) and not revisiting_completed, revisiting_completed)
+  let point: text = to_text(candidate_x) ++ "," ++ to_text(candidate_y)
+  let revisiting_completed: boolean = contains(start.cleared, point) or (start.completed and candidate_x == start.x and candidate_y == start.y)
+  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_for(qid, candidate_x) and not revisiting_completed, revisiting_completed, cleared)
   else
     set offx = 0
     set offy = 0
   end
   end
   let team: a list of text = get_saved_team()
-  let progression: Json = if start.completed and requested_zero_offset then
+  let progression: Json = if contains(cleared, to_text(start.x + offx) ++ "," ++ to_text(start.y + offy)) or (start.completed and offx == 0 and offy == 0) then
   gamedata.build_quest_movedir_completed(qid, offx, offy, start.x, start.y, team)
 else
   gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team)
 end
-  spaced_envelope(progression)
+  spaced_envelope(jsonout.obj_set(progression, "progression", jsonout.obj_set(jsonout.obj_get(progression, "progression"), "cleared", cleared_json(cleared))))
 end
 
 function resolve_match_response(path: text, btxt: text): text
@@ -1618,8 +1645,10 @@ function resolve_match_response(path: text, btxt: text): text
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   for position in state.positions do
-  let clears: boolean = if submitted == "" then position.pending else position.qid == normalize_qid(submitted) end
-  set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end })
+  let clears: boolean = position.pending and (submitted == "" or position.qid == normalize_qid(submitted))
+  mutable cleared: a list of text = position.cleared
+  if clears and not contains(cleared, to_text(position.x) ++ "," ++ to_text(position.y)) then set cleared = append(cleared, to_text(position.x) ++ "," ++ to_text(position.y)) end
+  set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end, cleared: cleared })
 end
   save_state(ServerState { team: state.team, positions: positions })
 end
@@ -1634,7 +1663,8 @@ end
 function saved_team_envelope(team_id: text, heroes: a list of text): text
   intent: encode
   let active_team_id: text = if starts_with(team_id, "PVP") then "arena_versus" else "1.1.1-" ++ team_id end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list([gamedata.build_active_team(active_team_id, heroes)]))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
+  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes)] end
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list(active_teams))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
 end
 
 function saved_team_response(path: text, btxt: text): text
@@ -1655,8 +1685,9 @@ end)
   let session: Session = session_for_token(peer)
   let default_name: text = if session.name != "" then session.name else "Commander" end
   let name: text = if jsonout.obj_has(req, "name") and jsonout.type_name(jsonout.obj_get(req, "name")) == "text" then jsonout.as_text(jsonout.obj_get(req, "name")) else default_name end
-  store_roster(peer, name, heroes)
-  saved_team_envelope(team_id, heroes)
+  let saved: a list of text = get_saved_team()
+  store_roster(peer, name, saved)
+  saved_team_envelope(team_id, saved)
 end
 
 function quest_dynamic(path: text, p: text, btxt: text): text

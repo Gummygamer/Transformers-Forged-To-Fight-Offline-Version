@@ -797,9 +797,10 @@ model even though the player HUD and selected hero are Optimus Primal. Trace the
 fighter-data source and replace the generic `/matches/activate-match/quests_fight` response with
 the exact contract if required.
 
-2. Persist completed quest progression and rewards after a resolved fight. Combat and result
-submission now finish, but the authored fake server does not yet retain completion across
-sessions or implement the full reward contract.
+2. Persist the full quest reward contract after a resolved fight. Combat results now persist
+the current quest position, pending/completed encounter state, and selected squad across map
+re-entry and native-server restarts; reward delivery and the broader economy contract remain
+unimplemented.
 
 3. The wider server content database: more quests and maps, opponent lineups, per-bot
 abilities, rewards, persistence, and the economy.
