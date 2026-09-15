@@ -4461,19 +4461,10 @@ static void* hooked_AbilityItem_SetData(void* self, void* statModifier, void* st
 }
 
 static fn8 orig_Damage_BuffEffect_OnTick = NULL;
-static void hooked_Damage_BuffEffect_OnTick(void* self, float dt, void* method){
-    PROTECT({
-        float val = 0.0f;
-        if (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) {
-            val = *(float*)((uintptr_t)self + 0x44);
-        }
-        LOG("KITFIGHT Damage_BuffEffect.OnTick self=%p buff.Value=%.4f dt=%.4f", self, (double)val, (double)dt);
-    });
-    if (orig_Damage_BuffEffect_OnTick) {
-        ((void(*)(void*, float, void*))orig_Damage_BuffEffect_OnTick)(self, dt, method);
-    }
-}
-
+/* Real signature: OnTick(this, Buff buff, float tickInterval)
+ * x0 = this (Damage_BuffEffect), x1 = buff, s0 = tickInterval.
+ * The original reads the magnitude from the BUFF (0xBB1948: ldr s1,[x19,#0x44]
+ * where 0xBB18C0 mov x19,x1), so dump candidate buff offsets to locate it. */
 static void try_extract_string(void* ptr, char* buf, size_t max_len) {
     if (!buf || max_len < 2) return;
     buf[0] = 0;
@@ -4500,6 +4491,33 @@ static void try_extract_string(void* ptr, char* buf, size_t max_len) {
     }
 }
 
+static void try_extract_string(void* ptr, char* buf, size_t max_len);
+
+static void hooked_Damage_BuffEffect_OnTick(void* self, void* buff, float dt){
+    PROTECT({
+        uintptr_t b = (uintptr_t)buff;
+        if (b >= 0x100000 && !(b & 7)) {
+            char bt[80]; char id[80]; char ap[80];
+            try_extract_string(*(void**)(b + 0x10), bt, sizeof bt);   /* _buffType */
+            try_extract_string(*(void**)(b + 0x28), id, sizeof id);   /* _id */
+            try_extract_string(*(void**)(b + 0x38), ap, sizeof ap);   /* _appearanceID */
+            LOG("KITFIGHT type='%s' id='%s' appr='%s' origMod=%.4f amount=%.4f dur=%.2f tick=%.2f stacks=%d dt=%.2f",
+                bt, id, ap,
+                (double)*(float*)(b + 0x40),   /* _originalModifier  <-- the INPUT */
+                (double)*(float*)(b + 0x44),   /* _amount            <-- the OUTPUT */
+                (double)*(float*)(b + 0x48),   /* _duration */
+                (double)*(float*)(b + 0x58),   /* _tickInterval */
+                *(int*)(b + 0x68),             /* _stackCount */
+                (double)dt);
+        } else {
+            LOG("KITFIGHT bad buff ptr %p", buff);
+        }
+    });
+    if (orig_Damage_BuffEffect_OnTick) {
+        ((void(*)(void*, void*, float))orig_Damage_BuffEffect_OnTick)(self, buff, dt);
+    }
+}
+
 // KITREG1: TFormStatModsUtil.RegisterStatModifier(controller, key, sigLevel) RVA 0x10DAABC
 static fn8 orig_KITREG1 = NULL;
 static void* hooked_KITREG1(void* controller, void* key, void* sigLevel, void* a3, void* a4, void* a5, void* a6, void* a7){
@@ -4519,14 +4537,52 @@ static void* hooked_KITREG1(void* controller, void* key, void* sigLevel, void* a
     return NULL;
 }
 
-// KITREG2: StatModifierController.RegisterStatModifier(...) RVA 0xCCE8D8
-static fn8 orig_KITREG2 = NULL;
-static void* hooked_KITREG2(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+// KITREG2: StatModifierController.RegisterStatModifier(this, statModifier, float amount) RVA 0xCCE8D8
+static void (*orig_KITREG2)(void*, void*, float) = NULL;
+static void hooked_KITREG2(void* self, void* mod, float amount){
     PROTECT({
-        LOG("KITREG2 called first_arg=%p (a1=%p a2=%p a3=%p)", a0, a1, a2, a3);
+        uintptr_t m = (uintptr_t)mod;
+        float mod_m = (m >= 0x100000 && !(m & 7)) ? *(float*)(m + 0xA0) : -1.0f;
+        void* idPtr = (m >= 0x100000 && !(m & 7)) ? *(void**)(m + 0x10) : NULL;
+        char idBuf[65] = {0};
+        try_extract_string(idPtr, idBuf, 64);
+        LOG("KITREG2 self=%p mod=%p id='%s' amount=%.4f mod_m=%.4f", self, mod, idBuf[0] ? idBuf : "<empty>", (double)amount, (double)mod_m);
     });
     if (orig_KITREG2) {
-        return orig_KITREG2(a0, a1, a2, a3, a4, a5, a6, a7);
+        orig_KITREG2(self, mod, amount);
+    }
+}
+
+// BuffsController.CalculateBuffAmount(this, buff) RVA 0xEED720
+static float (*orig_CalculateBuffAmount)(void*, void*) = NULL;
+static float hooked_CalculateBuffAmount(void* self, void* buff){
+    float ret = 0.0f;
+    if (orig_CalculateBuffAmount) {
+        ret = orig_CalculateBuffAmount(self, buff);
+    }
+    PROTECT({
+        uintptr_t b = (uintptr_t)buff;
+        float f40 = (b >= 0x100000 && !(b & 7)) ? *(float*)(b + 0x40) : -1.0f;
+        float f44 = (b >= 0x100000 && !(b & 7)) ? *(float*)(b + 0x44) : -1.0f;
+        void* idPtr = (b >= 0x100000 && !(b & 7)) ? *(void**)(b + 0x28) : NULL;
+        char idBuf[65] = {0};
+        try_extract_string(idPtr, idBuf, 64);
+        LOG("CALC_BUFF_AMT self=%p buff=%p id='%s' orig_mod=%.4f pre_f44=%.4f -> ret=%.4f",
+            self, buff, idBuf[0] ? idBuf : "<empty>", (double)f40, (double)f44, (double)ret);
+    });
+    return ret;
+}
+
+// BuffsController.ApplyStatModifier RVA 0xEEFC30
+static void* (*orig_ApplyStatModifier)(void*, void*, void*, int, int, float) = NULL;
+static void* hooked_ApplyStatModifier(void* self, void* applicant, void* statMod, int updateAttrs, int useOverrideDur, float overrideDur){
+    PROTECT({
+        uintptr_t sm = (uintptr_t)statMod;
+        float sm_amt = (sm >= 0x100000 && !(sm & 7)) ? *(float*)(sm + 0x48) : -1.0f;
+        LOG("APPLY_STATMOD target=%p app=%p statMod=%p sm_amount=%.4f", self, applicant, statMod, (double)sm_amt);
+    });
+    if (orig_ApplyStatModifier) {
+        return orig_ApplyStatModifier(self, applicant, statMod, updateAttrs, useOverrideDur, overrideDur);
     }
     return NULL;
 }
@@ -4627,9 +4683,11 @@ static void* installer(void* arg){
     inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);
     inline_hook((void*)(g_base + 0xBB18A0), (void*)hooked_Damage_BuffEffect_OnTick, &orig_Damage_BuffEffect_OnTick);
     inline_hook((void*)(g_base + 0x10DAABC), (void*)hooked_KITREG1, &orig_KITREG1);
-    inline_hook((void*)(g_base + 0xCCE8D8),  (void*)hooked_KITREG2, &orig_KITREG2);
+    inline_hook((void*)(g_base + 0xCCE8D8),  (void*)hooked_KITREG2, (fn8*)&orig_KITREG2);
     inline_hook((void*)(g_base + 0x1492B74), (void*)hooked_KITREG3, &orig_KITREG3);
     inline_hook((void*)(g_base + 0xE5DB00),  (void*)hooked_KITREG4, &orig_KITREG4);
+    inline_hook((void*)(g_base + 0xEED720),  (void*)hooked_CalculateBuffAmount, (fn8*)&orig_CalculateBuffAmount);
+    inline_hook((void*)(g_base + 0xEEFC30),  (void*)hooked_ApplyStatModifier, (fn8*)&orig_ApplyStatModifier);
 
     LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;
