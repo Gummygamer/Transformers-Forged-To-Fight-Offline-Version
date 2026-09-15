@@ -1,7 +1,8 @@
 # Authoring abilities from the server
 
-> Status: the end-to-end pipeline is **proven**. Generalized assignment is **not built yet**
-> — that is the current objective, stated below.
+> Status: the end-to-end pipeline is **proven** and **generalized assignment is built**
+> (§5). What remains is verifying the ~43 untested effects (§9), then per-bot design (§2 of
+> the objective) and the glossary (§8).
 
 This document exists so the next person (or agent) can reproduce this work without
 re-deriving it, and without re-litigating the dead ends listed at the bottom. Everything
@@ -18,11 +19,12 @@ the chain end to end — server JSON → parsed → granted per-bot → register
 triggered on hit → ticking damage → icon and floating number on screen. That question is now
 closed.
 
-The real problem is **assignment**, and it is unsolved:
+The real problem is **assignment**:
 
-1. **Solve all permutations.** Any bot may carry any subset of the available abilities —
-   zero, one, several, all — chosen independently per bot. Today the grant is a hardcoded
-   four-bot, three-ability, all-or-nothing expression (see §5).
+1. ✅ **Solve all permutations — DONE (§5).** Any bot may carry any subset of the available
+   abilities — zero, one, several, all — chosen independently per bot. A single
+   `bot_abilities(bid)` table now drives all four builders. Verified behaviour-preserving
+   *and* verified capable of expressing distinct per-bot subsets.
 2. **Then** begin the per-bot design phase — deciding *which* kit each bot should actually
    have. That is a game-design activity and must not start until (1) makes it cheap to
    express.
@@ -94,7 +96,8 @@ tc -> CalloutTextColor        gt -> gradient top        gb -> gradient bottom
 ```
 
 ### 3.4 Grant it to bots
-Add the modifier id to the hero's `stat_mods` list — in **all four** builders (§5).
+Add the modifier id to that bot's list in **`bot_abilities(bid)`** — one function, one edit.
+Do not touch the builders; they all read from it (§5).
 
 ### 3.5 Regenerate, or nothing happens
 ```bash
@@ -132,10 +135,27 @@ emits a standard `\uXXXX` escape, which is valid JSON and decodes client-side.
 
 ---
 
-## 5. The blocker to generalize — read this before designing anything
+## 5. Assignment — DONE, this is where you change who gets what
 
-Kits attach in **four** separate builders, and the grant condition is currently duplicated
-**verbatim four times**:
+> ✅ **Built.** The refactor described here has been applied. Per-bot subsets now work.
+
+**To change what a bot carries, edit `bot_abilities(bid)` in `Server/gamedata.lbl` — and
+nothing else.**
+
+```legible
+public function bot_abilities(bid: text): a list of text
+  if bid == "optimusprimal_bw_mp32" then ["kit_bleed", "kit_shock", "kit_burn"]
+  else if bid == "some_other_bot"    then ["kit_burn"]
+  else no_abilities() end
+end
+```
+
+Each bot may name any subset of the authored ability ids — none, one, several, all —
+independently of every other bot. Every id must exist in `build_stat_modifiers()`
+(`statMods`) and should have a matching record in `build_stat_mod_appears()`.
+
+One accessor, `bot_abilities_json(bid)`, is called by **all four** builders that attach
+kits:
 
 ```
 build_hero_base          — the roster/base record
@@ -144,25 +164,41 @@ build_base_hero_details  — the hero detail panel
 quest_team               — THE FIGHT SQUAD
 ```
 
+⚠️ **`quest_team` is the builder that governs combat and is the easy one to forget.** It
+once hardcoded `[]` and silently stripped every ability from the story squad while the
+other three looked correct. It is now wired to the shared accessor so it cannot drift —
+**do not re-derive assignment in any builder.**
+
+### What this replaced, and why it was a blocker
+
+The grant condition was previously duplicated **verbatim four times** as one flat predicate
+yielding one fixed list:
+
 ```legible
 if bid == "optimusprimal_bw_mp32" or bid == "nemesisprime_gs_voyager2015"
    or bid == "optimusprime_cin_tf" or bid == "megatron_gs_leader2015"
 then [kit_bleed, kit_shock, kit_burn] else [] end
 ```
 
-Two consequences:
+That shape **cannot express permutations at all** — it has no way to say "this bot gets two
+of the three". Every assignment change also meant four synchronized edits, with `quest_team`
+the silent failure mode.
 
-- **`quest_team` is the one that actually matters in combat, and it is easy to miss.** It
-  once hardcoded `[]` and silently stripped every ability from the story squad while the
-  other three builders looked correct.
-- **This shape cannot express permutations at all.** It is one flat predicate yielding one
-  fixed list. Arbitrary per-bot subsets need a single source of truth — a bot→abilities
-  table consulted by one shared accessor that all four builders call.
+> "Give every bot all three kits" is **not** the generalization and was explicitly
+> rejected. All-to-all is just a different hardcoding.
 
-**That refactor is step 1 of the objective.** Do it before authoring more content.
+### How the refactor was verified
 
-> Note: "give every bot all three kits" is **not** the generalization and has been
-> explicitly rejected. All-to-all is just a different hardcoding.
+- **Behaviour-preserving:** all three regenerated payloads
+  (`GET__bcg_getLoginData.json`, `GET__bcg_getUserData.json`, `GET__account_data.json`)
+  are **byte-identical** to their pre-refactor versions.
+- **Permutations actually work:** a throwaway subset produced three distinct assignment
+  states in one payload — `optimusprimal_bw_mp32` all three, `optimusprime_cin_tf` exactly
+  `["kit_burn"]`, `jetfire_gs_leader2014` `[]` — then was reverted and re-verified
+  byte-identical.
+
+Byte-identity alone would only prove nothing broke; the subset test is what proves the
+capability exists. Apply the same pairing when changing this function.
 
 ---
 
@@ -313,15 +349,16 @@ Group by how the effect is observed, not by what it means:
 
 Realistically **~10–12 fights**, not 43.
 
-### 9.4 Sequencing — do §5 first
+### 9.4 Swapping a batch — ✅ the prerequisite is already done
 
 Batch verification means assigning ~8 effects to one bot and swapping the whole set between
-fights. Today that is editing a hardcoded predicate in **four** builders per batch (§5) —
-a dozen times over, with `quest_team` the easy one to forget, which would make every result
-in that fight a false negative.
+fights. **That is now a one-line edit to `bot_abilities(bid)` (§5)** — previously it meant
+editing a hardcoded predicate in four builders per batch, a dozen times over, with
+`quest_team` the easy one to forget, which would have turned every result in that fight
+into a false negative.
 
-**With the bot→abilities table from §5, a batch swap is one line.** The refactor pays for
-itself here. Do it before starting the campaign.
+Recommended shape: give one dedicated bot the batch under test and leave the rest of the
+squad empty, so any effect you observe is unambiguously attributable.
 
 ### 9.5 Record results where they will be believed
 
