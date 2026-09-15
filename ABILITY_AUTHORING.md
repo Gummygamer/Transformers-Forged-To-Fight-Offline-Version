@@ -144,11 +144,21 @@ nothing else.**
 
 ```legible
 public function bot_abilities(bid: text): a list of text
+  intent: return
   if bid == "optimusprimal_bw_mp32" then ["kit_bleed", "kit_shock", "kit_burn"]
-  else if bid == "some_other_bot"    then ["kit_burn"]
+  else if bid == "some_other_bot" then ["kit_burn"]
   else no_abilities() end
 end
 ```
+
+> ⚠️ **`intent:` is mandatory and its omission is a hard compile error**, not a warning:
+> `[E_UNEXPECTED_TOKEN] Missing intent declaration`. Every function in this codebase
+> declares one. (The separate `E_INTENT_MISMATCH` output *is* only a warning — it complains
+> that an intent's wording doesn't match the body, and the build still succeeds. Don't
+> confuse the two.)
+>
+> The empty case is a named helper (`no_abilities()` returning `[]`) rather than a bare
+> `[]` in the `else` branch, so the branch has an unambiguous `a list of text` type.
 
 Each bot may name any subset of the authored ability ids — none, one, several, all —
 independently of every other bot. Every id must exist in `build_stat_modifiers()`
@@ -246,6 +256,14 @@ silent empty value and **no error anywhere** — that is the trap, every time.
 9. **For a regression, diff the payload before reverse-engineering the client.** If the
    client binary did not change, the cause is in what you serve. Disassembly explains the
    mechanism; the diff finds the cause.
+10. **`.lbl` gotcha — every function needs an `intent:` line.** Omitting it is a hard
+    compile error (`[E_UNEXPECTED_TOKEN] Missing intent declaration`). The similarly-named
+    `E_INTENT_MISMATCH` is only a warning about wording and does not fail the build; the
+    codebase emits several of these already on unrelated functions, so do not read them as
+    breakage you introduced.
+11. **Verify any code sample you publish by compiling it.** The §5 sample in this very
+    document shipped once without its `intent:` line and would have failed for the first
+    person who copied it. A replication guide that does not compile is worse than none.
 
 ---
 
