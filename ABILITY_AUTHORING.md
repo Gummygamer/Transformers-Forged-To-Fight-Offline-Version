@@ -26,8 +26,11 @@ The real problem is **assignment**, and it is unsolved:
 2. **Then** begin the per-bot design phase — deciding *which* kit each bot should actually
    have. That is a game-design activity and must not start until (1) makes it cheap to
    express.
+3. **Alongside (2), build the ability glossary** — see §8. Designers cannot choose kits
+   sensibly until each ability states, in plain language, what it does and **who it lands
+   on**.
 
-Do not confuse the two. Authoring one more hardcoded kit is not progress toward (1).
+Do not confuse these. Authoring one more hardcoded kit is not progress toward (1).
 
 ---
 
@@ -207,6 +210,55 @@ silent empty value and **no error anywhere** — that is the trap, every time.
 9. **For a regression, diff the payload before reverse-engineering the client.** If the
    client binary did not change, the cause is in what you serve. Disassembly explains the
    mechanism; the diff finds the cause.
+
+---
+
+## 8. Planned — the ability glossary (not built yet)
+
+A designer picking a kit needs to know, per ability, **what it does and who it lands on**.
+That is the glossary. It is not yet written, but most of the raw material exists and it is
+mostly an organizing job, not new reverse-engineering.
+
+### The axis that matters: `ta` and `mt` are INDEPENDENT
+
+```
+ta   who RECEIVES the effect        self | opponent
+mt   how it is CLASSIFIED/displayed buff | debuff | passive
+```
+
+These are **two separate fields and the engine does not tie them together.** The catalogue
+records a *conventional* pairing per effect — `armor_break` is documented as
+`ta:"opponent"` + `mt:"debuff"` — but that is convention, not enforcement. Nothing prevents
+serving `ta:"self"` + `mt:"buff"` on `armor_break` and handing your own hero a penalty
+presented as a blessing.
+
+**So "buff the hero" vs "debuff the opponent" is a pair of choices, not one.** A usable
+glossary must state both per ability, and should make the incoherent combinations
+impossible to express rather than merely discouraged.
+
+⚠️ **Open question, do not assume either way:** whether `mt` is purely presentational
+(grouping/colour in the buff HUD) or also drives mechanics. Untested. Settle it before the
+glossary asserts a meaning for it.
+
+### Material that already exists
+- **`research/ability-catalogue.md`** — the backbone. ~46 `*_BuffEffect` classes with
+  mechanical function, required fields, `p` params, stacking rules, and a **proven vs
+  untested** matrix: 3 live-verified, ~43 decompiled specs.
+- **`research/ability-grammar.md`** — trigger/condition vocabulary.
+- **`research/glyph-map.md`** — codepoint → what the icon depicts, with confidence marked.
+- **`research/VOCABULARY.md`** — wire-format terms.
+
+### What the glossary must add on top
+1. **Plain-language effect description** a designer can read without the decompilation.
+2. **`ta` / `mt` stated explicitly per ability**, not left to convention.
+3. **Proven vs untested carried through prominently** — ~43 of ~46 effects have never been
+   run. A glossary that presents all of them as equally available will send designers into
+   untested engine paths.
+4. **The icon** the player will actually see, tied to its codepoint.
+
+**Single source of truth:** generate the glossary from the same table that drives the
+grants (§5), or it will drift from what the server actually serves. Do not hand-maintain a
+parallel list.
 
 ---
 
