@@ -1,5 +1,5 @@
--- Ordered compact JSON for Server tooling. Non-ASCII text is deliberately rejected because
--- Legible cannot obtain Unicode code points needed to match Python ensure_ascii=True output.
+-- Ordered compact JSON for Server tooling. Supports pure-ASCII JSON output with
+-- Unicode \uXXXX escaping and full UTF-8 round-tripping.
 
 record Pair
   k: text
@@ -21,29 +21,28 @@ record ParseResult
   next: integer
 end
 
+record EncodeResult
+  out: text
+  next: integer
+end
+
 function fail(message: text): nothing
   intent: print
   print("[!] jsonout: " ++ message)
   exit_process(1)
 end
 
-function require_ascii(value: text, context: text): nothing
-  intent: check
-  let buffer: integer = bytes_from_text(value)
-  mutable index: integer = 0
-  while index < bytes_length(buffer) do
-    if bytes_get(buffer, index) >= 128 then
-      print("[!] jsonout: non-ASCII text is not supported: " ++ context)
-      exit_process(1)
-    end
-    set index = index + 1
-  end
-  bytes_free(buffer)
-end
-
 function hex_digit(value: integer): text
   intent: return
   substring("0123456789abcdef", value, 1)
+end
+
+function hex4(val: integer): text
+  intent: format
+  hex_digit(bit_and(shift_right(val, 12), 15)) ++
+  hex_digit(bit_and(shift_right(val, 8), 15)) ++
+  hex_digit(bit_and(shift_right(val, 4), 15)) ++
+  hex_digit(bit_and(val, 15))
 end
 
 function byte_text(value: integer): text
@@ -55,34 +54,137 @@ function byte_text(value: integer): text
   result
 end
 
+function codepoint_to_utf8(cp: integer): text
+  intent: decode
+  if cp < 128 then
+    byte_text(cp)
+  else if cp < 2048 then
+    let buffer: integer = bytes_new(2)
+    bytes_set(buffer, 0, 192 + shift_right(cp, 6))
+    bytes_set(buffer, 1, 128 + bit_and(cp, 63))
+    let result: text = bytes_to_text(buffer)
+    bytes_free(buffer)
+    result
+  else if cp < 65536 then
+    let buffer: integer = bytes_new(3)
+    bytes_set(buffer, 0, 224 + shift_right(cp, 12))
+    bytes_set(buffer, 1, 128 + bit_and(shift_right(cp, 6), 63))
+    bytes_set(buffer, 2, 128 + bit_and(cp, 63))
+    let result: text = bytes_to_text(buffer)
+    bytes_free(buffer)
+    result
+  else
+    let buffer: integer = bytes_new(4)
+    bytes_set(buffer, 0, 240 + shift_right(cp, 18))
+    bytes_set(buffer, 1, 128 + bit_and(shift_right(cp, 12), 63))
+    bytes_set(buffer, 2, 128 + bit_and(shift_right(cp, 6), 63))
+    bytes_set(buffer, 3, 128 + bit_and(cp, 63))
+    let result: text = bytes_to_text(buffer)
+    bytes_free(buffer)
+    result
+  end
+end
+
+function encode_ascii(byte: integer): text
+  intent: encode
+  if byte == 34 then "\\\""
+  else if byte == 92 then "\\\\"
+  else if byte == 10 then "\\n"
+  else if byte == 13 then "\\r"
+  else if byte == 9 then "\\t"
+  else if byte == 8 then "\\b"
+  else if byte == 12 then "\\f"
+  else if byte < 32 then "\\u" ++ hex4(byte)
+  else byte_text(byte) end
+end
+
+function encode_utf8_2(buffer: integer, index: integer, len: integer): EncodeResult
+  intent: encode
+  let b0: integer = bytes_get(buffer, index)
+  if b0 < 194 or index + 1 >= len then
+    fail("malformed UTF-8 sequence in JSON string")
+  end
+  let b1: integer = bytes_get(buffer, index + 1)
+  if bit_and(b1, 192) != 128 then
+    fail("malformed UTF-8 continuation byte in JSON string")
+  end
+  let cp: integer = (b0 - 192) * 64 + (b1 - 128)
+  EncodeResult { out: "\\u" ++ hex4(cp), next: index + 2 }
+end
+
+function encode_utf8_3(buffer: integer, index: integer, len: integer): EncodeResult
+  intent: encode
+  let b0: integer = bytes_get(buffer, index)
+  if index + 2 >= len then
+    fail("malformed UTF-8 sequence in JSON string")
+  end
+  let b1: integer = bytes_get(buffer, index + 1)
+  let b2: integer = bytes_get(buffer, index + 2)
+  if bit_and(b1, 192) != 128 or bit_and(b2, 192) != 128 then
+    fail("malformed UTF-8 continuation byte in JSON string")
+  end
+  if b0 == 224 and b1 < 160 then
+    fail("overlong UTF-8 sequence in JSON string")
+  end
+  if b0 == 237 and b1 >= 160 then
+    fail("invalid UTF-8 surrogate codepoint in JSON string")
+  end
+  let cp: integer = (b0 - 224) * 4096 + (b1 - 128) * 64 + (b2 - 128)
+  EncodeResult { out: "\\u" ++ hex4(cp), next: index + 3 }
+end
+
+function encode_utf8_4(buffer: integer, index: integer, len: integer): EncodeResult
+  intent: encode
+  let b0: integer = bytes_get(buffer, index)
+  if index + 3 >= len then
+    fail("malformed UTF-8 sequence in JSON string")
+  end
+  let b1: integer = bytes_get(buffer, index + 1)
+  let b2: integer = bytes_get(buffer, index + 2)
+  let b3: integer = bytes_get(buffer, index + 3)
+  if bit_and(b1, 192) != 128 or bit_and(b2, 192) != 128 or bit_and(b3, 192) != 128 then
+    fail("malformed UTF-8 continuation byte in JSON string")
+  end
+  if b0 == 240 and b1 < 144 then
+    fail("overlong UTF-8 sequence in JSON string")
+  end
+  if b0 == 244 and b1 >= 144 then
+    fail("out of range UTF-8 codepoint in JSON string")
+  end
+  let cp: integer = (b0 - 240) * 262144 + (b1 - 128) * 4096 + (b2 - 128) * 64 + (b3 - 128)
+  let n: integer = cp - 65536
+  let high: integer = 55296 + floor(n / 1024)
+  let low: integer = 56320 + (n % 1024)
+  EncodeResult { out: "\\u" ++ hex4(high) ++ "\\u" ++ hex4(low), next: index + 4 }
+end
+
 function public_json_string(value: text): text
   intent: encode
-  require_ascii(value, "string")
   let buffer: integer = bytes_from_text(value)
   mutable out: text = "\""
   mutable index: integer = 0
-  while index < bytes_length(buffer) do
-    let byte: integer = bytes_get(buffer, index)
-    if byte == 34 then
-      set out = out ++ "\\\""
-    else if byte == 92 then
-      set out = out ++ "\\\\"
-    else if byte == 10 then
-      set out = out ++ "\\n"
-    else if byte == 13 then
-      set out = out ++ "\\r"
-    else if byte == 9 then
-      set out = out ++ "\\t"
-    else if byte == 8 then
-      set out = out ++ "\\b"
-    else if byte == 12 then
-      set out = out ++ "\\f"
-    else if byte < 32 then
-      set out = out ++ "\\u00" ++ hex_digit(floor(byte / 16)) ++ hex_digit(byte % 16)
+  let len: integer = bytes_length(buffer)
+  while index < len do
+    let b0: integer = bytes_get(buffer, index)
+    if b0 < 128 then
+      set out = out ++ encode_ascii(b0)
+      set index = index + 1
+    else if b0 >= 192 and b0 <= 223 then
+      let res: EncodeResult = encode_utf8_2(buffer, index, len)
+      set out = out ++ res.out
+      set index = res.next
+    else if b0 >= 224 and b0 <= 239 then
+      let res: EncodeResult = encode_utf8_3(buffer, index, len)
+      set out = out ++ res.out
+      set index = res.next
+    else if b0 >= 240 and b0 <= 244 then
+      let res: EncodeResult = encode_utf8_4(buffer, index, len)
+      set out = out ++ res.out
+      set index = res.next
     else
-      set out = out ++ byte_text(byte)
+      fail("malformed UTF-8 start byte in JSON string")
+      set index = index + 1
     end
-    set index = index + 1
   end
   bytes_free(buffer)
   out ++ "\""
@@ -116,7 +218,6 @@ end
 
 public function json_text(value: text): Json
   intent: return
-  require_ascii(value, "json_text")
   Json.JText { v: value }
 end
 
@@ -132,7 +233,6 @@ end
 
 public function json_pair(key: text, value: Json): Pair
   intent: return
-  require_ascii(key, "object key")
   Pair { k: key, v: value }
 end
 
@@ -170,11 +270,16 @@ function is_digit(character: text): boolean
   contains_text("0123456789", character)
 end
 
+function is_at_end(source: text, index: integer): boolean
+  intent: check
+  index >= text_length(source) or substring(source, index, 1) == ""
+end
+
 function skip_space(source: text, start: integer): integer
   intent: return
   mutable index: integer = start
   mutable skipping: boolean = true
-  while skipping and index < text_length(source) do
+  while skipping and not is_at_end(source, index) do
     let character: text = substring(source, index, 1)
     if character == " " or character == "\n" or character == "\r" or character == "\t" then
       set index = index + 1
@@ -190,22 +295,22 @@ function has_at(source: text, start: integer, wanted: text): boolean
   start >= 0 and start + text_length(wanted) <= text_length(source) and substring(source, start, text_length(wanted)) == wanted
 end
 
-function unicode_byte(hex: text): text
+function parse_hex_digit(ch: text): integer
   intent: decode
-  let high: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 0, 1))), -1)
-  let next: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 1, 1))), -1)
-  let third: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 2, 1))), -1)
-  let low: integer = unwrap_or(index_of("0123456789abcdef", lowercase(substring(hex, 3, 1))), -1)
-  if high < 0 or next < 0 or third < 0 or low < 0 then
-    fail("malformed JSON unicode escape")
-    byte_text(0)
+  unwrap_or(index_of("0123456789abcdef", lowercase(ch)), -1)
+end
+
+function parse_hex_4(source: text, start: integer): integer
+  intent: decode
+  if start + 4 > text_length(source) then return -1 end
+  let d0: integer = parse_hex_digit(substring(source, start, 1))
+  let d1: integer = parse_hex_digit(substring(source, start + 1, 1))
+  let d2: integer = parse_hex_digit(substring(source, start + 2, 1))
+  let d3: integer = parse_hex_digit(substring(source, start + 3, 1))
+  if d0 < 0 or d1 < 0 or d2 < 0 or d3 < 0 then
+    -1
   else
-    let decoded: integer = high * 4096 + next * 256 + third * 16 + low
-    -- JSON input from retail clients may contain non-ASCII \u escapes in fields
-    -- the offline server does not use (for example, a phone's display name).
-    -- The encoder remains ASCII-only, so retain a safe ASCII placeholder instead
-    -- of terminating the whole listener for one descriptive field.
-    if decoded >= 128 then byte_text(63) else byte_text(decoded) end
+    d0 * 4096 + d1 * 256 + d2 * 16 + d3
   end
 end
 
@@ -226,7 +331,27 @@ function parse_escape(source: text, start: integer): ParseResult
   else if escaped == "t" then
     ParseResult { node: json_text("\t"), next: start + 2 }
   else if escaped == "u" and start + 5 < text_length(source) then
-    ParseResult { node: json_text(unicode_byte(substring(source, start + 2, 4))), next: start + 6 }
+    let val1: integer = parse_hex_4(source, start + 2)
+    if val1 < 0 then
+      fail("malformed JSON unicode escape")
+      ParseResult { node: json_text(""), next: start + 6 }
+    else if val1 >= 55296 and val1 <= 56319 then
+      if start + 11 < text_length(source) and substring(source, start + 6, 2) == "\\u" then
+        let val2: integer = parse_hex_4(source, start + 8)
+        if val2 >= 56320 and val2 <= 57343 then
+          let cp: integer = 65536 + (val1 - 55296) * 1024 + (val2 - 56320)
+          ParseResult { node: json_text(codepoint_to_utf8(cp)), next: start + 12 }
+        else
+          ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
+        end
+      else
+        ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
+      end
+    else if val1 >= 56320 and val1 <= 57343 then
+      ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
+    else
+      ParseResult { node: json_text(codepoint_to_utf8(val1)), next: start + 6 }
+    end
   else
     fail("malformed JSON string escape")
     ParseResult { node: json_text(""), next: start }
@@ -238,7 +363,7 @@ function parse_string(source: text, start: integer): ParseResult
   mutable index: integer = start + 1
   mutable out: text = ""
   mutable closed: boolean = false
-  while index < text_length(source) and not closed do
+  while not is_at_end(source, index) and not closed do
     let character: text = substring(source, index, 1)
     if character == "\"" then
       set index = index + 1
@@ -249,7 +374,9 @@ function parse_string(source: text, start: integer): ParseResult
       set index = escaped.next
     else
       let buffer: integer = bytes_from_text(character)
-      if bytes_get(buffer, 0) < 32 then fail("unescaped control character in JSON string") end
+      if bytes_length(buffer) > 0 and bytes_get(buffer, 0) < 32 then
+        fail("unescaped control character in JSON string")
+      end
       bytes_free(buffer)
       set out = out ++ character
       set index = index + 1
@@ -266,25 +393,25 @@ function parse_number(source: text, start: integer): ParseResult
   if has_at(source, index, "-") then set index = index + 1 end
   if has_at(source, index, "0") then
     set index = index + 1
-    if index < text_length(source) and is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
-  else if index < text_length(source) and contains_text("123456789", substring(source, index, 1)) then
+    if not is_at_end(source, index) and is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+  else if not is_at_end(source, index) and contains_text("123456789", substring(source, index, 1)) then
     set index = index + 1
-    while index < text_length(source) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+    while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
   else
     fail("malformed JSON number")
   end
   if has_at(source, index, ".") then
     set decimal_token = true
     set index = index + 1
-    if index >= text_length(source) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
-    while index < text_length(source) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+    if is_at_end(source, index) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+    while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
   end
   if has_at(source, index, "e") or has_at(source, index, "E") then
     set decimal_token = true
     set index = index + 1
     if has_at(source, index, "+") or has_at(source, index, "-") then set index = index + 1 end
-    if index >= text_length(source) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
-    while index < text_length(source) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+    if is_at_end(source, index) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+    while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
   end
   let token: text = substring(source, start, index - start)
   if decimal_token then
@@ -375,9 +502,9 @@ end
 
 public function parse_json(source: text): Json
   intent: parse
-  require_ascii(source, "input")
   let parsed: ParseResult = parse_value(source, 0)
-  if skip_space(source, parsed.next) != text_length(source) then
+  let tail: integer = skip_space(source, parsed.next)
+  if not is_at_end(source, tail) then
     fail("unexpected trailing JSON content")
   end
   parsed.node
