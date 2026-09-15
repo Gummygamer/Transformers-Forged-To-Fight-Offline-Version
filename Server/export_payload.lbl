@@ -137,8 +137,11 @@ end
 
 function detail_for(bid: text, rank: integer, level: integer): text
   intent: build
-  let sentinel: integer = 987654321
-  let req: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(sentinel))])
+  -- The live hero-detail path intentionally clamps signature level to zero
+  -- (signature abilities are parked; the client crashes on sig_lvl > 0), so
+  -- use that stable wire value as the payload template marker. Both the
+  -- fakeserver and the native in-APK server always expand %SIG% to 0.
+  let req: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(0))])
   let original: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([req])), 0), jsonout.json_obj([]))
   let stats: Stats = gamedata.payload_base_stats(bid, rank, level)
   let with_rating_hp: Json = jsonout.obj_set(original, "rating_hp", jsonout.json_int(stats.hp))
@@ -147,7 +150,7 @@ function detail_for(bid: text, rank: integer, level: integer): text
   let with_attack: Json = jsonout.obj_set(with_rating_attack, "attack", jsonout.json_int(stats.atk))
   let detail: Json = jsonout.obj_set(with_attack, "health", jsonout.json_int(stats.hp))
   let body: text = jsonout.encode_compact(detail)
-  replace_exact(body, to_text(sentinel), "%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
+  replace_exact(body, "\"sig_lvl\":0", "\"sig_lvl\":%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
 end
 
 function team_values(qid: text, team: a list of text): a list of text
@@ -235,7 +238,11 @@ end
 function saved_team_template(): text
   intent: build
   let defaults: a list of text = gamedata.default_team()
-  let request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("%TID%")), jsonout.json_pair("heroes", jsonout.json_list([jsonout.json_text(unwrap_or(get(defaults, 0), "")), jsonout.json_text(unwrap_or(get(defaults, 1), "")), jsonout.json_text(unwrap_or(get(defaults, 2), ""))]))])
+  mutable requested_heroes: a list of Json = []
+  for bid in defaults do
+    set requested_heroes = append(requested_heroes, jsonout.json_text(bid))
+  end
+  let request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("%TID%")), jsonout.json_pair("heroes", jsonout.json_list(requested_heroes))])
   let produced: text = fakeserver.dynamic("/bcg/setSavedTeam", jsonout.encode_spaced(request))
   fakeserver.reset_saved_team()
   if produced == "" then fail("fakeserver did not produce saved-team template") end
