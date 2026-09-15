@@ -4431,31 +4431,164 @@ static void* hooked_ShouldDisplayStatModifier(void* statModId, void* a1, void* a
     return ret;
 }
 
+static void dump_il2cpp_string_hex(void* ptr, char* buf, size_t max_buf, char* hex_buf, size_t max_hex) {
+    if (buf && max_buf > 0) buf[0] = 0;
+    if (hex_buf && max_hex > 0) hex_buf[0] = 0;
+    uintptr_t s = (uintptr_t)ptr;
+    if (!s || s < 0x100000 || (s & 7)) {
+        if (buf && max_buf > 0) snprintf(buf, max_buf, "<null>");
+        return;
+    }
+    int32_t len = *(int32_t*)(s + 0x10);
+    if (len <= 0 || len > 2048) {
+        if (buf && max_buf > 0) snprintf(buf, max_buf, "<empty/len=%d>", len);
+        return;
+    }
+    uint16_t* chars = (uint16_t*)(s + 0x14);
+    if (buf && max_buf > 0) {
+        int out_i = 0;
+        for (int i = 0; i < len && out_i < (int)max_buf - 10; i++) {
+            uint16_t c = chars[i];
+            if (c >= 32 && c <= 126) {
+                buf[out_i++] = (char)c;
+            } else {
+                out_i += snprintf(buf + out_i, max_buf - out_i, "\\u%04X", c);
+            }
+        }
+        buf[out_i] = 0;
+    }
+    if (hex_buf && max_hex > 0) {
+        int hex_i = 0;
+        for (int i = 0; i < len && i < 16 && hex_i < (int)max_hex - 6; i++) {
+            hex_i += snprintf(hex_buf + hex_i, max_hex - hex_i, "%04X ", chars[i]);
+        }
+        hex_buf[hex_i] = 0;
+    }
+}
+
+static void dump_appearance_all_fields(void* app_ptr, const char* context_tag) {
+    uintptr_t app = (uintptr_t)app_ptr;
+    if (!app || app < 0x100000 || (app & 7)) {
+        LOG("%s appearance=%p IS_NULL_OR_INVALID", context_tag, app_ptr);
+        return;
+    }
+    char buf_id[64], hex_id[64];
+    char buf_st[64], hex_st[64];
+    char buf_t[64], hex_t[64];
+    char buf_l[64], hex_l[64];
+    char buf_s[64], hex_s[64];
+    char buf_f[64], hex_f[64];
+    char buf_p[64], hex_p[64];
+    char buf_c[64], hex_c[64];
+
+    dump_il2cpp_string_hex(*(void**)(app + 0x10), buf_id, sizeof(buf_id), hex_id, sizeof(hex_id));
+    dump_il2cpp_string_hex(*(void**)(app + 0x18), buf_st, sizeof(buf_st), hex_st, sizeof(hex_st));
+    dump_il2cpp_string_hex(*(void**)(app + 0x20), buf_t, sizeof(buf_t), hex_t, sizeof(hex_t));
+    dump_il2cpp_string_hex(*(void**)(app + 0x28), buf_l, sizeof(buf_l), hex_l, sizeof(hex_l));
+    dump_il2cpp_string_hex(*(void**)(app + 0x30), buf_s, sizeof(buf_s), hex_s, sizeof(hex_s));
+    dump_il2cpp_string_hex(*(void**)(app + 0x38), buf_f, sizeof(buf_f), hex_f, sizeof(hex_f));
+    dump_il2cpp_string_hex(*(void**)(app + 0x40), buf_p, sizeof(buf_p), hex_p, sizeof(hex_p));
+    dump_il2cpp_string_hex(*(void**)(app + 0x48), buf_c, sizeof(buf_c), hex_c, sizeof(hex_c));
+
+    LOG("%s app=%p ID='%s' st='%s' t='%s' l='%s' s='%s' f='%s' p='%s' c='%s'",
+        context_tag, app_ptr, buf_id, buf_st, buf_t, buf_l, buf_s, buf_f, buf_p, buf_c);
+    LOG("%s HEX app=%p ID=[%s] st=[%s] t=[%s] f=[%s]",
+        context_tag, app_ptr, hex_id, hex_st, hex_t, hex_f);
+}
+
 static fn8 orig_AbilityItem_SetData = NULL;
 static void* hooked_AbilityItem_SetData(void* self, void* statModifier, void* statModAppearance, void* width, void* useLong, void* a5, void* a6, void* a7){
     PROTECT({
-        char strBuf[65];
-        strBuf[0] = 0;
-        uintptr_t app = (uintptr_t)statModAppearance;
-        if (app && app >= 0x100000 && !(app & 7)) {
-            uintptr_t s = *(uintptr_t*)(app + 0x20);
-            if (s && s >= 0x100000 && !(s & 7)) {
-                int32_t len = *(int32_t*)(s + 0x10);
-                if (len > 0) {
-                    if (len > 64) len = 64;
-                    uint16_t* chars = (uint16_t*)(s + 0x14);
-                    for (int j = 0; j < len; j++) {
-                        strBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
-                    }
-                    strBuf[len] = 0;
-                }
-            }
-        }
-        LOG("KITGATE4 called self=%p statModifier=%p statModAppearance=%p ShortStringID='%s'",
-            self, statModifier, statModAppearance, strBuf[0] ? strBuf : "<empty/null>");
+        dump_appearance_all_fields(statModAppearance, "KITGATE4_ABILITYITEM");
+        void* iconLabel = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x38) : NULL;
+        void* nameLabel = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x28) : NULL;
+        LOG("KITGATE4_ABILITYITEM self=%p statModifier=%p statModAppearance=%p iconLabel=%p nameLabel=%p",
+            self, statModifier, statModAppearance, iconLabel, nameLabel);
     });
     if (orig_AbilityItem_SetData) {
         return orig_AbilityItem_SetData(self, statModifier, statModAppearance, width, useLong, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_HudBuffWidget_Init = NULL;
+static void* hooked_HudBuffWidget_Init(void* self, int id, int gridId, void* appearance, int isTower, int clickable, int refresh, void* a7){
+    PROTECT({
+        dump_appearance_all_fields(appearance, "KITGATE_HUD_BUFF_WIDGET_INIT");
+        void* buffIcon = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x30) : NULL;
+        void* countLabel = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x48) : NULL;
+        LOG("KITGATE_HUD_BUFF_WIDGET_INIT self=%p id=%d gridId=%d appearance=%p buffIcon=%p countLabel=%p",
+            self, id, gridId, appearance, buffIcon, countLabel);
+    });
+    if (orig_HudBuffWidget_Init) {
+        return orig_HudBuffWidget_Init(self, (void*)(uintptr_t)id, (void*)(uintptr_t)gridId, appearance, (void*)(uintptr_t)isTower, (void*)(uintptr_t)clickable, (void*)(uintptr_t)refresh, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_UILabel_set_text = NULL;
+static void* hooked_UILabel_set_text(void* self, void* value, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        char strBuf[256];
+        char hexBuf[128];
+        dump_il2cpp_string_hex(value, strBuf, sizeof(strBuf), hexBuf, sizeof(hexBuf));
+        void* font = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x1D0) : NULL;
+        void* ttfFont = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x1C8) : NULL;
+        LOG("KITGATE_UILABEL_SET_TEXT label=%p font=%p ttfFont=%p text='%s' hex=[%s]",
+            self, font, ttfFont, strBuf, hexBuf);
+    });
+    if (orig_UILabel_set_text) {
+        return orig_UILabel_set_text(self, value, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_UILabel_TryLocalize = NULL;
+static void* hooked_UILabel_TryLocalize(void* self, void* value, void** replacement, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_UILabel_TryLocalize) {
+        ret = orig_UILabel_TryLocalize(self, value, replacement, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char inBuf[128];
+        char inHex[64];
+        char outBuf[128];
+        char outHex[64];
+        dump_il2cpp_string_hex(value, inBuf, sizeof(inBuf), inHex, sizeof(inHex));
+        void* replPtr = (replacement) ? *replacement : NULL;
+        dump_il2cpp_string_hex(replPtr, outBuf, sizeof(outBuf), outHex, sizeof(outHex));
+        LOG("KITGATE_TRY_LOCALIZE label=%p ret=%d in='%s' in_hex=[%s] out='%s' out_hex=[%s]",
+            self, (int)(uintptr_t)ret, inBuf, inHex, outBuf, outHex);
+    });
+    return ret;
+}
+
+static fn8 orig_BCGStatModifierAppearance_ctor = NULL;
+static void* hooked_BCGStatModifierAppearance_ctor(void* self, void* dict, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_BCGStatModifierAppearance_ctor) {
+        ret = orig_BCGStatModifierAppearance_ctor(self, dict, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        dump_appearance_all_fields(self, "KITGATE_APP_CTOR");
+    });
+    return ret;
+}
+
+static fn8 orig_HudBuffWidgetsContainer_Add = NULL;
+static void* hooked_HudBuffWidgetsContainer_Add(void* self, void* buff, void* refresh, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        char appIDBuf[64];
+        appIDBuf[0] = 0;
+        if (buff && (uintptr_t)buff >= 0x100000 && !((uintptr_t)buff & 7)) {
+            void* appIDStr = *(void**)((uintptr_t)buff + 0x38);
+            dump_il2cpp_string_hex(appIDStr, appIDBuf, sizeof(appIDBuf), NULL, 0);
+        }
+        LOG("KITGATE_HUDBUFFCONTAINER_ADD self=%p buff=%p statModAppearanceID='%s'",
+            self, buff, appIDBuf[0] ? appIDBuf : "<null>");
+    });
+    if (orig_HudBuffWidgetsContainer_Add) {
+        return orig_HudBuffWidgetsContainer_Add(self, buff, refresh, a3, a4, a5, a6, a7);
     }
     return NULL;
 }
@@ -4492,6 +4625,154 @@ static void try_extract_string(void* ptr, char* buf, size_t max_len) {
 }
 
 static void try_extract_string(void* ptr, char* buf, size_t max_len);
+
+// FloatingText_BuffEffect..ctor(string type, BuffModTypes modType, string strParams) RVA 0xDC7AFC
+static void (*orig_FloatingText_ctor)(void*, void*, int, void*) = NULL;
+static void hooked_FloatingText_ctor(void* self, void* type, int modType, void* strParams){
+    PROTECT({
+        char typeBuf[65] = {0};
+        char paramsBuf[128] = {0};
+        try_extract_string(type, typeBuf, sizeof(typeBuf));
+        try_extract_string(strParams, paramsBuf, sizeof(paramsBuf));
+        LOG("FT_ctor self=%p type='%s' modType=%d strParams='%s' (strParamsPtr=%p)",
+            self, typeBuf[0] ? typeBuf : "<empty/null>", modType, paramsBuf[0] ? paramsBuf : "<empty/null>", strParams);
+    });
+    if (orig_FloatingText_ctor) {
+        orig_FloatingText_ctor(self, type, modType, strParams);
+    }
+}
+
+static fn8 orig_FloatingText_OnTick = NULL;
+/* FloatingText_BuffEffect.OnTick(Buff buff, float tickInterval) @ 0xDC7CB4
+ * this+0x38 = _player (PlayerController), this+0x40 = _key (string), this+0x48 = _style */
+static void hooked_FloatingText_OnTick(void* self, void* buff, float dt){
+    PROTECT({
+        char k[64]; k[0]=0;
+        uintptr_t t=(uintptr_t)self;
+        int style=-1;
+        void* player=NULL;
+        if (t >= 0x100000 && !(t & 7)) {
+            player = *(void**)(t + 0x38);
+            try_extract_string(*(void**)(t + 0x40), k, sizeof k);
+            style=*(int*)(t + 0x48);
+        }
+        LOG("KITFT FloatingText.OnTick self=%p player=%p key='%s' style=%d dt=%.2f", self, player, k, style, (double)dt);
+    });
+    if (orig_FloatingText_OnTick)
+        ((void(*)(void*, void*, float))orig_FloatingText_OnTick)(self, buff, dt);
+}
+
+static fn8 orig_FloatingText_OnInitTarget = NULL;
+/* FloatingText_BuffEffect.OnInitTarget(BuffsController target) @ 0xDC7C40 */
+static void hooked_FloatingText_OnInitTarget(void* self, void* target){
+    if (orig_FloatingText_OnInitTarget)
+        ((void(*)(void*, void*))orig_FloatingText_OnInitTarget)(self, target);
+    PROTECT({
+        char k[64] = {0};
+        uintptr_t t = (uintptr_t)self;
+        int style = -1;
+        void* player = NULL;
+        if (t >= 0x100000 && !(t & 7)) {
+            player = *(void**)(t + 0x38);
+            try_extract_string(*(void**)(t + 0x40), k, sizeof k);
+            style = *(int*)(t + 0x48);
+        }
+        LOG("FT_OnInitTarget self=%p target=%p player=%p key='%s' style=%d", self, target, player, k, style);
+    });
+}
+
+static fn8 orig_BuffEffect_Clone = NULL;
+/* BuffEffect.Clone() @ 0xE5D884 */
+static void* hooked_BuffEffect_Clone(void* self){
+    void* result = NULL;
+    if (orig_BuffEffect_Clone) {
+        result = ((void*(*)(void*))orig_BuffEffect_Clone)(self);
+    }
+    PROTECT({
+        if (self && result) {
+            uintptr_t t_src = (uintptr_t)self;
+            uintptr_t t_dst = (uintptr_t)result;
+            char k_src[64] = {0}; char k_dst[64] = {0};
+            if (t_src >= 0x100000 && !(t_src & 7)) {
+                try_extract_string(*(void**)(t_src + 0x40), k_src, sizeof k_src);
+            }
+            if (t_dst >= 0x100000 && !(t_dst & 7)) {
+                try_extract_string(*(void**)(t_dst + 0x40), k_dst, sizeof k_dst);
+            }
+            if (k_src[0] || k_dst[0]) {
+                LOG("FT_Clone src=%p (key='%s') -> dst=%p (key='%s')", self, k_src, result, k_dst);
+            }
+        }
+    });
+    return result;
+}
+
+static fn8 orig_ParamsTable_ToString = NULL;
+/* ParamsTable.ToString(this, string key, string defaultValue) @ 0xB3A6C8 */
+static void* hooked_ParamsTable_ToString(void* self, void* key, void* defaultValue, void* method){
+    void* result = NULL;
+    if (orig_ParamsTable_ToString) {
+        result = ((void*(*)(void*, void*, void*, void*))orig_ParamsTable_ToString)(self, key, defaultValue, method);
+    }
+    PROTECT({
+        char keyBuf[128] = {0};
+        char defaultBuf[128] = {0};
+        char retBuf[128] = {0};
+        try_extract_string(key, keyBuf, sizeof(keyBuf));
+        try_extract_string(defaultValue, defaultBuf, sizeof(defaultBuf));
+        try_extract_string(result, retBuf, sizeof(retBuf));
+        LOG("PARAMSTABLE_TOSTRING self=%p key='%s' (ptr=%p) default='%s' (ptr=%p) ret='%s' (ptr=%p)",
+            self,
+            keyBuf[0] ? keyBuf : "<null/empty>", key,
+            defaultBuf[0] ? defaultBuf : "<null/empty>", defaultValue,
+            retBuf[0] ? retBuf : "<null/empty>", result);
+    });
+    return result;
+}
+
+static fn8 orig_BuffUtils_ParseParams = NULL;
+/* BuffUtils.ParseParams(string param) @ 0xEE8750 -> returns Dictionary<string, string> */
+static void* hooked_BuffUtils_ParseParams(void* param, void* method){
+    void* result = NULL;
+    if (orig_BuffUtils_ParseParams) {
+        result = ((void*(*)(void*, void*))orig_BuffUtils_ParseParams)(param, method);
+    }
+    PROTECT({
+        char pBuf[128] = {0};
+        try_extract_string(param, pBuf, sizeof(pBuf));
+        uintptr_t d = (uintptr_t)result;
+        if (d >= 0x100000 && !(d & 7)) {
+            int count = *(int*)(d + 0x20); // fields.count
+            void* entries = *(void**)(d + 0x18); // fields.entries
+            LOG("BUFFUTILS_PARSEPARAMS param='%s' (ptr=%p) dict=%p count=%d entries=%p",
+                pBuf[0] ? pBuf : "<null/empty>", param, result, count, entries);
+            if (entries && (uintptr_t)entries >= 0x100000 && !((uintptr_t)entries & 7)) {
+                uintptr_t max_len = *(uintptr_t*)((uintptr_t)entries + 0x18); // array max_length
+                if (max_len > 256) max_len = 256;
+                int logged = 0;
+                for (size_t i = 0; i < max_len && logged < count; i++) {
+                    uintptr_t entry_ptr = (uintptr_t)entries + 0x20 + i * 0x18;
+                    int hashCode = *(int*)(entry_ptr + 0x00);
+                    void* key_ptr = *(void**)(entry_ptr + 0x08);
+                    void* val_ptr = *(void**)(entry_ptr + 0x10);
+                    if (hashCode >= 0 && key_ptr != NULL) {
+                        char kBuf[128] = {0};
+                        char vBuf[128] = {0};
+                        try_extract_string(key_ptr, kBuf, sizeof(kBuf));
+                        try_extract_string(val_ptr, vBuf, sizeof(vBuf));
+                        LOG("  parsed dict[%d]: key='%s' (ptr=%p) val='%s' (ptr=%p)",
+                            logged, kBuf, key_ptr, vBuf, val_ptr);
+                        logged++;
+                    }
+                }
+            }
+        } else {
+            LOG("BUFFUTILS_PARSEPARAMS param='%s' (ptr=%p) dict=%p (invalid/null)",
+                pBuf[0] ? pBuf : "<null/empty>", param, result);
+        }
+    });
+    return result;
+}
 
 static void hooked_Damage_BuffEffect_OnTick(void* self, void* buff, float dt){
     PROTECT({
@@ -4544,9 +4825,15 @@ static void hooked_KITREG2(void* self, void* mod, float amount){
         uintptr_t m = (uintptr_t)mod;
         float mod_m = (m >= 0x100000 && !(m & 7)) ? *(float*)(m + 0xA0) : -1.0f;
         void* idPtr = (m >= 0x100000 && !(m & 7)) ? *(void**)(m + 0x10) : NULL;
+        void* tmPtr = (m >= 0x100000 && !(m & 7)) ? *(void**)(m + 0x20) : NULL;
         char idBuf[65] = {0};
+        char tmBuf[128] = {0};
+        char clsBuf[64] = {0};
         try_extract_string(idPtr, idBuf, 64);
-        LOG("KITREG2 self=%p mod=%p id='%s' amount=%.4f mod_m=%.4f", self, mod, idBuf[0] ? idBuf : "<empty>", (double)amount, (double)mod_m);
+        try_extract_string(tmPtr, tmBuf, 127);
+        obj_class(mod, clsBuf, sizeof(clsBuf));
+        LOG("KITREG2 self=%p mod=%p class='%s' id='%s' tm/p20='%s' amount=%.4f mod_m=%.4f",
+            self, mod, clsBuf[0] ? clsBuf : "<unknown>", idBuf[0] ? idBuf : "<empty>", tmBuf[0] ? tmBuf : "<empty>", (double)amount, (double)mod_m);
     });
     if (orig_KITREG2) {
         orig_KITREG2(self, mod, amount);
@@ -4615,31 +4902,30 @@ static void* hooked_KITREG4(void* a0, void* a1, void* a2, void* a3, void* a4, vo
         ret = orig_KITREG4(a0, a1, a2, a3, a4, a5, a6, a7);
     }
     PROTECT({
-        char typeBuf[65];
-        typeBuf[0] = 0;
-        try_extract_string(a0, typeBuf, 64);
-        if (!typeBuf[0]) try_extract_string(a1, typeBuf, 64);
-        if (!typeBuf[0]) try_extract_string(a2, typeBuf, 64);
+        char typeBuf[65] = {0};
+        char clsBuf[64] = {0};
+        char idBuf[65] = {0};
+        char tmBuf[128] = {0};
 
-        if (!typeBuf[0] && a0 && (uintptr_t)a0 >= 0x100000 && !((uintptr_t)a0 & 7)) {
-            uintptr_t p1 = *(uintptr_t*)((uintptr_t)a0 + 0x10); try_extract_string((void*)p1, typeBuf, 64);
-            if (!typeBuf[0]) { uintptr_t p2 = *(uintptr_t*)((uintptr_t)a0 + 0x18); try_extract_string((void*)p2, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p3 = *(uintptr_t*)((uintptr_t)a0 + 0x20); try_extract_string((void*)p3, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p4 = *(uintptr_t*)((uintptr_t)a0 + 0x28); try_extract_string((void*)p4, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p5 = *(uintptr_t*)((uintptr_t)a0 + 0x30); try_extract_string((void*)p5, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p6 = *(uintptr_t*)((uintptr_t)a0 + 0x38); try_extract_string((void*)p6, typeBuf, 64); }
-        }
-        if (!typeBuf[0] && a1 && (uintptr_t)a1 >= 0x100000 && !((uintptr_t)a1 & 7)) {
-            uintptr_t p1 = *(uintptr_t*)((uintptr_t)a1 + 0x10); try_extract_string((void*)p1, typeBuf, 64);
-            if (!typeBuf[0]) { uintptr_t p2 = *(uintptr_t*)((uintptr_t)a1 + 0x18); try_extract_string((void*)p2, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p3 = *(uintptr_t*)((uintptr_t)a1 + 0x20); try_extract_string((void*)p3, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p4 = *(uintptr_t*)((uintptr_t)a1 + 0x28); try_extract_string((void*)p4, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p5 = *(uintptr_t*)((uintptr_t)a1 + 0x30); try_extract_string((void*)p5, typeBuf, 64); }
-            if (!typeBuf[0]) { uintptr_t p6 = *(uintptr_t*)((uintptr_t)a1 + 0x38); try_extract_string((void*)p6, typeBuf, 64); }
+        // a0 is 'this' (BuffEffectFactory)
+        // a1 is 'x1' (the object passed into CreateBuffEffect at 0xE5DB00 / 0xE5DB04)
+        obj_class(a1, clsBuf, sizeof(clsBuf));
+
+        if (a1 && (uintptr_t)a1 >= 0x100000 && !((uintptr_t)a1 & 7)) {
+            uintptr_t p_id = *(uintptr_t*)((uintptr_t)a1 + 0x10);
+            uintptr_t p_type = *(uintptr_t*)((uintptr_t)a1 + 0x18);
+            uintptr_t p_tm = *(uintptr_t*)((uintptr_t)a1 + 0x20);
+            try_extract_string((void*)p_id, idBuf, sizeof(idBuf));
+            try_extract_string((void*)p_type, typeBuf, sizeof(typeBuf));
+            try_extract_string((void*)p_tm, tmBuf, sizeof(tmBuf));
         }
 
-        LOG("KITREG4 buffType='%s' (a0=%p a1=%p a2=%p) ret=%p is_null=%s",
-            typeBuf[0] ? typeBuf : "<empty/null>", a0, a1, a2, ret, (ret == NULL) ? "YES" : "NO");
+        LOG("KITREG4/E5DB04 factory=%p x1=%p class='%s' id='%s' type='%s' tm/p20='%s' ret=%p is_null=%s",
+            a0, a1, clsBuf[0] ? clsBuf : "<unknown>",
+            idBuf[0] ? idBuf : "<empty>",
+            typeBuf[0] ? typeBuf : "<empty>",
+            tmBuf[0] ? tmBuf : "<empty>",
+            ret, (ret == NULL) ? "YES" : "NO");
     });
     return ret;
 }
@@ -4676,19 +4962,33 @@ static void* installer(void* arg){
     poke32(0xDA6700, 0x14000009);   // b 0xDA6724
 
     // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
-    inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
-    inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
-    inline_hook((void*)(g_base + 0x1121538), (void*)hooked_RefreshDisplay, &orig_RefreshDisplay);
-    inline_hook((void*)(g_base + 0xC1C0F0), (void*)hooked_ShouldDisplayStatModifier, &orig_ShouldDisplayStatModifier);
-    inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);
-    inline_hook((void*)(g_base + 0xBB18A0), (void*)hooked_Damage_BuffEffect_OnTick, &orig_Damage_BuffEffect_OnTick);
-    inline_hook((void*)(g_base + 0x10DAABC), (void*)hooked_KITREG1, &orig_KITREG1);
-    inline_hook((void*)(g_base + 0xCCE8D8),  (void*)hooked_KITREG2, (fn8*)&orig_KITREG2);
-    inline_hook((void*)(g_base + 0x1492B74), (void*)hooked_KITREG3, &orig_KITREG3);
-    inline_hook((void*)(g_base + 0xE5DB00),  (void*)hooked_KITREG4, &orig_KITREG4);
-    inline_hook((void*)(g_base + 0xEED720),  (void*)hooked_CalculateBuffAmount, (fn8*)&orig_CalculateBuffAmount);
-    inline_hook((void*)(g_base + 0xEEFC30),  (void*)hooked_ApplyStatModifier, (fn8*)&orig_ApplyStatModifier);
+    int r1 = inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
+    int r2 = inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
+    int r3 = inline_hook((void*)(g_base + 0x1121538), (void*)hooked_RefreshDisplay, &orig_RefreshDisplay);
+    int r4 = inline_hook((void*)(g_base + 0xC1C0F0), (void*)hooked_ShouldDisplayStatModifier, &orig_ShouldDisplayStatModifier);
+    int r5 = inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);
+    int r6 = inline_hook((void*)(g_base + 0xDC7CB4), (void*)hooked_FloatingText_OnTick, &orig_FloatingText_OnTick);
+    int r7 = inline_hook((void*)(g_base + 0xBB18A0), (void*)hooked_Damage_BuffEffect_OnTick, &orig_Damage_BuffEffect_OnTick);
+    int r8 = inline_hook((void*)(g_base + 0x10DAABC), (void*)hooked_KITREG1, &orig_KITREG1);
+    int r9 = inline_hook((void*)(g_base + 0xCCE8D8),  (void*)hooked_KITREG2, (fn8*)&orig_KITREG2);
+    int r10 = inline_hook((void*)(g_base + 0x1492B74), (void*)hooked_KITREG3, &orig_KITREG3);
+    int r11 = inline_hook((void*)(g_base + 0xE5DB00),  (void*)hooked_KITREG4, &orig_KITREG4);
+    int r12 = inline_hook((void*)(g_base + 0xEED720),  (void*)hooked_CalculateBuffAmount, (fn8*)&orig_CalculateBuffAmount);
+    int r13 = inline_hook((void*)(g_base + 0xEEFC30),  (void*)hooked_ApplyStatModifier, (fn8*)&orig_ApplyStatModifier);
+    int r14 = inline_hook((void*)(g_base + 0xDC7AFC),  (void*)hooked_FloatingText_ctor, (fn8*)&orig_FloatingText_ctor);
+    int r15 = inline_hook((void*)(g_base + 0xDC7C40),  (void*)hooked_FloatingText_OnInitTarget, (fn8*)&orig_FloatingText_OnInitTarget);
+    int r16 = inline_hook((void*)(g_base + 0xE5D884),  (void*)hooked_BuffEffect_Clone, (fn8*)&orig_BuffEffect_Clone);
+    int r17 = inline_hook((void*)(g_base + 0xB3A6C8),  (void*)hooked_ParamsTable_ToString, (fn8*)&orig_ParamsTable_ToString);
+    int r18 = inline_hook((void*)(g_base + 0xEE8750),  (void*)hooked_BuffUtils_ParseParams, (fn8*)&orig_BuffUtils_ParseParams);
 
+    int r19 = inline_hook((void*)(g_base + 0xC64264), (void*)hooked_HudBuffWidget_Init, &orig_HudBuffWidget_Init);
+    int r20 = inline_hook((void*)(g_base + 0x1B60DE0), (void*)hooked_UILabel_set_text, &orig_UILabel_set_text);
+    int r21 = inline_hook((void*)(g_base + 0x1B65688), (void*)hooked_UILabel_TryLocalize, &orig_UILabel_TryLocalize);
+    int r22 = inline_hook((void*)(g_base + 0xA5F51C), (void*)hooked_BCGStatModifierAppearance_ctor, &orig_BCGStatModifierAppearance_ctor);
+    int r23 = inline_hook((void*)(g_base + 0xC65C70), (void*)hooked_HudBuffWidgetsContainer_Add, &orig_HudBuffWidgetsContainer_Add);
+
+    LOG("adhoc hooks status: FT_ctor=%d FT_OnInitTarget=%d FT_Clone=%d FT_OnTick=%d Dmg_OnTick=%d targetFrameRate=%d vSync=%d RefreshDisplay=%d ShouldDisplayStatMod=%d AbilityItem_SetData=%d KITREG1=%d KITREG2=%d KITREG3=%d KITREG4=%d CalculateBuffAmount=%d ApplyStatModifier=%d ParamsTable_ToString=%d BuffUtils_ParseParams=%d HudBuffWidget_Init=%d UILabel_set_text=%d TryLocalize=%d App_ctor=%d HudBuffContainer_Add=%d",
+        r14, r15, r16, r6, r7, r1, r2, r3, r4, r5, r8, r9, r10, r11, r12, r13, r17, r18, r19, r20, r21, r22, r23);
     LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;
 }
