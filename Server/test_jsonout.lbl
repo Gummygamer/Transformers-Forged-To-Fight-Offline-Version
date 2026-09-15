@@ -58,6 +58,26 @@ function corpus_tests(response_dir: text): integer
   failed
 end
 
+function unicode_tests(): integer
+  intent: test
+  mutable failed: integer = 0
+  let unicode_2byte: text = "\{\"name\":\"Andr\\u00e9\"\}"
+  set failed = failed + report("2-byte unicode escape (é)", compact(unicode_2byte) == unicode_2byte, "2-byte unicode escape did not round-trip")
+
+  let unicode_3byte: text = "\{\"icon\":\"\\ue092\"\}"
+  set failed = failed + report("3-byte unicode escape (U+E092)", compact(unicode_3byte) == unicode_3byte, "3-byte unicode escape did not round-trip")
+
+  let unicode_4byte: text = "\{\"emoji\":\"\\ud83d\\ude00\"\}"
+  set failed = failed + report("4-byte surrogate pair escape (U+1F600)", compact(unicode_4byte) == unicode_4byte, "4-byte surrogate pair escape did not round-trip")
+
+  let mixed_unicode: text = "\{\"msg\":\"Hello \\u00e9 \\ue092 \\ud83d\\ude00!\"\}"
+  set failed = failed + report("mixed ASCII and unicode", compact(mixed_unicode) == mixed_unicode, "mixed ASCII and unicode failed to round-trip")
+
+  let unicode_key: text = "\{\"k\\u00e9y\":1\}"
+  set failed = failed + report("non-ASCII object key", compact(unicode_key) == unicode_key, "non-ASCII key failed to round-trip")
+  failed
+end
+
 function main(): nothing
   intent: run
   let arguments: a list of text = get_args()
@@ -68,13 +88,14 @@ function main(): nothing
     exit_process(1)
   end
   mutable failed: integer = corpus_tests(responses)
+  set failed = failed + unicode_tests()
   let order_source: text = "\{" ++ "\"b\":1,\"a\":2" ++ "\}"
   set failed = failed + report("key order", compact(order_source) == order_source, "object keys were reordered")
   let decimal_ok: boolean = jsonout.encode_compact(jsonout.json_dec(1.0)) == "1.0" and jsonout.encode_compact(jsonout.json_dec(100.0)) == "100.0" and jsonout.encode_compact(jsonout.json_dec(1.75)) == "1.75" and jsonout.encode_compact(jsonout.json_int(1)) == "1"
   set failed = failed + report("decimal formatting", decimal_ok, "whole decimals lost .0 or integer changed")
   let escaped: text = "\{\"s\":\"\\\"\\\\\\n\\t\\u0001\"\}"
   set failed = failed + report("string escaping", compact(escaped) == escaped, "escaped characters changed")
-  set failed = failed + report("non-ASCII unicode escape", compact("\{\"name\":\"Andr\\u00e9\"\}") == "\{\"name\":\"Andr?\"\}", "non-ASCII escape did not use the ASCII placeholder")
+
   let object: Json = jsonout.parse_json(order_source)
   let replaced: Json = jsonout.obj_set(object, "a", jsonout.json_int(3))
   let appended: Json = jsonout.obj_set(replaced, "c", jsonout.json_int(4))
@@ -83,7 +104,7 @@ function main(): nothing
   set failed = failed + report("nesting and empties", compact(nested) == "\{\"x\":[[],\{\},[null,true,false,-2,1000.0]]\}", "nested values did not compact correctly")
   let spaced: Json = jsonout.json_obj([jsonout.json_pair("a", jsonout.json_list([jsonout.json_int(1), jsonout.json_int(2)])), jsonout.json_pair("b", jsonout.json_bool(true))])
   set failed = failed + report("spaced encoding", jsonout.encode_spaced(spaced) == "\{\"a\": [1, 2], \"b\": true\}", "spaced separators changed")
-  let total: integer = 24
+  let total: integer = 28
   let passed: integer = total - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then exit_process(1) end
