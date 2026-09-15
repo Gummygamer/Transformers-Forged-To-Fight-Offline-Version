@@ -8,6 +8,71 @@ This document exists so the next person (or agent) can reproduce this work witho
 re-deriving it, and without re-litigating the dead ends listed at the bottom. Everything
 marked **VERIFIED** was observed in a running client, not inferred from decompilation.
 
+**Start with §0 — the exact APK, emulator and toolchain this was verified on.** Every RVA
+here is an offset into one specific binary and is meaningless against a different build.
+
+---
+
+## 0. Environment — what this was verified on
+
+Every **VERIFIED** claim, and **every RVA in this document**, was observed on exactly this
+setup. RVAs are offsets into one specific binary; on a different build they point at
+unrelated code. **Check the `libil2cpp.so` hash before trusting any address here.**
+
+### The APK
+
+| field | value |
+|---|---|
+| package | `com.kabam.bigrobot` |
+| versionName / versionCode | **9.2.0** / `123129100` |
+| launcher activity | `com.explodingbarrel.Activity` |
+| minSdk / targetSdk | 23 / 30 |
+| `lib/arm64-v8a/libil2cpp.so` SHA-256 | `575aa973ed8fd54e79c70abdaed5b5a3b013e8e3ec68e0fa64e98f6bdfba9b8a` |
+| `lib/armeabi-v7a/libil2cpp.so` SHA-256 | `55f596ba20d3226afde54016fbbae9c2c7fc7d1a3aca41db8a96db8ea75770c3` |
+| signing cert SHA-256 | `A8:21:3D:06:2F:72:07:75:26:0A:2F:96:E0:1A:E5:AD:27:9A:FE:DF:A4:D6:30:50:EB:81:51:49:F3:69:C5:21` |
+| cert owner | `O=Exploding Barrel Games Inc., L=Vancouver, ST=BC, C=CA` |
+
+This is the **developer-signed retail build, not a repack** — Exploding Barrel Games is the
+original developer, which matches the launcher activity namespace.
+
+> ⚠️ **Not every 9.2.0 APK is this APK.** Repacks exist with the same version string but
+> resigned with AOSP test keys and carrying injected payloads. Match the **hashes**, not the
+> version number. All work here targets **arm64-v8a**.
+
+### The emulator
+
+| field | value |
+|---|---|
+| Android emulator | **37.1.11.0** (build_id 15917651) |
+| adb | 1.0.41 / platform-tools **35.0.2** |
+| system image | `system-images/android-30/google_apis/x86_64/` |
+| Android | **11** (API **30**), build `RSR1.240422.006` |
+| device ABI | `x86_64`; abilist includes `arm64-v8a` |
+| AVD RAM | **8192 MB** |
+| AVD VM heap | **1024 MB** |
+| AVD cores | **8** |
+| data partition | 10 GB |
+| GPU | `hw.gpu.enabled=no` — software rendering, runs headless (`-no-window`) |
+
+> 🔑 **The emulator is x86_64 but the game is arm64.** It runs the `arm64-v8a` `libil2cpp.so`
+> under the system image's ARM translation layer. That is why the binary you disassemble is
+> ARM64 while the device reports `x86_64`. Do not "fix" this by switching to the armeabi-v7a
+> library — the addresses in this document are arm64.
+
+> ⚠️ **RAM and heap are not optional tuning.** At the default 2 GB / 256 MB / 4 cores this
+> AVD thrashed badly enough to look like unrelated bugs. Use the values above.
+
+### Host toolchain
+
+| field | value |
+|---|---|
+| host | NixOS, Linux 6.18 (via the repo's `flake.nix` dev shell) |
+| Android NDK | **26.3.11579264** |
+| `legible` | 0.1.0, built from source into `.cargo-home/bin` (**not** on the default PATH) |
+
+`legible` is not on the plain PATH — `export PATH="$PWD/../.cargo-home/bin:$PATH"` before
+running it (see §3.5).
+
 ---
 
 ## 1. The objective
