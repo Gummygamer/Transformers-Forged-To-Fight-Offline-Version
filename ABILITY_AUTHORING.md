@@ -262,6 +262,76 @@ parallel list.
 
 ---
 
+## 9. Planned — the verification campaign
+
+Of ~46 catalogued effects, **3 are live-verified** (`dmg_bleed`, `dmg_shock`, `dmg_burn`).
+The other ~43 are decompiled specs that have never been executed. Verifying them is the next
+step, and the point of this section is that **it is not 43 fights.**
+
+Fight cycles are the scarcest resource in this project — only a human can play one. Design
+the campaign accordingly.
+
+### 9.1 Do not multiply the matrix: it is 43 + 11, not 43 × 11
+
+There are two untested axes: ~43 **effects** and 11 untested **triggers** (`onCrit`,
+`onBlocked`, `onSpecialActivate`, `onHpLost`, …). Testing the cross product is ~470
+combinations and is pointless. Vary one axis at a time against a known-good control:
+
+- **To test an effect** — pair it with the proven trigger: `tr:["onHit"]`, `c:1.0`.
+- **To test a trigger** — pair it with a proven effect: `dmg_bleed` at a visible magnitude.
+  Eleven variants of the same known-good effect, one fight, read which ones fired.
+
+If a test changes two unknowns at once its result is uninterpretable. This is the single
+most common way to waste a fight.
+
+### 9.2 Tier what "verified" means
+
+Most of the value is in T1, and T1 is nearly free:
+
+| tier | question | how observed | batchable |
+|---|---|---|---|
+| **T1 registers** | parsed, granted, registered in combat, does not crash | `KITREG2` / `KITREG4` hook lines | **yes, ~10 per fight** |
+| **T2 fires** | the trigger actually delivers it | hook line at trigger time | partly — needs the trigger to occur |
+| **T3 behaves** | produces the intended mechanical result | hook values, HP/power deltas, frames | usually one at a time |
+
+**Getting all ~43 to T1 first is the highest-value move in the whole campaign.** It costs
+about two fights and tells you which effects are real and which detonate — before anyone
+designs a kit around them. Recall that `sig_lvl > 0` crashes the hero-detail path for every
+bot (§7.7); assume other landmines exist and find them cheaply.
+
+### 9.3 Natural batches
+
+Group by how the effect is observed, not by what it means:
+
+| batch | members | notes |
+|---|---|---|
+| **Variables** | `set_var` `add_var` `clear_var` `set_tel_var` `add_tel_var` `clear_tel_var` | Pure state. Verifiable from hooks with **zero gameplay observation** — plausibly all six in one fight. Cheapest batch; do it first. |
+| **Numeric** | `heal` `power_gain` `power_sting` `protection` `resist_*` `armor_break` `attack_chain` `stagger` `speed_curve` `slowdown_curve` `<attr_name>` `<attr_name>_flat` | Change a stat/HP/power the hooks already log with amount and duration. Batch 6–8. |
+| **Buff-graph ops** | `nullify` `purify` `remove` `refresh` `refresh_id` `purge` `copy_buffs` `sequence` | ⚠️ These operate **on other buffs** and cannot be tested standalone. Each needs a paired setup: apply a known buff, then the operator, observe removal/refresh. Naturally batched in pairs. |
+| **Audiovisual** | `create_area` `area_ring_spawner` `area_line_spawner` `override_anim` `clear_override_anim` `play_misc_anim` `play_move` `announcer` | Needs frames. Burst-capture via `adb exec-out screencap` through the fight and judge from stills — real-time observation is unreliable, a fight is too busy to watch for a specific cue. |
+| **Interfering — ISOLATE** | `disable_sp1` `disable_sp2` `disable_sp3` `disable_run` `state_disable` `swap_ai` `ai_rage_mod` | ⚠️ **Never put these in a mixed batch.** `disable_sp*` blocks the special attacks you need in order to trigger other effects, so it silently poisons every other result in the fight. |
+
+Realistically **~10–12 fights**, not 43.
+
+### 9.4 Sequencing — do §5 first
+
+Batch verification means assigning ~8 effects to one bot and swapping the whole set between
+fights. Today that is editing a hardcoded predicate in **four** builders per batch (§5) —
+a dozen times over, with `quest_team` the easy one to forget, which would make every result
+in that fight a false negative.
+
+**With the bot→abilities table from §5, a batch swap is one line.** The refactor pays for
+itself here. Do it before starting the campaign.
+
+### 9.5 Record results where they will be believed
+
+Update the proven-vs-untested matrix in `research/ability-catalogue.md` as each effect
+promotes, and cite the evidence — the hook line or the frame — the way the existing three
+entries do. An effect marked "proven" without a citation is worth nothing to the person who
+has to trust it later, and the glossary (§8) reads from this distinction.
+
+---
+
 <!-- 2026-09-14 Claude Opus 5: written at the repo owner's request so downstream
      contributors and their agents can reproduce this pipeline and skip our dead ends.
      Every VERIFIED claim was observed in a running client. -->
