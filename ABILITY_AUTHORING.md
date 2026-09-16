@@ -1,8 +1,9 @@
 # Authoring abilities from the server
 
-> Status: the end-to-end pipeline is **proven** and **generalized assignment is built**
-> (§5). What remains is verifying the ~43 untested effects (§9), then per-bot design (§2 of
-> the objective) and the glossary (§8).
+> Status: the end-to-end pipeline is **proven**, **generalized assignment is built** (§5),
+> and the **glossary now exists** (§8) — asset channels in §3.2.1, an icon candidate map in
+> §4.1, and the working/non-working combinations in §8.1–8.2. What remains is per-bot design
+> and verifying the untested effects (§9).
 
 This document exists so the next person (or agent) can reproduce this work without
 re-deriving it, and without re-litigating the dead ends listed at the bottom. Everything
@@ -81,8 +82,8 @@ running it (see §3.5).
 
 The bleed/shock/burn kit that exists today was a **test vehicle**, not the goal. It proved
 the chain end to end — server JSON → parsed → granted per-bot → registered in combat →
-triggered on hit → ticking damage → icon and floating number on screen. That question is now
-closed.
+triggered on hit → ticking damage → icon on screen. That question is now closed.
+(The *floating number* for ability damage is a separate, still-open problem — §8.2 ⑦.)
 
 The real problem is **assignment**:
 
@@ -108,7 +109,13 @@ Do not confuse these. Authoring one more hardcoded kit is not progress toward (1
 | Authored abilities deal real damage in combat | `type='dmg_bleed' id='kit_bleed' origMod=0.4000 amount=0.4000 dur=6.00 tick=0.50` |
 | Per-bot granting works | different `stat_mods` lists per bot are honoured |
 | Effect icons render in-fight | three correct glyphs on the opponent's health bar |
-| Floating damage numbers render | numerals observed over both combatants |
+| Floating damage numbers render **for normal attacks** | numerals observed over both combatants |
+
+⚠️ **Do not read row 4 as "ability damage shows a number."** It does not, today. Normal
+attacks have duration `0.0` and draw directly; a damage-over-time buff instead accumulates
+into a per-player cache that only a deployed `FloatingText_BuffEffect` can flush to the
+screen — and no hero currently references one. See §8.2 ⑦ and ①. This row has been misread
+that way before, including by the people who wrote it.
 | Indefinite buffs | `d = -1.0` → 3788 ticks in one fight (was dying after 4) |
 
 **Icons require real Unicode.** See §4 — this is the single most expensive lesson here.
@@ -134,17 +141,69 @@ t    buff type   -> MUST equal the buffs_set globalBuffs id
 tr   LIST        triggers, camelCase (onHit, onCrit, onSpecialActivate, onIntroStart, ...)
 uit  LIST        UI triggers
 a    LIST        appearance ids -> statModAppears
-trr  text        trigger rate: repeat | update | none
+trr  text        trigger rate: none | update | once | repeat
 c    decimal     chance, 1.0 = always
 m    decimal     magnitude
 d    decimal     duration seconds; -1.0 = INDEFINITE
-ta   text        target: self | opponent
-mt   text        buff | debuff | passive
+ta   text        target: none | self | opponent (alias opp) | owner | tower | opp_tower
+mt   text        BITFLAG: buff | debuff | passive | passive_buff | passive_debuff
 st   int         stack count
 ```
 
+**The three enum fields, read off the client rather than inferred.** An earlier revision of
+this table listed only the values we happened to be using, which is how you end up authoring a
+value the client silently ignores:
+
+| field | client enum | values |
+|---|---|---|
+| `trr` | `BuffTriggerRate` | `none=0` `update=1` `once=2` `repeat=3` |
+| `ta` | `BuffTargetTypes` | `none=0` `self=1` `opponent=2` `opp=2` `owner=3` `tower=4` `opp_tower=5` |
+| `mt` | `BuffModTypes` | `none=0` `buff=1` `debuff=2` `passive=4` `passive_buff=8` `passive_debuff=16` |
+
+Three traps in that table:
+
+1. **`mt` is a bitflag set** — the values are powers of two. `passive_buff` is **8**, *not*
+   `passive|buff` (which would be 5). Do not compose these by OR-ing; use the named value.
+2. **`opponent` and `opp` are the same value (2).** Two spellings, one meaning. A table
+   generated from the enum will look like it has seven targets; it has six.
+3. **`ta` selects which `BuffsController` owns the buff.** The client holds
+   `Dictionary<BuffTargetTypes, BuffsController>` — one controller per target type. `ta` is not
+   a hint or a label; it decides which combatant's controller the effect is installed on. This
+   is why `ta` and `mt` are independent (§8): `ta` is placement, `mt` is classification.
+
 `Damage_BuffEffect` matches on the **`dmg_` prefix** of `t`, so damage buff types must be
 named `dmg_*`.
+
+### 3.2.1 The asset channels — everything an ability can drive
+
+The `statMods` row decides *what happens*. These decide *what the player perceives*. The
+presentation record is `BCGStatModifierAppearance`; the rest are parameters on effect classes.
+
+| channel | wire field / effect | consumed by | authorable from the server |
+|---|---|---|---|
+| ability name | `AbilityTitleID` | ability/info panels | yes |
+| descriptions ×3 | `ShortStringID`, `LongStringID`, `SimpleStringID` | info panels | yes |
+| **icon** | `IconTexture` | HUD + info panels | yes — §4 |
+| **particle FX** | `FXProfile` | FX system | yes — **we currently serve `""`** |
+| **callout text** | `CalloutStringID` | `HudScreen.PlayCallout` | yes |
+| **callout colour ×3** | `CalloutTextColor`, `…GradientTop`, `…GradientBottom` | same | yes — **we serve `#FFFFFF` for all** |
+| pause-screen text ×2 | `PauseShortStringID`, `PauseLongStringID` | pause UI | yes |
+| floating number | `FloatingText_BuffEffect` | `HudScreen.PlayFloatingText` | yes, but see §8.2 ⑦ |
+| streak counter | `HudScreen.ShowStreakCounter` | HUD | untested |
+| HUD banner | `HudAnnouncer_BuffEffect._message` | HUD | yes, untested |
+| animation override | `OverrideAnimation_BuffEffect` | animator | yes, untested |
+| forced move | `PlayMove_BuffEffect._sequencer` | animator | yes, untested |
+| time scale | `SpeedCurve` / `SlowdownCurve_BuffEffect` | combat sim | yes, untested |
+| spatial zone | `CreateArea_BuffEffect` — `_prefabName`, `_radius`, `_offset` | world | yes, prefab must exist |
+| **audio** | — | — | **NO PATH** |
+
+**There is no audio channel.** No `Audio_BuffEffect` exists and the appearance record has no
+sound field. Two independent sweeps of all effect classes found none. A sound can only reach the
+player by riding on something else — an `AudioSource` on a particle prefab, or an animation
+event — so it is a property of the asset you reference, never of the ability row.
+
+The three rows in bold are live channels we currently send empty or blank. They need no new
+mechanism, only values.
 
 ### 3.3 Define the appearance — `build_stat_mod_appears()`
 `statModAppears["<id>"]`. **These wire keys were read off the client itself** (see §6), not
@@ -197,6 +256,55 @@ literally by an icon-only font, i.e. as visible garbage.
 Emitting a raw codepoint requires the **jsonout Unicode round-trip fix**; before it,
 `jsonout` refused non-ASCII outright (`[!] jsonout: non-ASCII text is not supported`). It
 emits a standard `\uXXXX` escape, which is valid JSON and decodes client-side.
+
+### 4.1 Which glyph means what — the candidate map
+
+`Tecnica_Bold_116` maps **523 PUA codepoints**. They are not all icons, and the font tells you
+which are which through its own glyph names:
+
+| group | count | how to tell | use? |
+|---|---|---|---|
+| small-caps typography | 127 | glyph name contains `.sc` (`a.sc`, `k.sc`, `thorn.sc`) | **no** — letterforms |
+| descriptively named | 56 | real names (`shield_bleed`, `heart`, `spade`) | **yes, authoritative** |
+| unnamed | 340 | named `uniEXXX` | candidates, identify by eye |
+
+**Filter on `.sc` as a substring, not a suffix** — `i.sc.loclTRK` is a small cap that ends in
+`.loclTRK` and slips a suffix test.
+
+**72 codepoints are referenced by the client's own string table.** Those are UI chrome the game
+already draws — faction badges, rank chevrons, calendars. Avoid them for effects unless you
+intend the overlap; the remainder are unreferenced, which is the signature of glyphs meant to
+arrive in server-supplied strings.
+
+A working candidate map, one ability per row:
+
+| ability | codepoint | ability | codepoint |
+|---|---|---|---|
+| Bleed | `U+E414` | Stagger | `U+E810` |
+| Shock / Overcharge | `U+E914` | Stun | `U+E15E` |
+| Burn | `U+E41D` | Disable run | `U+E933` |
+| Poison | `U+E50C` | Disable special | `U+E953` |
+| Acid / Corrosion | `U+E40A` | Speed up | `U+E952` |
+| Direct damage | `U+E404` | Slow | `U+E901` |
+| Heal | `U+E93A` | Attack chain | `U+E41F` |
+| Protection | `U+E512` | State enable | `U+E942` |
+| Resist damage | `U+E949` | State disable | `U+E99C` |
+| Armour break | `U+E516` | Power gain | `U+E91B` |
+| | | Power sting / drain | `U+E905` |
+
+⚠️ **Status of this table: visual identification, not verified in-game.** It is offered so you
+do not start from 523 unknowns. Three caveats worth inheriting:
+
+- **A confident reading is not a correct one.** An earlier map recorded `U+E412` as *"fist
+  wreathed in sparks — SHOCK"* at med-high confidence and shipped it as the shock icon. It is a
+  **bare fist with no sparks**; the sparking fist is `U+E41F`. It was also marked "confirmed
+  in-client" — but the screenshot only proved the codepoint we sent rendered, which at icon size
+  a fist does regardless. **Confirming that a glyph appears is not confirming that it means what
+  you think.**
+- Where the font names a glyph, the name wins. `U+E50E` is `shield_bleed`, not the acid shield
+  an earlier reading claimed; `U+E510` is `shield_mana`, not ice.
+- `U+E512` is named `shield_new` and is used here for Protection on appearance alone. Treat as
+  provisional.
 
 ---
 
@@ -332,11 +440,11 @@ silent empty value and **no error anywhere** — that is the trap, every time.
 
 ---
 
-## 8. Planned — the ability glossary (not built yet)
+## 8. The ability glossary — combinations that work, and that do not
 
 A designer picking a kit needs to know, per ability, **what it does and who it lands on**.
-That is the glossary. It is not yet written, but most of the raw material exists and it is
-mostly an organizing job, not new reverse-engineering.
+That is the glossary. §8.1 and §8.2 below are the usable core of it; what remains is
+per-ability detail, not new reverse-engineering.
 
 ### The axis that matters: `ta` and `mt` are INDEPENDENT
 
@@ -358,6 +466,65 @@ impossible to express rather than merely discouraged.
 ⚠️ **Open question, do not assume either way:** whether `mt` is purely presentational
 (grouping/colour in the buff HUD) or also drives mechanics. Untested. Settle it before the
 glossary asserts a meaning for it.
+
+What *is* settled: **`ta` is placement, not labelling.** The client keys its buff controllers
+by target type — `Dictionary<BuffTargetTypes, BuffsController>` — so `ta` chooses whose
+controller receives the effect. That is the mechanical reason the two fields cannot be folded
+into one.
+
+### 8.1 Combinations that work
+
+Four cells of the `ta` × `mt` matrix cover almost every kit you would want:
+
+| intent | `ta` | `mt` | example |
+|---|---|---|---|
+| harm the opponent over time | `opponent` | `debuff` | bleed, burn, shock — **proven in a live fight** |
+| strengthen your own bot | `self` | `buff` | attack up, regeneration |
+| a standing penalty on yourself | `self` | `debuff` | a drawback traded for a stronger effect |
+| an always-on trait | `self` | `passive` | permanent stat shaping, `d: -1.0` |
+
+`owner`, `tower` and `opp_tower` exist for base-defence contexts and are outside anything
+proven here.
+
+### 8.2 Combinations that DO NOT work — and why
+
+These are not style advice. Each one produces silence, and silence in this system looks
+identical to "the feature is broken".
+
+**1. A row no hero references is never deployed.**
+The single most expensive mistake available. A `statMods` row is a *definition*; it does
+nothing until some hero's `stat_mods` list names it. The client auto-applies exactly five ids
+of its own accord — `gp_attack_chain`, `gp_hit_stun`, `gp_close_atk_window`, `gp_disable_run`,
+`gp_sp3_minhp` — and **nothing else**. Everything else must be granted (§5). A perfectly
+authored row that nobody references parses cleanly, validates, and does nothing forever.
+
+**2. `t` that does not exactly equal a `buffs_set.globalBuffs` id.**
+The binding is by exact string. A typo yields a buff with no behaviour — the appearance may
+still render, so you get an icon for an ability that does nothing. **Icon-without-effect is the
+signature of this mistake.**
+
+**3. A damage buff whose `t` lacks the `dmg_` prefix.**
+`Damage_BuffEffect` matches on the prefix. `t: "bleed"` will not deal damage; `t: "dmg_bleed"`
+will. Same signature as above — the icon still appears.
+
+**4. `trr: "update"` with an empty `uit`.**
+Inert. Update-mode with no update triggers is a buff told to refresh and never told when.
+
+**5. Composing `mt` by OR-ing.**
+`passive_buff` is `8`. `passive|buff` is `5`. Five is not a defined member.
+
+**6. Conditions that do not exist.**
+There are exactly **two** condition classes — `ActiveId_BuffCondition` and
+`ContainsBuff_BuffCondition` — and both only ask *"is buff X active?"*. There is **no predicate
+system**: "below 20% health", "opponent is class Y" and "after 3 hits" cannot be expressed as
+conditions. Conditionality must come from **which trigger fires** plus the chance roll `c`. Do
+not design a kit around a condition the engine cannot evaluate.
+
+**7. Expecting a floating number for an effect that has no producer.**
+`HudFloatingTextStyleFlags` offers ten styles including `Fury` and `Weakness`, but only two
+cache keys exist in the entire binary — `_ftd` (`Damage_BuffEffect`) and `_fth`
+(`Heal_BuffEffect`). Damage and heal numbers have plumbing behind them. **Strengthen and weaken
+numbers have a paint style and nothing that fills it.**
 
 ### Material that already exists
 - **`research/ability-catalogue.md`** — the backbone. ~46 `*_BuffEffect` classes with

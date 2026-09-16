@@ -450,3 +450,28 @@ content of any kind** — no authored values, no identifiers, no wire keys. Noth
 transcribed from recovered Kabam server data. No asset, binary, APK, game data, network
 capture, or credential was added. Nothing under `media/` was touched. No new dependency was
 introduced.
+
+## Effect icon codepoints and the authoring guide's enum tables
+
+Two corrections to material already in this repository.
+
+`Server/gamedata.lbl` served `U+E402` as the bleed effect icon and `U+E412` as the shock
+effect icon. Both are wrong on inspection — `U+E412` is a bare fist with no electrical
+motif. They now serve `U+E414` and `U+E914`. All four codepoints are glyphs in
+`Tecnica_Bold_116`, a font **already present inside the operator's own client**; this change
+alters which existing glyph is referenced by an appearance record and **adds no font, asset,
+or artwork of any kind**. Neither replacement is among the 72 private-use codepoints the
+client references in its own string table, so no symbol the client already draws for its own
+UI has been repurposed.
+
+`ABILITY_AUTHORING.md` documented three wire fields with incomplete value lists. The
+corrected tables (`BuffTriggerRate`, `BuffTargetTypes`, `BuffModTypes`) are **enum
+definitions read out of the operator-supplied client binary**, recorded as an
+interoperability schema observation — the same established precedent as the hit-stun wire
+keys recorded above. The added §3.2.1, §4.1 and §8 sections are our own prose describing
+this repository's own data format, plus a mapping of ability names to font codepoints that
+is **original authored judgement**, not transcribed from any recovered source.
+
+Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game data,
+network capture, or credential was added. Nothing under `media/` was touched. No new
+dependency was introduced.
