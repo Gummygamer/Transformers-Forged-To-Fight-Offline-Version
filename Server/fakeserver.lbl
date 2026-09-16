@@ -1593,8 +1593,8 @@ end
   let preserve_progress: boolean = position_exists(qid)
   set_position(qid, if preserve_progress then previous.x else gamedata.quest_start_x_for(qid) end, if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end, previous.pending and preserve_progress, previous.completed and preserve_progress, previous.cleared)
   let saved: a list of text = get_saved_team()
-  let team: a list of text = if length(posted) == 0 and qid == gamedata.custom_story_qid() then gamedata.resolve_team(saved) else saved end
-  if length(posted) == 0 and qid == gamedata.custom_story_qid() and team != saved then set_saved_team(team) end
+  let team: a list of text = if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid()) then gamedata.resolve_quest_team(qid, saved) else saved end
+  if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid()) and team != saved then set_saved_team(team) end
   spaced_envelope(gamedata.build_quest_begin_with_cleared(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, previous.x, previous.y, cleared_json(previous.cleared)))
 end
 
@@ -1663,7 +1663,7 @@ end
 function saved_team_envelope(team_id: text, heroes: a list of text): text
   intent: encode
   let active_team_id: text = if starts_with(team_id, "PVP") then "arena_versus" else "1.1.1-" ++ team_id end
-  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes)] end
+  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act2_qid() ++ "-0", heroes)] end
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list(active_teams))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
 end
 

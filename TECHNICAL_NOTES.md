@@ -753,8 +753,7 @@ baked transition/body pair before updating it.
 The static export hardcodes the board width in `move_body`'s bounds check and the
 `add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
 updating those two places and both exact constants in `Server/export_payload.lbl` and
-`Server/test_export_payload.lbl`: the current values are 9368 entries and 4572592 bytes
-(formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
+`Server/test_export_payload.lbl`: the current values are 9790 entries and 7130656 bytes. A mismatch in the exporter calls one `fail(...)` line and aborts
 the whole test binary before it can print a test summary.
 
 ### In-app C server
@@ -1170,15 +1169,28 @@ Consequences for authored content:
   generated `build_quest_summary` output for the same qid must agree, because both are stored
   through the same indexed path.
 
-The `2.1.1` custom story quest lives in its own single-act set (`custom_story_act1`,
-`actCount: 1`), so its summary slot is `1/1/1` even though the qid string starts with `2`. The
-qid is an opaque routing key; the numeric slot fields, not the qid, drive the client's table
-indexing. `Server/test_fakeserver.lbl::test_quest_list_slots_fit_client_summary_tables` encodes
-these bounds so a future set cannot regress them.
+The `2.1.1` custom story quest lives in its own set (`custom_story_act1`), so its summary
+slot is `1/1/1` even though the qid string starts with `2`. The qid is an opaque routing
+key; the numeric slot fields, not the qid, drive the client's table indexing. Act 2 reuses
+the same set: `actCount` is now 2 with `chapterCount: [1,1,1]`, and the added quest `2.2.1`
+("Resource Scanners") takes summary slot 2/1/1 under a "CUSTOM STORY - ACT 2" label.
+`Server/test_fakeserver.lbl::test_quest_list_slots_fit_client_summary_tables` encodes these
+bounds so a future set cannot regress them.
 
 The 2.1.1 custom story's final boss is `ironhide_cin_rotf` with `dialogue=custom_ironhide_ambush`
 and `dialoguePE=custom_ironhide_defeated` on the chicago/todIndex-0 tile. The encounter tile
 still uses `mapOverride "chicago"` and `todIndex 0` as required for the client fight prefab.
+
+Act 2 begins after that Ironhide post-battle dialogue resolves: quest `2.2.1` loads its own
+compact 2x2 map (`quest_dim_for` returns 2 and `revealed_tiles_for` returns the two path
+cells). Its single encounter tile advertises `dialogue=custom_act2_intro` (the three-line
+Marissa / Optimus / Marissa sequence) and uses `boss` key `bumblebee_gs_kabam`, so entering
+the act presents the shipped Bumblebee boss card. Stepping onto that tile still starts the
+requested fight: the movement `battle` action and `currentBattleId` carry
+`kickback_gs_kabam` as the final boss on the chicago/todIndex-0 prefab, and both entities
+(`bumblebee_gs_kabam` for the image and `kickback_gs_kabam` for the battle) ship in the
+tile's `entities` map. `Server/test_gamedata.lbl` and `Server/test_quest_walk.lbl` pin the
+exact dialogue order, act slot, boss image, and Kickback launch through the fake server.
 
 ### Story start: square map contract
 
@@ -1188,6 +1200,6 @@ The BlueStacks trace on 2026-09-09 identified the post-team-select failure as
 The custom map declared `gridDimension: 3` but contained three rows of only two
 tiles. The client indexes a square grid, including hidden cells. Each row now
 includes the missing third filler tile; the walkable path remains in column 1.
-`Server/test_quest_map_shape.lbl` checks both Story maps against their declared
-dimensions, start count, walkable count, and link targets. APKs must be rebuilt
+`Server/test_quest_map_shape.lbl` checks every Story map (1.1.1, 2.1.1, and the Act 2
+2.2.1 board) against its declared dimensions, start count, walkable count, and link targets. APKs must be rebuilt
 because the bundled server stores these responses in its generated payload.
