@@ -159,39 +159,42 @@ function test_both_quest_enemies_resolve_to_their_shipped_assets(base: text, por
   reply.status == "200" and jsonout.as_text(jsonout.obj_get(first, "bid")) == minion and jsonout.as_text(jsonout.obj_get(second, "bid")) == boss and jsonout.as_text(jsonout.obj_get(first, "img")) == "npc_shark_warr" and jsonout.as_text(jsonout.obj_get(second, "img")) == "nemesis_p" and jsonout.as_int(jsonout.obj_get(first, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(second, "max_hp")) > 0
 end
 
-function test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide(base: text, port: integer): boolean
+function custom_act2_dialogue_wire_matches(dialogue: Json): boolean
   intent: test
-  let intro_reply: HttpReply = post(base, port, "/tutorial/get-login-data", "\{\}")
-  let intro: Json = jsonout.obj_get(result(intro_reply), "FTE")
+  let entries: Json = jsonout.obj_get(dialogue, "custom_act2_intro")
+  let first: Json = item(entries, 0)
+  let second: Json = item(entries, 1)
+  let third: Json = item(entries, 2)
+  length(jsonout.list_items(entries)) == 3 and jsonout.as_text(jsonout.obj_get(first, "character")) == "fte_marissa_t1" and jsonout.as_text(jsonout.obj_get(first, "line")) == "Scanners found vital resources to repair our ship." and jsonout.as_text(jsonout.obj_get(second, "character")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(second, "line")) == "Understood, lead the way and secure them." and jsonout.as_text(jsonout.obj_get(third, "character")) == "fte_marissa_t1" and jsonout.as_text(jsonout.obj_get(third, "line")) == "Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights."
+end
+
+function test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback(base: text, port: integer): boolean
+  intent: test
   let begin_reply: HttpReply = post(base, port, "/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}")
   let begin: Json = result(begin_reply)
   let active: Json = jsonout.obj_get(jsonout.obj_get(begin, "activeQuests"), "2.1.1")
   let instance: Json = first_item(jsonout.obj_get(active, "instances"))
   let grid: Json = jsonout.obj_get(jsonout.obj_get(instance, "map"), "grid")
-  let encounter1: Json = item(item(grid, 1), 1)
-  let encounter2: Json = item(item(grid, 2), 1)
-  let encounter3: Json = item(item(grid, 3), 1)
-  let dialogue: Json = jsonout.obj_get(jsonout.obj_get(instance, "data"), "dialogueTable")
-  let completed_reply: HttpReply = post(base, port, "/tutorial/complete-tutorial", "\{\"tid\":\"FTE\",\"bid\":\"FTEIntroQuest\"\}")
-  let moved_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
-  let moved: Json = result(moved_reply)
-  let results: Json = jsonout.obj_get(moved, "results")
-  let battle1: Json = jsonout.obj_get(jsonout.obj_get(item(results, 1), "action"), "battle")
-  let enemy1: Json = jsonout.obj_get(battle1, "battleEnemy")
-  let resolve_reply: HttpReply = post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
-  let moved2_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
-  let moved2: Json = result(moved2_reply)
-  let results2: Json = jsonout.obj_get(moved2, "results")
-  let battle2: Json = jsonout.obj_get(jsonout.obj_get(item(results2, 1), "action"), "battle")
-  let enemy2: Json = jsonout.obj_get(battle2, "battleEnemy")
-  let resolve2_reply: HttpReply = post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
-  let moved3_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
-  let moved3: Json = result(moved3_reply)
-  let results3: Json = jsonout.obj_get(moved3, "results")
-  let battle3: Json = jsonout.obj_get(jsonout.obj_get(item(results3, 1), "action"), "battle")
-  let enemy3: Json = jsonout.obj_get(battle3, "battleEnemy")
-  let resolve3_reply: HttpReply = post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
-  intro_reply.status == "200" and jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and begin_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and length(jsonout.list_items(grid)) == 4 and length(jsonout.list_items(item(grid, 0))) == 4 and length(jsonout.list_items(item(grid, 1))) == 4 and length(jsonout.list_items(item(grid, 2))) == 4 and length(jsonout.list_items(item(grid, 3))) == 4 and team_matches(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid()), "team"), ["megatron_cin_rotf"]) and jsonout.as_text(jsonout.obj_get(encounter1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(encounter1, "dialoguePE")) == "custom_bludgeon_defeated" and length(jsonout.list_items(jsonout.obj_get(dialogue, "custom_opening_intro"))) == 5 and completed_reply.status == "200" and contains_text(completed_reply.body, "\"s\": \"completed\"") and moved_reply.status == "200" and length(jsonout.list_items(results)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(results, 0), "action"), "moveto"), "\{\"x\":1,\"y\":1\}") and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and resolve_reply.status == "200" and moved2_reply.status == "200" and length(jsonout.list_items(results2)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(results2, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and (not jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy2, "key")) == "fte_stars_gs_t3" and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(encounter2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(encounter2, "dialoguePE")) == "custom_starscream_defeated" and (not jsonout.as_bool(jsonout.obj_get(encounter2, "final"))) and length(jsonout.list_items(jsonout.obj_get(dialogue, "custom_starscream_ambush"))) == 3 and length(jsonout.list_items(jsonout.obj_get(dialogue, "custom_starscream_defeated"))) == 1 and jsonout.as_text(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(dialogue, "custom_starscream_defeated")), 0), jsonout.json_obj([])), "line")) == "Teletran scanned a Decepticon designated as Starscream, though his signature differed vastly from any foes we've faced previously. It feels as if he crossed over from an alternate dimension, and judging by the signs, additional threats are heading our way" and resolve2_reply.status == "200" and moved3_reply.status == "200" and length(jsonout.list_items(results3)) == 2 and encoded(jsonout.obj_get(jsonout.obj_get(item(results3, 0), "action"), "moveto"), "\{\"x\":3,\"y\":1\}") and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy3, "key")) == "ironhide_cin_rotf" and jsonout.as_text(jsonout.obj_get(enemy3, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy3, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(encounter3, "dialogue")) == "custom_ironhide_ambush" and jsonout.as_text(jsonout.obj_get(encounter3, "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_bool(jsonout.obj_get(encounter3, "final")) and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss")) and resolve3_reply.status == "200"
+  let act1_results1: Json = jsonout.obj_get(result(post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")), "results")
+  let act1_battle1: Json = jsonout.obj_get(jsonout.obj_get(item(act1_results1, 1), "action"), "battle")
+  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
+  let act1_results2: Json = jsonout.obj_get(result(post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")), "results")
+  let act1_battle2: Json = jsonout.obj_get(jsonout.obj_get(item(act1_results2, 1), "action"), "battle")
+  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}")
+  let act1_results3: Json = jsonout.obj_get(result(post(base, port, "/quests/quest-movedir/2.1.1-0/1/0", "\{\}")), "results")
+  let act1_battle3: Json = jsonout.obj_get(jsonout.obj_get(item(act1_results3, 1), "action"), "battle")
+  let act2_begin_reply: HttpReply = post(base, port, "/quests/quest-begin/2.2.1", "\{\"setId\":\"custom_story_act1\"\}")
+  let act2_begin: Json = result(act2_begin_reply)
+  let act2: Json = jsonout.obj_get(jsonout.obj_get(act2_begin, "activeQuests"), "2.2.1")
+  let act2_instance: Json = first_item(jsonout.obj_get(act2, "instances"))
+  let act2_grid: Json = jsonout.obj_get(jsonout.obj_get(act2_instance, "map"), "grid")
+  let act2_tile: Json = item(item(act2_grid, 1), 1)
+  let act2_dialogue: Json = jsonout.obj_get(jsonout.obj_get(act2_instance, "data"), "dialogueTable")
+  let act2_move_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
+  let act2_move: Json = result(act2_move_reply)
+  let act2_results: Json = jsonout.obj_get(act2_move, "results")
+  let act2_battle: Json = jsonout.obj_get(jsonout.obj_get(item(act2_results, 1), "action"), "battle")
+  begin_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and length(jsonout.list_items(grid)) == 4 and length(jsonout.list_items(item(grid, 0))) == 4 and jsonout.as_text(jsonout.obj_get(item(item(grid, 3), 1), "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_bool(jsonout.obj_get(act1_battle3, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act1_battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act1_battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and act2_begin_reply.status == "200" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(act2, "data"), "act")) == 2 and length(jsonout.list_items(act2_grid)) == 2 and jsonout.as_text(jsonout.obj_get(act2_tile, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile, "boss")) == "bumblebee_gs_kabam" and custom_act2_dialogue_wire_matches(act2_dialogue) and act2_move_reply.status == "200" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle, "battleEnemy"), "key")) == "kickback_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_battle, "isFinalBoss"))
 end
 
 function last_slash(path: text): integer
@@ -244,12 +247,12 @@ function main(): nothing
     else
       let walk: boolean = test_begin_then_walks_through_patrol_to_scout(base, port)
       let assets: boolean = test_both_quest_enemies_resolve_to_their_shipped_assets(base, port)
-      let custom: boolean = test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide(base, port)
+      let custom: boolean = test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback(base, port)
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
       shell_exec("rm -rf -- " ++ base)
-      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide", custom)
+      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback", custom)
       print(to_text(3 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
       if failed > 0 then exit_process(1) end
     end
