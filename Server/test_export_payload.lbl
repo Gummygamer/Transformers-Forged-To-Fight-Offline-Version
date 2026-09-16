@@ -8,6 +8,13 @@ record TestResult
   detail: text
 end
 
+record MoveCheck
+  detail: text
+  next_x: integer
+  next_y: integer
+  cleared: boolean
+end
+
 record DynamicCase
   key: text
   path: text
@@ -154,7 +161,7 @@ function route_from_name(name: text): text
   unwrap_or(get(parts, 0), "") ++ " /" ++ replace(unwrap_or(get(parts, 1), ""), "_", "/")
 end
 
-function expand_team_template_at(payload: Payload, body: text, bids: a list of text, team_id: text, qid: text): text
+function expand_team_template_at(payload: Payload, body: text, bids: a list of text, team_id: text, qid: text, cleared: text): text
   intent: replace
   let resolved: a list of text = gamedata.resolve_team(bids)
   mutable quest_members: a list of text = []
@@ -172,15 +179,69 @@ function expand_team_template_at(payload: Payload, body: text, bids: a list of t
   let with_id: text = replace(body, "%TID%", team_id)
   let with_lead: text = replace(with_id, "%LEAD%", unwrap_or(get(resolved, 0), ""))
   let with_quest: text = replace(with_lead, "%QTEAM%", qteam)
-  let with_active: text = replace(with_quest, "%ATEAM%", ateam)
+  let with_cleared: text = replace(with_quest, "%CLEARED%", cleared)
+  let with_active: text = replace(with_cleared, "%ATEAM%", ateam)
   let with_saved: text = replace(with_active, "%STEAM%", steam)
   let with_x: text = replace(with_saved, "%POSX%", to_text(gamedata.quest_start_x_for(qid)))
   replace(with_x, "%POSY%", to_text(gamedata.quest_start_y_for(qid)))
 end
 
-function expand_team_template(payload: Payload, body: text, bids: a list of text, team_id: text): text
+function expand_team_template(payload: Payload, body: text, bids: a list of text, team_id: text, cleared: text): text
   intent: replace
-  expand_team_template_at(payload, body, bids, team_id, "1.1.1")
+  expand_team_template_at(payload, body, bids, team_id, "1.1.1", cleared)
+end
+
+function expand_team_template_at_position(payload: Payload, body: text, bids: a list of text, team_id: text, qid: text, cleared: text, posx: integer, posy: integer): text
+  intent: replace
+  let with_x: text = replace(body, "%POSX%", to_text(posx))
+  let with_y: text = replace(with_x, "%POSY%", to_text(posy))
+  expand_team_template_at(payload, with_y, bids, team_id, qid, cleared)
+end
+
+function cleared_json_for(points: a list of text): text
+  intent: encode
+  mutable entries: a list of Json = []
+  for point in points do
+    let bits: a list of text = split(point, ",")
+    let px: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
+    let py: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
+    set entries = append(entries, jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(px)), jsonout.json_pair("y", jsonout.json_int(py))]))
+  end
+  jsonout.encode_compact(jsonout.json_list(entries))
+end
+
+function cleared_slot(actual: text): text
+  intent: extract
+  -- Take the cleared array the server actually rendered so the %CLEARED% slot
+  -- (introduced with cleared-tile persistence) can be filled before the rest
+  -- of the template body is compared.
+  jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(actual), "result"), "progression"), "cleared"))
+end
+
+function check_movedir_step(payload: Payload, qid: text, transitions: a mapping from text to text, x: integer, y: integer, dx: integer, dy: integer, cleared: a list of text): MoveCheck
+  intent: check
+  let key: text = "@movedir:" ++ qid ++ ":" ++ to_text(x) ++ ":" ++ to_text(y) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy)
+  let actual: text = fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/" ++ to_text(dx) ++ "/" ++ to_text(dy), "")
+  let transition_key: text = to_text(x) ++ " " ++ to_text(y) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy)
+  let next: a list of text = split(unwrap_or(get(transitions, transition_key), to_text(x) ++ " " ++ to_text(y)), " ")
+  let next_x: integer = unwrap_or(to_integer(unwrap_or(get(next, 0), "0")), x)
+  let next_y: integer = unwrap_or(to_integer(unwrap_or(get(next, 1), "0")), y)
+  let next_point: text = to_text(next_x) ++ "," ++ to_text(next_y)
+  let revisiting: boolean = contains(cleared, next_point)
+  let expected_key: text = if revisiting then "@movedir-completed:" ++ qid ++ ":" ++ to_text(x) ++ ":" ++ to_text(y) ++ ":0:0" else key end
+  let expected_cleared: text = cleared_json_for(cleared)
+  mutable expected: text = ""
+  if revisiting then
+    set expected = expand_team_template_at_position(payload, entry_body(payload, expected_key), [], "0", qid, expected_cleared, next_x, next_y)
+  else
+    set expected = expand_team_template(payload, entry_body(payload, expected_key), [], "0", expected_cleared)
+  end
+  mutable detail: text = ""
+  if not same_json(expected, actual) then set detail = "movedir response differs: " ++ key end
+  if detail == "" and cleared_slot(actual) != expected_cleared then set detail = "cleared state differs: " ++ key end
+  if detail == "" and revisiting and jsonout.obj_has(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(actual), "result"), "progression"), "currentBattleId") then set detail = "cleared tile reopened a battle: " ++ key end
+  if detail == "" and not revisiting then fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"" ++ qid ++ "-0\"\}") end
+  MoveCheck { detail: detail, next_x: next_x, next_y: next_y, cleared: not revisiting }
 end
 
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
@@ -190,7 +251,7 @@ function test_header_layout_and_sorted_entries(blob: integer, payload: Payload):
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9774 then set detail = "entry count is not 9774" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9790 then set detail = "entry count is not 9790" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
   let entry_table_end: integer = bytes_read_u32_le(blob, 24) + bytes_read_u32_le(blob, 20) * 16
@@ -292,7 +353,7 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   let actual_begin: text = fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}")
-  let expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/1.1.1"), [], "0", "1.1.1")
+  let expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/1.1.1"), [], "0", "1.1.1", "[]")
   if detail == "" and not same_json(expanded_begin, actual_begin) then set detail = "quest-begin template differs" end
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
@@ -300,11 +361,11 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   let custom_team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015"]
   let custom_begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}"
   let custom_actual_begin: text = fakeserver.dynamic("/quests/quest-begin/" ++ custom_qid, custom_begin_body)
-  let custom_expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/" ++ custom_qid), custom_team, "0", custom_qid)
+  let custom_expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/" ++ custom_qid), custom_team, "0", custom_qid, "[]")
   if detail == "" and not same_json(custom_expanded_begin, custom_actual_begin) then set detail = "custom quest-begin template differs" end
   let custom_move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
   let custom_actual_move: text = fakeserver.dynamic(custom_move_path, "\{\}")
-  let custom_expanded_move: text = expand_team_template(payload, entry_body(payload, "@movedir:2.1.1:0:1:1:0"), custom_team, "0")
+  let custom_expanded_move: text = expand_team_template(payload, entry_body(payload, "@movedir:2.1.1:0:1:1:0"), custom_team, "0", cleared_slot(custom_actual_move))
   if detail == "" and not same_json(custom_expanded_move, custom_actual_move) then set detail = "custom movedir template differs" end
   if detail == "" and (not contains_text(custom_actual_move, "\"key\": \"bludgeon_gs_rd20\"") or not contains_text(custom_actual_move, "\"mapOverride\": \"chicago\"") or not contains_text(custom_actual_move, "\"todIndex\": 0") or not contains_text(custom_actual_move, "\"isFinalBoss\": false")) then set detail = "custom movedir encounter differs" end
   if detail == "" and (not contains_text(custom_actual_begin, "\"optimusprime_cin_tf\"") or not contains_text(custom_actual_begin, "\"optimusprimal_bw_mp32\"") or not contains_text(custom_actual_begin, "\"megatron_gs_leader2015\"")) then set detail = "custom quest did not preserve the selected team" end
@@ -330,22 +391,18 @@ function test_movedir_state_machine_parity(blob: integer, payload: Payload): Tes
   fakeserver.reset_quest_positions()
   fakeserver.dynamic("/quests/quest-begin/" ++ qid, "\{\"setId\":\"story_act1\"\}")
   mutable detail: text = ""
+  mutable cleared: a list of text = [to_text(x) ++ "," ++ to_text(y)]
   for direction in ["1 0", "1 0", "1 0", "-1 0", "0 1"] do
     if detail == "" then
       let values: a list of text = split(direction, " ")
       let dx: integer = unwrap_or(to_integer(unwrap_or(get(values, 0), "0")), 0)
       let dy: integer = unwrap_or(to_integer(unwrap_or(get(values, 1), "0")), 0)
-      let key: text = "@movedir:" ++ qid ++ ":" ++ to_text(x) ++ ":" ++ to_text(y) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy)
-      let actual: text = fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/" ++ to_text(dx) ++ "/" ++ to_text(dy), "")
-      let expected: text = expand_team_template(payload, entry_body(payload, key), [], "0")
-      if not same_json(expected, actual) then
-        set detail = "movedir response differs: " ++ key
-      else
-        fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"" ++ qid ++ "-0\"\}")
-        let transition_key: text = to_text(x) ++ " " ++ to_text(y) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy)
-        let next: a list of text = split(unwrap_or(get(transitions, transition_key), to_text(x) ++ " " ++ to_text(y)), " ")
-        set x = unwrap_or(to_integer(unwrap_or(get(next, 0), "0")), x)
-        set y = unwrap_or(to_integer(unwrap_or(get(next, 1), "0")), y)
+      let check: MoveCheck = check_movedir_step(payload, qid, transitions, x, y, dx, dy, cleared)
+      set detail = check.detail
+      if detail == "" then
+        if check.cleared then set cleared = append(cleared, to_text(check.next_x) ++ "," ++ to_text(check.next_y)) end
+        set x = check.next_x
+        set y = check.next_y
       end
     end
   end
@@ -391,12 +448,14 @@ function check_hero_and_saved_templates(payload: Payload): text
   if detail == "" and (jsonout.as_int(jsonout.obj_get(nemesis_detail, "rating_hp")) != 20000 or jsonout.as_int(jsonout.obj_get(nemesis_detail, "rating_attack")) != 800) then set detail = "Nemesis Prime payload rating differs" end
   let bid: text = "optimusprime_cin_tf"
   let hero_template: text = entry_body(payload, "@hero:" ++ bid ++ ":2:3")
-  let hero_response: text = entry_body(payload, "@herodata:open") ++ replace(hero_template, "%SIG%", "7") ++ entry_body(payload, "@herodata:close")
+  -- The hero-detail path always renders sig_lvl as zero (signature abilities are
+  -- parked; the client crashes on sig_lvl > 0), so the %SIG% slot expands to 0.
+  let hero_response: text = entry_body(payload, "@herodata:open") ++ replace(hero_template, "%SIG%", "0") ++ entry_body(payload, "@herodata:close")
   let hero_request: text = "\{\"heroes\":[\{\"bid\":\"optimusprime_cin_tf\",\"rank\":2,\"level\":3,\"sig_lvl\":7\}]\}"
   if detail == "" and not same_json(hero_response, fakeserver.dynamic("/bcg/getBaseHeroData", hero_request)) then set detail = "hero-data template differs" end
   if detail == "" and count_occurrences(hero_template, "%SIG%") != 1 then set detail = "hero signature token count differs" end
   let selected: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
-  let saved: text = expand_team_template(payload, entry_body(payload, "@savedteam:template"), selected, "42")
+  let saved: text = expand_team_template(payload, entry_body(payload, "@savedteam:template"), selected, "42", "[]")
   let saved_request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("42")), jsonout.json_pair("heroes", jsonout.json_list([jsonout.json_text("optimusprime_cin_tf"), jsonout.json_text("optimusprimal_bw_mp32"), jsonout.json_text("megatron_gs_leader2015"), jsonout.json_text("grimlock_gs_mp08"), jsonout.json_text("megatron_cin_rotf")]))])
   let saved_actual: text = fakeserver.dynamic("/bcg/setSavedTeam", jsonout.encode_spaced(saved_request))
   if detail == "" and not same_json(saved, saved_actual) then set detail = "saved-team template differs" end
@@ -421,7 +480,7 @@ function check_team_fragments(payload: Payload): text
       if canonical(jsonout.parse_json(actual_member)) != canonical(expected_member) then set detail = "quest member differs: " ++ member_bid end
     end
   end
-  let user_data: text = expand_team_template(payload, entry_body(payload, "@userdata:template"), [], "0")
+  let user_data: text = expand_team_template(payload, entry_body(payload, "@userdata:template"), [], "0", "[]")
   if detail == "" and user_data != canned("GET__bcg_getUserData.json") then set detail = "user-data template differs" end
   if detail == "" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(user_data), "result"), "userData"), "teamSizeMax")) != 5 then set detail = "user-data teamSizeMax differs" end
   detail

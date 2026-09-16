@@ -3487,21 +3487,33 @@
                       "hp": 1.0,
                       "pi": 757,
                       "sig_lvl": 0,
-                      "stat_mods": [],
+                      "stat_mods": [
+                        "kit_bleed",
+                        "kit_shock",
+                        "kit_burn"
+                      ],
                       "sig_mods": []
                     },
                     "optimusprimal_bw_mp32": {
                       "hp": 1.0,
                       "pi": 757,
                       "sig_lvl": 0,
-                      "stat_mods": [],
+                      "stat_mods": [
+                        "kit_bleed",
+                        "kit_shock",
+                        "kit_burn"
+                      ],
                       "sig_mods": []
                     },
                     "megatron_gs_leader2015": {
                       "hp": 1.0,
                       "pi": 617,
                       "sig_lvl": 0,
-                      "stat_mods": [],
+                      "stat_mods": [
+                        "kit_bleed",
+                        "kit_shock",
+                        "kit_burn"
+                      ],
                       "sig_mods": []
                     }
                   },
@@ -3576,21 +3588,33 @@
                     "hp": 1.0,
                     "pi": 757,
                     "sig_lvl": 0,
-                    "stat_mods": [],
+                    "stat_mods": [
+                      "kit_bleed",
+                      "kit_shock",
+                      "kit_burn"
+                    ],
                     "sig_mods": []
                   },
                   "optimusprimal_bw_mp32": {
                     "hp": 1.0,
                     "pi": 757,
                     "sig_lvl": 0,
-                    "stat_mods": [],
+                    "stat_mods": [
+                      "kit_bleed",
+                      "kit_shock",
+                      "kit_burn"
+                    ],
                     "sig_mods": []
                   },
                   "megatron_gs_leader2015": {
                     "hp": 1.0,
                     "pi": 617,
                     "sig_lvl": 0,
-                    "stat_mods": [],
+                    "stat_mods": [
+                      "kit_bleed",
+                      "kit_shock",
+                      "kit_burn"
+                    ],
                     "sig_mods": []
                   }
                 },
@@ -3713,21 +3737,33 @@
               "hp": 1.0,
               "pi": 757,
               "sig_lvl": 0,
-              "stat_mods": [],
+              "stat_mods": [
+                "kit_bleed",
+                "kit_shock",
+                "kit_burn"
+              ],
               "sig_mods": []
             },
             "optimusprimal_bw_mp32": {
               "hp": 1.0,
               "pi": 757,
               "sig_lvl": 0,
-              "stat_mods": [],
+              "stat_mods": [
+                "kit_bleed",
+                "kit_shock",
+                "kit_burn"
+              ],
               "sig_mods": []
             },
             "megatron_gs_leader2015": {
               "hp": 1.0,
               "pi": 617,
               "sig_lvl": 0,
-              "stat_mods": [],
+              "stat_mods": [
+                "kit_bleed",
+                "kit_shock",
+                "kit_burn"
+              ],
               "sig_mods": []
             }
           },
@@ -3777,6 +3813,13 @@
           "rating_attack_base": 382,
           "rating_hp_base": 7187,
           "special_attacks": 3,
+          "stat_mods": [
+            "kit_bleed",
+            "kit_shock",
+            "kit_burn"
+          ],
+          "sig_mods": [],
+          "buff_mods": [],
           "pvpb": {},
           "exc": {},
           "mana_gain": 1.0,
@@ -3806,6 +3849,13 @@
           "rating_attack_base": 382,
           "rating_hp_base": 7187,
           "special_attacks": 3,
+          "stat_mods": [
+            "kit_bleed",
+            "kit_shock",
+            "kit_burn"
+          ],
+          "sig_mods": [],
+          "buff_mods": [],
           "pvpb": {},
           "exc": {},
           "mana_gain": 1.0,
@@ -3835,6 +3885,13 @@
           "rating_attack_base": 425,
           "rating_hp_base": 5750,
           "special_attacks": 3,
+          "stat_mods": [
+            "kit_bleed",
+            "kit_shock",
+            "kit_burn"
+          ],
+          "sig_mods": [],
+          "buff_mods": [],
           "pvpb": {},
           "exc": {},
           "mana_gain": 1.0,

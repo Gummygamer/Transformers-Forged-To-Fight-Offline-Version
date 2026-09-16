@@ -137,8 +137,11 @@ end
 
 function detail_for(bid: text, rank: integer, level: integer): text
   intent: build
-  let sentinel: integer = 987654321
-  let req: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(sentinel))])
+  -- The live hero-detail path intentionally clamps signature level to zero
+  -- (signature abilities are parked; the client crashes on sig_lvl > 0), so
+  -- use that stable wire value as the payload template marker. Both the
+  -- fakeserver and the native in-APK server always expand %SIG% to 0.
+  let req: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid)), jsonout.json_pair("rank", jsonout.json_int(rank)), jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("sig_lvl", jsonout.json_int(0))])
   let original: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([req])), 0), jsonout.json_obj([]))
   let stats: Stats = gamedata.payload_base_stats(bid, rank, level)
   let with_rating_hp: Json = jsonout.obj_set(original, "rating_hp", jsonout.json_int(stats.hp))
@@ -147,7 +150,7 @@ function detail_for(bid: text, rank: integer, level: integer): text
   let with_attack: Json = jsonout.obj_set(with_rating_attack, "attack", jsonout.json_int(stats.atk))
   let detail: Json = jsonout.obj_set(with_attack, "health", jsonout.json_int(stats.hp))
   let body: text = jsonout.encode_compact(detail)
-  replace_exact(body, to_text(sentinel), "%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
+  replace_exact(body, "\"sig_lvl\":0", "\"sig_lvl\":%SIG%", 1, "could not replace sig_lvl in hero template for " ++ bid)
 end
 
 function team_values(qid: text, team: a list of text): a list of text
@@ -235,7 +238,11 @@ end
 function saved_team_template(): text
   intent: build
   let defaults: a list of text = gamedata.default_team()
-  let request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("%TID%")), jsonout.json_pair("heroes", jsonout.json_list([jsonout.json_text(unwrap_or(get(defaults, 0), "")), jsonout.json_text(unwrap_or(get(defaults, 1), "")), jsonout.json_text(unwrap_or(get(defaults, 2), ""))]))])
+  mutable requested_heroes: a list of Json = []
+  for bid in defaults do
+    set requested_heroes = append(requested_heroes, jsonout.json_text(bid))
+  end
+  let request: Json = jsonout.json_obj([jsonout.json_pair("teamID", jsonout.json_text("%TID%")), jsonout.json_pair("heroes", jsonout.json_list(requested_heroes))])
   let produced: text = fakeserver.dynamic("/bcg/setSavedTeam", jsonout.encode_spaced(request))
   fakeserver.reset_saved_team()
   if produced == "" then fail("fakeserver did not produce saved-team template") end
@@ -245,7 +252,7 @@ function saved_team_template(): text
   let saved: text = unwrap_or(get(values, 0), "")
   let active: text = unwrap_or(get(values, 1), "")
   let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
-  replace_exact(one, active, "%ATEAM%", 2, "saved-team active heroes")
+  replace_exact(one, active, "%ATEAM%", 3, "saved-team active heroes")
 end
 
 function user_data_template(): text
@@ -253,7 +260,7 @@ function user_data_template(): text
   let values: a list of text = team_values("1.1.1", [])
   let body: text = envelope(gamedata.build_user_data([]))
   let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
-  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 2, "user-data active heroes")
+  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 3, "user-data active heroes")
 end
 
 function tutorial_templates(): Entries
@@ -513,7 +520,7 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9774 then fail("payload entry count is not 9774: " ++ to_text(length(keys))) end
+  if length(keys) != 9790 then fail("payload entry count is not 9790: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
   if total < 64 + 16 * length(keys) + 16 * length(pref.keys) then fail("payload total is smaller than its tables: " ++ to_text(total)) end

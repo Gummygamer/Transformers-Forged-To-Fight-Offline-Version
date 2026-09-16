@@ -16,6 +16,7 @@ HARNESS, PAYLOAD = map(lambda p: str(Path(p).resolve()), sys.argv[1:])
 PORT = int.from_bytes(Path(PAYLOAD).read_bytes()[16:20], "little")
 TEAM = ["nemesisprime_gs_voyager2015", "grimlock_gs_mp08", "soundwave_gs"]
 QID = "2.1.1"
+ACT2_QID = "2.2.1"
 UID = "1000000000001"
 
 
@@ -31,18 +32,18 @@ def request(path, body=None):
         return decoded["result"]
 
 
-def begin(body=None):
-    result = request(f"/quests/quest-begin/{QID}", body or {})
-    return result["activeQuests"][QID]["instances"][0]
+def begin(body=None, qid=QID):
+    result = request(f"/quests/quest-begin/{qid}", body or {})
+    return result["activeQuests"][qid]["instances"][0]
 
 
-def move(dx):
-    return request(f"/quests/quest-movedir/{QID}-0/{dx}/0", {})
+def move(dx, qid=QID):
+    return request(f"/quests/quest-movedir/{qid}-0/{dx}/0", {})
 
 
-def resolve(outcome):
+def resolve(outcome, qid=QID):
     request("/matches/resolve-match/quests_fight",
-            {"qid": QID + "-0", "results": {"result": outcome}})
+            {"qid": qid + "-0", "results": {"result": outcome}})
 
 
 def assert_squad(result):
@@ -111,6 +112,22 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         final = move(1)
         assert final["progression"]["currentBattleId"] == "ironhide_cin_rotf"
         assert final["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        resolve("WON")
+        act2 = begin(qid=ACT2_QID)
+        act2_tile = act2["map"]["grid"][1][1]
+        assert act2["data"]["act"] == 2
+        assert act2["map"]["gridDimension"] == 2
+        assert act2_tile["dialogue"] == "custom_act2_intro"
+        assert act2_tile["boss"] == "bumblebee_gs_kabam"
+        assert "bumblebee_gs_kabam" in act2_tile["entities"]
+        assert [entry["line"] for entry in act2["data"]["dialogueTable"]["custom_act2_intro"]] == [
+            "Scanners found vital resources to repair our ship.",
+            "Understood, lead the way and secure them.",
+            "Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights.",
+        ]
+        kickback = move(1, ACT2_QID)
+        assert kickback["progression"]["currentBattleId"] == "kickback_gs_kabam"
+        assert kickback["results"][1]["action"]["battle"]["isFinalBoss"] is True
         other = request("/quests/quest-begin/1.1.1", {})["activeQuests"]["1.1.1"]
         assert other["instances"][0]["cleared"] == []
         print("PASS: selected squad, forward links, loss, victory, backtracking, restart, final boss, quest isolation")
