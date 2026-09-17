@@ -251,7 +251,7 @@ function test_header_layout_and_sorted_entries(blob: integer, payload: Payload):
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 9796 then set detail = "entry count is not 9796" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 9998 then set detail = "entry count is not 9998" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
   let entry_table_end: integer = bytes_read_u32_le(blob, 24) + bytes_read_u32_le(blob, 20) * 16
@@ -337,7 +337,8 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
     DynamicCase { key: "@grouprefresh:missionsconfig", path: "/autorefresh/grouprefresh?groups.0.name=missionsconfig", body: "" },
     DynamicCase { key: "@grouprefresh:", path: "/autorefresh/grouprefresh?groups.0.name=other", body: "" },
     DynamicCase { key: "POST /quests/quest-detail/1.1.1", path: "/quests/quest-detail/1.1.1", body: "\{\"setId\":\"story_act1\"\}" },
-    DynamicCase { key: "POST /quests/quest-detail/2.1.1", path: "/quests/quest-detail/2.1.1", body: "\{\"setId\":\"custom_story_act1\"\}" }
+    DynamicCase { key: "POST /quests/quest-detail/2.1.1", path: "/quests/quest-detail/2.1.1", body: "\{\"setId\":\"custom_story_act1\"\}" },
+    DynamicCase { key: "POST /quests/quest-detail/1.1.2", path: "/quests/quest-detail/1.1.2", body: "\{\"setId\":\"special_karmasix\"\}" }
   ]
   mutable detail: text = ""
   for item in cases do
@@ -355,8 +356,6 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   let actual_begin: text = fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}")
   let expanded_begin: text = expand_team_template_at(payload, entry_body(payload, "POST /quests/quest-begin/1.1.1"), [], "0", "1.1.1", "[]")
   if detail == "" and not same_json(expanded_begin, actual_begin) then set detail = "quest-begin template differs" end
-  fakeserver.reset_saved_team()
-  fakeserver.reset_quest_positions()
   let custom_qid: text = gamedata.custom_story_qid()
   let custom_team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015"]
   let custom_begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}"
@@ -486,11 +485,23 @@ function check_team_fragments(payload: Payload): text
   detail
 end
 
+function check_challenge_templates(payload: Payload): text
+  intent: verify
+  let begin: text = entry_body(payload, "POST /quests/quest-begin/1.1.2")
+  let start: text = entry_body(payload, "@quest:start:1.1.2")
+  if begin == "" then "challenge quest-begin template is missing"
+  else if not contains_text(begin, "%POSX%") or not contains_text(begin, "%POSY%") or not contains_text(begin, "%QTEAM%") then "challenge quest-begin template tokens are missing"
+  else if start != "16 16" then "challenge authored start differs: " ++ start
+  else ""
+  end
+end
+
 function test_templates_reproduce_dynamic_responses(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = check_tutorial_templates(payload)
   if detail == "" then set detail = check_hero_and_saved_templates(payload) end
   if detail == "" then set detail = check_team_fragments(payload) end
+  if detail == "" then set detail = check_challenge_templates(payload) end
   if bytes_length(blob) == 0 and detail == "" then set detail = "built blob is empty" end
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()

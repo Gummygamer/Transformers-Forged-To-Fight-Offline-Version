@@ -126,11 +126,9 @@ function mission_pairs(): a list of text
   mutable pairs: a list of text = []
   for item in jsonout.list_items(jsonout.obj_get(root, "result")) do
     let set_id: text = jsonout.as_text(jsonout.obj_get(item, "setId"))
-    if set_id != "special_karmasix" then
-      for quest in jsonout.list_items(jsonout.obj_get(item, "availableQuests")) do
-        let pair: text = set_id ++ "\t" ++ jsonout.as_text(jsonout.obj_get(quest, "id"))
-        if not contains(pairs, pair) then set pairs = append(pairs, pair) end
-      end
+    for quest in jsonout.list_items(jsonout.obj_get(item, "availableQuests")) do
+      let pair: text = set_id ++ "\t" ++ jsonout.as_text(jsonout.obj_get(quest, "id"))
+      if not contains(pairs, pair) then set pairs = append(pairs, pair) end
     end
   end
   if length(pairs) == 0 then fail("quest-list response has no available quests to export") end
@@ -522,7 +520,7 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9796 then fail("payload entry count is not 9796: " ++ to_text(length(keys))) end
+  if length(keys) != 9998 then fail("payload entry count is not 9998: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
   if total < 64 + 16 * length(keys) + 16 * length(pref.keys) then fail("payload total is smaller than its tables: " ++ to_text(total)) end
