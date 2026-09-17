@@ -4961,6 +4961,19 @@ static void* installer(void* arg){
     // 2) PerformanceManager.ApplyOnce (@0xDA65DC): unconditionally branch to _60NoVSync (0xDA6724)
     poke32(0xDA6700, 0x14000009);   // b 0xDA6724
 
+    // UNLOCK_EVENT_BUTTON:
+    // 1) LevelLock.get_Locked (@0xF0C820): force return 0 (unlocked).
+    // The Event button on FightLandingScreen checks get_Locked; offline account level/CL
+    // makes this return true, branching to ShowLevelLockAlert and skipping OnSpecialEventsClicked.
+    poke32(0xF0C820, 0x2A1F03E0);   // mov w0, wzr (return false)
+    poke32(0xF0C824, 0xD65F03C0);   // ret
+
+    // 2) FightLandingPresentation.StartPendingTutorial (@0xEA8E30): force return 0 (no tutorial pending).
+    // OnSpecialEventsClicked checks StartPendingTutorial("SpecialEventsTutorial"); offline the
+    // uncompleted tutorial state returns true and ret-exits before ProcessQuestModeClick.
+    poke32(0xEA8E30, 0x2A1F03E0);   // mov w0, wzr (return false)
+    poke32(0xEA8E34, 0xD65F03C0);   // ret
+
     // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
     int r1 = inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
     int r2 = inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
