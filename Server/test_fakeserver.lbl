@@ -195,6 +195,20 @@ function test_custom_story_begin_without_team_preserves_saved_squad_across_navig
   empty_fallback_ok and fakeserver.get_saved_team() == selected and object_keys(jsonout.obj_get(user, "team")) == selected and object_keys(jsonout.obj_get(moved_team, "heroes")) == selected and object_keys(jsonout.obj_get(reentered_user, "team")) == selected
 end
 
+function test_challenge_begin_uses_authored_start_on_first_entry(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/1.1.2", ""))
+  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), gamedata.challenge_qid())
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
+  let pos: Json = jsonout.obj_get(instance, "currentPos")
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(jsonout.obj_get(active, "map"), "grid"))
+  let row: Json = unwrap_or(get(grid, gamedata.quest_start_x_for(gamedata.challenge_qid())), jsonout.json_list([]))
+  let tile: Json = unwrap_or(get(jsonout.list_items(row), gamedata.quest_start_y_for(gamedata.challenge_qid())), jsonout.json_obj([]))
+  jsonout.as_int(jsonout.obj_get(pos, "x")) == gamedata.quest_start_x_for(gamedata.challenge_qid()) and jsonout.as_int(jsonout.obj_get(pos, "y")) == gamedata.quest_start_y_for(gamedata.challenge_qid()) and jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and not jsonout.as_bool(jsonout.obj_get(tile, "hidden")) and jsonout.as_bool(jsonout.obj_get(tile, "start"))
+end
+
 function test_pending_bludgeon_survives_reentry_and_reaches_starscream(): boolean
   intent: test
   let selected: a list of text = ["megatron_cin_rotf", "grimlock_gs_mp08"]
@@ -444,6 +458,7 @@ function main(): nothing
   set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
   set failed = failed + report("test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry", test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry())
+  set failed = failed + report("test_challenge_begin_uses_authored_start_on_first_entry", test_challenge_begin_uses_authored_start_on_first_entry())
   set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
@@ -464,7 +479,7 @@ function main(): nothing
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(27 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(28 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
