@@ -168,7 +168,7 @@ function custom_act2_dialogue_wire_matches(dialogue: Json): boolean
   length(jsonout.list_items(entries)) == 3 and jsonout.as_text(jsonout.obj_get(first, "character")) == "fte_marissa_t1" and jsonout.as_text(jsonout.obj_get(first, "line")) == "Scanners found vital resources to repair our ship." and jsonout.as_text(jsonout.obj_get(second, "character")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(second, "line")) == "Understood, lead the way and secure them." and jsonout.as_text(jsonout.obj_get(third, "character")) == "fte_marissa_t1" and jsonout.as_text(jsonout.obj_get(third, "line")) == "Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights."
 end
 
-function test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback(base: text, port: integer): boolean
+function test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_and_mirage(base: text, port: integer): boolean
   intent: test
   let begin_reply: HttpReply = post(base, port, "/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\",\"tm0\":\"megatron_cin_rotf\"\}")
   let begin: Json = result(begin_reply)
@@ -188,13 +188,17 @@ function test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream
   let act2: Json = jsonout.obj_get(jsonout.obj_get(act2_begin, "activeQuests"), "2.2.1")
   let act2_instance: Json = first_item(jsonout.obj_get(act2, "instances"))
   let act2_grid: Json = jsonout.obj_get(jsonout.obj_get(act2_instance, "map"), "grid")
-  let act2_tile: Json = item(item(act2_grid, 1), 1)
+  let act2_tile1: Json = item(item(act2_grid, 1), 1)
+  let act2_tile2: Json = item(item(act2_grid, 2), 1)
   let act2_dialogue: Json = jsonout.obj_get(jsonout.obj_get(act2_instance, "data"), "dialogueTable")
-  let act2_move_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
-  let act2_move: Json = result(act2_move_reply)
-  let act2_results: Json = jsonout.obj_get(act2_move, "results")
-  let act2_battle: Json = jsonout.obj_get(jsonout.obj_get(item(act2_results, 1), "action"), "battle")
-  begin_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and length(jsonout.list_items(grid)) == 4 and length(jsonout.list_items(item(grid, 0))) == 4 and jsonout.as_text(jsonout.obj_get(item(item(grid, 3), 1), "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_bool(jsonout.obj_get(act1_battle3, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act1_battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act1_battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and act2_begin_reply.status == "200" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(act2, "data"), "act")) == 2 and length(jsonout.list_items(act2_grid)) == 2 and jsonout.as_text(jsonout.obj_get(act2_tile, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile, "boss")) == "bumblebee_gs_kabam" and custom_act2_dialogue_wire_matches(act2_dialogue) and act2_move_reply.status == "200" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle, "battleEnemy"), "key")) == "kickback_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_battle, "isFinalBoss"))
+  let act2_move1_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
+  let act2_move1: Json = result(act2_move1_reply)
+  let act2_battle1: Json = jsonout.obj_get(jsonout.obj_get(item(jsonout.obj_get(act2_move1, "results"), 1), "action"), "battle")
+  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.2.1-0\"\}")
+  let act2_move2_reply: HttpReply = post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
+  let act2_move2: Json = result(act2_move2_reply)
+  let act2_battle2: Json = jsonout.obj_get(jsonout.obj_get(item(jsonout.obj_get(act2_move2, "results"), 1), "action"), "battle")
+  begin_reply.status == "200" and jsonout.as_text(jsonout.obj_get(active, "setId")) == "custom_story_act1" and length(jsonout.list_items(grid)) == 4 and length(jsonout.list_items(item(grid, 0))) == 4 and jsonout.as_text(jsonout.obj_get(item(item(grid, 3), 1), "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_bool(jsonout.obj_get(act1_battle3, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act1_battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act1_battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and act2_begin_reply.status == "200" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(act2, "data"), "act")) == 2 and length(jsonout.list_items(act2_grid)) == 3 and jsonout.as_text(jsonout.obj_get(act2_tile1, "dialogue")) == "custom_act2_intro" and not jsonout.obj_has(act2_tile2, "dialogue") and jsonout.as_text(jsonout.obj_get(act2_tile1, "boss")) == "bumblebee_gs_kabam" and jsonout.as_text(jsonout.obj_get(act2_tile2, "boss")) == "mirage_gs_deluxe2016" and custom_act2_dialogue_wire_matches(act2_dialogue) and act2_move1_reply.status == "200" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle1, "battleEnemy"), "key")) == "kickback_gs_kabam" and not jsonout.as_bool(jsonout.obj_get(act2_battle1, "isFinalBoss")) and act2_move2_reply.status == "200" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle2, "battleEnemy"), "key")) == "mirage_gs_deluxe2016" and jsonout.as_bool(jsonout.obj_get(act2_battle2, "isFinalBoss"))
 end
 
 function last_slash(path: text): integer
@@ -247,12 +251,12 @@ function main(): nothing
     else
       let walk: boolean = test_begin_then_walks_through_patrol_to_scout(base, port)
       let assets: boolean = test_both_quest_enemies_resolve_to_their_shipped_assets(base, port)
-      let custom: boolean = test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback(base, port)
+      let custom: boolean = test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_and_mirage(base, port)
       stop_server(started.pid)
       fakeserver.reset_saved_team()
       fakeserver.reset_quest_positions()
       shell_exec("rm -rf -- " ++ base)
-      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback", custom)
+      let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_and_mirage", custom)
       print(to_text(3 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
       if failed > 0 then exit_process(1) end
     end

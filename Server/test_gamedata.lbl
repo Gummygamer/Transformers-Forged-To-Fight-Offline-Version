@@ -576,7 +576,7 @@ function test_custom_story_has_independent_identity_and_compact_map(): boolean
 end
 
 
-function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback(): boolean
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_then_mirage(): boolean
   intent: test
   let qid: text = gamedata.custom_story_qid()
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map(qid), "grid"))
@@ -593,22 +593,27 @@ function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_t
   let act2_summary: Json = gamedata.build_quest_summary(act2_qid, gamedata.custom_story_set_id())
   let act2_map: Json = gamedata.build_quest_map(act2_qid)
   let act2_grid: a list of Json = jsonout.list_items(jsonout.obj_get(act2_map, "grid"))
-  let act2_tile: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(act2_grid, 1), jsonout.json_list([]))), 1), jsonout.json_obj([]))
-  let act2_entities: Json = jsonout.obj_get(act2_tile, "entities")
-  let act2_enemy: Json = jsonout.obj_get(act2_entities, "kickback_gs_kabam")
-  let act2_image: Json = jsonout.obj_get(act2_entities, "bumblebee_gs_kabam")
+  let act2_tile1: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(act2_grid, 1), jsonout.json_list([]))), 1), jsonout.json_obj([]))
+  let act2_tile2: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(act2_grid, 2), jsonout.json_list([]))), 1), jsonout.json_obj([]))
+  let act2_entities1: Json = jsonout.obj_get(act2_tile1, "entities")
+  let act2_enemy1: Json = jsonout.obj_get(act2_entities1, "kickback_gs_kabam")
+  let act2_image: Json = jsonout.obj_get(act2_entities1, "bumblebee_gs_kabam")
+  let act2_entities2: Json = jsonout.obj_get(act2_tile2, "entities")
+  let act2_enemy2: Json = jsonout.obj_get(act2_entities2, "mirage_gs_deluxe2016")
   let moved1: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 1, [])
   let battle1: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved1, "results")), 1), jsonout.json_obj([])), "action"), "battle")
   let moved2: Json = gamedata.build_quest_movedir(qid, 1, 0, 1, 1, [])
   let battle2: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved2, "results")), 1), jsonout.json_obj([])), "action"), "battle")
   let moved3: Json = gamedata.build_quest_movedir(qid, 1, 0, 2, 1, [])
   let battle3: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved3, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  let act2_moved: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 0, 1, [])
-  let act2_battle: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(act2_moved, "results")), 1), jsonout.json_obj([])), "action"), "battle")
+  let act2_moved1: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 0, 1, [])
+  let act2_battle1: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(act2_moved1, "results")), 1), jsonout.json_obj([])), "action"), "battle")
+  let act2_moved2: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 1, 1, [])
+  let act2_battle2: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(act2_moved2, "results")), 1), jsonout.json_obj([])), "action"), "battle")
   jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and
   jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "dialoguePE")) == "custom_starscream_defeated" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(tile2, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))) and
   jsonout.as_text(jsonout.obj_get(tile3, "dialogue")) == "custom_ironhide_ambush" and jsonout.as_text(jsonout.obj_get(tile3, "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and jsonout.as_bool(jsonout.obj_get(enemy3, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy3, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy3, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle3, "battleEnemy"), "key")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss")) and
-  jsonout.as_int(jsonout.obj_get(act2_summary, "act")) == 2 and jsonout.as_int(jsonout.obj_get(act2_map, "gridDimension")) == 2 and length(act2_grid) == 2 and jsonout.as_text(jsonout.obj_get(act2_tile, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile, "boss")) == "bumblebee_gs_kabam" and jsonout.obj_has(act2_entities, "bumblebee_gs_kabam") and jsonout.as_text(jsonout.obj_get(act2_image, "key")) == "bumblebee_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved, "progression"), "currentBattleId")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle, "battleEnemy"), "key")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(act2_enemy, "key")) == "kickback_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_tile, "final")) and jsonout.as_bool(jsonout.obj_get(act2_battle, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(act2_enemy, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(act2_enemy, "todIndex")) == 0
+  jsonout.as_int(jsonout.obj_get(act2_summary, "act")) == 2 and jsonout.as_int(jsonout.obj_get(act2_map, "gridDimension")) == 3 and length(act2_grid) == 3 and jsonout.as_text(jsonout.obj_get(act2_tile1, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile1, "boss")) == "bumblebee_gs_kabam" and jsonout.obj_has(act2_entities1, "bumblebee_gs_kabam") and jsonout.as_text(jsonout.obj_get(act2_image, "key")) == "bumblebee_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_tile1, "final"))) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved1, "progression"), "currentBattleId")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle1, "battleEnemy"), "key")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(act2_enemy1, "key")) == "kickback_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(act2_enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(act2_enemy1, "todIndex")) == 0 and (not jsonout.obj_has(act2_tile2, "dialogue")) and jsonout.as_text(jsonout.obj_get(act2_tile2, "boss")) == "mirage_gs_deluxe2016" and jsonout.as_text(jsonout.obj_get(act2_enemy2, "key")) == "mirage_gs_deluxe2016" and jsonout.as_bool(jsonout.obj_get(act2_tile2, "final")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved2, "progression"), "currentBattleId")) == "mirage_gs_deluxe2016" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle2, "battleEnemy"), "key")) == "mirage_gs_deluxe2016" and jsonout.as_bool(jsonout.obj_get(act2_battle2, "isFinalBoss")) and jsonout.as_bool(jsonout.obj_get(act2_enemy2, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(act2_enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(act2_enemy2, "todIndex")) == 0
 end
 
 
@@ -665,7 +670,7 @@ function run_custom_story_tests(): integer
   mutable failed: integer = 0
   set failed = failed + report("test_custom_story_uses_revised_five_scene_script", test_custom_story_uses_revised_five_scene_script(), "custom intro did not match the revised five-scene script")
   set failed = failed + report("test_custom_story_has_independent_identity_and_compact_map", test_custom_story_has_independent_identity_and_compact_map(), "custom story identity or map was wrong")
-  set failed = failed + report("test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback", test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback(), "custom encounter was not the authored Bludgeon-then-Starscream-then-Ironhide-then-Kickback chain")
+  set failed = failed + report("test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_then_mirage", test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_then_mirage(), "custom encounter was not the authored Bludgeon-then-Starscream-then-Ironhide-then-Kickback-then-Mirage chain")
   set failed = failed + report("test_custom_story_preserves_explicit_team_and_defaults_to_initial_squad", test_custom_story_preserves_explicit_team_and_defaults_to_initial_squad(), "custom or template team rules were wrong")
   set failed = failed + report("test_every_catalog_robot_is_selectable_in_custom_story", test_every_catalog_robot_is_selectable_in_custom_story(), "a catalog robot did not propagate through custom story squad data")
   set failed = failed + report("test_dialogue_speaker_factions_are_accurate", test_dialogue_speaker_factions_are_accurate(), "dialogue speaker factions were wrong")

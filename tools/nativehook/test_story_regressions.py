@@ -114,12 +114,15 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert final["results"][1]["action"]["battle"]["isFinalBoss"] is True
         resolve("WON")
         act2 = begin(qid=ACT2_QID)
-        act2_tile = act2["map"]["grid"][1][1]
+        act2_tile1 = act2["map"]["grid"][1][1]
+        act2_tile2 = act2["map"]["grid"][2][1]
         assert act2["data"]["act"] == 2
-        assert act2["map"]["gridDimension"] == 2
-        assert act2_tile["dialogue"] == "custom_act2_intro"
-        assert act2_tile["boss"] == "bumblebee_gs_kabam"
-        assert "bumblebee_gs_kabam" in act2_tile["entities"]
+        assert act2["map"]["gridDimension"] == 3
+        assert act2_tile1["dialogue"] == "custom_act2_intro"
+        assert "dialogue" not in act2_tile2
+        assert act2_tile1["boss"] == "bumblebee_gs_kabam"
+        assert act2_tile2["boss"] == "mirage_gs_deluxe2016"
+        assert "bumblebee_gs_kabam" in act2_tile1["entities"]
         assert [entry["line"] for entry in act2["data"]["dialogueTable"]["custom_act2_intro"]] == [
             "Scanners found vital resources to repair our ship.",
             "Understood, lead the way and secure them.",
@@ -127,10 +130,17 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         ]
         kickback = move(1, ACT2_QID)
         assert kickback["progression"]["currentBattleId"] == "kickback_gs_kabam"
-        assert kickback["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        assert kickback["results"][1]["action"]["battle"]["isFinalBoss"] is False
+        resolve("WON", ACT2_QID)
+        mirage = move(1, ACT2_QID)
+        assert mirage["progression"]["currentBattleId"] == "mirage_gs_deluxe2016"
+        assert mirage["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        resolve("LOST", ACT2_QID)
+        assert move(1, ACT2_QID)["progression"]["currentBattleId"] == "mirage_gs_deluxe2016"
+        resolve("WON", ACT2_QID)
         other = request("/quests/quest-begin/1.1.1", {})["activeQuests"]["1.1.1"]
         assert other["instances"][0]["cleared"] == []
-        print("PASS: selected squad, forward links, loss, victory, backtracking, restart, final boss, quest isolation")
+        print("PASS: selected squad, forward links, loss, victory, backtracking, restart, Kickback-to-Mirage transition, quest isolation")
     finally:
         if process is not None and process.poll() is None:
             stop()
