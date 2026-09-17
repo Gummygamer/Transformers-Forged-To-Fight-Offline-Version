@@ -126,9 +126,11 @@ function mission_pairs(): a list of text
   mutable pairs: a list of text = []
   for item in jsonout.list_items(jsonout.obj_get(root, "result")) do
     let set_id: text = jsonout.as_text(jsonout.obj_get(item, "setId"))
-    for quest in jsonout.list_items(jsonout.obj_get(item, "availableQuests")) do
-      let pair: text = set_id ++ "\t" ++ jsonout.as_text(jsonout.obj_get(quest, "id"))
-      if not contains(pairs, pair) then set pairs = append(pairs, pair) end
+    if set_id != "special_karmasix" then
+      for quest in jsonout.list_items(jsonout.obj_get(item, "availableQuests")) do
+        let pair: text = set_id ++ "\t" ++ jsonout.as_text(jsonout.obj_get(quest, "id"))
+        if not contains(pairs, pair) then set pairs = append(pairs, pair) end
+      end
     end
   end
   if length(pairs) == 0 then fail("quest-list response has no available quests to export") end
