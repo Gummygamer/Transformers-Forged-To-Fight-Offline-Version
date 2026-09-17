@@ -652,6 +652,11 @@ public function custom_story_act2_qid(): text
   "2.2.1"
 end
 
+public function challenge_qid(): text
+  intent: return
+  "1.1.2"
+end
+
 function is_custom_story_qid(qid: text): boolean
   intent: check
   qid == custom_story_qid() or qid == custom_story_act2_qid()
@@ -714,22 +719,22 @@ end
 
 public function quest_dim_for(qid: text): integer
   intent: get
-  if qid == custom_story_act2_qid() then 2 else if qid == custom_story_qid() then 4 else quest_dim() end
+  if qid == challenge_qid() then 33 else if qid == custom_story_act2_qid() then 2 else if qid == custom_story_qid() then 4 else quest_dim() end
 end
 
 public function quest_path_col_for(qid: text): integer
   intent: get
-  quest_path_col()
+  if qid == challenge_qid() then 16 else quest_path_col() end
 end
 
 public function quest_start_x_for(qid: text): integer
   intent: get
-  0
+  if qid == challenge_qid() then 16 else 0 end
 end
 
 public function quest_start_y_for(qid: text): integer
   intent: get
-  quest_path_col_for(qid)
+  if qid == challenge_qid() then 16 else quest_path_col_for(qid) end
 end
 
 public function quest_has_encounter_for(qid: text, row: integer): boolean
@@ -1010,6 +1015,8 @@ public function build_quest_summary(mission_id: text, set_id: text): Json
   let friendly_name: text = if mission_id == custom_story_act2_qid() then "Resource Scanners" else "Bludgeon's Ambush" end
   let description: text = if mission_id == custom_story_act2_qid() then "Marissa leads the Autobots to resources that can repair their ship." else "Optimus Prime confronts Bludgeon in the city streets." end
   jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text(custom_story_set_hash())), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(custom_story_summary_chapter())), jsonout.json_pair("mission", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("missionIndex", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("index", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text(friendly_name)), jsonout.json_pair("description", jsonout.json_text(description)), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_custom_story_dialogue_sets())])
+else if mission_id == challenge_qid() then
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Karma Six")), jsonout.json_pair("description", jsonout.json_text("High-difficulty wheel challenge: 6 spokes, 36 combat nodes, canonical stats.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("hard")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(10)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(20)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
 else
   jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
 end
@@ -1118,6 +1125,152 @@ function custom_story_encounter_tile(qid: text, row: integer): Json
   jsonout.json_obj(pairs)
 end
 
+function middle_tile_custom(label: text, links: Json): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("lab", jsonout.json_text(label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links)])
+end
+
+function challenge_encounter_tile(key: text, final_boss: boolean, label: text, links: Json): Json
+  intent: build
+  let enemy: Json = build_quest_enemy_for("", -1, key, final_boss)
+  jsonout.json_obj([jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(final_boss)), jsonout.json_pair("lab", jsonout.json_text(label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(key)), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(key, enemy)]))])
+end
+
+function challenge_tile(row: integer, col: integer): Json
+  intent: build
+  if row == 10 then
+    if col == 14 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(10, 15), vec2(11, 14)]))
+    else if col == 15 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(10, 14), vec2(10, 16)]))
+    else if col == 16 then challenge_encounter_tile("megatron_gs_leader2015", true, "Trial: megatron_gs_leader2015", jsonout.json_list([vec2(10, 15), vec2(10, 17), vec2(11, 16)]))
+    else if col == 17 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(10, 16), vec2(10, 18)]))
+    else if col == 18 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(10, 17), vec2(11, 18)]))
+    else filler_tile() end
+  else if row == 11 then
+    if col == 12 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(11, 13), vec2(12, 12)]))
+    else if col == 13 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(11, 12), vec2(11, 14)]))
+    else if col == 14 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(10, 14), vec2(11, 13)]))
+    else if col == 16 then challenge_encounter_tile("rodimusprime_gs_mp09", false, "Trial: rodimusprime_gs_mp09", jsonout.json_list([vec2(10, 16), vec2(12, 16)]))
+    else if col == 18 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(10, 18), vec2(11, 19)]))
+    else if col == 19 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(11, 18), vec2(11, 20)]))
+    else if col == 20 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(11, 19), vec2(12, 20)]))
+    else filler_tile() end
+  else if row == 12 then
+    if col == 11 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(12, 12), vec2(13, 11)]))
+    else if col == 12 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(11, 12), vec2(12, 11)]))
+    else if col == 16 then challenge_encounter_tile("ultramagnus_gs_leader", false, "Trial: ultramagnus_gs_leader", jsonout.json_list([vec2(11, 16), vec2(13, 16)]))
+    else if col == 20 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(11, 20), vec2(12, 21)]))
+    else if col == 21 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(12, 20), vec2(13, 21)]))
+    else filler_tile() end
+  else if row == 13 then
+    if col == 10 then challenge_encounter_tile("shockwave_gs", true, "Trial: shockwave_gs", jsonout.json_list([vec2(13, 11)]))
+    else if col == 11 then challenge_encounter_tile("mirage_gs_deluxe2016", false, "Trial: mirage_gs_deluxe2016", jsonout.json_list([vec2(12, 11), vec2(13, 10), vec2(14, 11), vec2(14, 12)]))
+    else if col == 16 then challenge_encounter_tile("cyclonus_gs_uw06", false, "Trial: cyclonus_gs_uw06", jsonout.json_list([vec2(12, 16), vec2(14, 16)]))
+    else if col == 21 then challenge_encounter_tile("hound_cin_tlk", false, "Trial: hound_cin_tlk", jsonout.json_list([vec2(12, 21), vec2(13, 22), vec2(14, 20), vec2(14, 21)]))
+    else if col == 22 then challenge_encounter_tile("bludgeon_gs_rd20", true, "Trial: bludgeon_gs_rd20", jsonout.json_list([vec2(13, 21)]))
+    else filler_tile() end
+  else if row == 14 then
+    if col == 10 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(14, 11), vec2(15, 10)]))
+    else if col == 11 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(13, 11), vec2(14, 10)]))
+    else if col == 12 then challenge_encounter_tile("rhinox_gs_voyager2014", false, "Trial: rhinox_gs_voyager2014", jsonout.json_list([vec2(13, 11), vec2(14, 13)]))
+    else if col == 13 then challenge_encounter_tile("ratchet_gs_kabam", false, "Trial: ratchet_gs_kabam", jsonout.json_list([vec2(14, 12), vec2(15, 14)]))
+    else if col == 16 then challenge_encounter_tile("dinobot_bw_kabam", false, "Trial: dinobot_bw_kabam", jsonout.json_list([vec2(13, 16), vec2(15, 16)]))
+    else if col == 19 then challenge_encounter_tile("dirge_gs_deluxe2008", false, "Trial: dirge_gs_deluxe2008", jsonout.json_list([vec2(14, 20), vec2(15, 18)]))
+    else if col == 20 then challenge_encounter_tile("hotrod_cin_tlk", false, "Trial: hotrod_cin_tlk", jsonout.json_list([vec2(13, 21), vec2(14, 19)]))
+    else if col == 21 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(13, 21), vec2(14, 22)]))
+    else if col == 22 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(14, 21), vec2(15, 22)]))
+    else filler_tile() end
+  else if row == 15 then
+    if col == 10 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(14, 10), vec2(16, 10)]))
+    else if col == 14 then challenge_encounter_tile("wheeljack_gs_mp20", false, "Trial: wheeljack_gs_mp20", jsonout.json_list([vec2(14, 13), vec2(15, 15)]))
+    else if col == 15 then challenge_encounter_tile("sharkticon_gs_tech", false, "Trial: sharkticon_gs_tech", jsonout.json_list([vec2(15, 14), vec2(16, 16)]))
+    else if col == 16 then challenge_encounter_tile("sharkticon_gs_tactician", false, "Trial: sharkticon_gs_tactician", jsonout.json_list([vec2(14, 16), vec2(16, 16)]))
+    else if col == 17 then challenge_encounter_tile("sharkticon_gs_warrior", false, "Trial: sharkticon_gs_warrior", jsonout.json_list([vec2(15, 18), vec2(16, 16)]))
+    else if col == 18 then challenge_encounter_tile("bonecrusher_cin_rotf", false, "Trial: bonecrusher_cin_rotf", jsonout.json_list([vec2(14, 19), vec2(15, 17)]))
+    else if col == 22 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(14, 22), vec2(16, 22)]))
+    else filler_tile() end
+  else if row == 16 then
+    if col == 10 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(15, 10), vec2(17, 10)]))
+    else if col == 16 then start_tile(jsonout.json_list([vec2(15, 15), vec2(15, 16), vec2(15, 17), vec2(17, 15), vec2(17, 16), vec2(17, 17)]))
+    else if col == 22 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(15, 22), vec2(17, 22)]))
+    else filler_tile() end
+  else if row == 17 then
+    if col == 10 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(16, 10), vec2(18, 10)]))
+    else if col == 14 then challenge_encounter_tile("mixmaster_cin_rotf", false, "Trial: mixmaster_cin_rotf", jsonout.json_list([vec2(17, 15), vec2(18, 13)]))
+    else if col == 15 then challenge_encounter_tile("sharkticon_gs_demolition", false, "Trial: sharkticon_gs_demolition", jsonout.json_list([vec2(16, 16), vec2(17, 14)]))
+    else if col == 16 then challenge_encounter_tile("sharkticon_gs_brawler", false, "Trial: sharkticon_gs_brawler", jsonout.json_list([vec2(16, 16), vec2(18, 16)]))
+    else if col == 17 then challenge_encounter_tile("sharkticon_gs_scout", false, "Trial: sharkticon_gs_scout", jsonout.json_list([vec2(16, 16), vec2(17, 18)]))
+    else if col == 18 then challenge_encounter_tile("barricade_cin_dotm", false, "Trial: barricade_cin_dotm", jsonout.json_list([vec2(17, 17), vec2(18, 19)]))
+    else if col == 22 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(16, 22), vec2(18, 22)]))
+    else filler_tile() end
+  else if row == 18 then
+    if col == 10 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(17, 10), vec2(18, 11)]))
+    else if col == 11 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(18, 10), vec2(19, 11)]))
+    else if col == 12 then challenge_encounter_tile("ironhide_cin_rotf", false, "Trial: ironhide_cin_rotf", jsonout.json_list([vec2(18, 13), vec2(19, 11)]))
+    else if col == 13 then challenge_encounter_tile("cliffjumper_gs_kabam", false, "Trial: cliffjumper_gs_kabam", jsonout.json_list([vec2(17, 14), vec2(18, 12)]))
+    else if col == 16 then challenge_encounter_tile("sunstreaker_gs_deluxe2008", false, "Trial: sunstreaker_gs_deluxe2008", jsonout.json_list([vec2(17, 16), vec2(19, 16)]))
+    else if col == 19 then challenge_encounter_tile("prowl_gs_deluxe2016", false, "Trial: prowl_gs_deluxe2016", jsonout.json_list([vec2(17, 18), vec2(18, 20)]))
+    else if col == 20 then challenge_encounter_tile("jazz_gs_twm05", false, "Trial: jazz_gs_twm05", jsonout.json_list([vec2(18, 19), vec2(19, 21)]))
+    else if col == 21 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(18, 22), vec2(19, 21)]))
+    else if col == 22 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(17, 22), vec2(18, 21)]))
+    else filler_tile() end
+  else if row == 19 then
+    if col == 10 then challenge_encounter_tile("galvatron_gs_voyager2016", true, "Trial: galvatron_gs_voyager2016", jsonout.json_list([vec2(19, 11)]))
+    else if col == 11 then challenge_encounter_tile("waspinator_gs_deluxe", false, "Trial: waspinator_gs_deluxe", jsonout.json_list([vec2(18, 11), vec2(18, 12), vec2(19, 10), vec2(20, 11)]))
+    else if col == 16 then challenge_encounter_tile("ironhide_gs_kabam", false, "Trial: ironhide_gs_kabam", jsonout.json_list([vec2(18, 16), vec2(20, 16)]))
+    else if col == 21 then challenge_encounter_tile("sideswipe_gs", false, "Trial: sideswipe_gs", jsonout.json_list([vec2(18, 20), vec2(18, 21), vec2(19, 22), vec2(20, 21)]))
+    else if col == 22 then challenge_encounter_tile("bumblebee_gs_kabam", true, "Trial: bumblebee_gs_kabam", jsonout.json_list([vec2(19, 21)]))
+    else filler_tile() end
+  else if row == 20 then
+    if col == 11 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(19, 11), vec2(20, 12)]))
+    else if col == 12 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(20, 11), vec2(21, 12)]))
+    else if col == 16 then challenge_encounter_tile("thundercracker_gs_leader2015", false, "Trial: thundercracker_gs_leader2015", jsonout.json_list([vec2(19, 16), vec2(21, 16)]))
+    else if col == 20 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(20, 21), vec2(21, 20)]))
+    else if col == 21 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(19, 21), vec2(20, 20)]))
+    else filler_tile() end
+  else if row == 21 then
+    if col == 12 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(20, 12), vec2(21, 13)]))
+    else if col == 13 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(21, 12), vec2(21, 14)]))
+    else if col == 14 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(21, 13), vec2(22, 14)]))
+    else if col == 16 then challenge_encounter_tile("optimusprime_cin_tf", false, "Trial: optimusprime_cin_tf", jsonout.json_list([vec2(20, 16), vec2(22, 16)]))
+    else if col == 18 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(21, 19), vec2(22, 18)]))
+    else if col == 19 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(21, 18), vec2(21, 20)]))
+    else if col == 20 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(20, 20), vec2(21, 19)]))
+    else filler_tile() end
+  else if row == 22 then
+    if col == 14 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(21, 14), vec2(22, 15)]))
+    else if col == 15 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(22, 14), vec2(22, 16)]))
+    else if col == 16 then challenge_encounter_tile("grimlock_gs_mp08", true, "Trial: grimlock_gs_mp08", jsonout.json_list([vec2(21, 16), vec2(22, 15), vec2(22, 17)]))
+    else if col == 17 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(22, 16), vec2(22, 18)]))
+    else if col == 18 then middle_tile_custom("Nexus Ring", jsonout.json_list([vec2(21, 18), vec2(22, 17)]))
+    else filler_tile() end
+  else
+    filler_tile()
+  end
+end
+
+function challenge_walkable_tiles(): Json
+  intent: build
+  jsonout.json_list([vec2(10, 14), vec2(10, 15), vec2(10, 16), vec2(10, 17), vec2(10, 18), vec2(11, 12), vec2(11, 13), vec2(11, 14), vec2(11, 16), vec2(11, 18), vec2(11, 19), vec2(11, 20), vec2(12, 11), vec2(12, 12), vec2(12, 16), vec2(12, 20), vec2(12, 21), vec2(13, 10), vec2(13, 11), vec2(13, 16), vec2(13, 21), vec2(13, 22), vec2(14, 10), vec2(14, 11), vec2(14, 12), vec2(14, 13), vec2(14, 16), vec2(14, 19), vec2(14, 20), vec2(14, 21), vec2(14, 22), vec2(15, 10), vec2(15, 14), vec2(15, 15), vec2(15, 16), vec2(15, 17), vec2(15, 18), vec2(15, 22), vec2(16, 10), vec2(16, 16), vec2(16, 22), vec2(17, 10), vec2(17, 14), vec2(17, 15), vec2(17, 16), vec2(17, 17), vec2(17, 18), vec2(17, 22), vec2(18, 10), vec2(18, 11), vec2(18, 12), vec2(18, 13), vec2(18, 16), vec2(18, 19), vec2(18, 20), vec2(18, 21), vec2(18, 22), vec2(19, 10), vec2(19, 11), vec2(19, 16), vec2(19, 21), vec2(19, 22), vec2(20, 11), vec2(20, 12), vec2(20, 16), vec2(20, 20), vec2(20, 21), vec2(21, 12), vec2(21, 13), vec2(21, 14), vec2(21, 16), vec2(21, 18), vec2(21, 19), vec2(21, 20), vec2(22, 14), vec2(22, 15), vec2(22, 16), vec2(22, 17), vec2(22, 18)])
+end
+
+function build_challenge_map(qid: text): Json
+  intent: build
+  mutable grid: a list of Json = []
+  mutable row: integer = 0
+  while row < 33 do
+    mutable tiles: a list of Json = []
+    mutable col: integer = 0
+    while col < 33 do
+      set tiles = append(tiles, challenge_tile(row, col))
+      set col = col + 1
+    end
+    set grid = append(grid, jsonout.json_list(tiles))
+    set row = row + 1
+  end
+  let path: Json = jsonout.json_list([vec2(16, 16)])
+  jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(33)), jsonout.json_pair("grid", jsonout.json_list(grid)), jsonout.json_pair("walkableCount", jsonout.json_int(79)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(79)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
+end
+
 function build_custom_story_map(qid: text): Json
   intent: build
   let first_links: Json = jsonout.json_list([vec2(1, 1)])
@@ -1138,6 +1291,8 @@ public function build_quest_map(qid: text): Json
   intent: build
   if is_custom_story_qid(qid) then
   build_custom_story_map(qid)
+else if qid == challenge_qid() then
+  build_challenge_map(qid)
 else
   mutable grid: a list of Json = []
   mutable row: integer = 0
@@ -1226,6 +1381,8 @@ function revealed_tiles_for(qid: text): Json
   intent: build
   if is_custom_story_qid(qid) then
   if qid == custom_story_act2_qid() then jsonout.json_list([vec2(0, 1), vec2(1, 1)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
+else if qid == challenge_qid() then
+  challenge_walkable_tiles()
 else
   revealed_tiles()
 end
