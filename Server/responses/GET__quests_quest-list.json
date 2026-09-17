@@ -48,6 +48,26 @@
  ]
 },
 {
+ "hash":"h_special_karmasix","setId":"special_karmasix","setName":"Karma Six","expiry":0,"timeLimit":0,"timeLimitGrace":0,
+ "showUI":true,"group":"event","difficulty":"hard","difficulty_label":"CHALLENGE",
+ "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":false,
+ "category":"Event","tags":[],
+ "actCount":1,"chapterCount":[1,1],
+ "acts":[{"name":"Karma Six","index":0},{"name":"Karma Six","index":1}],
+ "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1}],
+ "availableQuests":[
+   {
+     "id":"1.1.2",
+     "act":1,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,
+     "friendlyName":"Karma Six","description":"High-difficulty wheel challenge: 6 spokes, 36 combat nodes, canonical stats.",
+     "category":"story","difficulty":"hard",
+     "energyPerTile":1,"minXpPerTile":10,"maxXpPerTile":20,
+     "minHealthPerTile":100,"maxHealthPerTile":100,
+     "image":"","theme":"primordial"
+   }
+ ]
+},
+{
  "hash":"offline-ave-normal","setId":"offline_ave_normal","setName":"OFFLINE OPERATION - NORMAL","expiry":0,"timeLimit":0,"timeLimitGrace":0,
  "showUI":true,"group":"offline_ave_operation","difficulty":"normal","difficulty_label":"NORMAL",
  "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":true,
