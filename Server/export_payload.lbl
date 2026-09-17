@@ -522,7 +522,7 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9790 then fail("payload entry count is not 9790: " ++ to_text(length(keys))) end
+  if length(keys) != 9796 then fail("payload entry count is not 9796: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
   if total < 64 + 16 * length(keys) + 16 * length(pref.keys) then fail("payload total is smaller than its tables: " ++ to_text(total)) end

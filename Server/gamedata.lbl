@@ -729,7 +729,7 @@ end
 
 public function quest_dim_for(qid: text): integer
   intent: get
-  if qid == challenge_qid() then 33 else if qid == custom_story_act2_qid() then 2 else if qid == custom_story_qid() then 4 else quest_dim() end
+  if qid == challenge_qid() then 33 else if qid == custom_story_act2_qid() then 3 else if qid == custom_story_qid() then 4 else quest_dim() end
 end
 
 public function quest_path_col_for(qid: text): integer
@@ -749,7 +749,7 @@ end
 
 public function quest_has_encounter_for(qid: text, row: integer): boolean
   intent: check
-  if qid == custom_story_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_act2_qid() then row == 1 else quest_has_encounter(row) end
+  if qid == custom_story_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_act2_qid() then row == 1 or row == 2 else quest_has_encounter(row) end
 end
 
 public function quest_encounter_for(qid: text, row: integer): QuestEncounter
@@ -763,7 +763,11 @@ public function quest_encounter_for(qid: text, row: integer): QuestEncounter
       QuestEncounter { key: "ironhide_cin_rotf", final_boss: true, label: "Ironhide's Challenge" }
     end
   else if qid == custom_story_act2_qid() then
-    QuestEncounter { key: "kickback_gs_kabam", final_boss: true, label: "Resource Scanners" }
+    if row == 1 then
+      QuestEncounter { key: "kickback_gs_kabam", final_boss: false, label: "Resource Scanners" }
+    else
+      QuestEncounter { key: "mirage_gs_deluxe2016", final_boss: true, label: "Mirage's Ambush" }
+    end
 else
   quest_encounter(row)
 end
@@ -1111,11 +1115,11 @@ function custom_story_encounter_tile(qid: text, row: integer): Json
   let last_row: integer = quest_dim_for(qid) - 1
   let links: Json = if row < last_row then jsonout.json_list([vec2(row - 1, 1), vec2(row + 1, 1)]) else jsonout.json_list([vec2(row - 1, 1)]) end
   let enemy: Json = build_quest_enemy_for("chicago", 0, enemy_key, encounter.final_boss)
-  -- Act 2 intentionally presents Bumblebee's shipped boss card while the
-  -- movement response starts the requested Kickback battle.
-  let boss_image_key: text = if qid == custom_story_act2_qid() then "bumblebee_gs_kabam" else enemy_key end
-  let boss_image: Json = if qid == custom_story_act2_qid() then build_quest_enemy_for("chicago", 0, boss_image_key, false) else enemy end
-  let entities: Json = if qid == custom_story_act2_qid() then jsonout.json_obj([jsonout.json_pair(boss_image_key, boss_image), jsonout.json_pair(enemy_key, enemy)]) else jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)]) end
+  -- Act 2's opening tile intentionally presents Bumblebee's shipped card while
+  -- the battle uses Kickback. Later encounters use their own battle identity.
+  let boss_image_key: text = if qid == custom_story_act2_qid() and row == 1 then "bumblebee_gs_kabam" else enemy_key end
+  let boss_image: Json = if qid == custom_story_act2_qid() and row == 1 then build_quest_enemy_for("chicago", 0, boss_image_key, false) else enemy end
+  let entities: Json = if qid == custom_story_act2_qid() and row == 1 then jsonout.json_obj([jsonout.json_pair(boss_image_key, boss_image), jsonout.json_pair(enemy_key, enemy)]) else jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)]) end
   mutable pairs: a list of Pair = [jsonout.json_pair("walkable", jsonout.json_bool(true)), jsonout.json_pair("hidden", jsonout.json_bool(false)), jsonout.json_pair("final", jsonout.json_bool(encounter.final_boss)), jsonout.json_pair("lab", jsonout.json_text(encounter.label)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("boss", jsonout.json_text(boss_image_key)), jsonout.json_pair("entities", entities)]
   if qid != custom_story_act2_qid() and row == 1 then
     set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_opening_intro")))
@@ -1129,7 +1133,7 @@ function custom_story_encounter_tile(qid: text, row: integer): Json
     set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_ironhide_ambush")))
     set pairs = append(pairs, jsonout.json_pair("dialoguePE", jsonout.json_text("custom_ironhide_defeated")))
   end
-  if qid == custom_story_act2_qid() then
+  if qid == custom_story_act2_qid() and row == 1 then
     set pairs = append(pairs, jsonout.json_pair("dialogue", jsonout.json_text("custom_act2_intro")))
   end
   jsonout.json_obj(pairs)
@@ -1287,13 +1291,13 @@ function build_custom_story_map(qid: text): Json
   -- Map.Deserialize indexes gridDimension cells in every row, including hidden
   -- filler cells. Keep the custom board square as well as walkable.
   let act2: boolean = qid == custom_story_act2_qid()
-  let dim: integer = if act2 then 2 else 4 end
-  let first_row: Json = if act2 then jsonout.json_list([filler_tile(), start_tile(first_links)]) else jsonout.json_list([filler_tile(), start_tile(first_links), filler_tile(), filler_tile()]) end
-  let second_row: Json = if act2 then jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 1)]) else jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 1), filler_tile(), filler_tile()]) end
-  let third_row: Json = if act2 then jsonout.json_list([]) else jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 2), filler_tile(), filler_tile()]) end
+  let dim: integer = if act2 then 3 else 4 end
+  let first_row: Json = if act2 then jsonout.json_list([filler_tile(), start_tile(first_links), filler_tile()]) else jsonout.json_list([filler_tile(), start_tile(first_links), filler_tile(), filler_tile()]) end
+  let second_row: Json = if act2 then jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 1), filler_tile()]) else jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 1), filler_tile(), filler_tile()]) end
+  let third_row: Json = if act2 then jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 2), filler_tile()]) else jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 2), filler_tile(), filler_tile()]) end
   let fourth_row: Json = if act2 then jsonout.json_list([]) else jsonout.json_list([filler_tile(), custom_story_encounter_tile(qid, 3), filler_tile(), filler_tile()]) end
-  let grid: Json = if act2 then jsonout.json_list([first_row, second_row]) else jsonout.json_list([first_row, second_row, third_row, fourth_row]) end
-  let path: Json = if act2 then jsonout.json_list([vec2(0, 1), vec2(1, 1)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
+  let grid: Json = if act2 then jsonout.json_list([first_row, second_row, third_row]) else jsonout.json_list([first_row, second_row, third_row, fourth_row]) end
+  let path: Json = if act2 then jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
   jsonout.json_obj([jsonout.json_pair("hash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("v", jsonout.json_int(1)), jsonout.json_pair("mapHash", jsonout.json_text("qm_" ++ qid)), jsonout.json_pair("gridDimension", jsonout.json_int(dim)), jsonout.json_pair("grid", grid), jsonout.json_pair("walkableCount", jsonout.json_int(dim)), jsonout.json_pair("visibleWalkableCount", jsonout.json_int(dim)), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), jsonout.json_pair("overrideZoom", jsonout.json_int(0))])
 end
 
@@ -1390,7 +1394,7 @@ end
 function revealed_tiles_for(qid: text): Json
   intent: build
   if is_custom_story_qid(qid) then
-  if qid == custom_story_act2_qid() then jsonout.json_list([vec2(0, 1), vec2(1, 1)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
+  if qid == custom_story_act2_qid() then jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
 else if qid == challenge_qid() then
   challenge_walkable_tiles()
 else
