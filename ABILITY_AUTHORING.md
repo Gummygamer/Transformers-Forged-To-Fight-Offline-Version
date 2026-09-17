@@ -293,14 +293,22 @@ A working candidate map, one ability per row:
 | | | Power sting / drain | `U+E905` |
 
 ⚠️ **Status of this table: visual identification, not verified in-game.** It is offered so you
-do not start from 523 unknowns. Three caveats worth inheriting:
+do not start from 523 unknowns. **None of these codepoints are served today** — `Server/gamedata.lbl`
+still emits the original `E402`/`E412`/`E41D` set (see §4). The swap to `U+E414`/`U+E914` shipped
+once, unverified in-game, and was reverted: a glyph you have only looked at in a font atlas is not
+a glyph you have seen the client render. Adopt a row from this table only after it has been observed
+in a running client, per the VERIFIED convention at the top of this document.
+
+Three caveats worth inheriting:
 
 - **A confident reading is not a correct one.** An earlier map recorded `U+E412` as *"fist
-  wreathed in sparks — SHOCK"* at med-high confidence and shipped it as the shock icon. It is a
-  **bare fist with no sparks**; the sparking fist is `U+E41F`. It was also marked "confirmed
-  in-client" — but the screenshot only proved the codepoint we sent rendered, which at icon size
-  a fist does regardless. **Confirming that a glyph appears is not confirming that it means what
-  you think.**
+  wreathed in sparks — SHOCK"* at med-high confidence. On inspection of the atlas it is a **bare
+  fist with no sparks**; the sparking fist is `U+E41F`. It was also marked "confirmed in-client" —
+  but the screenshot only proved that the codepoint we sent rendered, which at icon size a fist does
+  regardless. **Confirming that a glyph appears is not confirming that it means what you think.**
+  `U+E412` is nevertheless still what the server emits for shock, because the replacement was
+  reverted before it was ever seen in-game; the disagreement is recorded here, not silently
+  re-decided.
 - Where the font names a glyph, the name wins. `U+E50E` is `shield_bleed`, not the acid shield
   an earlier reading claimed; `U+E510` is `shield_mana`, not ice.
 - `U+E512` is named `shield_new` and is used here for Protection on appearance alone. Treat as
