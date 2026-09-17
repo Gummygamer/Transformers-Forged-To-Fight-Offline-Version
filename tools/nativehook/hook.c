@@ -20,6 +20,7 @@
 #include <link.h>
 #include <dlfcn.h>
 #include <time.h>
+#include <math.h>
 #include "inapk_server.h"
 #ifndef TFTF_ENABLE_ARENA
 #define TFTF_ENABLE_ARENA 0
@@ -533,6 +534,10 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x1580548, "WINBLOCK", 0, 0 },  // 161 WindowInputBlocker.BlockWindow(info,enabled) -> log name+enabled
     { 0xD9FF50, "GETDEFTAB", 2, 0 },  // 162 PayoutsModel.GetDefaultTabId -> prevent IndexOutOfRangeException on empty tabs
     { 0xD9F9E0, "PAYOUTSAWAKE", 2, 0 },// 163 PayoutsModel.Awake -> catch exception if any
+    // Keep PR #9's combat hooks after the existing payout hooks: slots 162/163 are
+    // already live and their original trampolines must continue to point at payouts.
+    { 0x1173FA4, "PCGETSPTIER", 2, 0 }, // 164 PlayerController.GetAvailableSpecialTier -> gesture-selected tier
+    { 0xFF05C8,  "HUDSPBTN",    2, 0 }, // 165 HudSpecialMeter.OnSpecialButtonPressed -> confirm control ownership
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -3165,11 +3170,121 @@ void* hook_113(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     LOG("UICLICK listener=%p onClick=%p",a0,obj_ok(a0)?*(void**)((uintptr_t)a0+0x28):NULL);
     return H[113].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+
+typedef struct {
+    float x;
+    float y;
+    float z;
+} Vector3_t;
+
+static volatile int g_intended_special_tier = 0;
+static volatile uint64_t g_intended_special_time_ms = 0;
+static volatile int g_sp_touch_tracking = 0;
+static volatile int g_sp_touch_owned = 0;
+static volatile int g_sp_gesture_fired = 0;
+static volatile int g_sp_suppress_stock_special = 0;
+static volatile int g_sp_touch_contacts = 0;
+static float g_sp_touch_start_x = 0.0f;
+static float g_sp_touch_start_y = 0.0f;
+static uint64_t g_sp_touch_start_ms = 0;
+static uint64_t propgo_now_ms(void);
+
+static inline Vector3_t unity_get_mouse_position(void) {
+    typedef Vector3_t (*fn_mouse_pos)(void);
+    return ((fn_mouse_pos)(g_base + 0x21BC1D4))();
+}
+
+static inline int unity_get_screen_width(void) {
+    typedef int (*fn_screen_dim)(void);
+    return ((fn_screen_dim)(g_base + 0x16AFBF8))();
+}
+
+static inline int unity_get_screen_height(void) {
+    typedef int (*fn_screen_dim)(void);
+    return ((fn_screen_dim)(g_base + 0x16AFC2C))();
+}
+
+static inline int power_meter_can_use_special(void* power_meter, int tier) {
+    if (!obj_ok(power_meter)) return 0;
+    typedef int (*fn_can_use_sp)(void*, int, void*);
+    return ((fn_can_use_sp)(g_base + 0xDACE1C))(power_meter, tier, NULL);
+}
+
+static volatile int g_sp_dispatching_internal = 0;
+static inline void trigger_special_action(void* controller) {
+    if (!obj_ok(controller)) return;
+    g_sp_dispatching_internal = 1;
+    H[152].orig(controller, (void*)(intptr_t)0x200, NULL, NULL, NULL, NULL, NULL, NULL);
+    g_sp_dispatching_internal = 0;
+}
+
+static inline void clear_special_gesture_state(void) {
+    g_intended_special_tier = 0;
+    g_intended_special_time_ms = 0;
+    g_sp_touch_tracking = 0;
+    g_sp_touch_owned = 0;
+    g_sp_gesture_fired = 0;
+    g_sp_suppress_stock_special = 0;
+    g_sp_touch_contacts = 0;
+}
+
+static inline int special_touch_candidate(Vector3_t pos, int sw, int sh) {
+    /* This is only a pre-original candidate gate.  The HUD callback below must
+       claim the same touch before a gesture can dispatch a special; coordinates
+       alone never establish ownership of the control. */
+    return pos.x >= 0.0f && pos.x <= 0.28f * (float)sw &&
+           pos.y >= 0.0f && pos.y <= 0.35f * (float)sh;
+}
+
+static inline void dispatch_gesture_special(int tier, float dx, float dy, uint64_t elapsed) {
+    g_intended_special_tier = tier;
+    g_intended_special_time_ms = propgo_now_ms();
+    g_sp_gesture_fired = 1;
+    flog("SP_GESTURE dispatch tier=%d dx=%.1f dy=%.1f elapsed=%llu ms",
+         tier, dx, dy, (unsigned long long)elapsed);
+    trigger_special_action(g_p0_controller);
+}
+
 void* hook_114(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    uintptr_t pressed = (uintptr_t)a1 & 1;
+    uintptr_t unpressed = (uintptr_t)a2 & 1;
+
+    /* Arm before UICamera.ProcessTouch runs.  Its original callback can issue
+       PlayerController.Action(0x200), which hook_152 defers while this candidate
+       is unresolved.  hook_165 confirms that the HUD special control owned it. */
+    if (pressed) {
+        if (g_sp_touch_contacts > 0) {
+            /* A second finger must not reset the first finger's gesture. */
+            g_sp_touch_contacts++;
+            flog("SP_TOUCH additional contact count=%d", g_sp_touch_contacts);
+        } else {
+            clear_special_gesture_state();
+            g_sp_touch_contacts = 1;
+        }
+        if (g_sp_touch_contacts == 1 && obj_ok(g_p0_controller)) {
+            PROTECT({
+                Vector3_t pos = unity_get_mouse_position();
+                int sw = unity_get_screen_width();
+                int sh = unity_get_screen_height();
+                if (sw <= 0) sw = 1920;
+                if (sh <= 0) sh = 1080;
+                if (special_touch_candidate(pos, sw, sh)) {
+                    g_sp_touch_tracking = 1;
+                    g_sp_suppress_stock_special = 1;
+                    g_sp_touch_start_x = pos.x;
+                    g_sp_touch_start_y = pos.y;
+                    g_sp_touch_start_ms = propgo_now_ms();
+                    flog("SP_TOUCH candidate down at (%.1f, %.1f) [screen %dx%d]", pos.x, pos.y, sw, sh);
+                }
+            });
+        }
+    }
+
     void* r=H[114].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+
     // ProcessTouch receives `pressed` in w1; dispatch only on that edge, not the
     // matching release/update call for the same Android touch.
-    if ((uintptr_t)a1 & 1) {
+    if (pressed) {
         // UICamera.get_isOverUI is static: x0 is its hidden MethodInfo* (NULL).
         // If NGUI handled the touch (including the top navigation), preserve that
         // UI action and do not turn it into a base-card click.
@@ -3195,6 +3310,34 @@ void* hook_114(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
         LOG("BASETAPFIX gate overUI=%d card=%p -> %s",over,g_base_tap_card,
             dispatched ? "dispatch" : "skip");
     }
+
+    /* The native HUD callback is not emitted for every real touch on this
+       client build.  The pre-original coordinate gate is therefore the
+       ownership boundary: an in-zone touch is already isolated from stock
+       special dispatch, and must not wait forever for hook_165. */
+    if (g_sp_touch_contacts == 1 && g_sp_touch_tracking && !g_sp_gesture_fired) {
+        PROTECT({
+            Vector3_t pos = unity_get_mouse_position();
+            uint64_t elapsed = propgo_now_ms() - g_sp_touch_start_ms;
+            float dx = pos.x - g_sp_touch_start_x;
+            float dy = pos.y - g_sp_touch_start_y;
+            if (dx > 35.0f && dx > fabsf(dy)) {
+                dispatch_gesture_special(1, dx, dy, elapsed); // swipe right -> SP1
+            } else if (dy > 35.0f && dy > fabsf(dx)) {
+                dispatch_gesture_special(2, dx, dy, elapsed); // swipe up -> SP2
+            } else if (unpressed) {
+                dispatch_gesture_special(0, dx, dy, elapsed); // tap -> stock highest tier
+            } else if (elapsed > 350) {
+                dispatch_gesture_special(0, dx, dy, elapsed); // hold -> stock highest tier
+            }
+        });
+    }
+
+    /* Keep the suppression window through the release that follows a swipe or
+       hold, then make the next touch independent of the previous gesture. */
+    if (unpressed && g_sp_touch_contacts > 0) g_sp_touch_contacts--;
+    if (unpressed && g_sp_touch_contacts == 0 && g_sp_touch_tracking)
+        clear_special_gesture_state();
     return r;
 }
 // FTEBASEFIX (slot 102): permit the base-edit branch only; authored tutorial state is
@@ -3691,6 +3834,7 @@ void* hook_139(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
 }
 void* hook_140(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     sp3_xf_clear();
+    clear_special_gesture_state();
     return H[140].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 void* hook_141(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
@@ -3947,10 +4091,17 @@ void* hook_151(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     PROTECT({
         reset_player_attack_chain(self);
     });
-    return H[151].orig(self, a1, a2, a3, a4, a5, a6, a7);
+    void* r = H[151].orig(self, a1, a2, a3, a4, a5, a6, a7);
+    if (self == g_p0_controller) g_intended_special_tier = 0;
+    return r;
 }
 void* hook_152(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
     int action = (int)(intptr_t)a1;
+    if (self == g_p0_controller && action == 0x200 &&
+        g_sp_suppress_stock_special && !g_sp_dispatching_internal) {
+        flog("PLAYER_ACTION 0x200: deferred while HUD gesture ownership is resolved");
+        return (void*)1;
+    }
     if (action >= 4 && action <= 10) {
         flog("PLAYER_ACTION action=%d on controller=%p (p0=%p, is_p0=%d)",
              action, self, g_p0_controller, (self == g_p0_controller));
@@ -4074,6 +4225,44 @@ void* hook_163(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     LOG("PAYOUTSAWAKE caught exception!");
     return NULL;
 }
+// PR #9's incoming hooks use slots 164/165 so the existing payout hooks keep
+// their RVAs and their H[index].orig trampoline references.
+void* hook_164(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    uint64_t now = propgo_now_ms();
+    if (self == g_p0_controller && g_intended_special_tier > 0) {
+        uint64_t age = now - g_intended_special_time_ms;
+        if (age < 600) {
+            int target_tier = g_intended_special_tier;
+            void* power_meter = obj_ok(self) ? *(void**)((char*)self + 0x80) : NULL;
+            int available = 0;
+            PROTECT({ available = power_meter_can_use_special(power_meter, target_tier); });
+            if (available) {
+                flog("GET_AVAIL_SP_TIER: P0 overriding stock tier to %d", target_tier);
+                return (void*)(intptr_t)target_tier;
+            }
+            flog("GET_AVAIL_SP_TIER: P0 tier %d unavailable; falling back to stock", target_tier);
+            g_intended_special_tier = 0;
+        } else {
+            flog("GET_AVAIL_SP_TIER: expired gesture intent tier=%d age=%llu ms",
+                 g_intended_special_tier, (unsigned long long)age);
+            g_intended_special_tier = 0;
+        }
+    }
+    void* r = H[164].orig(self, a1, a2, a3, a4, a5, a6, a7);
+    if (self == g_p0_controller)
+        flog("GET_AVAIL_SP_TIER: P0 stock returned tier=%d", (int)(intptr_t)r);
+    return r;
+}
+
+void* hook_165(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    /* The HUD callback is the authoritative ownership signal.  A ProcessTouch
+       coordinate candidate without this callback is discarded on release. */
+    if (g_sp_touch_tracking && obj_ok(g_p0_controller)) {
+        g_sp_touch_owned = 1;
+        flog("HUD_SP_BUTTON_PRESSED: control=%p claimed gesture touch", self);
+    }
+    return H[165].orig(self, a1, a2, a3, a4, a5, a6, a7);
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -4091,7 +4280,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
     hook_145,hook_146,hook_147,hook_148,hook_149,hook_150,
     hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158,
-    hook_159,hook_160,hook_161,hook_162,hook_163 };
+    hook_159,hook_160,hook_161,hook_162,hook_163,hook_164,hook_165 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

@@ -467,9 +467,90 @@ function test_safe_action(slots: a list of Slot): TestResult
   end
 end
 
+function line_defines_handler(source: text, wanted: integer): boolean
+  intent: find hook definition at line start whitespace stripped
+  let pattern: text = "void*hook_" ++ to_text(wanted) ++ "("
+  for line in split(source, "\n") do
+    if starts_with(remove_whitespace(line), pattern) then
+      return true
+    end
+  end
+  false
+end
+
+function test_gesture_handler_definitions(source: text): TestResult
+  intent: test gesture handler definitions exist per line
+  mutable passed: boolean = true
+  mutable detail: text = ""
+  for number in [164, 165] do
+    if not line_defines_handler(source, number) then
+      set passed = false
+      set detail = detail ++ "hook_" ++ to_text(number) ++ " definition missing; "
+    end
+  end
+  TestResult { passed: passed, detail: "gesture handlers: " ++ detail }
+end
+
 function test_payout_slots_preserved(slots: a list of Slot, source: text): TestResult
-  intent: test payout slots kept their indices and addresses
+  intent: test payout slots preserved before gesture hooks
   test_feature_slots(slots, source, "payout", ["GETDEFTAB", "PAYOUTSAWAKE"], [162, 163], [parse_hex("0xD9FF50"), parse_hex("0xD9F9E0")])
+end
+
+function test_gesture_slots(slots: a list of Slot, source: text): TestResult
+  intent: test special gesture selection slots follow payouts
+  test_feature_slots(slots, source, "special gesture", ["PCGETSPTIER", "HUDSPBTN"], [164, 165], [parse_hex("0x1173FA4"), parse_hex("0xFF05C8")])
+end
+
+function gesture_pattern_detail(compact: text): text
+  intent: return missing gesture invariant descriptions
+  let patterns: a list of text = [
+    "g_sp_touch_tracking=1;g_sp_suppress_stock_special=1;",
+    "g_sp_suppress_stock_special&&!g_sp_dispatching_internal",
+    "g_sp_touch_tracking&&!g_sp_gesture_fired",
+    "dx>35.0f&&dx>fabsf(dy)",
+    "dy>35.0f&&dy>fabsf(dx)",
+    "g_intended_special_tier=tier;",
+    "clear_special_gesture_state();returnH[140].orig",
+    "if(self==g_p0_controller)g_intended_special_tier=0;",
+    "age<600",
+    "g_sp_touch_contacts++",
+    "g_sp_touch_owned=1;",
+    "if(unpressed&&g_sp_touch_contacts>0)g_sp_touch_contacts--;"
+  ]
+  let names: a list of text = [
+    "touch candidate arms suppression before ProcessTouch",
+    "stock 0x200 action deferred while ownership unresolved",
+    "gesture dispatch requires an in-zone touch and fires at most once",
+    "right swipe threshold selects SP1",
+    "up swipe threshold selects SP2",
+    "dispatch records the intended tier",
+    "fight teardown resets gesture state",
+    "special dispatch clears the pending intent",
+    "gesture intent expires rather than lingering",
+    "second finger cannot reset the first gesture",
+    "HUD callback claims the gesture touch",
+    "release decrements tracked contacts"
+  ]
+  mutable detail: text = ""
+  mutable index: integer = 0
+  while index < length(patterns) do
+    if not contains_text(compact, unwrap_or(get(patterns, index), "")) then
+      set detail = detail ++ unwrap_or(get(names, index), "gesture invariant") ++ "; "
+    end
+    set index = index + 1
+  end
+  detail
+end
+
+function test_gesture_invariants(source: text): TestResult
+  intent: assert gesture suppression, single dispatch, and lifecycle resets hold
+  let compact: text = remove_whitespace(source)
+  let detail: text = gesture_pattern_detail(compact)
+  let hook_start: integer = unwrap_or(index_of(compact, "void*hook_114("), -1)
+  let original_call: integer = unwrap_or(index_of(compact, "r=H[114].orig("), -1)
+  let arm_site: integer = unwrap_or(index_of(compact, "g_sp_suppress_stock_special=1;"), -1)
+  let order_detail: text = if hook_start < 0 or original_call < 0 or arm_site < 0 or arm_site >= original_call or arm_site < hook_start then "suppression must be armed before the original ProcessTouch call; " else "" end
+  TestResult { passed: detail == "" and order_detail == "", detail: detail ++ order_detail }
 end
 
 function report(name: text, result: TestResult): integer
@@ -504,9 +585,12 @@ function main(): nothing
   let invariants: TestResult = test_source_invariants(source)
   let safe_action: TestResult = test_safe_action(slots)
   let payout_slots: TestResult = test_payout_slots_preserved(slots, source)
-  let payout_handlers: TestResult = test_feature_handlers(handlers, source, "payout handlers", [162, 163])
-  let failed: integer = report("roster lifecycle slots have expected order and addresses", roster_slots) + report("roster lifecycle handlers match their slot indices", roster_handlers) + report("roster drag slots have expected order and addresses", drag_slots) + report("roster drag handlers match their slot indices", drag_handlers) + report("SP3 slots have expected order and addresses", sp3_slots) + report("SP3 handlers match their slot indices", sp3_handlers) + report("handler array aligns with every hook slot", alignment) + report("roster and SP3 shipped source invariants hold", invariants) + report("hardened safe action slot is retained", safe_action) + report("payout slots keep their indices and addresses", payout_slots) + report("payout handlers match their slot indices", payout_handlers)
-  let passed: integer = 11 - failed
+  let gesture_slots: TestResult = test_gesture_slots(slots, source)
+  let gesture_handlers: TestResult = test_feature_handlers(handlers, source, "payout handlers", [162, 163])
+  let gesture_defs: TestResult = test_gesture_handler_definitions(source)
+  let gesture_invariants: TestResult = test_gesture_invariants(source)
+  let failed: integer = report("roster lifecycle slots have expected order and addresses", roster_slots) + report("roster lifecycle handlers match their slot indices", roster_handlers) + report("roster drag slots have expected order and addresses", drag_slots) + report("roster drag handlers match their slot indices", drag_handlers) + report("SP3 slots have expected order and addresses", sp3_slots) + report("SP3 handlers match their slot indices", sp3_handlers) + report("handler array aligns with every hook slot", alignment) + report("roster and SP3 shipped source invariants hold", invariants) + report("hardened safe action slot is retained", safe_action) + report("payout slots keep their indices and addresses", payout_slots) + report("gesture selection slots follow the payouts", gesture_slots) + report("payout handlers match their slot indices", gesture_handlers) + report("gesture handlers are defined as functions", gesture_defs) + report("special gesture suppression and lifecycle invariants hold", gesture_invariants)
+  let passed: integer = 14 - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
     exit_process(1)
