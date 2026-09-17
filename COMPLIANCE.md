@@ -475,3 +475,32 @@ is **original authored judgement**, not transcribed from any recovered source.
 Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game data,
 network capture, or credential was added. Nothing under `media/` was touched. No new
 dependency was introduced.
+
+## Revert of the effect icon codepoint swap, and of the swipe special-attack gesture
+
+This contribution **removes** previously contributed material. It adds nothing.
+
+The icon codepoint swap recorded in the section above (`U+E402` → `U+E414` for bleed,
+`U+E412` → `U+E914` for shock) is **reverted**: `Server/gamedata.lbl` and the regenerated
+`Server/responses/GET__bcg_getLoginData.json` once again emit the original `U+E402` /
+`U+E412` / `U+E41D` set. The swap was committed as "not verified in-game yet"; no glyph it
+changed was ever observed rendering in a running client. Rolling it back removes the only
+unverified icon claims that reached the shipped payload. The paragraph above is retained,
+corrected by this entry rather than deleted, so the reasoning that produced `U+E414` /
+`U+E914` stays available for a future change that is verified first. The compliance posture
+is unchanged either way: all four codepoints are glyphs in `Tecnica_Bold_116`, a font
+**already present inside the operator's own client**, and no font, asset, or artwork was
+added by the swap or by this revert.
+
+The swipe special-attack gesture selection in `tools/nativehook/hook.c` (slots 164/165,
+`PlayerController.GetAvailableSpecialTier` and `HudSpecialMeter.OnSpecialButtonPressed`)
+is also **reverted**, restoring the payout hooks as the final slots and the stock
+special-attack dispatch path. This removes interception of touch input inside the
+operator's own client; nothing is added in its place. The gesture-specific checks in
+`Server/test_nativehook_slots.lbl` were removed with the code they asserted. The
+`hermesVersionCode` / `hermesVersionName` build properties, which landed in the same commit
+but are unrelated to the gesture, are kept.
+
+Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game data,
+network capture, or credential was added. Nothing under `media/` was touched. No new
+dependency was introduced.
