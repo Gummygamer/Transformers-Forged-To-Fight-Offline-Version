@@ -657,6 +657,16 @@ public function challenge_qid(): text
   "1.1.2"
 end
 
+public function challenge_set_id(): text
+  intent: return
+  "special_karmasix"
+end
+
+public function challenge_set_hash(): text
+  intent: return
+  "h_special_karmasix"
+end
+
 function is_custom_story_qid(qid: text): boolean
   intent: check
   qid == custom_story_qid() or qid == custom_story_act2_qid()
@@ -706,7 +716,7 @@ end
 
 public function quest_set_id_for(qid: text): text
   intent: get
-  if is_custom_story_qid(qid) then custom_story_set_id() else "story_act1" end
+  if qid == challenge_qid() then challenge_set_id() else if is_custom_story_qid(qid) then custom_story_set_id() else "story_act1" end
 end
 
 -- The activeQuest wrapper hash must match the set hash advertised in the
@@ -714,7 +724,7 @@ end
 -- A mismatched wrapper hash makes the client retry quest-begin in a loop.
 public function quest_set_hash_for(qid: text): text
   intent: get
-  if is_custom_story_qid(qid) then custom_story_set_hash() else "h1" end
+  if qid == challenge_qid() then challenge_set_hash() else if is_custom_story_qid(qid) then custom_story_set_hash() else "h1" end
 end
 
 public function quest_dim_for(qid: text): integer
@@ -1016,7 +1026,7 @@ public function build_quest_summary(mission_id: text, set_id: text): Json
   let description: text = if mission_id == custom_story_act2_qid() then "Marissa leads the Autobots to resources that can repair their ship." else "Optimus Prime confronts Bludgeon in the city streets." end
   jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text(custom_story_set_hash())), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(custom_story_summary_chapter())), jsonout.json_pair("mission", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("missionIndex", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("index", jsonout.json_int(custom_story_summary_mission())), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text(friendly_name)), jsonout.json_pair("description", jsonout.json_text(description)), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_custom_story_dialogue_sets())])
 else if mission_id == challenge_qid() then
-  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Karma Six")), jsonout.json_pair("description", jsonout.json_text("High-difficulty wheel challenge: 6 spokes, 36 combat nodes, canonical stats.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("hard")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(10)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(20)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
+  jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text(challenge_set_hash())), jsonout.json_pair("act", jsonout.json_int(1)), jsonout.json_pair("chapter", jsonout.json_int(1)), jsonout.json_pair("mission", jsonout.json_int(1)), jsonout.json_pair("missionIndex", jsonout.json_int(1)), jsonout.json_pair("index", jsonout.json_int(1)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Karma Six")), jsonout.json_pair("description", jsonout.json_text("High-difficulty wheel challenge: 6 spokes, 36 combat nodes, canonical stats.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("hard")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(10)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(20)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
 else
   jsonout.json_obj([jsonout.json_pair("id", jsonout.json_text(mission_id)), jsonout.json_pair("setId", jsonout.json_text(set_id)), jsonout.json_pair("hash", jsonout.json_text("h1")), jsonout.json_pair("act", jsonout.json_int(act)), jsonout.json_pair("chapter", jsonout.json_int(chapter)), jsonout.json_pair("mission", jsonout.json_int(mission)), jsonout.json_pair("missionIndex", jsonout.json_int(mission)), jsonout.json_pair("index", jsonout.json_int(mission)), jsonout.json_pair("teamSizeMax", jsonout.json_int(team_size_max())), jsonout.json_pair("friendlyName", jsonout.json_text("Arrival")), jsonout.json_pair("description", jsonout.json_text("The first battle.")), jsonout.json_pair("category", jsonout.json_text("story")), jsonout.json_pair("difficulty", jsonout.json_text("normal")), jsonout.json_pair("energyPerTile", jsonout.json_int(1)), jsonout.json_pair("minXpPerTile", jsonout.json_int(1)), jsonout.json_pair("maxXpPerTile", jsonout.json_int(2)), jsonout.json_pair("minHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("maxHealthPerTile", jsonout.json_int(100)), jsonout.json_pair("image", jsonout.json_text("")), jsonout.json_pair("theme", jsonout.json_text("primordial")), jsonout.json_pair("todIndex", jsonout.json_int(0)), jsonout.json_pair("dialogueTable", build_dialogue_sets())])
 end
