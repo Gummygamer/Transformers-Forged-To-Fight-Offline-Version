@@ -251,7 +251,7 @@ function test_header_layout_and_sorted_entries(blob: integer, payload: Payload):
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 10377 then set detail = "entry count is not 10377" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != 10683 then set detail = "entry count is not 10683" end
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
   if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
   let entry_table_end: integer = bytes_read_u32_le(blob, 24) + bytes_read_u32_le(blob, 20) * 16

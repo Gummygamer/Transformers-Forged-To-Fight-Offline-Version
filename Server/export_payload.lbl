@@ -310,6 +310,36 @@ function add_quest_moves_act3(output: Entries, qid: text, dim: integer): Entries
   add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
 end
 
+-- Links-aware exporter for boards whose walkable tiles are not a single
+-- column. add_quest_moves_standard can only ever emit dy == 0 moves anchored
+-- at path_col, so routing the Karma Six wheel through it silently dropped 4 of
+-- its 6 spokes and left every encounter unreachable. This walks the authored
+-- walkable coordinates instead and asks gamedata.quest_can_move, which reads
+-- the tiles' own links.
+function add_quest_moves_linked(output: Entries, qid: text, coords: a list of text): Entries
+  intent: build
+  mutable result: Entries = output
+  mutable legal: a list of text = []
+  for coord in coords do
+    let bits: a list of text = split(coord, " ")
+    let sx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
+    let sy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
+    for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"] do
+      let dbits: a list of text = split(direction, ",")
+      let dx: integer = unwrap_or(to_integer(unwrap_or(get(dbits, 0), "0")), 0)
+      let dy: integer = unwrap_or(to_integer(unwrap_or(get(dbits, 1), "0")), 0)
+      let nx: integer = sx + dx
+      let ny: integer = sy + dy
+      if gamedata.quest_can_move(qid, sx, sy, nx, ny) then
+        set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny))
+        set result = add(result, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, sy, dx, dy))
+      end
+      if dx == 0 and dy == 0 then set result = add(result, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0", movedir_completed_template(qid, sx, sy, 0, 0)) end
+    end
+  end
+  add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+end
+
 function add_quest_moves_standard(output: Entries, qid: text, dim: integer, path_col: integer): Entries
   intent: build
   mutable result: Entries = output
@@ -345,7 +375,9 @@ function add_quests(entries: Entries): Entries
     let path_col: integer = gamedata.quest_path_col_for(qid)
     let dim: integer = gamedata.quest_dim_for(qid)
     set output = add(output, "@quest:start:" ++ qid, to_text(start_x) ++ " " ++ to_text(start_y))
-    if qid == gamedata.custom_story_act3_qid() then
+    if qid == gamedata.challenge_qid() then
+      set output = add_quest_moves_linked(output, qid, gamedata.challenge_walkable_coords())
+    else if qid == gamedata.custom_story_act3_qid() then
       set output = add_quest_moves_act3(output, qid, dim)
     else
       set output = add_quest_moves_standard(output, qid, dim, path_col)
@@ -560,7 +592,7 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 10377 then fail("payload entry count is not 10377: " ++ to_text(length(keys))) end
+  if length(keys) != 10683 then fail("payload entry count is not 10683: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
   if total < 64 + 16 * length(keys) + 16 * length(pref.keys) then fail("payload total is smaller than its tables: " ++ to_text(total)) end
