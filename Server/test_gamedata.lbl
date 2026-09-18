@@ -970,7 +970,8 @@ function test_user_data_uses_the_supplied_saved_and_active_team(): boolean
   let saved: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
   let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
   let custom: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 1), jsonout.json_obj([]))
-  saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team) and jsonout.as_text(jsonout.obj_get(custom, "aid")) == gamedata.custom_story_qid() ++ "-0" and team_object_matches(jsonout.obj_get(custom, "heroes"), team)
+  let challenge: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 3), jsonout.json_obj([]))
+  saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team) and jsonout.as_text(jsonout.obj_get(custom, "aid")) == gamedata.custom_story_qid() ++ "-0" and team_object_matches(jsonout.obj_get(custom, "heroes"), team) and jsonout.as_text(jsonout.obj_get(challenge, "aid")) == gamedata.challenge_qid() ++ "-0" and team_object_matches(jsonout.obj_get(challenge, "heroes"), team)
 end
 
 function test_none_and_empty_team_preserve_default_json(): boolean
