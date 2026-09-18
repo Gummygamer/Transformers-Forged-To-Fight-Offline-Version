@@ -238,10 +238,16 @@ function test_custom_story_set_is_first_without_removing_template_set(): boolean
   let sets: a list of Json = jsonout.list_items(result(fakeserver.resolve_response("GET", "/quests/quest-list").body))
   let first: Json = unwrap_or(get(sets, 0), jsonout.json_obj([]))
   mutable template_found: boolean = false
+  mutable act3_found: boolean = false
   for quest_set in sets do
     if jsonout.as_text(jsonout.obj_get(quest_set, "setId")) == "story_act1" then set template_found = true end
+    if jsonout.as_text(jsonout.obj_get(quest_set, "setId")) == gamedata.custom_story_set_id() then
+      for quest in jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests")) do
+        if jsonout.as_text(jsonout.obj_get(quest, "id")) == gamedata.custom_story_act3_qid() and jsonout.as_text(jsonout.obj_get(quest, "image")) == "bludgeon_gs_rd20" then set act3_found = true end
+      end
+    end
   end
-  jsonout.as_text(jsonout.obj_get(first, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(first, "category")) == "Story" and template_found
+  jsonout.as_text(jsonout.obj_get(first, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(first, "category")) == "Story" and template_found and act3_found
 end
 
 function test_quest_list_slots_fit_client_summary_tables(): boolean

@@ -1580,6 +1580,9 @@ function quest_begin_response(p: text, btxt: text): text
   let req: Json = request_object(btxt)
   let qid: text = last_segment(p)
   mutable posted: a list of text = []
+  if qid == gamedata.custom_story_act3_qid() and not contains(position_for(gamedata.custom_story_act2_qid()).cleared, "3,1") then
+    jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_text("Quest not yet available")), jsonout.json_pair("result", jsonout.json_null())]))
+  else
   mutable index: integer = 0
   while index < gamedata.team_size_max() do
   let member: text = json_text_or(req, "tm" ++ to_text(index), "")
@@ -1595,9 +1598,10 @@ end
   let begin_y: integer = if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end
   set_position(qid, begin_x, begin_y, previous.pending and preserve_progress, previous.completed and preserve_progress, previous.cleared)
   let saved: a list of text = get_saved_team()
-  let team: a list of text = if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid()) then gamedata.resolve_quest_team(qid, saved) else saved end
-  if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid()) and team != saved then set_saved_team(team) end
+  let team: a list of text = if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()) then gamedata.resolve_quest_team(qid, saved) else saved end
+  if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()) and team != saved then set_saved_team(team) end
   spaced_envelope(gamedata.build_quest_begin_with_cleared(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, begin_x, begin_y, cleared_json(previous.cleared)))
+  end
 end
 
 function movedir_response(p: text): text
@@ -1612,17 +1616,17 @@ function movedir_response(p: text): text
   let start: Position = position_for(qid)
   mutable cleared: a list of text = start.cleared
   let start_point: text = to_text(start.x) ++ "," ++ to_text(start.y)
-  if not gamedata.quest_has_encounter_for(qid, start.x) and not contains(cleared, start_point) then set cleared = append(cleared, start_point) end
+  if not gamedata.quest_has_encounter_at(qid, start.x, start.y) and not contains(cleared, start_point) then set cleared = append(cleared, start_point) end
   if start.pending then
   set offx = 0
   set offy = 0
   else
   let candidate_x: integer = start.x + offx
   let candidate_y: integer = start.y + offy
-  if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and candidate_y == gamedata.quest_path_col_for(qid) then
+  if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and gamedata.quest_can_move(qid, start.x, start.y, candidate_x, candidate_y) then
   let point: text = to_text(candidate_x) ++ "," ++ to_text(candidate_y)
   let revisiting_completed: boolean = contains(start.cleared, point) or (start.completed and candidate_x == start.x and candidate_y == start.y)
-  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_for(qid, candidate_x) and not revisiting_completed, revisiting_completed, cleared)
+  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_at(qid, candidate_x, candidate_y) and not revisiting_completed, revisiting_completed, cleared)
   else
     set offx = 0
     set offy = 0
@@ -1665,7 +1669,7 @@ end
 function saved_team_envelope(team_id: text, heroes: a list of text): text
   intent: encode
   let active_team_id: text = if starts_with(team_id, "PVP") then "arena_versus" else "1.1.1-" ++ team_id end
-  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act2_qid() ++ "-0", heroes)] end
+  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act2_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act3_qid() ++ "-0", heroes)] end
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list(active_teams))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
 end
 

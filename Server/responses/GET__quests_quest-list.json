@@ -3,9 +3,9 @@
  "showUI":true,"group":"custom_story","difficulty":"normal","difficulty_label":"NORMAL",
  "minLevel":0,"recommendMinLevel":0,"cdn":"","use_ui_color":false,"hasProgression":true,
  "category":"Story","tags":["custom_story"],
- "actCount":2,"chapterCount":[1,1,1],
- "acts":[{"name":"CUSTOM STORY - ACT 1","index":0},{"name":"CUSTOM STORY - ACT 1","index":1},{"name":"CUSTOM STORY - ACT 2","index":2}],
- "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1},{"name":"Chapter 1","index":2,"actIndex":2}],
+ "actCount":3,"chapterCount":[1,1,1,1],
+ "acts":[{"name":"CUSTOM STORY - ACT 1","index":0},{"name":"CUSTOM STORY - ACT 1","index":1},{"name":"CUSTOM STORY - ACT 2","index":2},{"name":"CUSTOM STORY - ACT 3","index":3}],
+ "chapters":[{"name":"Chapter 1","index":0,"actIndex":0},{"name":"Chapter 1","index":1,"actIndex":1},{"name":"Chapter 1","index":2,"actIndex":2},{"name":"Chapter 1","index":3,"actIndex":3}],
  "availableQuests":[
    {
      "id":"2.1.1",
@@ -24,6 +24,14 @@
      "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
      "minHealthPerTile":100,"maxHealthPerTile":100,
      "image":"","theme":"primordial"
+   },
+   {
+     "id":"2.3.1","act":3,"chapter":1,"mission":1,"missionIndex":1,"index":1,"teamSizeMax":5,
+     "friendlyName":"Bludgeon's Reckoning","description":"Jazz leads the Autobots through a split assault on Grindor and Ironhide before the final duel.",
+     "category":"story","difficulty":"normal",
+     "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
+     "minHealthPerTile":100,"maxHealthPerTile":100,
+     "image":"bludgeon_gs_rd20","theme":"primordial"
    }
  ]
 },
