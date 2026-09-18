@@ -17,6 +17,7 @@ PORT = int.from_bytes(Path(PAYLOAD).read_bytes()[16:20], "little")
 TEAM = ["nemesisprime_gs_voyager2015", "grimlock_gs_mp08", "soundwave_gs"]
 QID = "2.1.1"
 ACT2_QID = "2.2.1"
+ACT3_QID = "2.3.1"
 UID = "1000000000001"
 
 
@@ -32,13 +33,24 @@ def request(path, body=None):
         return decoded["result"]
 
 
+def request_raw(path, body=None):
+    """Return the full JSON response including error, without asserting."""
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{PORT}{path}",
+        data=None if body is None else json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=5) as reply:
+        return json.load(reply)
+
+
 def begin(body=None, qid=QID):
     result = request(f"/quests/quest-begin/{qid}", body or {})
     return result["activeQuests"][qid]["instances"][0]
 
 
-def move(dx, qid=QID):
-    return request(f"/quests/quest-movedir/{qid}-0/{dx}/0", {})
+def move(dx, qid=QID, dy=0):
+    return request(f"/quests/quest-movedir/{qid}-0/{dx}/{dy}", {})
 
 
 def resolve(outcome, qid=QID):
@@ -50,9 +62,9 @@ def assert_squad(result):
     assert list(result["progression"]["users"][UID]["team"]) == TEAM
 
 
-def assert_safe(result, x):
+def assert_safe(result, x, y=1):
     progression = result["progression"]
-    assert progression["currentPos"] == {"x": x, "y": 1}
+    assert progression["currentPos"] == {"x": x, "y": y}
     assert "currentBattleId" not in progression
     assert "currentBattleState" not in progression["users"][UID]
     assert all("battle" not in action["action"] for action in result["results"])
@@ -61,6 +73,7 @@ def assert_safe(result, x):
 
 with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
     env = dict(os.environ, TFTF_QUEST_STATE_FILE=directory + "/state")
+    state_path = Path(directory) / "state"
     process = None
 
     def start():
@@ -113,11 +126,18 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert final["progression"]["currentBattleId"] == "ironhide_cin_rotf"
         assert final["results"][1]["action"]["battle"]["isFinalBoss"] is True
         resolve("WON")
+
+        # Act3 should be locked before any Act2 progress
+        locked = request_raw("/quests/quest-begin/" + ACT3_QID, {"setId": "custom_story_act1"})
+        assert locked["error"] == "Quest not yet available", locked
+        assert locked["result"] is None, locked
+
         act2 = begin(qid=ACT2_QID)
         act2_tile1 = act2["map"]["grid"][1][1]
         act2_tile2 = act2["map"]["grid"][2][1]
+        act2_tile3 = act2["map"]["grid"][3][1]
         assert act2["data"]["act"] == 2
-        assert act2["map"]["gridDimension"] == 3
+        assert act2["map"]["gridDimension"] == 4
         assert act2_tile1["dialogue"] == "custom_act2_intro"
         assert "dialogue" not in act2_tile2
         assert act2_tile1["boss"] == "bumblebee_gs_kabam"
@@ -134,13 +154,134 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         resolve("WON", ACT2_QID)
         mirage = move(1, ACT2_QID)
         assert mirage["progression"]["currentBattleId"] == "mirage_gs_deluxe2016"
-        assert mirage["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        assert mirage["results"][1]["action"]["battle"]["isFinalBoss"] is False
         resolve("LOST", ACT2_QID)
         assert move(1, ACT2_QID)["progression"]["currentBattleId"] == "mirage_gs_deluxe2016"
         resolve("WON", ACT2_QID)
+
+        # Act3 still locked — only Bumblebee node "3,1" grants access
+        locked2 = request_raw("/quests/quest-begin/" + ACT3_QID, {"setId": "custom_story_act1"})
+        assert locked2["error"] == "Quest not yet available", locked2
+        assert locked2["result"] is None, locked2
+
+        bumblebee = move(1, ACT2_QID)
+        assert bumblebee["progression"]["currentBattleId"] == "bumblebee_gs_kabam"
+        assert bumblebee["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        assert act2_tile3["boss"] == "bumblebee_gs_kabam"
+        assert act2_tile3["dialogue"] == "custom_bumblebee_intro"
+        assert [entry["character"] for entry in act2["data"]["dialogueTable"]["custom_bumblebee_intro"]] == [
+            "bumblebee_gs_kabam", "optimusprime_cin_tf"
+        ]
+        assert [entry["line"] for entry in act2["data"]["dialogueTable"]["custom_bumblebee_intro"]] == [
+            "Who are you? You will die!", "Show yourself."
+        ]
+        resolve("WON", ACT2_QID)
+        assert_safe(move(1, ACT2_QID), 3)
         other = request("/quests/quest-begin/1.1.1", {})["activeQuests"]["1.1.1"]
         assert other["instances"][0]["cleared"] == []
-        print("PASS: selected squad, forward links, loss, victory, backtracking, restart, Kickback-to-Mirage transition, quest isolation")
+        print("PASS: selected squad, forward links, loss, victory, backtracking, restart, Kickback-to-Mirage-to-Bumblebee transition, quest isolation, act3 pre-unlock rejection")
+
+        # --- Act 3: Bludgeon section ---
+
+        # Act3 should now be unlocked (Bumblebee tile "3,1" is in cleared)
+        act3 = begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
+        assert act3["data"]["act"] == 3
+        assert act3["data"]["image"] == "bludgeon_gs_rd20"
+        assert act3["map"]["gridDimension"] == 5
+        act3_grid = act3["map"]["grid"]
+        # Jazz at (1,2) — first battle
+        jazz_tile = act3_grid[1][2]
+        assert jazz_tile["boss"] == "jazz_gs_twm05"
+        assert jazz_tile["walkable"]
+        # Grindor at (2,1), Ironhide at (2,3), Bludgeon at (3,2)
+        assert act3_grid[2][1]["boss"] == "grindor_cin_rotf"
+        assert act3_grid[2][3]["boss"] == "ironhide_cin_rotf"
+        bludgeon_tile = act3_grid[3][2]
+        assert bludgeon_tile["boss"] == "bludgeon_gs_rd20"
+        assert bludgeon_tile["final"]
+
+        # Jazz first (move dx=1, dy=0 from start (0,2))
+        jazz_move = move(1, ACT3_QID, 0)
+        assert jazz_move["progression"]["currentBattleId"] == "jazz_gs_twm05"
+        assert jazz_move["results"][1]["action"]["battle"]["isFinalBoss"] is False
+        resolve("LOST", ACT3_QID)
+        # Retry Jazz after loss
+        assert move(1, ACT3_QID, 0)["progression"]["currentBattleId"] == "jazz_gs_twm05"
+        resolve("WON", ACT3_QID)
+
+        # Off-link rejection: from (1,2), dy=+2 goes nowhere (no authored link)
+        off_link = move(0, ACT3_QID, 2)
+        assert off_link.get("progression", {}).get("currentPos") == {"x": 1, "y": 2}  # off-link ignored, position unchanged
+
+        # Left branch: Grindor at (2,1) via dy=-1
+        grindor_move = move(1, ACT3_QID, -1)
+        assert grindor_move["progression"]["currentBattleId"] == "grindor_cin_rotf"
+        assert grindor_move["results"][1]["action"]["battle"]["isFinalBoss"] is False
+        resolve("WON", ACT3_QID)
+
+        # From Grindor (2,1) to Bludgeon (3,2) via dx=1, dy=1
+        boss_move = move(1, ACT3_QID, 1)
+        assert boss_move["progression"]["currentBattleId"] == "bludgeon_gs_rd20"
+        assert boss_move["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        # Duplicate WON should not re-grant (resolve again)
+        resolve("WON", ACT3_QID)
+        # After Bludgeon WON, moving on a terminal boss should be safe
+        # Duplicate victory should be harmless
+        resolve("WON", ACT3_QID)
+        # Verify cleared contains all tiles traversed
+        final_state = move(0, ACT3_QID, 0)
+        cleared_tiles = final_state["progression"]["cleared"]
+        assert {"x": 1, "y": 2} in cleared_tiles  # Jazz
+        assert {"x": 2, "y": 1} in cleared_tiles  # Grindor
+        assert {"x": 3, "y": 2} in cleared_tiles  # Bludgeon
+
+        print("PASS: act3 Jazz-first, left-branch Grindor, convergence to Bludgeon, loss retry, off-link rejection, duplicate WON")
+
+        # Test right branch (Ironhide) — restart harness to reset state
+        stop()
+        if state_path.exists():
+            state_path.unlink()
+        start()
+        # Re-complete act2 to unlock act3
+        saved2 = request("/bcg/setSavedTeam", {"teamID": "0", "heroes": TEAM})
+        act2b = begin({"setId": "custom_story_act1",
+                        **{f"tm{i}": bid for i, bid in enumerate(TEAM)}}, qid=ACT2_QID)
+        move(1, ACT2_QID); resolve("WON", ACT2_QID)
+        move(1, ACT2_QID); resolve("WON", ACT2_QID)
+        move(1, ACT2_QID); resolve("WON", ACT2_QID)
+        move(1, ACT2_QID)  # step past Bumblebee
+
+        # Right branch
+        act3b = begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
+        move(1, ACT3_QID, 0); resolve("WON", ACT3_QID)  # Jazz
+        ironhide_move = move(1, ACT3_QID, 1)  # dy=+1 → Ironhide
+        assert ironhide_move["progression"]["currentBattleId"] == "ironhide_cin_rotf"
+        assert ironhide_move["results"][1]["action"]["battle"]["isFinalBoss"] is False
+        resolve("WON", ACT3_QID)
+        # From Ironhide (2,3) to Bludgeon (3,2) via dx=1, dy=-1
+        boss2 = move(1, ACT3_QID, -1)
+        assert boss2["progression"]["currentBattleId"] == "bludgeon_gs_rd20"
+        assert boss2["results"][1]["action"]["battle"]["isFinalBoss"] is True
+        resolve("WON", ACT3_QID)
+
+        print("PASS: act3 right-branch Ironhide, convergence to Bludgeon")
+
+        # Test restart/resume with act3 position
+        stop()
+        start()
+        act3c = begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
+        assert act3c["data"]["act"] == 3
+        assert {"x": 3, "y": 2} in act3c["cleared"]  # Bludgeon persists
+        assert {"x": 1, "y": 2} in act3c["cleared"]  # Jazz persists
+
+        print("PASS: act3 restart/resume with cleared persistence")
+
+        # Quest isolation: 1.1.1 should be unchanged
+        other2 = request("/quests/quest-begin/1.1.1", {})["activeQuests"]["1.1.1"]
+        assert other2["instances"][0]["cleared"] == []
+
+        print("PASS: act3 quest isolation")
+
     finally:
         if process is not None and process.poll() is None:
             stop()
