@@ -5193,10 +5193,19 @@ static void* installer(void* arg){
         r14, r15, r16, r6, r7, r1, r2, r3, r4, r5, r8, r9, r10, r11, r12, r13, r17, r18, r19, r20, r21, r22, r23);
     // FIX_QUEST_REENTER: prevent NullReferenceException / IndexOutOfRangeException when
     // re-entering a story quest after a battle or quitting a map. Ported from the kmcbest
-    // fork's fa6e249 (verified on-device by that project; not yet re-verified in this repo --
-    // gate any release on it). Same pristine libil2cpp.so RVAs; poke32 is RVA-relative here too.
+    // fork's fa6e249 (verified on-device by that project). Same pristine libil2cpp.so RVAs;
+    // poke32 is RVA-relative here too.
     // 1) Legacy.QuestSet (0x101CE1C): when set->quests is null or count <= 1, redirect to
     //    the safe exit at 0x101D388 instead of throwing.
+    // NOTE: 0x101D3B4/0x101D3B8 are shared throw-call landing pads -- a static branch-target
+    // scan found 6 other cbz/null-guards elsewhere in Legacy.QuestSet (0x101cf30, 0x101cfdc,
+    // 0x101d118, 0x101d18c, 0x101d2b8, 0x101d35c) that also jump here, so this redirect
+    // suppresses NRE/IOORE for all of them uniformly, not just the two guards patched below.
+    // These four pokes were disabled for one session (2026-09-18) while bisecting a suspected
+    // cause of the v1.5 "Special Mode fights don't start" regression; that regression's real
+    // cause turned out to be the Karma Six movement/encounter model (see gamedata.lbl
+    // challenge_can_move and friends), not this patch, and kmcbest's fork ships these same
+    // four pokes with a working build, so they are re-enabled unchanged from the original port.
     poke32(0x101D1B0, 0xB4000EC8);   // cbz x8, 0x101D3B4 (throw NRE) -> cbz x8, 0x101D388 (safe exit)
     poke32(0x101D1BC, 0x54000E69);   // b.ls 0x101D3B8 (throw IOORE) -> b.ls 0x101D388 (safe exit)
     poke32(0x101D3B4, 0x17FFFFF5);   // bl 0x9BB514 (throw NRE) -> b 0x101D388
@@ -5205,10 +5214,24 @@ static void* installer(void* arg){
     //    next set instead of throwing NRE at 0x1044C68.
     poke32(0x10447B8, 0xB40004A8);   // cbz x8, 0x1044C68 -> cbz x8, 0x104484C (skip set)
     poke32(0x1044848, 0x14000001);   // b 0x1044C68 -> b 0x104484C (skip set)
-    poke32(0x1044C68, 0x52800000);   // bl 0x9BB514 (throw) -> mov w0, wzr (return 0)
-    poke32(0x1044C6C, 0x14000001);   // mov w0, w21 -> b 0x1044C70 (restore & return)
+    // 0x1044C6C ("mov w0, w21") is NOT exception-adjacent dead code: it is the shared
+    // landing pad for the aggregation loop's normal, every-call exit (`b.ge 0x1044C6C`
+    // at 0x1044BE8, after the loop accumulates the badge/quest count into w21 starting
+    // from `mov w21, wzr` at 0x1044BD8). The original patch here overwrote that shared
+    // pad with an unconditional branch, so every ordinary (non-null) call returned
+    // whatever garbage was already in w0 instead of the accumulated count in w21 --
+    // corrupting the return value on the common path, not just the null-guard path.
+    // That return value feeds two delegate-dispatch calls to 0x2120350 in the function's
+    // only caller (0xa68e24 region), so a garbage count there broadcasts to whatever UI
+    // consumes it -- a plausible cause of the v1.5 "Special Mode fights don't start"
+    // regression. Fix: leave 0x1044C6C as the original `mov w0, w21`, and instead zero
+    // w21 itself on the null-guard path so that same instruction naturally returns 0.
+    poke32(0x1044C68, 0x2A1F03F5);   // bl 0x9BB514 (throw) -> mov w21, wzr
+    poke32(0x1044C6C, 0x2A1503E0);   // (restored to original) mov w0, w21
     // 3) QuestDB.AddExpiredQuest (0x103DC04): if the null check fails, return null instead
-    //    of throwing NRE at 0x103E078.
+    //    of throwing NRE at 0x103E078. Same shared-landing-pad shape as (1) -- 0x103E078 is
+    //    also jumped to from 3 other null-guards (0x103dcc8, 0x103ddd8, 0x103df70) -- and
+    //    re-enabled for the same reason: the real v1.5 regression was elsewhere.
     poke32(0x103E078, 0xAA1F03E0);   // bl 0x9BB514 (throw) -> mov x0, xzr
     poke32(0x103E07C, 0x17FFFF3B);   // mov x0, x25 -> b 0x103DD68 (return null)
 
