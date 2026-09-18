@@ -73,6 +73,7 @@ def assert_safe(result, x, y=1):
 
 with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
     env = dict(os.environ, TFTF_QUEST_STATE_FILE=directory + "/state")
+    state_path = Path(directory) / "state"
     process = None
 
     def start():
@@ -238,6 +239,8 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
 
         # Test right branch (Ironhide) — restart harness to reset state
         stop()
+        if state_path.exists():
+            state_path.unlink()
         start()
         # Re-complete act2 to unlock act3
         saved2 = request("/bcg/setSavedTeam", {"teamID": "0", "heroes": TEAM})
