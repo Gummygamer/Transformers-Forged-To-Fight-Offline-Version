@@ -446,7 +446,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
     }
     if(has_suffix(p,"/bcg/getBaseHeroData")) {
         const char *a=strstr(body,"\"heroes\""); const char *arr=a?strchr(a,'['):NULL; const char *q=arr?arr+1:NULL; v=lookup("@herodata:open",&n);if(!v||!out_add(o,v,n))return NULL;
-        int first=1; while(q&&q<end){const char *open=strchr(q,'{'),*close;int depth=0;if(!open||open>=end)break;close=open;do{if(*close=='{')depth++;else if(*close=='}')depth--;close++;}while(close<end&&depth);if(depth)break;char hb[64]="", hk[200];int rank=json_int(open,close,"rank",1),level=json_int(open,close,"level",1);if(!rank)rank=1;if(!level)level=1;json_string(open,close,"bid",hb,sizeof hb);snprintf(hk,sizeof hk,"@hero:%s:%d:%d",hb,rank,level);v=lookup(hk,&n);if(!v){snprintf(hk,sizeof hk,"@hero:%s:1:1",hb);v=lookup(hk,&n);}if(!v)v=lookup("@hero:*:1:1",&n);if(v){if(!first&&!out_add(o,",",1))return NULL;if(!out_template(o,v,n,"%SIG%","0","", ""))return NULL;first=0;}q=close;}
+        int first=1; while(q&&q<end){const char *open=strchr(q,'{'),*close;int depth=0;if(!open||open>=end)break;close=open;do{if(*close=='{')depth++;else if(*close=='}')depth--;close++;}while(close<end&&depth);if(depth)break;char hb[64]="", hk[200];int rank=json_int(open,close,"rank",1),level=json_int(open,close,"level",1);if(!rank)rank=1;if(!level)level=1;if(level>30)level=30; /* our export is dense over rank 1..5 x level 1..30; clamp instead of missing the key */ if(!json_string(open,close,"bid",hb,sizeof hb))if(!json_string(open,close,"character",hb,sizeof hb))json_string(open,close,"id",hb,sizeof hb);snprintf(hk,sizeof hk,"@hero:%s:%d:%d",hb,rank,level);v=lookup(hk,&n);if(!v){snprintf(hk,sizeof hk,"@hero:%s:1:1",hb);v=lookup(hk,&n);}if(!v)v=lookup("@hero:*:1:1",&n);logmsg("getBaseHeroData: hero=%s rank=%d lvl=%d lookup=%s", hb, rank, level, v ? "OK" : "NULL");if(v){if(!first&&!out_add(o,",",1))return NULL;if(!out_template(o,v,n,"%SIG%","0","", ""))return NULL;first=0;}q=close;}
         v=lookup("@herodata:close",&n);if(!v||!out_add(o,v,n))return NULL; Out compact=*o; o->p=NULL;o->n=o->cap=0; v=json_default_spaces(compact.p,compact.n,o,outn);free(compact.p);return v;
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
@@ -455,6 +455,19 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         Team team; Position snapshot={0}; Out qteam={0},cleared={0};
         TemplateArg args[5]; char posx[16],posy[16]; int x=0,y=1,slot=-1;
         snprintf(qid,sizeof qid,"%.63s",path_last(p));
+        /* Gate act3 behind Bumblebee (act2 final boss) completion */
+        if(!strcmp(qid,"2.3.1")){
+            int act2_completed=0;
+            pthread_mutex_lock(&g_pos_lock);
+            for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,"2.2.1")&&cleared_has(&g_pos[i],3,1))act2_completed=1;
+            pthread_mutex_unlock(&g_pos_lock);
+            if(!act2_completed){
+                const char *err="{\"error\":\"Quest not yet available\",\"result\":null}";
+                size_t elen=strlen(err);
+                if(!out_add(o,err,elen))return NULL;
+                *outn=elen; return o->p;
+            }
+        }
         store_quest_team(body,end);
         snprintf(key,sizeof key,"@quest:start:%s",qid); v=lookup(key,&n);
         if(!v)return NULL;

@@ -194,7 +194,12 @@ function move_body_state(qid: text, sx: integer, sy: integer, dx: integer, dy: i
   mutable actual_dy: integer = dy
   let nx: integer = sx + dx
   let ny: integer = sy + dy
-  if nx < 0 or nx >= gamedata.quest_dim_for(qid) or ny != gamedata.quest_path_col_for(qid) then
+  let valid_y: boolean = if qid == gamedata.custom_story_act3_qid() then
+    ny >= 0 and ny < gamedata.quest_dim_for(qid)
+  else
+    ny == gamedata.quest_path_col_for(qid)
+  end
+  if nx < 0 or nx >= gamedata.quest_dim_for(qid) or not valid_y then
     set actual_dx = 0
     set actual_dy = 0
   end
@@ -252,7 +257,7 @@ function saved_team_template(): text
   let saved: text = unwrap_or(get(values, 0), "")
   let active: text = unwrap_or(get(values, 1), "")
   let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
-  replace_exact(one, active, "%ATEAM%", 3, "saved-team active heroes")
+  replace_exact(one, active, "%ATEAM%", 5, "saved-team active heroes")
 end
 
 function user_data_template(): text
@@ -260,7 +265,7 @@ function user_data_template(): text
   let values: a list of text = team_values("1.1.1", [])
   let body: text = envelope(gamedata.build_user_data([]))
   let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
-  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 3, "user-data active heroes")
+  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 5, "user-data active heroes")
 end
 
 function tutorial_templates(): Entries
@@ -281,6 +286,51 @@ function tutorial_templates(): Entries
   add(f, "@tutorial:login-completed", fakeserver.tutorial_login_completed_response())
 end
 
+function add_quest_moves_act3(output: Entries, qid: text, dim: integer): Entries
+  intent: build
+  mutable result: Entries = output
+  mutable legal: a list of text = []
+  mutable sy_values: a list of integer = [1, 2, 3]
+  mutable sx: integer = 0
+  while sx < dim do
+    for sy in sy_values do
+      for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"] do
+        let bits: a list of text = split(direction, ",")
+        let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
+        let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
+        let nx: integer = sx + dx
+        let ny: integer = sy + dy
+        if gamedata.quest_can_move(qid, sx, sy, nx, ny) then set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
+        if gamedata.quest_can_move(qid, sx, sy, nx, ny) then set result = add(result, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, sy, dx, dy)) end
+        if dx == 0 and dy == 0 then set result = add(result, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0", movedir_completed_template(qid, sx, sy, 0, 0)) end
+      end
+    end
+    set sx = sx + 1
+  end
+  add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+end
+
+function add_quest_moves_standard(output: Entries, qid: text, dim: integer, path_col: integer): Entries
+  intent: build
+  mutable result: Entries = output
+  mutable legal: a list of text = []
+  mutable sx: integer = 0
+  while sx < dim do
+    for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"] do
+      let bits: a list of text = split(direction, ",")
+      let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
+      let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
+      let nx: integer = sx + dx
+      let ny: integer = path_col + dy
+      if nx >= 0 and nx < dim and ny == path_col then set legal = append(legal, to_text(sx) ++ " " ++ to_text(path_col) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
+      set result = add(result, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, path_col, dx, dy))
+      if dx == 0 and dy == 0 then set result = add(result, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":0:0", movedir_completed_template(qid, sx, path_col, 0, 0)) end
+    end
+    set sx = sx + 1
+  end
+  add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+end
+
 function add_quests(entries: Entries): Entries
   intent: build
   mutable output: Entries = entries
@@ -295,25 +345,15 @@ function add_quests(entries: Entries): Entries
     let path_col: integer = gamedata.quest_path_col_for(qid)
     let dim: integer = gamedata.quest_dim_for(qid)
     set output = add(output, "@quest:start:" ++ qid, to_text(start_x) ++ " " ++ to_text(start_y))
-    mutable legal: a list of text = []
-    mutable sx: integer = 0
-    while sx < dim do
-      for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1"] do
-        let bits: a list of text = split(direction, ",")
-        let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
-        let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
-        let nx: integer = sx + dx
-        let ny: integer = path_col + dy
-        if nx >= 0 and nx < dim and ny == path_col then set legal = append(legal, to_text(sx) ++ " " ++ to_text(path_col) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
-        set output = add(output, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, path_col, dx, dy))
-        if dx == 0 and dy == 0 then set output = add(output, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":0:0", movedir_completed_template(qid, sx, path_col, 0, 0)) end
-      end
-      set sx = sx + 1
+    if qid == gamedata.custom_story_act3_qid() then
+      set output = add_quest_moves_act3(output, qid, dim)
+    else
+      set output = add_quest_moves_standard(output, qid, dim, path_col)
     end
-    set output = add(output, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
   end
   output
 end
+
 
 function add_heroes(entries: Entries): Entries
   intent: build
@@ -520,7 +560,7 @@ public function build_payload(listen_port: integer): integer
   let entries: Entries = build_entries(listen_port)
   let keys: a list of text = sort_text(entries.keys)
   let pref: Prefixes = prefixes()
-  if length(keys) != 9998 then fail("payload entry count is not 9998: " ++ to_text(length(keys))) end
+  if length(keys) != 10377 then fail("payload entry count is not 10377: " ++ to_text(length(keys))) end
   if length(pref.keys) != 2 or length(pref.bodies) != 2 then fail("payload prefix count is not 2") end
   let total: integer = payload_total(entries, keys, pref)
   if total < 64 + 16 * length(keys) + 16 * length(pref.keys) then fail("payload total is smaller than its tables: " ++ to_text(total)) end

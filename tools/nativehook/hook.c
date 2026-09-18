@@ -5191,6 +5191,27 @@ static void* installer(void* arg){
 
     LOG("adhoc hooks status: FT_ctor=%d FT_OnInitTarget=%d FT_Clone=%d FT_OnTick=%d Dmg_OnTick=%d targetFrameRate=%d vSync=%d RefreshDisplay=%d ShouldDisplayStatMod=%d AbilityItem_SetData=%d KITREG1=%d KITREG2=%d KITREG3=%d KITREG4=%d CalculateBuffAmount=%d ApplyStatModifier=%d ParamsTable_ToString=%d BuffUtils_ParseParams=%d HudBuffWidget_Init=%d UILabel_set_text=%d TryLocalize=%d App_ctor=%d HudBuffContainer_Add=%d",
         r14, r15, r16, r6, r7, r1, r2, r3, r4, r5, r8, r9, r10, r11, r12, r13, r17, r18, r19, r20, r21, r22, r23);
+    // FIX_QUEST_REENTER: prevent NullReferenceException / IndexOutOfRangeException when
+    // re-entering a story quest after a battle or quitting a map. Ported from the kmcbest
+    // fork's fa6e249 (verified on-device by that project; not yet re-verified in this repo --
+    // gate any release on it). Same pristine libil2cpp.so RVAs; poke32 is RVA-relative here too.
+    // 1) Legacy.QuestSet (0x101CE1C): when set->quests is null or count <= 1, redirect to
+    //    the safe exit at 0x101D388 instead of throwing.
+    poke32(0x101D1B0, 0xB4000EC8);   // cbz x8, 0x101D3B4 (throw NRE) -> cbz x8, 0x101D388 (safe exit)
+    poke32(0x101D1BC, 0x54000E69);   // b.ls 0x101D3B8 (throw IOORE) -> b.ls 0x101D388 (safe exit)
+    poke32(0x101D3B4, 0x17FFFFF5);   // bl 0x9BB514 (throw NRE) -> b 0x101D388
+    poke32(0x101D3B8, 0x17FFFFF4);   // bl 0x9BB53C (throw IOORE) -> b 0x101D388
+    // 2) Badge counter / quest aggregator (0x10445C0): if set->quests is null, skip to the
+    //    next set instead of throwing NRE at 0x1044C68.
+    poke32(0x10447B8, 0xB40004A8);   // cbz x8, 0x1044C68 -> cbz x8, 0x104484C (skip set)
+    poke32(0x1044848, 0x14000001);   // b 0x1044C68 -> b 0x104484C (skip set)
+    poke32(0x1044C68, 0x52800000);   // bl 0x9BB514 (throw) -> mov w0, wzr (return 0)
+    poke32(0x1044C6C, 0x14000001);   // mov w0, w21 -> b 0x1044C70 (restore & return)
+    // 3) QuestDB.AddExpiredQuest (0x103DC04): if the null check fails, return null instead
+    //    of throwing NRE at 0x103E078.
+    poke32(0x103E078, 0xAA1F03E0);   // bl 0x9BB514 (throw) -> mov x0, xzr
+    poke32(0x103E07C, 0x17FFFF3B);   // mov x0, x25 -> b 0x103DD68 (return null)
+
     LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;
 }
