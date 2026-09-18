@@ -455,19 +455,6 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         Team team; Position snapshot={0}; Out qteam={0},cleared={0};
         TemplateArg args[5]; char posx[16],posy[16]; int x=0,y=1,slot=-1;
         snprintf(qid,sizeof qid,"%.63s",path_last(p));
-        /* Gate act3 behind Bumblebee (act2 final boss) completion */
-        if(!strcmp(qid,"2.3.1")){
-            int act2_completed=0;
-            pthread_mutex_lock(&g_pos_lock);
-            for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,"2.2.1")&&cleared_has(&g_pos[i],3,1))act2_completed=1;
-            pthread_mutex_unlock(&g_pos_lock);
-            if(!act2_completed){
-                const char *err="{\"error\":\"Quest not yet available\",\"result\":null}";
-                size_t elen=strlen(err);
-                if(!out_add(o,err,elen))return NULL;
-                *outn=elen; return o->p;
-            }
-        }
         store_quest_team(body,end);
         snprintf(key,sizeof key,"@quest:start:%s",qid); v=lookup(key,&n);
         if(!v)return NULL;
