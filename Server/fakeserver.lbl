@@ -1669,7 +1669,7 @@ end
 function saved_team_envelope(team_id: text, heroes: a list of text): text
   intent: encode
   let active_team_id: text = if starts_with(team_id, "PVP") then "arena_versus" else "1.1.1-" ++ team_id end
-  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act2_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act3_qid() ++ "-0", heroes)] end
+  let active_teams: a list of Json = if starts_with(team_id, "PVP") then [gamedata.build_active_team(active_team_id, heroes)] else [gamedata.build_active_team(active_team_id, heroes), gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act2_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.custom_story_act3_qid() ++ "-0", heroes), gamedata.build_active_team(gamedata.challenge_qid() ++ "-0", heroes)] end
   spaced_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("savedTeams", jsonout.json_list([gamedata.build_saved_team(team_id, heroes)])), jsonout.json_pair("activeTeams", jsonout.json_list(active_teams))])), jsonout.json_pair("deletes", jsonout.json_obj([]))]))
 end
 

@@ -504,3 +504,53 @@ but are unrelated to the gesture, are kept.
 Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game data,
 network capture, or credential was added. Nothing under `media/` was touched. No new
 dependency was introduced.
+
+## Karma Six activeTeams gap, native quest-reentry crash fix, and getBaseHeroData hardening
+
+This contribution investigates and closes gaps a developer's separate personal fork
+(`kmcbest/Transformers-Forged-To-Fight-Offline-Version`, branches `redeco`/`ability`/
+`custom-special`) had already found and fixed for its own divergent Python-based server
+rewrite of `Server/`. Nothing was ported from that fork's Python source or its
+`assets_redeco/` tree (which carries ~119 MB of AssetBundles derived from the operator's
+APK and is out of scope for this repository's data-only posture); each fix below was
+independently re-derived by reading this repository's own `.lbl` code and, in one case,
+the same developer's proper PR (#14) against this repository's Legible source.
+
+`Server/gamedata.lbl`'s `build_user_data` and `Server/fakeserver.lbl`'s
+`saved_team_envelope` were both missing an `activeTeams` entry for `challenge_qid()`
+(the Karma Six Special Mission, `1.1.2`). `QuestFlow` checks `BCG.GetActiveTeam` before
+loading a quest map; without this entry, entering Karma Six looped `quest-begin`
+indefinitely instead of loading the map. This is the same root cause as this repository's
+own upstream PR #14 (`358d5eb`), reconciled here alongside an independent, uncommitted
+Act 3 custom-story addition that also needed its own new `activeTeams` entry
+(`custom_story_act3_qid()`). No game content is authored by this fix: it is pure
+plumbing that echoes an existing quest id back through an existing wire shape, the same
+class of change the `activeTeams` paragraph earlier in this file already covers.
+
+`tools/nativehook/hook.c` gained four `poke32` patches (installer, near the existing
+60 fps/vSync patches) that redirect three functions in the operator's own
+`libil2cpp.so` — `Legacy.QuestSet`, a badge-counter aggregator, and
+`QuestDB.AddExpiredQuest` — from throwing `NullReferenceException` /
+`IndexOutOfRangeException` on re-entering a quest after a battle or quit, to their
+existing safe-exit paths in the same functions. This is a **binary patch of the
+operator's own client**, the same category as every other `poke32` hook already recorded
+throughout this file (e.g. the 60 fps and vSync patches, or `FIXWRAPMI`/`FIXSYN`): it
+redirects an existing branch to another address already inside the same function; it
+injects no new code, asset, or capability. This fix has not yet been re-verified live in
+this repository's own build (device verification is the next step); the developer's own
+project verified the equivalent patch on their fork.
+
+`tools/nativehook/inapk_server.c`'s `getBaseHeroData` handler was hardened in two ways,
+both defensive and neither adding game content: it now falls back through `bid` →
+`character` → `id` when extracting a hero identifier from the request body (the client
+is observed to vary which key it sends), and it clamps a requested `level` above 30 down
+to 30 before building the `@hero:<bid>:<rank>:<level>` cache key, since this repository's
+own export already authors a dense rank 1-5 × level 1-30 grid for every owned hero
+(`Server/export_payload.lbl`'s `add_heroes`) and previously had no fallback for a level
+outside that range. A `logmsg` diagnostic line was added for the same handler, matching
+the existing diagnostic logging pattern already used elsewhere in this file.
+
+Nothing was transcribed from recovered Kabam server data or from the fork's own
+authored content. No asset, binary APK, captured audiovisual content, credential, or
+recovered server dataset was added. Nothing under `media/` was touched. No new
+dependency was introduced.
