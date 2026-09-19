@@ -9,6 +9,11 @@ record Entries
   bodies: a mapping from text to text
 end
 
+record Batch
+  keys: a list of text
+  bodies: a list of text
+end
+
 record Payload
   version: integer
   listen_port: integer
@@ -63,19 +68,11 @@ end
 
 function count_occurrences(haystack: text, needle: text): integer
   intent: count
-  if needle == "" then 0 else
-    mutable count: integer = 0
-    mutable offset: integer = 0
-    while offset + text_length(needle) <= text_length(haystack) do
-      if substring(haystack, offset, text_length(needle)) == needle then
-        set count = count + 1
-        set offset = offset + text_length(needle)
-      else
-        set offset = offset + 1
-      end
-    end
-    count
-  end
+  -- split is native and counts non-overlapping matches left to right, exactly
+  -- like the scan it replaces. The old per-character substring loop was
+  -- quadratic and dominated the export: replace_exact runs it on every
+  -- quest-move template body.
+  if needle == "" then 0 else length(split(haystack, needle)) - 1 end
 end
 
 function replace_exact(body: text, old: text, new: text, expected: integer, label: text): text
@@ -97,6 +94,23 @@ function add(entries: Entries, key: text, body: text): Entries
   else
     Entries { keys: append(entries.keys, key), bodies: put(entries.bodies, key, body) }
   end
+end
+
+-- Builders accumulate into plain local lists: appending to a list held only by
+-- one local is in place, whereas threading an Entries record through add()
+-- copied every body collected so far on every call (quadratic in payload size).
+-- The lookup map is built once, here, which also rejects duplicate keys.
+function finish(keys: a list of text, bodies: a list of text): Entries
+  intent: build
+  mutable table: a mapping from text to text = {}
+  mutable index: integer = 0
+  while index < length(keys) do
+    let key: text = unwrap_or(get(keys, index), "")
+    if has_key(table, key) then fail("duplicate payload key: " ++ key) end
+    set table = put(table, key, unwrap_or(get(bodies, index), ""))
+    set index = index + 1
+  end
+  Entries { keys: keys, bodies: table }
 end
 
 function body_for(entries: Entries, key: text): text
@@ -188,7 +202,7 @@ function quest_begin_template(qid: text, set_id: text): text
   replace_exact(with_team, "\"cleared\":[]", "\"cleared\":%CLEARED%", 2, "quest-begin cleared")
 end
 
-function move_body_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text
+function move_result_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): Json
   intent: build
   mutable actual_dx: integer = dx
   mutable actual_dy: integer = dy
@@ -204,9 +218,9 @@ function move_body_state(qid: text, sx: integer, sy: integer, dx: integer, dy: i
     set actual_dy = 0
   end
   if completed then
-  envelope(gamedata.build_quest_movedir_completed(qid, actual_dx, actual_dy, sx, sy, []))
+  gamedata.build_quest_movedir_completed(qid, actual_dx, actual_dy, sx, sy, [])
 else
-  envelope(gamedata.build_quest_movedir(qid, actual_dx, actual_dy, sx, sy, []))
+  gamedata.build_quest_movedir(qid, actual_dx, actual_dy, sx, sy, [])
 end
 end
 
@@ -216,8 +230,11 @@ function movedir_template_state(qid: text, sx: integer, sy: integer, dx: integer
   let active: text = unwrap_or(get(values, 1), "")
   let quest: text = unwrap_or(get(values, 2), "")
   let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
-  let body: text = move_body_state(qid, sx, sy, dx, dy, completed)
-  let cleared: text = jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(body), "result"), "progression"), "cleared"))
+  -- Read the history from the built value: re-parsing the encoded body with
+  -- the interpreted JSON parser cost more than everything else in this function.
+  let result: Json = move_result_state(qid, sx, sy, dx, dy, completed)
+  let body: text = envelope(result)
+  let cleared: text = jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(result, "progression"), "cleared"))
   let with_history: text = replace_exact(body, "\"cleared\":" ++ cleared, "\"cleared\":%CLEARED%", 1, "movedir cleared")
   let with_move: text = if completed then
   let moved: text = replace_exact(with_history, "\"moveto\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"moveto\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 1, "completed moveto")
@@ -286,9 +303,10 @@ function tutorial_templates(): Entries
   add(f, "@tutorial:login-completed", fakeserver.tutorial_login_completed_response())
 end
 
-function add_quest_moves_act3(output: Entries, qid: text, dim: integer): Entries
+function add_quest_moves_act3(qid: text, dim: integer): Batch
   intent: build
-  mutable result: Entries = output
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
   mutable legal: a list of text = []
   mutable sy_values: a list of integer = [1, 2, 3]
   mutable sx: integer = 0
@@ -300,14 +318,20 @@ function add_quest_moves_act3(output: Entries, qid: text, dim: integer): Entries
         let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
         let nx: integer = sx + dx
         let ny: integer = sy + dy
-        if gamedata.quest_can_move(qid, sx, sy, nx, ny) then set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
-        if gamedata.quest_can_move(qid, sx, sy, nx, ny) then set result = add(result, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, sy, dx, dy)) end
-        if dx == 0 and dy == 0 then set result = add(result, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0", movedir_completed_template(qid, sx, sy, 0, 0)) end
+        if gamedata.quest_can_move(qid, sx, sy, nx, ny) then
+          set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny))
+          set keys = append(keys, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy))
+          set bodies = append(bodies, movedir_template(qid, sx, sy, dx, dy))
+        end
+        if dx == 0 and dy == 0 then
+          set keys = append(keys, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0")
+          set bodies = append(bodies, movedir_completed_template(qid, sx, sy, 0, 0))
+        end
       end
     end
     set sx = sx + 1
   end
-  add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+  Batch { keys: append(keys, "@quest:moves:" ++ qid), bodies: append(bodies, join(sort_text(legal), "\n") ++ "\n") }
 end
 
 -- Links-aware exporter for boards whose walkable tiles are not a single
@@ -316,9 +340,10 @@ end
 -- its 6 spokes and left every encounter unreachable. This walks the authored
 -- walkable coordinates instead and asks gamedata.quest_can_move, which reads
 -- the tiles' own links.
-function add_quest_moves_linked(output: Entries, qid: text, coords: a list of text): Entries
+function add_quest_moves_linked(qid: text, coords: a list of text): Batch
   intent: build
-  mutable result: Entries = output
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
   mutable legal: a list of text = []
   for coord in coords do
     let bits: a list of text = split(coord, " ")
@@ -332,17 +357,22 @@ function add_quest_moves_linked(output: Entries, qid: text, coords: a list of te
       let ny: integer = sy + dy
       if gamedata.quest_can_move(qid, sx, sy, nx, ny) then
         set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny))
-        set result = add(result, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, sy, dx, dy))
+        set keys = append(keys, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy))
+        set bodies = append(bodies, movedir_template(qid, sx, sy, dx, dy))
       end
-      if dx == 0 and dy == 0 then set result = add(result, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0", movedir_completed_template(qid, sx, sy, 0, 0)) end
+      if dx == 0 and dy == 0 then
+        set keys = append(keys, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0")
+        set bodies = append(bodies, movedir_completed_template(qid, sx, sy, 0, 0))
+      end
     end
   end
-  add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+  Batch { keys: append(keys, "@quest:moves:" ++ qid), bodies: append(bodies, join(sort_text(legal), "\n") ++ "\n") }
 end
 
-function add_quest_moves_standard(output: Entries, qid: text, dim: integer, path_col: integer): Entries
+function add_quest_moves_standard(qid: text, dim: integer, path_col: integer): Batch
   intent: build
-  mutable result: Entries = output
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
   mutable legal: a list of text = []
   mutable sx: integer = 0
   while sx < dim do
@@ -353,63 +383,77 @@ function add_quest_moves_standard(output: Entries, qid: text, dim: integer, path
       let nx: integer = sx + dx
       let ny: integer = path_col + dy
       if nx >= 0 and nx < dim and ny == path_col then set legal = append(legal, to_text(sx) ++ " " ++ to_text(path_col) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
-      set result = add(result, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy), movedir_template(qid, sx, path_col, dx, dy))
-      if dx == 0 and dy == 0 then set result = add(result, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":0:0", movedir_completed_template(qid, sx, path_col, 0, 0)) end
+      set keys = append(keys, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy))
+      set bodies = append(bodies, movedir_template(qid, sx, path_col, dx, dy))
+      if dx == 0 and dy == 0 then
+        set keys = append(keys, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":0:0")
+        set bodies = append(bodies, movedir_completed_template(qid, sx, path_col, 0, 0))
+      end
     end
     set sx = sx + 1
   end
-  add(result, "@quest:moves:" ++ qid, join(sort_text(legal), "\n") ++ "\n")
+  Batch { keys: append(keys, "@quest:moves:" ++ qid), bodies: append(bodies, join(sort_text(legal), "\n") ++ "\n") }
 end
 
-function add_quests(entries: Entries): Entries
+function add_quests(): Batch
   intent: build
-  mutable output: Entries = entries
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
   for pair in mission_pairs() do
     let parts: a list of text = split(pair, "\t")
     let set_id: text = unwrap_or(get(parts, 0), "")
     let qid: text = unwrap_or(get(parts, 1), "")
-    set output = add(output, "POST /quests/quest-detail/" ++ qid, envelope(gamedata.build_quest_detail(qid, set_id)))
-    set output = add(output, "POST /quests/quest-begin/" ++ qid, quest_begin_template(qid, set_id))
+    set keys = append(keys, "POST /quests/quest-detail/" ++ qid)
+    set bodies = append(bodies, envelope(gamedata.build_quest_detail(qid, set_id)))
+    set keys = append(keys, "POST /quests/quest-begin/" ++ qid)
+    set bodies = append(bodies, quest_begin_template(qid, set_id))
     let start_x: integer = gamedata.quest_start_x_for(qid)
     let start_y: integer = gamedata.quest_start_y_for(qid)
     let path_col: integer = gamedata.quest_path_col_for(qid)
     let dim: integer = gamedata.quest_dim_for(qid)
-    set output = add(output, "@quest:start:" ++ qid, to_text(start_x) ++ " " ++ to_text(start_y))
-    if qid == gamedata.challenge_qid() then
-      set output = add_quest_moves_linked(output, qid, gamedata.challenge_walkable_coords())
+    set keys = append(keys, "@quest:start:" ++ qid)
+    set bodies = append(bodies, to_text(start_x) ++ " " ++ to_text(start_y))
+    let moves: Batch = if qid == gamedata.challenge_qid() then
+      add_quest_moves_linked(qid, gamedata.challenge_walkable_coords())
     else if qid == gamedata.custom_story_act3_qid() then
-      set output = add_quest_moves_act3(output, qid, dim)
+      add_quest_moves_act3(qid, dim)
     else
-      set output = add_quest_moves_standard(output, qid, dim, path_col)
+      add_quest_moves_standard(qid, dim, path_col)
     end
+    set keys = concat(keys, moves.keys)
+    set bodies = concat(bodies, moves.bodies)
   end
-  output
+  Batch { keys: keys, bodies: bodies }
 end
 
 
-function add_heroes(entries: Entries): Entries
+function add_heroes(): Batch
   intent: build
-  mutable output: Entries = add(entries, "@herodata:open", "\{\"error\":null,\"result\":[")
-  set output = add(output, "@herodata:close", "]\}")
+  mutable keys: a list of text = ["@herodata:open", "@herodata:close"]
+  mutable bodies: a list of text = ["\{\"error\":null,\"result\":[", "]\}"]
   for bid in sort_text(gamedata.owned()) do
     for rank in [1, 2, 3, 4, 5] do
       mutable level: integer = 1
       while level <= 30 do
-        set output = add(output, "@hero:" ++ bid ++ ":" ++ to_text(rank) ++ ":" ++ to_text(level), detail_for(bid, rank, level))
+        set keys = append(keys, "@hero:" ++ bid ++ ":" ++ to_text(rank) ++ ":" ++ to_text(level))
+        set bodies = append(bodies, detail_for(bid, rank, level))
         set level = level + 1
       end
     end
   end
-  add(output, "@hero:*:1:1", detail_for("__unknown_bid__", 1, 1))
+  Batch { keys: append(keys, "@hero:*:1:1"), bodies: append(bodies, detail_for("__unknown_bid__", 1, 1)) }
 end
 
-function add_team_entries(entries: Entries): Entries
+function add_team_entries(): Batch
   intent: build
-  mutable output: Entries = entries
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
   mutable roster: a list of text = []
   for item in gamedata.roster() do set roster = append(roster, item.bid) end
-  set output = add(output, "@roster", join(sort_text(roster), "\n"))
-  set output = add(output, "@team:default", join(gamedata.default_team(), "\n"))
+  set keys = append(keys, "@roster")
+  set bodies = append(bodies, join(sort_text(roster), "\n"))
+  set keys = append(keys, "@team:default")
+  set bodies = append(bodies, join(gamedata.default_team(), "\n"))
   mutable members: a list of text = gamedata.owned()
   for bid in gamedata.default_team() do if not contains(members, bid) then set members = append(members, bid) end end
   let default_progress: Json = gamedata.build_quest_progression("1.1.1", 0, 1, [])
@@ -419,34 +463,60 @@ function add_team_entries(entries: Entries): Entries
     let team: Json = if jsonout.obj_has(default_members, bid) then jsonout.json_obj([jsonout.json_pair(bid, jsonout.obj_get(default_members, bid))]) else jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, [bid]), "users"), gamedata.local_uid()), "team") end
     let encoded: text = jsonout.encode_compact(team)
     if not starts_with(encoded, "\{") or not ends_with(encoded, "\}") then fail("quest member " ++ bid ++ " was not an object") end
-    set output = add(output, "@questmember:" ++ bid, substring(encoded, 1, text_length(encoded) - 2))
+    set keys = append(keys, "@questmember:" ++ bid)
+    set bodies = append(bodies, substring(encoded, 1, text_length(encoded) - 2))
   end
-  set output = add(output, "@savedteam:template", saved_team_template())
-  set output = add(output, "@userdata:template", user_data_template())
-  for bid in sort_text(members) do set output = add(output, "@savedteam:hero:" ++ bid, jsonout.encode_compact(gamedata.build_hero_entry(bid, 1, 1))) end
-  output
+  set keys = append(keys, "@savedteam:template")
+  set bodies = append(bodies, saved_team_template())
+  set keys = append(keys, "@userdata:template")
+  set bodies = append(bodies, user_data_template())
+  for bid in sort_text(members) do
+    set keys = append(keys, "@savedteam:hero:" ++ bid)
+    set bodies = append(bodies, jsonout.encode_compact(gamedata.build_hero_entry(bid, 1, 1)))
+  end
+  Batch { keys: keys, bodies: bodies }
 end
 
 function build_entries(listen_port: integer): Entries
   intent: build
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
-  mutable entries: Entries = Entries { keys: [], bodies: {} }
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
   for name in sort_text(list_dir(responses())) do
-    if ends_with(name, ".json") and not starts_with(name, "_") then set entries = add(entries, route_from_response(name), read_response(name)) end
+    if ends_with(name, ".json") and not starts_with(name, "_") then
+      set keys = append(keys, route_from_response(name))
+      set bodies = append(bodies, read_response(name))
+    end
   end
-  set entries = add(entries, "GET /base/active", envelope(gamedata.build_base_active()))
-  set entries = add_quests(entries)
-  set entries = add(entries, "@grouprefresh:missionsconfig", envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([gamedata.build_missions_autorefresh_update()]))])))
-  set entries = add(entries, "@grouprefresh:", envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([]))])))
+  set keys = append(keys, "GET /base/active")
+  set bodies = append(bodies, envelope(gamedata.build_base_active()))
+  let quests: Batch = add_quests()
+  set keys = concat(keys, quests.keys)
+  set bodies = concat(bodies, quests.bodies)
+  set keys = append(keys, "@grouprefresh:missionsconfig")
+  set bodies = append(bodies, envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([gamedata.build_missions_autorefresh_update()]))])))
+  set keys = append(keys, "@grouprefresh:")
+  set bodies = append(bodies, envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([]))])))
   let user_profile_template: text = fakeserver.user_profile_response_values("%UID%", "Commander", fakeserver.account_level(), 0)
   let user_profile_with_login: text = replace_exact(user_profile_template, "\"lastLogin\":0", "\"lastLogin\":%NOW%", 1, "userprofile lastLogin")
-  set entries = add(entries, "@userprofile:template", replace_exact(user_profile_with_login, "\"_createTime\":0", "\"_createTime\":%NOW%", 1, "userprofile _createTime"))
-  set entries = add(entries, "@tutorial:blocked", join(sort_text(fakeserver.block_tutorials()), "\n"))
-  set entries = add(entries, "@tutorial:live", join(sort_text(fakeserver.live_tutorials()), "\n"))
+  set keys = append(keys, "@userprofile:template")
+  set bodies = append(bodies, replace_exact(user_profile_with_login, "\"_createTime\":0", "\"_createTime\":%NOW%", 1, "userprofile _createTime"))
+  set keys = append(keys, "@tutorial:blocked")
+  set bodies = append(bodies, join(sort_text(fakeserver.block_tutorials()), "\n"))
+  set keys = append(keys, "@tutorial:live")
+  set bodies = append(bodies, join(sort_text(fakeserver.live_tutorials()), "\n"))
   let tutorials: Entries = tutorial_templates()
-  for key in tutorials.keys do set entries = add(entries, key, body_for(tutorials, key)) end
-  set entries = add_heroes(entries)
-  add_team_entries(entries)
+  for key in tutorials.keys do
+    set keys = append(keys, key)
+    set bodies = append(bodies, body_for(tutorials, key))
+  end
+  let heroes: Batch = add_heroes()
+  set keys = concat(keys, heroes.keys)
+  set bodies = concat(bodies, heroes.bodies)
+  let team: Batch = add_team_entries()
+  set keys = concat(keys, team.keys)
+  set bodies = concat(bodies, team.bodies)
+  finish(keys, bodies)
 end
 
 function padded(length: integer): integer
