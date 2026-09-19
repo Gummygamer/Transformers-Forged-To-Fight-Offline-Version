@@ -293,45 +293,64 @@ function to_hex_lower(number: integer): text
   end
 end
 
-function check_load_segment_alignment(data: integer, path: text): text
-  intent: reject native hooks that cannot load on 16 KiB Android pages
+function alignment_error(path: text, alignment: integer): text
+  intent: describe a PT_LOAD alignment the 16 KiB Android loader rejects
+  "runtime hook " ++ path ++ " has a PT_LOAD alignment of " ++ to_text(alignment) ++ " bytes; rebuild it with -Wl,-z,max-page-size=16384 for 16 KiB Android devices"
+end
+
+function elf64_alignment_error(data: integer, path: text): text
+  intent: check the program headers of a 64-bit ELF
+  let phoff_high: integer = bytes_read_u32_le(data, 36)
+  let phoff: integer = bytes_read_u32_le(data, 32)
+  let phentsize: integer = bytes_read_u16_le(data, 54)
+  let phnum: integer = bytes_read_u16_le(data, 56)
   mutable error: text = ""
-  if bytes_length(data) < 5 then
-    ""
-  else if bytes_get(data, 4) == 2 and bytes_length(data) >= 64 then
-    let phoff_high: integer = bytes_read_u32_le(data, 36)
-    let phoff: integer = bytes_read_u32_le(data, 32)
-    let phentsize: integer = bytes_read_u16_le(data, 54)
-    let phnum: integer = bytes_read_u16_le(data, 56)
-    if phoff_high == 0 and phentsize >= 56 and phnum > 0 and phoff + phentsize * phnum <= bytes_length(data) then
-      mutable index: integer = 0
-      while index < phnum and error == "" do
-        let entry: integer = phoff + index * phentsize
-        let alignment_high: integer = bytes_read_u32_le(data, entry + 52)
-        let alignment: integer = bytes_read_u32_le(data, entry + 48)
-        if bytes_read_u32_le(data, entry) == 1 and alignment_high == 0 and alignment > 0 and alignment < 16384 then
-          set error = "runtime hook " ++ path ++ " has a PT_LOAD alignment of " ++ to_text(alignment) ++ " bytes; rebuild it with -Wl,-z,max-page-size=16384 for 16 KiB Android devices"
-        end
-        set index = index + 1
+  if phoff_high == 0 and phentsize >= 56 and phnum > 0 and phoff + phentsize * phnum <= bytes_length(data) then
+    mutable index: integer = 0
+    while index < phnum and error == "" do
+      let entry: integer = phoff + index * phentsize
+      let alignment_high: integer = bytes_read_u32_le(data, entry + 52)
+      let alignment: integer = bytes_read_u32_le(data, entry + 48)
+      if bytes_read_u32_le(data, entry) == 1 and alignment_high == 0 and alignment > 0 and alignment < 16384 then
+        set error = alignment_error(path, alignment)
       end
-    end
-  else if bytes_get(data, 4) == 1 and bytes_length(data) >= 52 then
-    let phoff: integer = bytes_read_u32_le(data, 28)
-    let phentsize: integer = bytes_read_u16_le(data, 42)
-    let phnum: integer = bytes_read_u16_le(data, 44)
-    if phentsize >= 32 and phnum > 0 and phoff + phentsize * phnum <= bytes_length(data) then
-      mutable index: integer = 0
-      while index < phnum and error == "" do
-        let entry: integer = phoff + index * phentsize
-        let alignment: integer = bytes_read_u32_le(data, entry + 28)
-        if bytes_read_u32_le(data, entry) == 1 and alignment > 0 and alignment < 16384 then
-          set error = "runtime hook " ++ path ++ " has a PT_LOAD alignment of " ++ to_text(alignment) ++ " bytes; rebuild it with -Wl,-z,max-page-size=16384 for 16 KiB Android devices"
-        end
-        set index = index + 1
-      end
+      set index = index + 1
     end
   end
   error
+end
+
+function elf32_alignment_error(data: integer, path: text): text
+  intent: check the program headers of a 32-bit ELF
+  let phoff: integer = bytes_read_u32_le(data, 28)
+  let phentsize: integer = bytes_read_u16_le(data, 42)
+  let phnum: integer = bytes_read_u16_le(data, 44)
+  mutable error: text = ""
+  if phentsize >= 32 and phnum > 0 and phoff + phentsize * phnum <= bytes_length(data) then
+    mutable index: integer = 0
+    while index < phnum and error == "" do
+      let entry: integer = phoff + index * phentsize
+      let alignment: integer = bytes_read_u32_le(data, entry + 28)
+      if bytes_read_u32_le(data, entry) == 1 and alignment > 0 and alignment < 16384 then
+        set error = alignment_error(path, alignment)
+      end
+      set index = index + 1
+    end
+  end
+  error
+end
+
+function check_load_segment_alignment(data: integer, path: text): text
+  intent: reject native hooks that cannot load on 16 KiB Android pages
+  if bytes_length(data) < 5 then
+    ""
+  else if bytes_get(data, 4) == 2 and bytes_length(data) >= 64 then
+    elf64_alignment_error(data, path)
+  else if bytes_get(data, 4) == 1 and bytes_length(data) >= 52 then
+    elf32_alignment_error(data, path)
+  else
+    ""
+  end
 end
 
 function bytes_hex_at(data: integer, offset: integer, count: integer): text
@@ -419,19 +438,24 @@ function valid_ipv4(value: text): boolean
   valid
 end
 
+function hostname_label_valid(label: text): boolean
+  intent: validate
+  mutable valid: boolean = not (text_length(label) < 1 or text_length(label) > 63 or starts_with(label, "-") or ends_with(label, "-"))
+  mutable index: integer = 0
+  while index < text_length(label) do
+    let c: text = substring(label, index, 1)
+    if not ((c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "-") then set valid = false end
+    set index = index + 1
+  end
+  valid
+end
+
 function valid_hostname(value: text): boolean
   intent: validate
   if text_length(value) < 1 or text_length(value) > 253 then false else
-    let labels: a list of text = split(value, ".")
     mutable valid: boolean = true
-    for label in labels do
-      if text_length(label) < 1 or text_length(label) > 63 or starts_with(label, "-") or ends_with(label, "-") then set valid = false end
-      mutable index: integer = 0
-      while index < text_length(label) do
-        let c: text = substring(label, index, 1)
-        if not ((c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or (c >= "0" and c <= "9") or c == "-") then set valid = false end
-        set index = index + 1
-      end
+    for label in split(value, ".") do
+      if not hostname_label_valid(label) then set valid = false end
     end
     valid
   end
@@ -498,6 +522,51 @@ public function literal_replacements(server_host: text, server_port: integer): a
   [Replacement { old: "tf-odr.mcoc-cdn.cn", new: server_host ++ ":" ++ port }, Replacement { old: "tf-static.mcoc-cdn.cn", new: server_host ++ ":" ++ port }, Replacement { old: "words-express.tf-cdn.net", new: server_host ++ ":" ++ port }, Replacement { old: "wss://gametalk.sparx.io:30443", new: "wss://" ++ server_host ++ ":30443" }]
 end
 
+record LiteralStep
+  pending: a list of Replacement
+  changed: a list of text
+  error: text
+end
+
+function without_replacement(pending: a list of Replacement, hit: integer): a list of Replacement
+  intent: drop the replacement at the given index
+  mutable rest: a list of Replacement = []
+  mutable q: integer = 0
+  while q < length(pending) do
+    if q != hit then set rest = append(rest, unwrap_or(get(pending, q), Replacement { old: "", new: "" })) end
+    set q = q + 1
+  end
+  rest
+end
+
+function apply_literal(out: integer, entry: integer, start: integer, new_data: integer, replacement: Replacement, pending: a list of Replacement, hit: integer): LiteralStep
+  intent: write one replacement into the metadata literal it matched
+  bytes_write_bytes(out, start, new_data)
+  bytes_write_u32_le(out, entry, bytes_length(new_data))
+  LiteralStep { pending: without_replacement(pending, hit), changed: [replacement.old], error: "" }
+end
+
+function patch_literal(out: integer, entry: integer, data_offset: integer, pending: a list of Replacement): LiteralStep
+  intent: patch the metadata literal at one table entry when a replacement matches it
+  let size: integer = bytes_read_u32_le(out, entry)
+  let start: integer = data_offset + bytes_read_u32_le(out, entry + 4)
+  let hit: integer = replacement_index(out, start, size, pending)
+  if hit < 0 then
+    LiteralStep { pending: pending, changed: [], error: "" }
+  else
+    let replacement: Replacement = unwrap_or(get(pending, hit), Replacement { old: "", new: "" })
+    let new_data: integer = bytes_from_text(replacement.new)
+    let step: LiteralStep = if bytes_length(new_data) > size then LiteralStep { pending: pending, changed: [], error: "replacement is longer than literal: '" ++ replacement.old ++ "'" } else apply_literal(out, entry, start, new_data, replacement, pending, hit) end
+    bytes_free(new_data)
+    step
+  end
+end
+
+function patch_table_entry(out: integer, entry: integer, data_offset: integer, pending: a list of Replacement): LiteralStep
+  intent: patch one metadata literal table entry after checking it is inside the file
+  if entry + 8 > bytes_length(out) then LiteralStep { pending: pending, changed: [], error: "metadata literal table is out of range" } else patch_literal(out, entry, data_offset, pending) end
+end
+
 public function patch_metadata(metadata: integer, server_host: text, server_port: integer): MetadataPatch
   intent: patch
   if bytes_length(metadata) < 24 then MetadataPatch { data: 0, changed: [], error: "metadata is too short" } else
@@ -510,29 +579,10 @@ public function patch_metadata(metadata: integer, server_host: text, server_port
     mutable pending: a list of Replacement = literal_replacements(server_host, server_port)
     mutable entry: integer = literal_offset
     while entry < literal_offset + literal_count and error == "" do
-      if entry + 8 > bytes_length(out) then set error = "metadata literal table is out of range" else
-        let size: integer = bytes_read_u32_le(out, entry)
-        let index: integer = bytes_read_u32_le(out, entry + 4)
-        let start: integer = data_offset + index
-        let hit: integer = replacement_index(out, start, size, pending)
-        if hit >= 0 then
-          let replacement: Replacement = unwrap_or(get(pending, hit), Replacement { old: "", new: "" })
-          let new_data: integer = bytes_from_text(replacement.new)
-          if bytes_length(new_data) > size then set error = "replacement is longer than literal: '" ++ replacement.old ++ "'" else
-            bytes_write_bytes(out, start, new_data)
-            bytes_write_u32_le(out, entry, bytes_length(new_data))
-            set changed = append(changed, replacement.old)
-            mutable rest: a list of Replacement = []
-            mutable q: integer = 0
-            while q < length(pending) do
-              if q != hit then set rest = append(rest, unwrap_or(get(pending, q), Replacement { old: "", new: "" })) end
-              set q = q + 1
-            end
-            set pending = rest
-          end
-          bytes_free(new_data)
-        end
-      end
+      let step: LiteralStep = patch_table_entry(out, entry, data_offset, pending)
+      set error = step.error
+      set pending = step.pending
+      set changed = concat(changed, step.changed)
       set entry = entry + 8
     end
     if error == "" and length(pending) > 0 then set error = missing_replacements(pending) end
@@ -627,37 +677,71 @@ function zip_error(raw: integer, message: text): ZipArchive
   ZipArchive { raw: raw, entries: [], error: message }
 end
 
+record CentralRead
+  entry: ZipEntry
+  next: integer
+  error: text
+end
+
+function central_entry(raw: integer, offset: integer, local: integer): ZipEntry
+  intent: read one central directory entry and its local header offsets
+  let nlen: integer = bytes_read_u16_le(raw, offset + 28)
+  let xlen: integer = bytes_read_u16_le(raw, offset + 30)
+  let clen: integer = bytes_read_u16_le(raw, offset + 32)
+  let name_data: integer = bytes_slice(raw, offset + 46, nlen)
+  let name: text = bytes_to_text(name_data)
+  bytes_free(name_data)
+  ZipEntry { name: name, create_version: bytes_get(raw, offset + 4), create_system: bytes_get(raw, offset + 5), extract_version: bytes_get(raw, offset + 6), flag_bits: bytes_read_u16_le(raw, offset + 8), compress_type: bytes_read_u16_le(raw, offset + 10), dostime: bytes_read_u16_le(raw, offset + 12), dosdate: bytes_read_u16_le(raw, offset + 14), crc: bytes_read_u32_le(raw, offset + 16), compress_size: bytes_read_u32_le(raw, offset + 20), file_size: bytes_read_u32_le(raw, offset + 24), extra: bytes_slice(raw, offset + 46 + nlen, xlen), comment: bytes_slice(raw, offset + 46 + nlen + xlen, clen), internal_attr: bytes_read_u16_le(raw, offset + 36), external_attr: bytes_read_u32_le(raw, offset + 38), header_offset: local, data_offset: local + 30 + bytes_read_u16_le(raw, local + 26) + bytes_read_u16_le(raw, local + 28), data: 0 }
+end
+
+function read_central_entry(raw: integer, offset: integer): CentralRead
+  intent: read one central directory record
+  if offset + 46 > bytes_length(raw) or not zip_signature_at(raw, offset, 1, 2) then
+    CentralRead { entry: ZipEntry { name: "", create_version: 0, create_system: 0, extract_version: 0, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 0, crc: 0, compress_size: 0, file_size: 0, extra: 0, comment: 0, internal_attr: 0, external_attr: 0, header_offset: 0, data_offset: 0, data: 0 }, next: offset, error: "invalid ZIP central directory" }
+  else
+    let local: integer = bytes_read_u32_le(raw, offset + 42)
+    if local + 30 > bytes_length(raw) or not zip_signature_at(raw, local, 3, 4) then
+      CentralRead { entry: ZipEntry { name: "", create_version: 0, create_system: 0, extract_version: 0, flag_bits: 0, compress_type: 0, dostime: 0, dosdate: 0, crc: 0, compress_size: 0, file_size: 0, extra: 0, comment: 0, internal_attr: 0, external_attr: 0, header_offset: 0, data_offset: 0, data: 0 }, next: offset, error: "invalid ZIP local header" }
+    else
+      let span: integer = 46 + bytes_read_u16_le(raw, offset + 28) + bytes_read_u16_le(raw, offset + 30) + bytes_read_u16_le(raw, offset + 32)
+      CentralRead { entry: central_entry(raw, offset, local), next: offset + span, error: "" }
+    end
+  end
+end
+
+function read_central_directory(raw: integer, count: integer, start: integer): ZipArchive
+  intent: read every central directory entry
+  mutable offset: integer = start
+  mutable entries: a list of ZipEntry = []
+  mutable error: text = ""
+  mutable index: integer = 0
+  while index < count and error == "" do
+    let step: CentralRead = read_central_entry(raw, offset)
+    if step.error != "" then
+      set error = step.error
+    else
+      set entries = append(entries, step.entry)
+      set offset = step.next
+    end
+    set index = index + 1
+  end
+  ZipArchive { raw: raw, entries: entries, error: error }
+end
+
+function find_end_of_directory(raw: integer): integer
+  intent: search backwards for the ZIP end of central directory signature
+  mutable eocd: integer = bytes_length(raw) - 22
+  while eocd >= 0 and not zip_signature_at(raw, eocd, 5, 6) do set eocd = eocd - 1 end
+  eocd
+end
+
 public function zip_read(path: text): ZipArchive
   intent: read
   if not file_exists(path) then zip_error(0, "APK is missing: " ++ path) else
     let raw: integer = read_file_bytes(path)
-    mutable eocd: integer = bytes_length(raw) - 22
-    while eocd >= 0 and not zip_signature_at(raw, eocd, 5, 6) do set eocd = eocd - 1 end
+    let eocd: integer = find_end_of_directory(raw)
     if eocd < 0 or eocd + 22 > bytes_length(raw) then zip_error(raw, "invalid ZIP end of central directory") else
-      let count: integer = bytes_read_u16_le(raw, eocd + 10)
-      mutable offset: integer = bytes_read_u32_le(raw, eocd + 16)
-      mutable entries: a list of ZipEntry = []
-      mutable error: text = ""
-      mutable index: integer = 0
-      while index < count and error == "" do
-        if offset + 46 > bytes_length(raw) or not zip_signature_at(raw, offset, 1, 2) then set error = "invalid ZIP central directory" else
-          let nlen: integer = bytes_read_u16_le(raw, offset + 28)
-          let xlen: integer = bytes_read_u16_le(raw, offset + 30)
-          let clen: integer = bytes_read_u16_le(raw, offset + 32)
-          let local: integer = bytes_read_u32_le(raw, offset + 42)
-          if local + 30 > bytes_length(raw) or not zip_signature_at(raw, local, 3, 4) then set error = "invalid ZIP local header" else
-            let local_nlen: integer = bytes_read_u16_le(raw, local + 26)
-            let local_xlen: integer = bytes_read_u16_le(raw, local + 28)
-            let name_data: integer = bytes_slice(raw, offset + 46, nlen)
-            let entry: ZipEntry = ZipEntry { name: bytes_to_text(name_data), create_version: bytes_get(raw, offset + 4), create_system: bytes_get(raw, offset + 5), extract_version: bytes_get(raw, offset + 6), flag_bits: bytes_read_u16_le(raw, offset + 8), compress_type: bytes_read_u16_le(raw, offset + 10), dostime: bytes_read_u16_le(raw, offset + 12), dosdate: bytes_read_u16_le(raw, offset + 14), crc: bytes_read_u32_le(raw, offset + 16), compress_size: bytes_read_u32_le(raw, offset + 20), file_size: bytes_read_u32_le(raw, offset + 24), extra: bytes_slice(raw, offset + 46 + nlen, xlen), comment: bytes_slice(raw, offset + 46 + nlen + xlen, clen), internal_attr: bytes_read_u16_le(raw, offset + 36), external_attr: bytes_read_u32_le(raw, offset + 38), header_offset: local, data_offset: local + 30 + local_nlen + local_xlen, data: 0 }
-            bytes_free(name_data)
-            set entries = append(entries, entry)
-            set offset = offset + 46 + nlen + xlen + clen
-          end
-        end
-        set index = index + 1
-      end
-      ZipArchive { raw: raw, entries: entries, error: error }
+      read_central_directory(raw, bytes_read_u16_le(raw, eocd + 10), bytes_read_u32_le(raw, eocd + 16))
     end
   end
 end
@@ -733,9 +817,8 @@ function write_local(out: integer, offset: integer, entry: ZipEntry): integer
   next
 end
 
-function write_central(out: integer, offset: integer, entry: ZipEntry, header: integer): integer
-  intent: write
-  let name: integer = bytes_from_text(entry.name)
+function write_central_head(out: integer, offset: integer, entry: ZipEntry): nothing
+  intent: write the signature, versions, flags, and timestamps of a central directory record
   bytes_set(out, offset, 80)
   bytes_set(out, offset + 1, 75)
   bytes_set(out, offset + 2, 1)
@@ -748,16 +831,27 @@ function write_central(out: integer, offset: integer, entry: ZipEntry, header: i
   put_u16(out, offset + 10, entry.compress_type)
   put_u16(out, offset + 12, entry.dostime)
   put_u16(out, offset + 14, entry.dosdate)
+end
+
+function write_central_sizes(out: integer, offset: integer, entry: ZipEntry, name_length: integer, header: integer): nothing
+  intent: write the checksum, sizes, lengths, attributes, and header offset of a central directory record
   bytes_write_u32_le(out, offset + 16, entry.crc)
   bytes_write_u32_le(out, offset + 20, entry.compress_size)
   bytes_write_u32_le(out, offset + 24, entry.file_size)
-  put_u16(out, offset + 28, bytes_length(name))
+  put_u16(out, offset + 28, name_length)
   put_u16(out, offset + 30, bytes_length(entry.extra))
   put_u16(out, offset + 32, bytes_length(entry.comment))
   put_u16(out, offset + 34, 0)
   put_u16(out, offset + 36, entry.internal_attr)
   bytes_write_u32_le(out, offset + 38, if entry.external_attr == 0 then 25165824 else entry.external_attr end)
   bytes_write_u32_le(out, offset + 42, header)
+end
+
+function write_central(out: integer, offset: integer, entry: ZipEntry, header: integer): integer
+  intent: write
+  let name: integer = bytes_from_text(entry.name)
+  write_central_head(out, offset, entry)
+  write_central_sizes(out, offset, entry, bytes_length(name), header)
   bytes_write_bytes(out, offset + 46, name)
   bytes_write_bytes(out, offset + 46 + bytes_length(name), entry.extra)
   bytes_write_bytes(out, offset + 46 + bytes_length(name) + bytes_length(entry.extra), entry.comment)
@@ -850,17 +944,27 @@ function unique(values: a list of text): a list of text
   out
 end
 
-public function build(options: BuildOptions): BuildResult
-  intent: build
-  let state: BuildState = prepare_build(options)
-  let result: BuildResult = if state.error != "" then BuildResult { hosts: [], error: state.error } else
+function write_selected(options: BuildOptions, selected: EntryCollection, state: BuildState): text
+  intent: write the selected entries with the parallel writer when it is available
+  if parallel_writer_available() then write_parallel_zip(options, selected) else write_preserved_zip(options.destination, selected.entries, state.archive.raw) end
+end
+
+function build_with_state(options: BuildOptions, state: BuildState): BuildResult
+  intent: collect and write the entries of a prepared build
+  if state.error != "" then BuildResult { hosts: [], error: state.error } else
     let selected: EntryCollection = collect_entries(options, state)
     if selected.error != "" then BuildResult { hosts: [], error: selected.error }
     else
-      let write_error: text = if parallel_writer_available() then write_parallel_zip(options, selected) else write_preserved_zip(options.destination, selected.entries, state.archive.raw) end
+      let write_error: text = write_selected(options, selected, state)
       if write_error != "" then BuildResult { hosts: [], error: write_error } else BuildResult { hosts: unique(selected.changed), error: "" } end
     end
   end
+end
+
+public function build(options: BuildOptions): BuildResult
+  intent: build
+  let state: BuildState = prepare_build(options)
+  let result: BuildResult = build_with_state(options, state)
   zip_free(state.archive)
   if state.hook != 0 then bytes_free(state.hook) end
   if state.replacement != 0 then bytes_free(state.replacement) end
@@ -868,46 +972,94 @@ public function build(options: BuildOptions): BuildResult
   result
 end
 
-function prepare_build(options: BuildOptions): BuildState
-  intent: validate the options, load the hook and patched libil2cpp, and build the BuildState
-  let archive: ZipArchive = zip_read(options.source)
-  mutable error: text = archive.error
-  if options.source == options.destination then set error = "destination must differ from source; the original APK is preserved" end
-  if error == "" and options.abi != arm64() and options.abi != armv7() then set error = "invalid ABI: " ++ options.abi end
-  if error == "" and options.bundle_server and options.scheme != "http" then set error = "bundled server requires --scheme http" end
-  if error == "" and options.bundle_server and options.server_host != "127.0.0.1" then set error = "bundled server binds loopback only; --server-host must be 127.0.0.1" end
+function missing_entry_error(options: BuildOptions, archive: ZipArchive): text
+  intent: name the first required entry the APK does not contain
+  mutable error: text = ""
   for name in ["AndroidManifest.xml", metadata_name(), sparx_manifest_name(), endpoint_config_name(), il2cpp_entry(options.abi)] do
     if error == "" and zip_find(archive, name) < 0 then set error = "APK is missing " ++ name end
   end
+  error
+end
+
+function option_error(options: BuildOptions, archive: ZipArchive): text
+  intent: validate the build options against the source archive
+  if options.source == options.destination then "destination must differ from source; the original APK is preserved"
+  else if archive.error != "" then archive.error
+  else if options.abi != arm64() and options.abi != armv7() then "invalid ABI: " ++ options.abi
+  else if options.bundle_server and options.scheme != "http" then "bundled server requires --scheme http"
+  else if options.bundle_server and options.server_host != "127.0.0.1" then "bundled server binds loopback only; --server-host must be 127.0.0.1"
+  else missing_entry_error(options, archive)
+  end
+end
+
+function replacement_error(options: BuildOptions, replacement: integer): text
+  intent: validate the optional patched libil2cpp
+  if options.patched_il2cpp != "" and replacement == 0 then
+    "patched libil2cpp is missing: " ++ options.patched_il2cpp
+  else if replacement == 0 then
+    ""
+  else
+    let elf_error: text = check_elf(replacement, options.abi, options.patched_il2cpp, "patched libil2cpp")
+    if elf_error != "" then elf_error
+    else if not options.bundle_server and bytes_index_of(replacement, "libdothook.so", 0) < 0 then "patched libil2cpp does not reference libdothook.so: " ++ options.patched_il2cpp
+    else ""
+    end
+  end
+end
+
+record BundleCheck
+  error: text
+  replacement: integer
+end
+
+function bundle_check(options: BuildOptions, archive: ZipArchive, replacement: integer): BundleCheck
+  intent: verify the libil2cpp that ships with the bundled server is offline ready
+  mutable shipping: integer = replacement
+  mutable source_derived: boolean = false
+  mutable kept: integer = replacement
+  mutable error: text = ""
+  let shipping_path: text = if replacement != 0 then options.patched_il2cpp else options.source ++ ":" ++ il2cpp_entry(options.abi) end
+  if shipping == 0 then
+    let entry: ZipEntry = unwrap(get(archive.entries, zip_find(archive, il2cpp_entry(options.abi))))
+    set shipping = patch_source_bytes(BuildState { archive: archive, hook: 0, replacement: 0, payload: 0, hook_path: "", error: "" }, entry)
+    set source_derived = true
+  end
+  if check_elf(shipping, options.abi, shipping_path, "libil2cpp") == "" then
+    let offline_error: text = check_offline_ready(shipping, reachability_sites(options.abi), options.abi, shipping_path)
+    if offline_error != "" then set error = offline_error
+    else if source_derived then set kept = shipping end
+  end
+  if source_derived and kept == 0 then bytes_free(shipping) end
+  BundleCheck { error: error, replacement: kept }
+end
+
+record HookLoad
+  hook: integer
+  error: text
+end
+
+function load_hook(options: BuildOptions, hook_path: text): HookLoad
+  intent: read and check the runtime hook
+  if not file_exists(hook_path) then
+    HookLoad { hook: 0, error: "current runtime hook is missing: " ++ hook_path }
+  else
+    let hook: integer = read_file_bytes(hook_path)
+    HookLoad { hook: hook, error: check_hook(hook, options.abi, hook_path, options.bundle_server) }
+  end
+end
+
+function prepare_build(options: BuildOptions): BuildState
+  intent: validate the options, load the hook and patched libil2cpp, and build the BuildState
+  let archive: ZipArchive = zip_read(options.source)
+  let option_problem: text = option_error(options, archive)
   let hook_path: text = selected_hook(options)
-  if error == "" and not file_exists(hook_path) then set error = "current runtime hook is missing: " ++ hook_path end
-  let hook: integer = if error == "" then read_file_bytes(hook_path) else 0 end
-  if error == "" then set error = check_hook(hook, options.abi, hook_path, options.bundle_server) end
-  mutable replacement: integer = if options.patched_il2cpp != "" and file_exists(options.patched_il2cpp) then read_file_bytes(options.patched_il2cpp) else 0 end
-  if error == "" and options.patched_il2cpp != "" and replacement == 0 then set error = "patched libil2cpp is missing: " ++ options.patched_il2cpp end
-  if error == "" and replacement != 0 then set error = check_elf(replacement, options.abi, options.patched_il2cpp, "patched libil2cpp") end
-  if error == "" and replacement != 0 and not options.bundle_server then
-    if bytes_index_of(replacement, "libdothook.so", 0) < 0 then set error = "patched libil2cpp does not reference libdothook.so: " ++ options.patched_il2cpp end
-  end
-  if error == "" and options.bundle_server then
-    mutable shipping: integer = replacement
-    mutable source_derived: boolean = false
-    let shipping_path: text = if replacement != 0 then options.patched_il2cpp else options.source ++ ":" ++ il2cpp_entry(options.abi) end
-    if shipping == 0 then
-      let index: integer = zip_find(archive, il2cpp_entry(options.abi))
-      let entry: ZipEntry = unwrap(get(archive.entries, index))
-      set shipping = patch_source_bytes(BuildState { archive: archive, hook: 0, replacement: 0, payload: 0, hook_path: "", error: "" }, entry)
-      set source_derived = true
-    end
-    if check_elf(shipping, options.abi, shipping_path, "libil2cpp") == "" then
-      let offline_error: text = check_offline_ready(shipping, reachability_sites(options.abi), options.abi, shipping_path)
-      if offline_error != "" then set error = offline_error
-      else if source_derived then set replacement = shipping end
-    end
-    if source_derived and replacement == 0 then bytes_free(shipping) end
-  end
+  let loaded: HookLoad = if option_problem == "" then load_hook(options, hook_path) else HookLoad { hook: 0, error: option_problem } end
+  let replacement: integer = if options.patched_il2cpp != "" and file_exists(options.patched_il2cpp) then read_file_bytes(options.patched_il2cpp) else 0 end
+  let hook_problem: text = if loaded.error == "" then replacement_error(options, replacement) else loaded.error end
+  let bundle: BundleCheck = if hook_problem == "" and options.bundle_server then bundle_check(options, archive, replacement) else BundleCheck { error: "", replacement: replacement } end
+  let error: text = if hook_problem == "" then bundle.error else hook_problem end
   let payload: integer = if error == "" and options.bundle_server then export_payload.build_payload(options.server_port) else 0 end
-  BuildState { archive: archive, hook: hook, replacement: replacement, payload: payload, hook_path: hook_path, error: error }
+  BuildState { archive: archive, hook: loaded.hook, replacement: bundle.replacement, payload: payload, hook_path: hook_path, error: error }
 end
 
 function copied_entry(entry: ZipEntry, data: integer, crc: integer): ZipEntry
@@ -935,28 +1087,53 @@ function patch_source_bytes(state: BuildState, entry: ZipEntry): integer
   end
 end
 
+function patch_result(entry: ZipEntry, data: integer, changed: a list of text, error: text): EntryResult
+  intent: wrap patched bytes as a rebuilt entry or report the patch error
+  if error != "" then EntryResult { entry: entry, changed: [], error: error } else EntryResult { entry: copied_entry(entry, data, replacement_crc(data)), changed: changed, error: "" } end
+end
+
+function patch_metadata_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
+  intent: patch the IL2CPP metadata literals
+  let raw: integer = patch_source_bytes(state, entry)
+  let patched: MetadataPatch = patch_metadata(raw, options.server_host, options.server_port)
+  bytes_free(raw)
+  patch_result(entry, patched.data, patched.changed, patched.error)
+end
+
+function patch_sparx_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
+  intent: patch the sparx manifest endpoints
+  let raw: integer = patch_source_bytes(state, entry)
+  let patched: BytesResult = patch_sparx_manifest(raw, options.server_host, options.scheme, options.server_port)
+  bytes_free(raw)
+  patch_result(entry, patched.data, ["tform-0901-hzlhiniyfcwf.tf-cdn.net"], patched.error)
+end
+
+function patch_endpoint_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
+  intent: patch the Unity endpoint config
+  let raw: integer = patch_source_bytes(state, entry)
+  let patched: BytesResult = patch_endpoint_config(raw, options.server_host, options.scheme, options.server_port)
+  bytes_free(raw)
+  patch_result(entry, patched.data, [], patched.error)
+end
+
 function patch_entry(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
   intent: patch
-  if entry.name == metadata_name() then
-    let raw: integer = patch_source_bytes(state, entry)
-    let patched: MetadataPatch = patch_metadata(raw, options.server_host, options.server_port)
-    bytes_free(raw)
-    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: patched.changed, error: "" } end
-  else if entry.name == sparx_manifest_name() then
-    let raw: integer = patch_source_bytes(state, entry)
-    let patched: BytesResult = patch_sparx_manifest(raw, options.server_host, options.scheme, options.server_port)
-    bytes_free(raw)
-    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: ["tform-0901-hzlhiniyfcwf.tf-cdn.net"], error: "" } end
-  else if entry.name == endpoint_config_name() then
-    let raw: integer = patch_source_bytes(state, entry)
-    let patched: BytesResult = patch_endpoint_config(raw, options.server_host, options.scheme, options.server_port)
-    bytes_free(raw)
-    if patched.error != "" then EntryResult { entry: entry, changed: [], error: patched.error } else EntryResult { entry: copied_entry(entry, patched.data, replacement_crc(patched.data)), changed: [], error: "" } end
-  else if entry.name == hook_entry(options.abi) then
-    EntryResult { entry: copied_entry(entry, state.hook, replacement_crc(state.hook)), changed: [], error: "" }
-  else if entry.name == il2cpp_entry(options.abi) and state.replacement != 0 then
-    EntryResult { entry: copied_entry(entry, state.replacement, replacement_crc(state.replacement)), changed: [], error: "" }
+  if entry.name == metadata_name() then patch_metadata_entry(options, state, entry)
+  else if entry.name == sparx_manifest_name() then patch_sparx_entry(options, state, entry)
+  else if entry.name == endpoint_config_name() then patch_endpoint_entry(options, state, entry)
+  else if entry.name == hook_entry(options.abi) then patch_result(entry, state.hook, [], "")
+  else if entry.name == il2cpp_entry(options.abi) and state.replacement != 0 then patch_result(entry, state.replacement, [], "")
   else EntryResult { entry: preserved_entry(entry), changed: [], error: "" } end
+end
+
+function entry_kept(options: BuildOptions, entry: ZipEntry, other_prefix: text): boolean
+  intent: decide whether an entry survives into the rebuilt APK
+  not has_signature(entry.name) and (options.keep_other_abi or not starts_with(entry.name, other_prefix)) and (not options.bundle_server or entry.name != payload_asset())
+end
+
+function collect_patch(options: BuildOptions, state: BuildState, entry: ZipEntry): EntryResult
+  intent: patch one entry unless it is encrypted
+  if bit_and(entry.flag_bits, 1) != 0 then EntryResult { entry: entry, changed: [], error: "unsupported encrypted ZIP entry: " ++ entry.name } else patch_entry(options, state, entry) end
 end
 
 function collect_entries(options: BuildOptions, state: BuildState): EntryCollection
@@ -966,15 +1143,11 @@ function collect_entries(options: BuildOptions, state: BuildState): EntryCollect
   mutable error: text = ""
   let other_prefix: text = "lib/" ++ if options.abi == arm64() then armv7() else arm64() end ++ "/"
   for entry in state.archive.entries do
-    let keep: boolean = not has_signature(entry.name) and (options.keep_other_abi or not starts_with(entry.name, other_prefix)) and (not options.bundle_server or entry.name != payload_asset())
-    if keep and error == "" then
-      if bit_and(entry.flag_bits, 1) != 0 then set error = "unsupported encrypted ZIP entry: " ++ entry.name
-      else
-        let result: EntryResult = patch_entry(options, state, entry)
-        if result.error != "" then set error = result.error else
-          set entries = append(entries, result.entry)
-          for value in result.changed do set changed = append(changed, value) end
-        end
+    if entry_kept(options, entry, other_prefix) and error == "" then
+      let result: EntryResult = collect_patch(options, state, entry)
+      if result.error != "" then set error = result.error else
+        set entries = append(entries, result.entry)
+        set changed = concat(changed, result.changed)
       end
     end
   end
@@ -1011,6 +1184,30 @@ function write_zip_directory(out: integer, offset: integer, entries: a list of Z
   at
 end
 
+function write_entry_data(out: integer, at: integer, entry: ZipEntry, source_raw: integer): nothing
+  intent: copy the data of an entry into the output archive
+  if entry.data != 0 then bytes_write_bytes(out, at, entry.data) else
+    let chunk: integer = bytes_slice(source_raw, entry.data_offset, entry.compress_size)
+    bytes_write_bytes(out, at, chunk)
+    bytes_free(chunk)
+  end
+end
+
+function write_end_record(out: integer, at: integer, central: integer, count: integer): nothing
+  intent: write the ZIP end of central directory record
+  bytes_set(out, at, 80)
+  bytes_set(out, at + 1, 75)
+  bytes_set(out, at + 2, 5)
+  bytes_set(out, at + 3, 6)
+  put_u16(out, at + 4, 0)
+  put_u16(out, at + 6, 0)
+  put_u16(out, at + 8, count)
+  put_u16(out, at + 10, count)
+  bytes_write_u32_le(out, at + 12, at - central)
+  bytes_write_u32_le(out, at + 16, central)
+  put_u16(out, at + 20, 0)
+end
+
 function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw: integer): text
   intent: write
   let sizes: a list of integer = zip_sizes(entries)
@@ -1021,26 +1218,12 @@ function write_preserved_zip(path: text, entries: a list of ZipEntry, source_raw
     set headers = append(headers, at)
     let size: integer = entry_size(entry)
     set at = write_local(out, at, entry)
-    if entry.data != 0 then bytes_write_bytes(out, at, entry.data) else
-      let chunk: integer = bytes_slice(source_raw, entry.data_offset, entry.compress_size)
-      bytes_write_bytes(out, at, chunk)
-      bytes_free(chunk)
-    end
+    write_entry_data(out, at, entry, source_raw)
     set at = at + size
   end
   let central: integer = at
   set at = write_zip_directory(out, at, entries, headers)
-  bytes_set(out, at, 80)
-  bytes_set(out, at + 1, 75)
-  bytes_set(out, at + 2, 5)
-  bytes_set(out, at + 3, 6)
-  put_u16(out, at + 4, 0)
-  put_u16(out, at + 6, 0)
-  put_u16(out, at + 8, length(entries))
-  put_u16(out, at + 10, length(entries))
-  bytes_write_u32_le(out, at + 12, at - central)
-  bytes_write_u32_le(out, at + 16, central)
-  put_u16(out, at + 20, 0)
+  write_end_record(out, at, central, length(entries))
   write_file_bytes(path, out)
   bytes_free(out)
   ""
@@ -1070,10 +1253,8 @@ function parallel_overlay_dir(destination: text): text
   path_join(directory_name(destination), ".tftf-parallel-" ++ to_text(current_time_ms()))
 end
 
-function write_parallel_zip(options: BuildOptions, selected: EntryCollection): text
-  intent: write the APK with a native multi-worker data-copy stage
-  let folder: text = parallel_overlay_dir(options.destination)
-  create_dir(folder)
+function parallel_base_command(options: BuildOptions): text
+  intent: build the parallel writer invocation without the entry overlays
   mutable command: text = shell_quote(parallel_writer_script()) ++ " " ++ shell_quote(options.source) ++ " " ++ shell_quote(options.destination) ++ " --drop-signatures"
   if not options.keep_other_abi then
     let other: text = if options.abi == arm64() then armv7() else arm64() end
@@ -1082,16 +1263,30 @@ function write_parallel_zip(options: BuildOptions, selected: EntryCollection): t
   if options.bundle_server then set command = command ++ " --drop " ++ shell_quote(payload_asset()) end
   let workers: text = trim(unwrap_or(env_get("TFTF_APK_WORKERS"), ""))
   if workers != "" then set command = command ++ " --workers " ++ shell_quote(workers) end
+  command
+end
+
+function parallel_overlays(folder: text, entries: a list of ZipEntry): text
+  intent: write each replaced entry to an overlay file and name it on the command line
+  mutable arguments: text = ""
   mutable index: integer = 0
-  for entry in selected.entries do
+  for entry in entries do
     if entry.data != 0 then
       let overlay: text = path_join(folder, "entry-" ++ to_text(index) ++ ".bin")
       write_file_bytes(overlay, entry.data)
-      set command = command ++ " --replace " ++ shell_quote(entry.name) ++ " " ++ shell_quote(overlay)
+      set arguments = arguments ++ " --replace " ++ shell_quote(entry.name) ++ " " ++ shell_quote(overlay)
     end
     set index = index + 1
   end
-  let result: a mapping from text to text = shell_exec(command)
+  arguments
+end
+
+function write_parallel_zip(options: BuildOptions, selected: EntryCollection): text
+  intent: write the APK with a native multi-worker data-copy stage
+  let folder: text = parallel_overlay_dir(options.destination)
+  create_dir(folder)
+  let base: text = parallel_base_command(options)
+  let result: a mapping from text to text = shell_exec(base ++ parallel_overlays(folder, selected.entries))
   let code: integer = unwrap_or(to_integer(unwrap_or(get(result, "exit_code"), "1")), 1)
   let stdout: text = trim(unwrap_or(get(result, "stdout"), ""))
   let stderr: text = trim(unwrap_or(get(result, "stderr"), ""))
@@ -1126,6 +1321,104 @@ function die(message: text, code: integer): nothing
   exit_process(code)
 end
 
+function with_keep_other_abi(o: BuildOptions): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: o.server_host, abi: o.abi, keep_other_abi: true, patched_il2cpp: o.patched_il2cpp, scheme: o.scheme, server_port: o.server_port, bundle_server: o.bundle_server, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+function with_bundle_server(o: BuildOptions): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: o.server_host, abi: o.abi, keep_other_abi: o.keep_other_abi, patched_il2cpp: o.patched_il2cpp, scheme: o.scheme, server_port: o.server_port, bundle_server: true, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+function with_server_host(o: BuildOptions, value: text): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: value, abi: o.abi, keep_other_abi: o.keep_other_abi, patched_il2cpp: o.patched_il2cpp, scheme: o.scheme, server_port: o.server_port, bundle_server: o.bundle_server, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+function with_server_port(o: BuildOptions, value: integer): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: o.server_host, abi: o.abi, keep_other_abi: o.keep_other_abi, patched_il2cpp: o.patched_il2cpp, scheme: o.scheme, server_port: value, bundle_server: o.bundle_server, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+function with_scheme(o: BuildOptions, value: text): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: o.server_host, abi: o.abi, keep_other_abi: o.keep_other_abi, patched_il2cpp: o.patched_il2cpp, scheme: value, server_port: o.server_port, bundle_server: o.bundle_server, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+function with_abi(o: BuildOptions, value: text): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: o.server_host, abi: value, keep_other_abi: o.keep_other_abi, patched_il2cpp: o.patched_il2cpp, scheme: o.scheme, server_port: o.server_port, bundle_server: o.bundle_server, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+function with_patched_il2cpp(o: BuildOptions, value: text): BuildOptions
+  intent: return the options with one field replaced
+  BuildOptions { source: o.source, destination: o.destination, server_host: o.server_host, abi: o.abi, keep_other_abi: o.keep_other_abi, patched_il2cpp: value, scheme: o.scheme, server_port: o.server_port, bundle_server: o.bundle_server, hook_override_arm64: o.hook_override_arm64, hook_override_armv7: o.hook_override_armv7 }
+end
+
+record FlagResult
+  options: BuildOptions
+  error: text
+  next: integer
+end
+
+function flag_failure(options: BuildOptions, message: text, index: integer): FlagResult
+  intent: report a rejected flag
+  FlagResult { options: options, error: message, next: index + 2 }
+end
+
+function flag_success(options: BuildOptions, index: integer): FlagResult
+  intent: report an accepted flag that consumed a value
+  FlagResult { options: options, error: "", next: index + 2 }
+end
+
+function host_flag(options: BuildOptions, value: text, index: integer): FlagResult
+  intent: apply the server host flag
+  let checked: TextResult = validate_server_host(value)
+  if checked.error != "" then flag_failure(options, checked.error, index) else flag_success(with_server_host(options, checked.value), index) end
+end
+
+function port_flag(options: BuildOptions, value: text, index: integer): FlagResult
+  intent: apply the server port flag
+  let checked: IntResult = validate_server_port(value)
+  if checked.error != "" then flag_failure(options, checked.error, index) else flag_success(with_server_port(options, checked.value), index) end
+end
+
+function scheme_flag(options: BuildOptions, value: text, index: integer): FlagResult
+  intent: apply the scheme flag
+  if value != "https" and value != "http" then flag_failure(options, "invalid scheme: " ++ value, index) else flag_success(with_scheme(options, value), index) end
+end
+
+function abi_flag(options: BuildOptions, value: text, index: integer): FlagResult
+  intent: apply the abi flag
+  if value != arm64() and value != armv7() then flag_failure(options, "invalid ABI: " ++ value, index) else flag_success(with_abi(options, value), index) end
+end
+
+function patched_flag(options: BuildOptions, value: text, index: integer): FlagResult
+  intent: apply the patched libil2cpp flag
+  if value == "" then flag_failure(options, "--patched-il2cpp requires a path", index) else flag_success(with_patched_il2cpp(options, value), index) end
+end
+
+function apply_value_flag(options: BuildOptions, flag: text, value: text, index: integer): FlagResult
+  intent: apply one flag that takes a value
+  if flag == "--server-host" then host_flag(options, value, index)
+  else if flag == "--server-port" then port_flag(options, value, index)
+  else if flag == "--scheme" then scheme_flag(options, value, index)
+  else if flag == "--abi" then abi_flag(options, value, index)
+  else if flag == "--patched-il2cpp" then patched_flag(options, value, index)
+  else FlagResult { options: options, error: "unknown argument: " ++ flag, next: index + 1 }
+  end
+end
+
+function apply_flag(options: BuildOptions, args: a list of text, index: integer): FlagResult
+  intent: apply the command line flag at the given index
+  let flag: text = unwrap_or(get(args, index), "")
+  if flag == "--keep-other-abi" then FlagResult { options: with_keep_other_abi(options), error: "", next: index + 1 }
+  else if flag == "--bundle-server" then FlagResult { options: with_bundle_server(options), error: "", next: index + 1 }
+  else apply_value_flag(options, flag, unwrap_or(get(args, index + 1), ""), index)
+  end
+end
+
 function main(): nothing
   intent: run
   let args: a list of text = get_args()
@@ -1134,31 +1427,10 @@ function main(): nothing
   mutable error: text = ""
   mutable index: integer = 3
   while index < length(args) and error == "" do
-    let flag: text = unwrap_or(get(args, index), "")
-    if flag == "--keep-other-abi" then set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: true, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 }
-    else if flag == "--bundle-server" then set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: true, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 }
-    else if flag == "--server-host" then
-      let checked: TextResult = validate_server_host(unwrap_or(get(args, index + 1), ""))
-      if checked.error != "" then set error = checked.error else set options = BuildOptions { source: options.source, destination: options.destination, server_host: checked.value, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
-      set index = index + 1
-    else if flag == "--server-port" then
-      let checked: IntResult = validate_server_port(unwrap_or(get(args, index + 1), ""))
-      if checked.error != "" then set error = checked.error else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: checked.value, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
-      set index = index + 1
-    else if flag == "--scheme" then
-      let value: text = unwrap_or(get(args, index + 1), "")
-      if value != "https" and value != "http" then set error = "invalid scheme: " ++ value else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: value, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
-      set index = index + 1
-    else if flag == "--abi" then
-      let value: text = unwrap_or(get(args, index + 1), "")
-      if value != arm64() and value != armv7() then set error = "invalid ABI: " ++ value else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: value, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
-      set index = index + 1
-    else if flag == "--patched-il2cpp" then
-      let value: text = unwrap_or(get(args, index + 1), "")
-      if value == "" then set error = "--patched-il2cpp requires a path" else set options = BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: value, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 } end
-      set index = index + 1
-    else set error = "unknown argument: " ++ flag end
-    set index = index + 1
+    let step: FlagResult = apply_flag(options, args, index)
+    set options = step.options
+    set error = step.error
+    set index = step.next
   end
   if error != "" then die(error, 2) end
   let result: BuildResult = build(options)
