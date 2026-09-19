@@ -233,8 +233,39 @@ function test_local_hook_contains_server_marker(): TestResult
   end
 end
 
+function hook_table_tag(line: text): text
+  intent: read the quoted tag from one hook table line
+  let fields: a list of text = split(line, "\"")
+  if length(fields) >= 3 then unwrap_or(get(fields, 1), "") else "" end
+end
+
+function hook_source_tags(source: text): a list of text
+  intent: collect the tags listed in the H table of hook.c
+  mutable tags: a list of text = []
+  mutable in_table: boolean = false
+  for line in split(source, "\n") do
+    if text_contains(line, "H[] =") then
+      set in_table = true
+    else if in_table and trim(line) == "};" then
+      set in_table = false
+    else if in_table and text_contains(line, "0x") and hook_table_tag(line) != "" then
+      set tags = append(tags, hook_table_tag(line))
+    end
+  end
+  tags
+end
+
+function first_missing_tag(data: integer, tags: a list of text): text
+  intent: return the first tag absent from the hook binary or an empty text
+  mutable missing: text = ""
+  for tag in tags do
+    if missing == "" and not bytes_contain(data, tag) then set missing = tag end
+  end
+  missing
+end
+
 function test_local_hook_matches_hook_source_tags(): TestResult
-  intent: test
+  intent: check that the locally built hook binary contains every tag from hook.c
   let path: text = build_phone_apk.abi_hook_path(build_phone_apk.arm64())
   let source_path: text = replace(path, "libdothook.so", "hook.c")
   if not file_exists(path) then
@@ -244,34 +275,16 @@ function test_local_hook_matches_hook_source_tags(): TestResult
     print("[skip] test_local_hook_matches_hook_source_tags: hook source is missing: " ++ source_path)
     ok()
   else
-    let source: text = read_file(source_path)
+    let tags: a list of text = hook_source_tags(read_file(source_path))
     let data: integer = read_file_bytes(path)
-    mutable tag_count: integer = 0
-    mutable result: TestResult = ok()
-    mutable in_table: boolean = false
-    for line in split(source, "\n") do
-      if text_contains(line, "H[] =") then
-        set in_table = true
-      else if in_table and trim(line) == "};" then
-        set in_table = false
-      else if in_table and text_contains(line, "0x") then
-        let fields: a list of text = split(line, "\"")
-        if length(fields) >= 3 then
-          let tag: text = unwrap_or(get(fields, 1), "")
-          if tag != "" then
-            set tag_count = tag_count + 1
-            if result.passed and not bytes_contain(data, tag) then
-              set result = failed("locally built libdothook.so is stale: hook.c tag \"" ++ tag ++ "\" is missing; rebuild it with the aarch64 NDK clang command in README.md")
-            end
-          end
-        end
-      end
-    end
+    let missing: text = first_missing_tag(data, tags)
     bytes_free(data)
-    if tag_count < 140 then
-      failed("hook.c tag parsing found only " ++ to_text(tag_count) ++ " tags (expected ~147); the H[] table format changed and this guard needs updating")
+    if length(tags) < 140 then
+      failed("hook.c tag parsing found only " ++ to_text(length(tags)) ++ " tags (expected ~147); the H[] table format changed and this guard needs updating")
+    else if missing != "" then
+      failed("locally built libdothook.so is stale: hook.c tag \"" ++ missing ++ "\" is missing; rebuild it with the aarch64 NDK clang command in README.md")
     else
-      result
+      ok()
     end
   end
 end
@@ -399,9 +412,35 @@ function write_source_with_short_armv7_elf(path: text, armv7_il2cpp: integer): t
   result
 end
 
-function build_options(source: text, destination: text, abi: text, keep_other_abi: boolean, patched_il2cpp: text, scheme: text, server_host: text, server_port: integer, bundle_server: boolean, hook64: text, hook7: text): BuildOptions
-  intent: build
-  BuildOptions { source: source, destination: destination, server_host: server_host, abi: abi, keep_other_abi: keep_other_abi, patched_il2cpp: patched_il2cpp, scheme: scheme, server_port: server_port, bundle_server: bundle_server, hook_override_arm64: hook64, hook_override_armv7: hook7 }
+function build_options(source: text, destination: text, abi: text, scheme: text, server_host: text, server_port: integer, bundle_server: boolean): BuildOptions
+  intent: build options with no hook overrides, no kept ABI and no patched il2cpp
+  BuildOptions { source: source, destination: destination, server_host: server_host, abi: abi, keep_other_abi: false, patched_il2cpp: "", scheme: scheme, server_port: server_port, bundle_server: bundle_server, hook_override_arm64: "", hook_override_armv7: "" }
+end
+
+function with_variant(options: BuildOptions, keep_other_abi: boolean, patched_il2cpp: text): BuildOptions
+  intent: copy the options with the ABI retention and patched il2cpp choices
+  BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: keep_other_abi, patched_il2cpp: patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: options.hook_override_arm64, hook_override_armv7: options.hook_override_armv7 }
+end
+
+function with_hooks(options: BuildOptions, hook64: text, hook7: text): BuildOptions
+  intent: copy the options with the two hook override paths
+  BuildOptions { source: options.source, destination: options.destination, server_host: options.server_host, abi: options.abi, keep_other_abi: options.keep_other_abi, patched_il2cpp: options.patched_il2cpp, scheme: options.scheme, server_port: options.server_port, bundle_server: options.bundle_server, hook_override_arm64: hook64, hook_override_armv7: hook7 }
+end
+
+record BundleCase
+  abi: text
+  serverless_hook: boolean
+  bundle_server: boolean
+  scheme: text
+  server_host: text
+  server_port: integer
+  keep_other_abi: boolean
+  with_payload: boolean
+end
+
+function bundle_case(abi: text, serverless_hook: boolean, bundle_server: boolean, scheme: text, server_host: text, server_port: integer, keep_other_abi: boolean, with_payload: boolean): BundleCase
+  intent: describe one bundled build fixture
+  BundleCase { abi: abi, serverless_hook: serverless_hook, bundle_server: bundle_server, scheme: scheme, server_host: server_host, server_port: server_port, keep_other_abi: keep_other_abi, with_payload: with_payload }
 end
 
 function bytes_same(left: integer, right: integer): boolean
@@ -490,53 +529,64 @@ function finish_fixture(fixture: BuildFixture): nothing
   if fixture.replacement != 0 then bytes_free(fixture.replacement) end
 end
 
-function run_abi_build(base: text, label: text, abi: text, keep_other_abi: boolean, replace_il2cpp: boolean, include_hooks: boolean): BuildFixture
-  intent: build
-  let folder: text = path_join(base, label)
-  create_dir(folder)
-  let source: text = path_join(folder, "source.apk")
-  let destination: text = path_join(folder, "out.apk")
-  let hook64_path: text = path_join(folder, "libdothook-a64.so")
-  let hook7_path: text = path_join(folder, "libdothook-armv7.so")
-  let replacement_path: text = path_join(folder, "libil2cpp-patched.so")
-  write_source(source, include_hooks, false)
-  let hook64: integer = elf(2, 183, false)
-  let hook7: integer = elf(1, 40, false)
-  write_file_bytes(hook64_path, hook64)
-  write_file_bytes(hook7_path, hook7)
+function write_hook_pair(folder: text, with_server: boolean): a list of integer
+  intent: write the arm64 and armv7 hook fixtures and return their buffers
+  let hook64: integer = elf(2, 183, with_server)
+  let hook7: integer = elf(1, 40, with_server)
+  write_file_bytes(path_join(folder, "libdothook-a64.so"), hook64)
+  write_file_bytes(path_join(folder, "libdothook-armv7.so"), hook7)
+  [hook64, hook7]
+end
+
+function write_replacement(folder: text, abi: text): integer
+  intent: write the patched il2cpp fixture for the ABI and return its buffer
   let replacement_elf: integer = if abi == build_phone_apk.arm64() then elf(2, 183, false) else elf(1, 40, false) end
   let suffix: integer = bytes_from_text("libdothook.so patched")
   let replacement: integer = bytes_concat(replacement_elf, suffix)
   bytes_free(replacement_elf)
   bytes_free(suffix)
-  write_file_bytes(replacement_path, replacement)
-  let options: BuildOptions = build_options(source, destination, abi, keep_other_abi, if replace_il2cpp then replacement_path else "" end, "https", "127.0.0.1", 8443, false, hook64_path, hook7_path)
+  write_file_bytes(path_join(folder, "libil2cpp-patched.so"), replacement)
+  replacement
+end
+
+function abi_options(folder: text, abi: text, keep_other_abi: boolean, replace_il2cpp: boolean): BuildOptions
+  intent: build the options for an ABI fixture inside its folder
+  let patched: text = if replace_il2cpp then path_join(folder, "libil2cpp-patched.so") else "" end
+  let base: BuildOptions = build_options(path_join(folder, "source.apk"), path_join(folder, "out.apk"), abi, "https", "127.0.0.1", 8443, false)
+  with_hooks(with_variant(base, keep_other_abi, patched), path_join(folder, "libdothook-a64.so"), path_join(folder, "libdothook-armv7.so"))
+end
+
+function finish_build(options: BuildOptions, hooks: a list of integer, replacement: integer): BuildFixture
+  intent: run the build, read the archive and free the hook buffer that is not selected
   let result: BuildResult = build_phone_apk.build(options)
-  let archive: ZipArchive = build_phone_apk.zip_read(destination)
-  let selected_hook: integer = if abi == build_phone_apk.arm64() then hook64 else hook7 end
-  if abi == build_phone_apk.arm64() then bytes_free(hook7) else bytes_free(hook64) end
+  let archive: ZipArchive = build_phone_apk.zip_read(options.destination)
+  let hook64: integer = unwrap_or(get(hooks, 0), 0)
+  let hook7: integer = unwrap_or(get(hooks, 1), 0)
+  let selected_hook: integer = if options.abi == build_phone_apk.arm64() then hook64 else hook7 end
+  if options.abi == build_phone_apk.arm64() then bytes_free(hook7) else bytes_free(hook64) end
   BuildFixture { archive: archive, result: result, hook: selected_hook, replacement: replacement }
 end
 
-function run_bundle_build(base: text, label: text, abi: text, serverless_hook: boolean, bundle_server: boolean, scheme: text, server_host: text, server_port: integer, keep_other_abi: boolean, with_payload: boolean): BuildFixture
-  intent: build
+function run_abi_build(base: text, label: text, abi: text, keep_other_abi: boolean, replace_il2cpp: boolean, include_hooks: boolean): BuildFixture
+  intent: build an ABI fixture APK and read it back
+  let folder: text = path_join(base, label)
+  create_dir(folder)
+  write_source(path_join(folder, "source.apk"), include_hooks, false)
+  let hooks: a list of integer = write_hook_pair(folder, false)
+  let replacement: integer = write_replacement(folder, abi)
+  finish_build(abi_options(folder, abi, keep_other_abi, replace_il2cpp), hooks, replacement)
+end
+
+function run_bundle_build(base: text, label: text, spec: BundleCase): BuildFixture
+  intent: build a bundled or unbundled fixture APK and read it back
   let folder: text = path_join(base, label)
   create_dir(folder)
   let source: text = path_join(folder, "source.apk")
-  let destination: text = path_join(folder, "out.apk")
-  let hook64_path: text = path_join(folder, "libdothook-a64.so")
-  let hook7_path: text = path_join(folder, "libdothook-armv7.so")
-  write_source(source, false, with_payload)
-  let hook64: integer = elf(2, 183, not serverless_hook)
-  let hook7: integer = elf(1, 40, not serverless_hook)
-  write_file_bytes(hook64_path, hook64)
-  write_file_bytes(hook7_path, hook7)
-  let options: BuildOptions = build_options(source, destination, abi, keep_other_abi, "", scheme, server_host, server_port, bundle_server, hook64_path, hook7_path)
-  let result: BuildResult = build_phone_apk.build(options)
-  let archive: ZipArchive = build_phone_apk.zip_read(destination)
-  let selected_hook: integer = if abi == build_phone_apk.arm64() then hook64 else hook7 end
-  if abi == build_phone_apk.arm64() then bytes_free(hook7) else bytes_free(hook64) end
-  BuildFixture { archive: archive, result: result, hook: selected_hook, replacement: 0 }
+  write_source(source, false, spec.with_payload)
+  let hooks: a list of integer = write_hook_pair(folder, not spec.serverless_hook)
+  let base_options: BuildOptions = build_options(source, path_join(folder, "out.apk"), spec.abi, spec.scheme, spec.server_host, spec.server_port, spec.bundle_server)
+  let options: BuildOptions = with_hooks(with_variant(base_options, spec.keep_other_abi, ""), path_join(folder, "libdothook-a64.so"), path_join(folder, "libdothook-armv7.so"))
+  finish_build(options, hooks, 0)
 end
 
 function test_armv7_build_drops_arm64_libraries(base: text): TestResult
@@ -595,7 +645,7 @@ function test_build_with_http_options_rewrites_endpoint_config(base: text): Test
   write_source(source, false, false)
   let hook: integer = elf(2, 183, false)
   write_file_bytes(hook_path, hook)
-  let options: BuildOptions = build_options(source, destination, build_phone_apk.arm64(), false, "", "http", "127.0.0.1", 8080, false, hook_path, hook_path)
+  let options: BuildOptions = with_hooks(with_variant(build_options(source, destination, build_phone_apk.arm64(), "http", "127.0.0.1", 8080, false), false, ""), hook_path, hook_path)
   let result: BuildResult = build_phone_apk.build(options)
   let archive: ZipArchive = build_phone_apk.zip_read(destination)
   let patched: integer = read_named(archive, build_phone_apk.endpoint_config_name())
@@ -608,6 +658,17 @@ function test_build_with_http_options_rewrites_endpoint_config(base: text): Test
   if good then ok() else failed("HTTP endpoint rewrite") end
 end
 
+function manifest_entry_preserved(archive: ZipArchive, index: integer): boolean
+  intent: check the compressed manifest entry kept its DEFLATE metadata and bytes
+  let entry: ZipEntry = unwrap(get(archive.entries, index))
+  let actual: integer = build_phone_apk.zip_entry_data(archive, index)
+  let expected: integer = bytes_from_hex("cb4dcccb4c4b2d2e0100")
+  let same: boolean = entry.compress_type == 8 and entry.flag_bits == 0 and entry.compress_size == 10 and entry.file_size == 8 and entry.crc == 2801428544 and bytes_same(actual, expected)
+  bytes_free(actual)
+  bytes_free(expected)
+  same
+end
+
 function test_build_preserves_compressed_manifest(base: text): TestResult
   intent: test
   let folder: text = path_join(base, "compressed-manifest")
@@ -618,18 +679,13 @@ function test_build_preserves_compressed_manifest(base: text): TestResult
   write_source_with_compressed_manifest(source)
   let hook: integer = elf(2, 183, false)
   write_file_bytes(hook_path, hook)
-  let options: BuildOptions = build_options(source, destination, build_phone_apk.arm64(), false, "", "http", "127.0.0.1", 8080, false, hook_path, hook_path)
+  let options: BuildOptions = with_hooks(with_variant(build_options(source, destination, build_phone_apk.arm64(), "http", "127.0.0.1", 8080, false), false, ""), hook_path, hook_path)
   let result: BuildResult = build_phone_apk.build(options)
   let archive: ZipArchive = build_phone_apk.zip_read(destination)
   let index: integer = build_phone_apk.zip_find(archive, "AndroidManifest.xml")
   mutable good: boolean = result.error == "" and archive.error == "" and index >= 0
   if index >= 0 then
-    let entry: ZipEntry = unwrap(get(archive.entries, index))
-    let actual: integer = build_phone_apk.zip_entry_data(archive, index)
-    let expected: integer = bytes_from_hex("cb4dcccb4c4b2d2e0100")
-    set good = good and entry.compress_type == 8 and entry.flag_bits == 0 and entry.compress_size == 10 and entry.file_size == 8 and entry.crc == 2801428544 and bytes_same(actual, expected)
-    bytes_free(actual)
-    bytes_free(expected)
+    set good = good and manifest_entry_preserved(archive, index)
   end
   bytes_free(hook)
   build_phone_apk.zip_free(archive)
@@ -646,7 +702,7 @@ function test_build_patches_compressed_metadata(base: text): TestResult
   write_source_with_compressed_metadata(source)
   let hook: integer = elf(2, 183, false)
   write_file_bytes(hook_path, hook)
-  let options: BuildOptions = build_options(source, destination, build_phone_apk.arm64(), false, "", "http", "127.0.0.1", 8080, false, hook_path, hook_path)
+  let options: BuildOptions = with_hooks(with_variant(build_options(source, destination, build_phone_apk.arm64(), "http", "127.0.0.1", 8080, false), false, ""), hook_path, hook_path)
   let result: BuildResult = build_phone_apk.build(options)
   let archive: ZipArchive = build_phone_apk.zip_read(destination)
   let index: integer = build_phone_apk.zip_find(archive, build_phone_apk.metadata_name())
@@ -664,7 +720,7 @@ end
 
 function test_bundle_writes_stored_payload(base: text): TestResult
   intent: test
-  let fixture: BuildFixture = run_bundle_build(base, "bundle", build_phone_apk.arm64(), false, true, "http", "127.0.0.1", 8123, false, false)
+  let fixture: BuildFixture = run_bundle_build(base, "bundle", bundle_case(build_phone_apk.arm64(), false, true, "http", "127.0.0.1", 8123, false, false))
   let index: integer = build_phone_apk.zip_find(fixture.archive, build_phone_apk.payload_asset())
   let actual: integer = read_named(fixture.archive, build_phone_apk.payload_asset())
   let expected: integer = export_payload.build_payload(8123)
@@ -678,7 +734,7 @@ end
 
 function test_unbundled_build_does_not_add_payload_or_change_entries(base: text): TestResult
   intent: test
-  let fixture: BuildFixture = run_bundle_build(base, "unbundled", build_phone_apk.arm64(), false, false, "https", "127.0.0.1", 8443, true, false)
+  let fixture: BuildFixture = run_bundle_build(base, "unbundled", bundle_case(build_phone_apk.arm64(), false, false, "https", "127.0.0.1", 8443, true, false))
   let names: a list of text = build_phone_apk.zip_names(fixture.archive)
   let good: boolean = fixture.result.error == "" and build_phone_apk.zip_find(fixture.archive, build_phone_apk.payload_asset()) < 0 and length(names) == 7 and build_phone_apk.zip_find(fixture.archive, build_phone_apk.hook_entry(build_phone_apk.arm64())) >= 0 and build_phone_apk.zip_find(fixture.archive, build_phone_apk.il2cpp_entry(build_phone_apk.arm64())) >= 0 and build_phone_apk.zip_find(fixture.archive, build_phone_apk.il2cpp_entry(build_phone_apk.armv7())) >= 0
   finish_fixture(fixture)
@@ -687,7 +743,7 @@ end
 
 function test_rebuild_replaces_existing_payload_once(base: text): TestResult
   intent: test
-  let fixture: BuildFixture = run_bundle_build(base, "replace-payload", build_phone_apk.arm64(), false, true, "http", "127.0.0.1", 8080, false, true)
+  let fixture: BuildFixture = run_bundle_build(base, "replace-payload", bundle_case(build_phone_apk.arm64(), false, true, "http", "127.0.0.1", 8080, false, true))
   let actual: integer = read_named(fixture.archive, build_phone_apk.payload_asset())
   let expected: integer = export_payload.build_payload(8080)
   let good: boolean = fixture.result.error == "" and name_count(fixture.archive, build_phone_apk.payload_asset()) == 1 and bytes_same(actual, expected)
@@ -699,7 +755,7 @@ end
 
 function test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base: text): TestResult
   intent: test
-  let fixture: BuildFixture = run_bundle_build(base, "armv7-bundle", build_phone_apk.armv7(), false, true, "http", "127.0.0.1", 8080, false, false)
+  let fixture: BuildFixture = run_bundle_build(base, "armv7-bundle", bundle_case(build_phone_apk.armv7(), false, true, "http", "127.0.0.1", 8080, false, false))
   let hook: integer = read_named(fixture.archive, build_phone_apk.hook_entry(build_phone_apk.armv7()))
   let payload_index: integer = build_phone_apk.zip_find(fixture.archive, build_phone_apk.payload_asset())
   let payload_entry: ZipEntry = unwrap(get(fixture.archive.entries, payload_index))
@@ -713,10 +769,10 @@ function test_serverless_hook_is_rejected_only_for_bundled_builds(base: text): T
   intent: test
   mutable good: boolean = true
   for abi in [build_phone_apk.arm64(), build_phone_apk.armv7()] do
-    let bundled: BuildFixture = run_bundle_build(base, "serverless-bundled-" ++ abi, abi, true, true, "http", "127.0.0.1", 8080, false, false)
+    let bundled: BuildFixture = run_bundle_build(base, "serverless-bundled-" ++ abi, bundle_case(abi, true, true, "http", "127.0.0.1", 8080, false, false))
     if not text_contains(bundled.result.error, "without the in-app server") then set good = false end
     finish_fixture(bundled)
-    let unbundled: BuildFixture = run_bundle_build(base, "serverless-unbundled-" ++ abi, abi, true, false, "https", "127.0.0.1", 8443, false, false)
+    let unbundled: BuildFixture = run_bundle_build(base, "serverless-unbundled-" ++ abi, bundle_case(abi, true, false, "https", "127.0.0.1", 8443, false, false))
     let actual: integer = read_named(unbundled.archive, build_phone_apk.hook_entry(abi))
     if unbundled.result.error != "" or not bytes_same(actual, unbundled.hook) then set good = false end
     bytes_free(actual)
@@ -731,8 +787,8 @@ function test_bundle_validation(base: text): TestResult
   create_dir(folder)
   let source: text = path_join(folder, "source.apk")
   write_source(source, false, false)
-  let bad_scheme: BuildResult = build_phone_apk.build(build_options(source, path_join(folder, "bad-scheme.apk"), build_phone_apk.arm64(), false, "", "https", "127.0.0.1", 8443, true, "", ""))
-  let bad_host: BuildResult = build_phone_apk.build(build_options(source, path_join(folder, "bad-host.apk"), build_phone_apk.arm64(), false, "", "http", "192.168.0.2", 8443, true, "", ""))
+  let bad_scheme: BuildResult = build_phone_apk.build(with_hooks(with_variant(build_options(source, path_join(folder, "bad-scheme.apk"), build_phone_apk.arm64(), "https", "127.0.0.1", 8443, true), false, ""), "", ""))
+  let bad_host: BuildResult = build_phone_apk.build(with_hooks(with_variant(build_options(source, path_join(folder, "bad-host.apk"), build_phone_apk.arm64(), "http", "192.168.0.2", 8443, true), false, ""), "", ""))
   if text_contains(bad_scheme.error, "--scheme http") and text_contains(bad_host.error, "127.0.0.1") then ok() else failed("bundle option validation") end
 end
 
@@ -747,24 +803,50 @@ function test_bundled_short_elf_requires_patching(base: text): TestResult
   let hook_path: text = path_join(folder, "libdothook-armv7.so")
   let hook: integer = elf(1, 40, true)
   write_file_bytes(hook_path, hook)
-  let bundled: BuildResult = build_phone_apk.build(build_options(source, bundled_destination, build_phone_apk.armv7(), false, "", "http", "127.0.0.1", 8080, true, hook_path, hook_path))
-  let host: BuildResult = build_phone_apk.build(build_options(source, host_destination, build_phone_apk.armv7(), false, "", "https", "127.0.0.1", 8443, false, hook_path, hook_path))
+  let bundled: BuildResult = build_phone_apk.build(with_hooks(with_variant(build_options(source, bundled_destination, build_phone_apk.armv7(), "http", "127.0.0.1", 8080, true), false, ""), hook_path, hook_path))
+  let host: BuildResult = build_phone_apk.build(with_hooks(with_variant(build_options(source, host_destination, build_phone_apk.armv7(), "https", "127.0.0.1", 8443, false), false, ""), hook_path, hook_path))
   bytes_free(hook)
   if text_contains(bundled.error, "patch_il2cpp") and not file_exists(bundled_destination) and host.error == "" and file_exists(host_destination) then ok() else failed("bundled short ELF gate: " ++ bundled.error) end
 end
 
-function main(): nothing
-  intent: run
-  let base: text = path_join("build", "legible-phone-apk-tests-" ++ to_text(random_int(1000000000)))
-  create_dir(base)
-  let cases: a list of text = ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_check_hook_rejects_small_page_alignment", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_reachability_sites", "test_ensure_reachability_stubs", "test_check_offline_ready_requires_hook_reference", "test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_build_patches_compressed_metadata", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation", "test_bundled_short_elf_requires_patching"]
-  let results: a list of TestResult = [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_check_hook_rejects_small_page_alignment(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_reachability_sites(), test_ensure_reachability_stubs(), test_check_offline_ready_requires_hook_reference(), test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_build_patches_compressed_metadata(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base), test_bundled_short_elf_requires_patching(base)]
+function case_names_first(): a list of text
+  intent: list the names of the first reported cases
+  ["test_validate_server_host", "test_windows_script_directory", "test_patch_endpoint_config_preserves_size", "test_http_scheme_and_port_rewrite_all_endpoints", "test_validate_server_port_rejects_invalid_values", "test_patch_metadata_uses_lan_host_and_preserves_size", "test_check_hook_accepts_matching_abi", "test_check_hook_rejects_mismatched_abi", "test_check_hook_rejects_non_elf", "test_check_hook_requires_server_for_bundled_builds", "test_check_hook_rejects_small_page_alignment", "test_local_hook_contains_server_marker", "test_local_hook_matches_hook_source_tags", "test_reachability_sites", "test_ensure_reachability_stubs", "test_check_offline_ready_requires_hook_reference"]
+end
+
+function case_names_second(): a list of text
+  intent: list the names of the remaining reported cases
+  ["test_armv7_build_drops_arm64_libraries", "test_arm64_build_drops_armv7_libraries", "test_keep_other_abi_retains_both", "test_embeds_explicit_patched_il2cpp", "test_adds_hook_when_source_apk_is_pristine", "test_build_with_http_options_rewrites_endpoint_config", "test_build_preserves_compressed_manifest", "test_build_patches_compressed_metadata", "test_bundle_writes_stored_payload", "test_unbundled_build_does_not_add_payload_or_change_entries", "test_rebuild_replaces_existing_payload_once", "test_armv7_bundle_writes_payload_and_drops_arm64_libraries", "test_serverless_hook_is_rejected_only_for_bundled_builds", "test_bundle_validation", "test_bundled_short_elf_requires_patching"]
+end
+
+function case_results_first(base: text): a list of TestResult
+  intent: run the first cases in reporting order
+  [test_validate_server_host(), test_windows_script_directory(), test_patch_endpoint_config_preserves_size(), test_http_scheme_and_port_rewrite_all_endpoints(), test_validate_server_port_rejects_invalid_values(), test_patch_metadata_uses_lan_host_and_preserves_size(), test_check_hook_accepts_matching_abi(), test_check_hook_rejects_mismatched_abi(), test_check_hook_rejects_non_elf(), test_check_hook_requires_server_for_bundled_builds(), test_check_hook_rejects_small_page_alignment(), test_local_hook_contains_server_marker(), test_local_hook_matches_hook_source_tags(), test_reachability_sites(), test_ensure_reachability_stubs(), test_check_offline_ready_requires_hook_reference()]
+end
+
+function case_results_second(base: text): a list of TestResult
+  intent: run the remaining cases in reporting order
+  [test_armv7_build_drops_arm64_libraries(base), test_arm64_build_drops_armv7_libraries(base), test_keep_other_abi_retains_both(base), test_embeds_explicit_patched_il2cpp(base), test_adds_hook_when_source_apk_is_pristine(base), test_build_with_http_options_rewrites_endpoint_config(base), test_build_preserves_compressed_manifest(base), test_build_patches_compressed_metadata(base), test_bundle_writes_stored_payload(base), test_unbundled_build_does_not_add_payload_or_change_entries(base), test_rebuild_replaces_existing_payload_once(base), test_armv7_bundle_writes_payload_and_drops_arm64_libraries(base), test_serverless_hook_is_rejected_only_for_bundled_builds(base), test_bundle_validation(base), test_bundled_short_elf_requires_patching(base)]
+end
+
+function report_all(names: a list of text, results: a list of TestResult): integer
+  intent: report each named result and count the failures
   mutable failures: integer = 0
   mutable index: integer = 0
-  while index < length(cases) do
-    set failures = failures + report(unwrap_or(get(cases, index), ""), unwrap_or(get(results, index), failed("missing result")))
+  while index < length(names) do
+    set failures = failures + report(unwrap_or(get(names, index), ""), unwrap_or(get(results, index), failed("missing result")))
     set index = index + 1
   end
+  failures
+end
+
+function main(): nothing
+  intent: run every case, report the results and remove the scratch folder
+  let base: text = path_join("build", "legible-phone-apk-tests-" ++ to_text(random_int(1000000000)))
+  create_dir(base)
+  let first: a list of TestResult = case_results_first(base)
+  let second: a list of TestResult = case_results_second(base)
+  let failures: integer = report_all(case_names_first(), first) + report_all(case_names_second(), second)
   shell_exec("rm -rf -- " ++ base)
   print(to_text(31 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
