@@ -33,6 +33,7 @@
 # private keys and session data and must remain local.
 /Server/__pycache__/
 /patches/__pycache__/
+/tools/__pycache__/
 /Server/certs/
 /Server/logs/
 
