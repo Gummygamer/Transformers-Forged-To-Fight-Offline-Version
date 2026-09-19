@@ -580,3 +580,32 @@ any other fork's authored content. No asset, binary APK, captured audiovisual co
 credential, or recovered server dataset was added. Nothing under `media/` was touched. No
 new dependency was introduced. No generated payload changed, so no regeneration was
 required.
+
+## 2026-09-18 — nativehook: two diagnostic hooks (magnitude + condition gate)
+
+Adds two read-only logging hooks to `tools/nativehook/hook.c`, the instrumentation that
+produced the measurements cited in the `ABILITY_AUTHORING.md` corrections in this PR.
+
+1. `hooked_FloatingText_OnTick` now also calls `PlayerController.GetCachedValue`
+   (`g_base + 0x117A1C0`) — the same function the effect itself branches on — and logs the
+   returned float as `cached=`. Logging the cache key alone showed the effect was ticking
+   but not why it stayed silent; logging the value is what established that `m` is an
+   absolute total and that a fractional magnitude truncates to zero at the `int`-typed HUD
+   renderer.
+2. `hooked_TestForConditionsAndRoll` wraps `StatModifierController.TestForConditionsAndRoll`
+   (`g_base + 0xCCF35C`) and logs the stat-mod id, the pass/fail result, the roll and the
+   chance. This is how the `trs` condition format was verified.
+
+Both hooks call the original and return its result unchanged; neither alters game state or
+payload. A `statmod_id` helper reads `StatModifier._statModifier` (`+0x18`) then
+`BCGStatModifier.ID` (`+0x10`) so the lines name an ability rather than a bare pointer.
+
+`test_nativehook_slots` passes 14/0, confirming `H[]` and `handlers[]` remain contiguous and
+that the restored gesture-hook slots from `d5038b6` are untouched. Compiles clean under
+`aarch64-linux-android28-clang -fsyntax-only`.
+
+All offsets were derived from disassembly of the client binary this repository already
+targets. Nothing was transcribed from recovered Kabam server data or from any other fork's
+authored content. No asset, binary APK, captured audiovisual content, credential, or
+recovered server dataset was added. Nothing under `media/` was touched. No new dependency
+was introduced. No generated payload changed.
