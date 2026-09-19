@@ -803,18 +803,7 @@ void* hook_92(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     });
     return H[92].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
-// Read the combat game-clock singleton (same chain OnReceive/OnRelease/HasAction/SetAction use):
-//   [g_base+0x2c1a928] -> [.] -> [.+0xb8] -> [.] -> float @0x18
-static float game_clock(void){
-    if(!g_base) return -1.f;
-    uintptr_t p = g_base + 0x2c1a928;
-    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
-    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
-    p = *(uintptr_t*)(p+0xb8); if(p<0x100000||(p&7)) return -1.f;
-    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
-    return *(float*)(p+0x18);
-}
-#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.lbl; keep in step.
+#include "managed_input.h"
 // slot 58 FIX: PlayerInput.QueuedAction.SetAction(this=QueuedAction, action) @0xD35130.
 // Before maxQueuedActionTime was authored, a tap fully registered offline
 // (OnReleaseAttackInput -> SetAction(Attack) ran), but SetAction stored TimeStamp = now + 0:
@@ -826,26 +815,15 @@ static float game_clock(void){
 // The root cause is now fixed in server data: bcg-combat authors maxQueuedActionTime = 0.2.
 // This hook remains only as a safety net if that config has not arrived when combat starts.
 // After the original SetAction, retain its usable TimeStamp window unchanged; only a missing
-// window is replaced with the matching 0.2s fallback. Simulate then executes the action once
+// window is replaced with the matching 0.2s fallback through managed_input.h.
+// Runtime metadata resolves fields by name on both ABIs; no clock GOT chain or
+// object field offsets are used here. Simulate then executes the action once
 // and ExecuteAction's ClearAction (@0xD35264) resets Action=0/TimeStamp=-1, so it cannot
 // re-trigger. This applies to every queued action (attack/block/dash/special, both fighters),
 // which is the intended input-buffer semantics.
 void* hook_58(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[58].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT({
-        uintptr_t q=(uintptr_t)a0;
-        float clk=game_clock();
-        if(q>=0x100000 && !(q&7) && clk>=0){
-            float ts=*(float*)(q+0x14);
-            static int diagnostics=0;
-            if(ts-clk>0.01f){
-                if(diagnostics<4){ diagnostics++; flog("SETACTFIX config window=%.3f (kept)",ts-clk); }
-            }else{
-                *(float*)(q+0x14)=clk+SETACT_FALLBACK_WINDOW;
-                if(diagnostics<4){ diagnostics++; flog("SETACTFIX no config window, fallback=%.3f",(float)SETACT_FALLBACK_WINDOW); }
-            }
-        }
-    });
+    PROTECT(managed_input_after_set_action(a0););
     return r;
 }
 // ---- texture-load diagnostics (slots 44,46,48,49,50) ----
