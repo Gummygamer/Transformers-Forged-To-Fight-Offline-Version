@@ -137,6 +137,7 @@ Server/
   iterate.sh                  quick restart and capture loop
   responses/                  one JSON file per endpoint the game calls
 tools/
+  index_il2cpp_dump.py        build a local type/method/field index from Il2CppDumper output
   provision_ldplayer.sh       one shot re-provision of the emulator to the working state
   setup_arm64.sh              toolchain setup notes
   apply_labels.lbl            build the portable Ghidra label input
@@ -187,6 +188,21 @@ cp /tmp/tftf-il2cpp-out/dump.cs re_notes/dump.cs
 The generated file is the complete type model of the game: every class, method, and data
 field the client reads from the server. It is ignored by Git so it remains a local,
 reproducible analysis artifact.
+
+For native hook and patch work, turn that local dump into a machine-readable index instead
+of copying RVAs and offsets by hand:
+
+```bash
+python3 tools/index_il2cpp_dump.py /path/to/il2cpp_out/dump.cs \
+  --script-json /path/to/il2cpp_out/script.json \
+  --out build/analysis/9.2-index.json
+```
+
+The index records declaring types, field offsets and modifiers, method declarations and
+RVAs, source hashes, and the optional `script.json` method table. The output belongs under
+ignored `build/`. `tools/nativehook/managed_runtime.h` is the runtime half of the same
+approach: it discovers classes and fields through exported IL2CPP metadata APIs, then checks
+the reflected type and static/instance flags before a hook reads or writes them.
 
 
 ## What is not in this package, and where to get it
