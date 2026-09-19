@@ -224,27 +224,33 @@ else
 end
 end
 
-function movedir_template_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text
-  intent: build
+function movedir_completed_positions(body: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: replace
+  let moved: text = replace_exact(body, "\"moveto\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"moveto\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 1, "completed moveto")
+  replace_exact(moved, "\"currentPos\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"currentPos\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 2, "completed position")
+end
+
+function movedir_team_tokens(body: text, qid: text): text
+  intent: replace
   let values: a list of text = team_values(qid, [])
   let active: text = unwrap_or(get(values, 1), "")
   let quest: text = unwrap_or(get(values, 2), "")
   let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
+  let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
+  let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
+  replace_exact(with_quest, active, "%ATEAM%", 1, "movedir " ++ qid ++ " active team")
+end
+
+function movedir_template_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text
+  intent: build
   -- Read the history from the built value: re-parsing the encoded body with
   -- the interpreted JSON parser cost more than everything else in this function.
   let result: Json = move_result_state(qid, sx, sy, dx, dy, completed)
   let body: text = envelope(result)
   let cleared: text = jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(result, "progression"), "cleared"))
   let with_history: text = replace_exact(body, "\"cleared\":" ++ cleared, "\"cleared\":%CLEARED%", 1, "movedir cleared")
-  let with_move: text = if completed then
-  let moved: text = replace_exact(with_history, "\"moveto\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"moveto\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 1, "completed moveto")
-  replace_exact(moved, "\"currentPos\":\{" ++ "\"x\":" ++ to_text(sx + dx) ++ ",\"y\":" ++ to_text(sy + dy) ++ "\}", "\"currentPos\":\{" ++ "\"x\":%POSX%,\"y\":%POSY%\}", 2, "completed position")
-else
-  with_history
-end
-  let with_lead: text = replace_exact(with_move, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
-  let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
-  replace_exact(with_quest, active, "%ATEAM%", 1, "movedir " ++ qid ++ " active team")
+  let with_move: text = if completed then movedir_completed_positions(with_history, sx, sy, dx, dy) else with_history end
+  movedir_team_tokens(with_move, qid)
 end
 
 function movedir_template(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
@@ -303,35 +309,94 @@ function tutorial_templates(): Entries
   add(f, "@tutorial:login-completed", fakeserver.tutorial_login_completed_response())
 end
 
+record MoveSet
+  keys: a list of text
+  bodies: a list of text
+  legal: a list of text
+end
+
+function no_moves(): MoveSet
+  intent: build
+  MoveSet { keys: [], bodies: [], legal: [] }
+end
+
+function merge_moves(first: MoveSet, second: MoveSet): MoveSet
+  intent: build
+  MoveSet { keys: concat(first.keys, second.keys), bodies: concat(first.bodies, second.bodies), legal: concat(first.legal, second.legal) }
+end
+
+function move_directions(): a list of text
+  intent: list
+  ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"]
+end
+
+function direction_part(direction: text, index: integer): integer
+  intent: parse
+  unwrap_or(to_integer(unwrap_or(get(split(direction, ","), index), "0")), 0)
+end
+
+function legal_move_line(sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: build
+  to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(sx + dx) ++ " " ++ to_text(sy + dy)
+end
+
+function movedir_key(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): text
+  intent: build
+  "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy)
+end
+
+function completed_moves(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): MoveSet
+  intent: build
+  if dx == 0 and dy == 0 then
+    MoveSet { keys: ["@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0"], bodies: [movedir_completed_template(qid, sx, sy, 0, 0)], legal: [] }
+  else
+    no_moves()
+  end
+end
+
+function movedir_moves(qid: text, sx: integer, sy: integer, dx: integer, dy: integer): MoveSet
+  intent: build
+  MoveSet { keys: [movedir_key(qid, sx, sy, dx, dy)], bodies: [movedir_template(qid, sx, sy, dx, dy)], legal: [] }
+end
+
+function linked_step(qid: text, sx: integer, sy: integer, direction: text): MoveSet
+  intent: build
+  let dx: integer = direction_part(direction, 0)
+  let dy: integer = direction_part(direction, 1)
+  let legal: MoveSet = if gamedata.quest_can_move(qid, sx, sy, sx + dx, sy + dy) then MoveSet { keys: [movedir_key(qid, sx, sy, dx, dy)], bodies: [movedir_template(qid, sx, sy, dx, dy)], legal: [legal_move_line(sx, sy, dx, dy)] } else no_moves() end
+  merge_moves(legal, completed_moves(qid, sx, sy, dx, dy))
+end
+
+function linked_moves_from(qid: text, sx: integer, sy: integer): MoveSet
+  intent: build
+  mutable moves: MoveSet = no_moves()
+  for direction in move_directions() do set moves = merge_moves(moves, linked_step(qid, sx, sy, direction)) end
+  moves
+end
+
+function standard_step(qid: text, dim: integer, sx: integer, path_col: integer, direction: text): MoveSet
+  intent: build
+  let dx: integer = direction_part(direction, 0)
+  let dy: integer = direction_part(direction, 1)
+  let nx: integer = sx + dx
+  let legal: a list of text = if nx >= 0 and nx < dim and dy == 0 then [legal_move_line(sx, path_col, dx, dy)] else [] end
+  merge_moves(MoveSet { keys: [movedir_key(qid, sx, path_col, dx, dy)], bodies: [movedir_template(qid, sx, path_col, dx, dy)], legal: legal }, completed_moves(qid, sx, path_col, dx, dy))
+end
+
+function finish_moves(qid: text, moves: MoveSet): Batch
+  intent: build
+  Batch { keys: append(moves.keys, "@quest:moves:" ++ qid), bodies: append(moves.bodies, join(sort_text(moves.legal), "\n") ++ "\n") }
+end
+
 function add_quest_moves_act3(qid: text, dim: integer): Batch
   intent: build
-  mutable keys: a list of text = []
-  mutable bodies: a list of text = []
-  mutable legal: a list of text = []
-  mutable sy_values: a list of integer = [1, 2, 3]
+  mutable moves: MoveSet = no_moves()
   mutable sx: integer = 0
   while sx < dim do
-    for sy in sy_values do
-      for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"] do
-        let bits: a list of text = split(direction, ",")
-        let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
-        let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
-        let nx: integer = sx + dx
-        let ny: integer = sy + dy
-        if gamedata.quest_can_move(qid, sx, sy, nx, ny) then
-          set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny))
-          set keys = append(keys, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy))
-          set bodies = append(bodies, movedir_template(qid, sx, sy, dx, dy))
-        end
-        if dx == 0 and dy == 0 then
-          set keys = append(keys, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0")
-          set bodies = append(bodies, movedir_completed_template(qid, sx, sy, 0, 0))
-        end
-      end
-    end
+    for sy in [1, 2, 3] do set moves = merge_moves(moves, linked_moves_from(qid, sx, sy)) end
     set sx = sx + 1
   end
-  Batch { keys: append(keys, "@quest:moves:" ++ qid), bodies: append(bodies, join(sort_text(legal), "\n") ++ "\n") }
+  finish_moves(qid, moves)
 end
 
 -- Links-aware exporter for boards whose walkable tiles are not a single
@@ -342,88 +407,104 @@ end
 -- the tiles' own links.
 function add_quest_moves_linked(qid: text, coords: a list of text): Batch
   intent: build
-  mutable keys: a list of text = []
-  mutable bodies: a list of text = []
-  mutable legal: a list of text = []
+  mutable moves: MoveSet = no_moves()
   for coord in coords do
     let bits: a list of text = split(coord, " ")
     let sx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
     let sy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
-    for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"] do
-      let dbits: a list of text = split(direction, ",")
-      let dx: integer = unwrap_or(to_integer(unwrap_or(get(dbits, 0), "0")), 0)
-      let dy: integer = unwrap_or(to_integer(unwrap_or(get(dbits, 1), "0")), 0)
-      let nx: integer = sx + dx
-      let ny: integer = sy + dy
-      if gamedata.quest_can_move(qid, sx, sy, nx, ny) then
-        set legal = append(legal, to_text(sx) ++ " " ++ to_text(sy) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny))
-        set keys = append(keys, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy))
-        set bodies = append(bodies, movedir_template(qid, sx, sy, dx, dy))
-      end
-      if dx == 0 and dy == 0 then
-        set keys = append(keys, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(sy) ++ ":0:0")
-        set bodies = append(bodies, movedir_completed_template(qid, sx, sy, 0, 0))
-      end
-    end
+    set moves = merge_moves(moves, linked_moves_from(qid, sx, sy))
   end
-  Batch { keys: append(keys, "@quest:moves:" ++ qid), bodies: append(bodies, join(sort_text(legal), "\n") ++ "\n") }
+  finish_moves(qid, moves)
 end
 
 function add_quest_moves_standard(qid: text, dim: integer, path_col: integer): Batch
   intent: build
-  mutable keys: a list of text = []
-  mutable bodies: a list of text = []
-  mutable legal: a list of text = []
+  mutable moves: MoveSet = no_moves()
   mutable sx: integer = 0
   while sx < dim do
-    for direction in ["0,0", "1,0", "-1,0", "0,1", "0,-1", "1,1", "1,-1", "-1,1", "-1,-1"] do
-      let bits: a list of text = split(direction, ",")
-      let dx: integer = unwrap_or(to_integer(unwrap_or(get(bits, 0), "0")), 0)
-      let dy: integer = unwrap_or(to_integer(unwrap_or(get(bits, 1), "0")), 0)
-      let nx: integer = sx + dx
-      let ny: integer = path_col + dy
-      if nx >= 0 and nx < dim and ny == path_col then set legal = append(legal, to_text(sx) ++ " " ++ to_text(path_col) ++ " " ++ to_text(dx) ++ " " ++ to_text(dy) ++ " " ++ to_text(nx) ++ " " ++ to_text(ny)) end
-      set keys = append(keys, "@movedir:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":" ++ to_text(dx) ++ ":" ++ to_text(dy))
-      set bodies = append(bodies, movedir_template(qid, sx, path_col, dx, dy))
-      if dx == 0 and dy == 0 then
-        set keys = append(keys, "@movedir-completed:" ++ qid ++ ":" ++ to_text(sx) ++ ":" ++ to_text(path_col) ++ ":0:0")
-        set bodies = append(bodies, movedir_completed_template(qid, sx, path_col, 0, 0))
-      end
-    end
+    for direction in move_directions() do set moves = merge_moves(moves, standard_step(qid, dim, sx, path_col, direction)) end
     set sx = sx + 1
   end
-  Batch { keys: append(keys, "@quest:moves:" ++ qid), bodies: append(bodies, join(sort_text(legal), "\n") ++ "\n") }
+  finish_moves(qid, moves)
+end
+
+function quest_moves_for(qid: text): Batch
+  intent: build
+  if qid == gamedata.challenge_qid() then
+    add_quest_moves_linked(qid, gamedata.challenge_walkable_coords())
+  else if qid == gamedata.custom_story_act3_qid() then
+    add_quest_moves_act3(qid, gamedata.quest_dim_for(qid))
+  else
+    add_quest_moves_standard(qid, gamedata.quest_dim_for(qid), gamedata.quest_path_col_for(qid))
+  end
+end
+
+function quest_entries(set_id: text, qid: text): Batch
+  intent: build
+  let start: text = to_text(gamedata.quest_start_x_for(qid)) ++ " " ++ to_text(gamedata.quest_start_y_for(qid))
+  let own: Batch = Batch { keys: ["POST /quests/quest-detail/" ++ qid, "POST /quests/quest-begin/" ++ qid, "@quest:start:" ++ qid], bodies: [envelope(gamedata.build_quest_detail(qid, set_id)), quest_begin_template(qid, set_id), start] }
+  merge_batches([own, quest_moves_for(qid)])
 end
 
 function add_quests(): Batch
   intent: build
-  mutable keys: a list of text = []
-  mutable bodies: a list of text = []
+  mutable quests: a list of Batch = []
   for pair in mission_pairs() do
     let parts: a list of text = split(pair, "\t")
-    let set_id: text = unwrap_or(get(parts, 0), "")
-    let qid: text = unwrap_or(get(parts, 1), "")
-    set keys = append(keys, "POST /quests/quest-detail/" ++ qid)
-    set bodies = append(bodies, envelope(gamedata.build_quest_detail(qid, set_id)))
-    set keys = append(keys, "POST /quests/quest-begin/" ++ qid)
-    set bodies = append(bodies, quest_begin_template(qid, set_id))
-    let start_x: integer = gamedata.quest_start_x_for(qid)
-    let start_y: integer = gamedata.quest_start_y_for(qid)
-    let path_col: integer = gamedata.quest_path_col_for(qid)
-    let dim: integer = gamedata.quest_dim_for(qid)
-    set keys = append(keys, "@quest:start:" ++ qid)
-    set bodies = append(bodies, to_text(start_x) ++ " " ++ to_text(start_y))
-    let moves: Batch = if qid == gamedata.challenge_qid() then
-      add_quest_moves_linked(qid, gamedata.challenge_walkable_coords())
-    else if qid == gamedata.custom_story_act3_qid() then
-      add_quest_moves_act3(qid, dim)
-    else
-      add_quest_moves_standard(qid, dim, path_col)
-    end
-    set keys = concat(keys, moves.keys)
-    set bodies = concat(bodies, moves.bodies)
+    set quests = append(quests, quest_entries(unwrap_or(get(parts, 0), ""), unwrap_or(get(parts, 1), "")))
+  end
+  merge_batches(quests)
+end
+
+function single_batch(key: text, body: text): Batch
+  intent: build
+  Batch { keys: [key], bodies: [body] }
+end
+
+function merge_batches(batches: a list of Batch): Batch
+  intent: build
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
+  for batch in batches do
+    set keys = concat(keys, batch.keys)
+    set bodies = concat(bodies, batch.bodies)
   end
   Batch { keys: keys, bodies: bodies }
+end
+
+function response_file_entries(): Batch
+  intent: build
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
+  for name in sort_text(list_dir(responses())) do
+    if ends_with(name, ".json") and not starts_with(name, "_") then
+      set keys = append(keys, route_from_response(name))
+      set bodies = append(bodies, read_response(name))
+    end
+  end
+  Batch { keys: keys, bodies: bodies }
+end
+
+function profile_template(): text
+  intent: build
+  let template: text = fakeserver.user_profile_response_values("%UID%", "Commander", fakeserver.account_level(), 0)
+  let with_login: text = replace_exact(template, "\"lastLogin\":0", "\"lastLogin\":%NOW%", 1, "userprofile lastLogin")
+  replace_exact(with_login, "\"_createTime\":0", "\"_createTime\":%NOW%", 1, "userprofile _createTime")
+end
+
+function refresh_entries(): Batch
+  intent: build
+  let update: Json = jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([gamedata.build_missions_autorefresh_update()]))])
+  let empty: Json = jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([]))])
+  Batch { keys: ["@grouprefresh:missionsconfig", "@grouprefresh:", "@userprofile:template", "@tutorial:blocked", "@tutorial:live"], bodies: [envelope(update), envelope(empty), profile_template(), join(sort_text(fakeserver.block_tutorials()), "\n"), join(sort_text(fakeserver.live_tutorials()), "\n")] }
+end
+
+function tutorial_entries(): Batch
+  intent: build
+  let tutorials: Entries = tutorial_templates()
+  mutable bodies: a list of text = []
+  for key in tutorials.keys do set bodies = append(bodies, body_for(tutorials, key)) end
+  Batch { keys: tutorials.keys, bodies: bodies }
 end
 
 
@@ -444,79 +525,64 @@ function add_heroes(): Batch
   Batch { keys: append(keys, "@hero:*:1:1"), bodies: append(bodies, detail_for("__unknown_bid__", 1, 1)) }
 end
 
-function add_team_entries(): Batch
-  intent: build
-  mutable keys: a list of text = []
-  mutable bodies: a list of text = []
-  mutable roster: a list of text = []
-  for item in gamedata.roster() do set roster = append(roster, item.bid) end
-  set keys = append(keys, "@roster")
-  set bodies = append(bodies, join(sort_text(roster), "\n"))
-  set keys = append(keys, "@team:default")
-  set bodies = append(bodies, join(gamedata.default_team(), "\n"))
+function team_members(): a list of text
+  intent: list
   mutable members: a list of text = gamedata.owned()
   for bid in gamedata.default_team() do if not contains(members, bid) then set members = append(members, bid) end end
+  sort_text(members)
+end
+
+function roster_entries(): Batch
+  intent: build
+  mutable roster: a list of text = []
+  for item in gamedata.roster() do set roster = append(roster, item.bid) end
+  Batch { keys: ["@roster", "@team:default"], bodies: [join(sort_text(roster), "\n"), join(gamedata.default_team(), "\n")] }
+end
+
+function quest_member_body(bid: text, default_members: Json): text
+  intent: build
+  let team: Json = if jsonout.obj_has(default_members, bid) then jsonout.json_obj([jsonout.json_pair(bid, jsonout.obj_get(default_members, bid))]) else jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, [bid]), "users"), gamedata.local_uid()), "team") end
+  let encoded: text = jsonout.encode_compact(team)
+  if not starts_with(encoded, "\{") or not ends_with(encoded, "\}") then fail("quest member " ++ bid ++ " was not an object") end
+  substring(encoded, 1, text_length(encoded) - 2)
+end
+
+function quest_member_entries(members: a list of text): Batch
+  intent: build
   let default_progress: Json = gamedata.build_quest_progression("1.1.1", 0, 1, [])
-  let default_team: Json = jsonout.obj_get(jsonout.obj_get(default_progress, "users"), gamedata.local_uid())
-  let default_members: Json = jsonout.obj_get(default_team, "team")
-  for bid in sort_text(members) do
-    let team: Json = if jsonout.obj_has(default_members, bid) then jsonout.json_obj([jsonout.json_pair(bid, jsonout.obj_get(default_members, bid))]) else jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(gamedata.build_quest_progression("1.1.1", 0, 1, [bid]), "users"), gamedata.local_uid()), "team") end
-    let encoded: text = jsonout.encode_compact(team)
-    if not starts_with(encoded, "\{") or not ends_with(encoded, "\}") then fail("quest member " ++ bid ++ " was not an object") end
+  let default_members: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(default_progress, "users"), gamedata.local_uid()), "team")
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
+  for bid in members do
     set keys = append(keys, "@questmember:" ++ bid)
-    set bodies = append(bodies, substring(encoded, 1, text_length(encoded) - 2))
+    set bodies = append(bodies, quest_member_body(bid, default_members))
   end
-  set keys = append(keys, "@savedteam:template")
-  set bodies = append(bodies, saved_team_template())
-  set keys = append(keys, "@userdata:template")
-  set bodies = append(bodies, user_data_template())
-  for bid in sort_text(members) do
+  Batch { keys: keys, bodies: bodies }
+end
+
+function saved_hero_entries(members: a list of text): Batch
+  intent: build
+  mutable keys: a list of text = ["@savedteam:template", "@userdata:template"]
+  mutable bodies: a list of text = [saved_team_template(), user_data_template()]
+  for bid in members do
     set keys = append(keys, "@savedteam:hero:" ++ bid)
     set bodies = append(bodies, jsonout.encode_compact(gamedata.build_hero_entry(bid, 1, 1)))
   end
   Batch { keys: keys, bodies: bodies }
 end
 
+function add_team_entries(): Batch
+  intent: build
+  let members: a list of text = team_members()
+  merge_batches([roster_entries(), quest_member_entries(members), saved_hero_entries(members)])
+end
+
 function build_entries(listen_port: integer): Entries
   intent: build
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
-  mutable keys: a list of text = []
-  mutable bodies: a list of text = []
-  for name in sort_text(list_dir(responses())) do
-    if ends_with(name, ".json") and not starts_with(name, "_") then
-      set keys = append(keys, route_from_response(name))
-      set bodies = append(bodies, read_response(name))
-    end
-  end
-  set keys = append(keys, "GET /base/active")
-  set bodies = append(bodies, envelope(gamedata.build_base_active()))
-  let quests: Batch = add_quests()
-  set keys = concat(keys, quests.keys)
-  set bodies = concat(bodies, quests.bodies)
-  set keys = append(keys, "@grouprefresh:missionsconfig")
-  set bodies = append(bodies, envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([gamedata.build_missions_autorefresh_update()]))])))
-  set keys = append(keys, "@grouprefresh:")
-  set bodies = append(bodies, envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list([]))])))
-  let user_profile_template: text = fakeserver.user_profile_response_values("%UID%", "Commander", fakeserver.account_level(), 0)
-  let user_profile_with_login: text = replace_exact(user_profile_template, "\"lastLogin\":0", "\"lastLogin\":%NOW%", 1, "userprofile lastLogin")
-  set keys = append(keys, "@userprofile:template")
-  set bodies = append(bodies, replace_exact(user_profile_with_login, "\"_createTime\":0", "\"_createTime\":%NOW%", 1, "userprofile _createTime"))
-  set keys = append(keys, "@tutorial:blocked")
-  set bodies = append(bodies, join(sort_text(fakeserver.block_tutorials()), "\n"))
-  set keys = append(keys, "@tutorial:live")
-  set bodies = append(bodies, join(sort_text(fakeserver.live_tutorials()), "\n"))
-  let tutorials: Entries = tutorial_templates()
-  for key in tutorials.keys do
-    set keys = append(keys, key)
-    set bodies = append(bodies, body_for(tutorials, key))
-  end
-  let heroes: Batch = add_heroes()
-  set keys = concat(keys, heroes.keys)
-  set bodies = concat(bodies, heroes.bodies)
-  let team: Batch = add_team_entries()
-  set keys = concat(keys, team.keys)
-  set bodies = concat(bodies, team.bodies)
-  finish(keys, bodies)
+  let base: Batch = single_batch("GET /base/active", envelope(gamedata.build_base_active()))
+  let all: Batch = merge_batches([response_file_entries(), base, add_quests(), refresh_entries(), tutorial_entries(), add_heroes(), add_team_entries()])
+  finish(all.keys, all.bodies)
 end
 
 function padded(length: integer): integer
@@ -540,36 +606,6 @@ function write_value(blob: integer, offset: integer, value: text): integer
   let next: integer = offset + padded(bytes_length(data))
   bytes_free(data)
   next
-end
-
-function crc_table(): a list of integer
-  intent: build
-  mutable table: a list of integer = []
-  mutable index: integer = 0
-  while index < 256 do
-    mutable value: integer = index
-    mutable bit: integer = 0
-    while bit < 8 do
-      if bit_and(value, 1) == 1 then set value = bit_xor(shift_right_unsigned(value, 1), 3988292384) else set value = shift_right_unsigned(value, 1) end
-      set bit = bit + 1
-    end
-    set table = append(table, value)
-    set index = index + 1
-  end
-  table
-end
-
-function crc_of(handle: integer, start: integer, count: integer, table: a list of integer): integer
-  intent: compute
-  mutable crc: integer = 4294967295
-  mutable index: integer = start
-  let stop: integer = start + count
-  while index < stop do
-    let slot: integer = bit_and(bit_xor(crc, bytes_get(handle, index)), 255)
-    set crc = bit_xor(shift_right_unsigned(crc, 8), unwrap_or(get(table, slot), 0))
-    set index = index + 1
-  end
-  bit_xor(crc, 4294967295)
 end
 
 function prefixes(): Prefixes
@@ -642,7 +678,7 @@ end
 
 function header(blob: integer, total: integer, port: integer, count: integer, prefix_count: integer, prefix_offset: integer, default_offset: integer): nothing
   intent: write
-  let crc: integer = crc_of(blob, 64, total - 64, crc_table())
+  let crc: integer = bytes_crc32(blob, 64, total - 64)
   for magic_index in [0, 1, 2, 3, 4, 5, 6] do bytes_set(blob, magic_index, unwrap_or(get([84, 70, 84, 70, 80, 65, 89], magic_index), 0)) end
   bytes_write_u32_le(blob, 8, 1)
   bytes_write_u32_le(blob, 12, total)
@@ -702,40 +738,72 @@ function value_error(blob: integer, offset: integer, size: integer, label: text)
   end
 end
 
+record Utf8Lead
+  valid: boolean
+  needed: integer
+  low: integer
+  high: integer
+end
+
+function utf8_needed(first: integer): integer
+  intent: classify
+  if first <= 127 then 0
+  else if first >= 194 and first <= 223 then 1
+  else if first >= 224 and first <= 239 then 2
+  else if first >= 240 and first <= 244 then 3
+  else -1
+  end
+end
+
+function utf8_second_low(first: integer): integer
+  intent: classify
+  if first == 224 then 160 else if first == 240 then 144 else 128 end
+end
+
+function utf8_second_high(first: integer): integer
+  intent: classify
+  if first == 237 then 159 else if first == 244 then 143 else 191 end
+end
+
+function utf8_lead(first: integer): Utf8Lead
+  intent: classify
+  let needed: integer = utf8_needed(first)
+  if needed < 0 then Utf8Lead { valid: false, needed: 0, low: 128, high: 191 }
+  else Utf8Lead { valid: true, needed: needed, low: utf8_second_low(first), high: utf8_second_high(first) }
+  end
+end
+
+function continuation_valid(blob: integer, first: integer, last: integer): boolean
+  intent: check
+  mutable valid: boolean = true
+  mutable position: integer = first
+  while valid and position <= last do
+    let byte: integer = bytes_get(blob, position)
+    if byte < 128 or byte > 191 then set valid = false end
+    set position = position + 1
+  end
+  valid
+end
+
+function utf8_tail_valid(blob: integer, index: integer, stop: integer, lead: Utf8Lead): boolean
+  intent: check
+  if lead.needed == 0 then true
+  else if index + lead.needed >= stop then false
+  else
+    let second: integer = bytes_get(blob, index + 1)
+    if second < lead.low or second > lead.high then false else continuation_valid(blob, index + 2, index + lead.needed) end
+  end
+end
+
 function valid_utf8(blob: integer, offset: integer, size: integer): boolean
   intent: check
   mutable valid: boolean = true
   mutable index: integer = offset
   let stop: integer = offset + size
   while index < stop and valid do
-    let first: integer = bytes_get(blob, index)
-    mutable needed: integer = 0
-    mutable second_low: integer = 128
-    mutable second_high: integer = 191
-    if first <= 127 then set needed = 0
-    else if first >= 194 and first <= 223 then set needed = 1
-    else if first >= 224 and first <= 239 then
-      set needed = 2
-      if first == 224 then set second_low = 160 end
-      if first == 237 then set second_high = 159 end
-    else if first >= 240 and first <= 244 then
-      set needed = 3
-      if first == 240 then set second_low = 144 end
-      if first == 244 then set second_high = 143 end
-    else set valid = false
-    end
-    if valid and index + needed >= stop then set valid = false end
-    if valid and needed > 0 then
-      let second: integer = bytes_get(blob, index + 1)
-      if second < second_low or second > second_high then set valid = false end
-    end
-    mutable follow: integer = 2
-    while valid and follow <= needed do
-      let byte: integer = bytes_get(blob, index + follow)
-      if byte < 128 or byte > 191 then set valid = false end
-      set follow = follow + 1
-    end
-    set index = index + needed + 1
+    let lead: Utf8Lead = utf8_lead(bytes_get(blob, index))
+    set valid = lead.valid and utf8_tail_valid(blob, index, stop, lead)
+    set index = index + lead.needed + 1
   end
   valid
 end
@@ -752,6 +820,29 @@ function read_value(blob: integer, offset: integer, size: integer, label: text):
   end
 end
 
+record TableRow
+  key: text
+  body: text
+  error: text
+end
+
+function read_table_row(blob: integer, row: integer, label: text, index: integer): TableRow
+  intent: read
+  let key_offset: integer = bytes_read_u32_le(blob, row)
+  let key_size: integer = bytes_read_u32_le(blob, row + 4)
+  let key_label: text = label ++ " key " ++ to_text(index)
+  let key_error: text = value_error(blob, key_offset, key_size, key_label)
+  if key_error != "" then
+    TableRow { key: "", body: "", error: key_error }
+  else if not valid_utf8(blob, key_offset, key_size) then
+    TableRow { key: "", body: "", error: key_label ++ " is not UTF-8" }
+  else
+    let key_value: a list of text = read_value(blob, key_offset, key_size, key_label)
+    let body_value: a list of text = read_value(blob, bytes_read_u32_le(blob, row + 8), bytes_read_u32_le(blob, row + 12), label ++ " body " ++ to_text(index))
+    TableRow { key: unwrap_or(get(key_value, 0), ""), body: unwrap_or(get(body_value, 0), ""), error: unwrap_or(get(body_value, 1), "") }
+  end
+end
+
 function read_table(blob: integer, offset: integer, count: integer, label: text): TableValues
   intent: read
   let total: integer = bytes_length(blob)
@@ -763,25 +854,12 @@ function read_table(blob: integer, offset: integer, count: integer, label: text)
     mutable error: text = ""
     mutable index: integer = 0
     while index < count and error == "" do
-      let row: integer = offset + index * 16
-      let key_offset: integer = bytes_read_u32_le(blob, row)
-      let key_size: integer = bytes_read_u32_le(blob, row + 4)
-      let key_label: text = label ++ " key " ++ to_text(index)
-      let key_error: text = value_error(blob, key_offset, key_size, key_label)
-      if key_error != "" then
-        set error = key_error
-      else if not valid_utf8(blob, key_offset, key_size) then
-        set error = key_label ++ " is not UTF-8"
+      let row: TableRow = read_table_row(blob, offset + index * 16, label, index)
+      if row.error != "" then
+        set error = row.error
       else
-        let key_value: a list of text = read_value(blob, key_offset, key_size, key_label)
-        let body_value: a list of text = read_value(blob, bytes_read_u32_le(blob, row + 8), bytes_read_u32_le(blob, row + 12), label ++ " body " ++ to_text(index))
-        let body_error: text = unwrap_or(get(body_value, 1), "")
-        if body_error != "" then
-          set error = body_error
-        else
-          set keys = append(keys, unwrap_or(get(key_value, 0), ""))
-          set bodies = append(bodies, unwrap_or(get(body_value, 0), ""))
-        end
+        set keys = append(keys, row.key)
+        set bodies = append(bodies, row.body)
       end
       set index = index + 1
     end
@@ -802,33 +880,51 @@ function strictly_sorted_unique(values: a list of text): boolean
   valid
 end
 
+function payload_magic_valid(blob: integer): boolean
+  intent: check
+  bytes_get(blob, 0) == 84 and bytes_get(blob, 1) == 70 and bytes_get(blob, 2) == 84 and bytes_get(blob, 3) == 70 and bytes_get(blob, 4) == 80 and bytes_get(blob, 5) == 65 and bytes_get(blob, 6) == 89 and bytes_get(blob, 7) == 0
+end
+
+function header_field_error(blob: integer): text
+  intent: validate
+  let version: integer = bytes_read_u32_le(blob, 8)
+  let total: integer = bytes_read_u32_le(blob, 12)
+  if version != 1 then "unsupported payload version: " ++ to_text(version)
+  else if total != bytes_length(blob) then "payload total size does not match blob length"
+  else if bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0 then "payload reserved header fields are non-zero"
+  else if bytes_crc32(blob, 64, total - 64) != bytes_read_u32_le(blob, 44) then "payload CRC-32 mismatch"
+  else ""
+  end
+end
+
+function header_error(blob: integer): text
+  intent: validate
+  if bytes_length(blob) < 64 then "payload is shorter than the 64-byte header"
+  else if not payload_magic_valid(blob) then "invalid payload magic"
+  else header_field_error(blob)
+  end
+end
+
+function load_prefixes_and_default(blob: integer, entries: TableValues): Payload
+  intent: load
+  let pref: TableValues = read_table(blob, bytes_read_u32_le(blob, 32), bytes_read_u32_le(blob, 28), "prefix")
+  let default_value: a list of text = read_value(blob, bytes_read_u32_le(blob, 36), bytes_read_u32_le(blob, 40), "default body")
+  let default_error: text = unwrap_or(get(default_value, 1), "")
+  if pref.error != "" then payload_error(pref.error)
+  else if default_error != "" then payload_error(default_error)
+  else Payload { version: bytes_read_u32_le(blob, 8), listen_port: bytes_read_u32_le(blob, 16), entry_keys: entries.keys, entry_bodies: entries.bodies, prefix_keys: pref.keys, prefix_bodies: pref.bodies, default_body: unwrap_or(get(default_value, 0), ""), error: "" }
+  end
+end
+
 public function load_payload(blob: integer): Payload
   intent: load
-  if bytes_length(blob) < 64 then payload_error("payload is shorter than the 64-byte header")
-  else if bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0 then payload_error("invalid payload magic")
+  let problem: text = header_error(blob)
+  if problem != "" then payload_error(problem)
   else
-    let version: integer = bytes_read_u32_le(blob, 8)
-    let total: integer = bytes_read_u32_le(blob, 12)
-    let crc: integer = bytes_read_u32_le(blob, 44)
-    if version != 1 then payload_error("unsupported payload version: " ++ to_text(version))
-    else if total != bytes_length(blob) then payload_error("payload total size does not match blob length")
-    else if bytes_read_u32_le(blob, 48) != 0 or bytes_read_u32_le(blob, 52) != 0 or bytes_read_u32_le(blob, 56) != 0 or bytes_read_u32_le(blob, 60) != 0 then payload_error("payload reserved header fields are non-zero")
-    else if crc_of(blob, 64, total - 64, crc_table()) != crc then payload_error("payload CRC-32 mismatch")
-    else
-      let entries: TableValues = read_table(blob, bytes_read_u32_le(blob, 24), bytes_read_u32_le(blob, 20), "entry")
-      if entries.error != "" then payload_error(entries.error)
-      else if not strictly_sorted_unique(entries.keys) then payload_error("entry table is not strictly sorted by unique raw key bytes")
-      else
-        let pref: TableValues = read_table(blob, bytes_read_u32_le(blob, 32), bytes_read_u32_le(blob, 28), "prefix")
-        if pref.error != "" then payload_error(pref.error)
-        else
-          let default_value: a list of text = read_value(blob, bytes_read_u32_le(blob, 36), bytes_read_u32_le(blob, 40), "default body")
-          let default_error: text = unwrap_or(get(default_value, 1), "")
-          if default_error != "" then payload_error(default_error)
-          else Payload { version: version, listen_port: bytes_read_u32_le(blob, 16), entry_keys: entries.keys, entry_bodies: entries.bodies, prefix_keys: pref.keys, prefix_bodies: pref.bodies, default_body: unwrap_or(get(default_value, 0), ""), error: "" }
-          end
-        end
-      end
+    let entries: TableValues = read_table(blob, bytes_read_u32_le(blob, 24), bytes_read_u32_le(blob, 20), "entry")
+    if entries.error != "" then payload_error(entries.error)
+    else if not strictly_sorted_unique(entries.keys) then payload_error("entry table is not strictly sorted by unique raw key bytes")
+    else load_prefixes_and_default(blob, entries)
     end
   end
 end
