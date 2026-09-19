@@ -143,7 +143,8 @@ uit  LIST        UI triggers
 a    LIST        appearance ids -> statModAppears
 trr  text        trigger rate: none | update | once | repeat
 c    decimal     chance, 1.0 = always
-m    decimal     magnitude
+m    decimal     magnitude: an ABSOLUTE TOTAL, not a fraction of Attack.
+                 Per tick = m / d / 2 (tick interval is 0.50s). See the note below.
 d    decimal     duration seconds; -1.0 = INDEFINITE
 ta   text        target: none | self | opponent (alias opp) | owner | tower | opp_tower
 mt   text        BITFLAG: buff | debuff | passive | passive_buff | passive_debuff
@@ -418,11 +419,16 @@ silent empty value and **no error anywhere** — that is the trap, every time.
    icon regresses, suspect the record you *added*, not one you're missing.
 3. **Static responses override the builder.** Always regenerate (§3.5).
 4. **`tr`, `uit`, `a` are lists.** Wrong accessor type = silent empty value, no error.
-5. **Client-side conditions are thin.** Only two condition classes exist
-   (`ActiveId_BuffCondition`, `ContainsBuff_BuffCondition`) — essentially "is buff X active".
-   There is **no generic predicate system**: "below 20% health" or "opponent is class Y"
-   cannot be expressed as a condition. It must come from the trigger type or a preset
-   `buffType`. Do not design kits around conditions that do not exist.
+5. **Conditions ARE server-authorable — via `trs`.** (Corrected 2026-09-18; this section
+   previously said no predicate system existed. It does.) Write them as
+   `<target>:<key><op><value>`, e.g. `trs: "opponent:isAi=true"`. Parsed by
+   `BuffTriggerFactory.ParseConditions` with regex `([\w\.]+)(=|<=|>=|!=|>|<)(.+)`.
+   Operators: `=` `<` `>` `<=` `>=` `!=` — **single `=`, not `==`**. Readable keys:
+   `arena canAttack class currAnim fightType heavyType isAi isFinalBoss playerID prevAnim
+   state tags`. So *"opponent is class Y"* **is** expressible. *"below 20% health"* still is
+   not — there is no health key. ⚠️ The value group is `(.+)`, so a misspelled value is
+   syntactically valid and simply never true, with no error. Always confirm with a condition
+   you predicted would pass.
 6. **Three different classes are named `Buff`.** The combat one is
    `public sealed class Buff`; the config record from `buffs_set` is a different type, and a
    third unrelated `Buff` belongs to map tiles. Probing the wrong one burned three sessions
@@ -521,14 +527,40 @@ Inert. Update-mode with no update triggers is a buff told to refresh and never t
 **5. Composing `mt` by OR-ing.**
 `passive_buff` is `8`. `passive|buff` is `5`. Five is not a defined member.
 
-**6. Conditions that do not exist.**
-There are exactly **two** condition classes — `ActiveId_BuffCondition` and
-`ContainsBuff_BuffCondition` — and both only ask *"is buff X active?"*. There is **no predicate
-system**: "below 20% health", "opponent is class Y" and "after 3 hits" cannot be expressed as
-conditions. Conditionality must come from **which trigger fires** plus the chance roll `c`. Do
-not design a kit around a condition the engine cannot evaluate.
+**6. Assuming conditions do not exist.** *(Corrected 2026-09-18.)*
+This section used to claim there was no predicate system. That was wrong — see pitfall 5 in
+§7 for the `trs` format. Beyond the two id-matching classes (`ActiveId_BuffCondition`,
+`ContainsBuff_BuffCondition`) there is a full comparison family — `BuffFloatCondition`,
+`BuffIntCondition`, `BuffBoolCondition`, `BuffBitFieldCondition`, `BuffSetCondition<T>`,
+`BuffSetOverlapCondition<T>` — driven by `BuffConditionOp`
+(`Equal GreaterThan LessThan GreaterThanOrEqual LessThanOrEqual NotEqual`). The real limit is
+narrower than "no conditions": there is **no health key**, so *"below 20% health"* genuinely
+cannot be expressed, and neither can *"after 3 hits"*.
 
-**7. Expecting a floating number for an effect that has no producer.**
+**7. Serving `m` as a fraction, expecting it to scale with Attack.** *(Added 2026-09-18.)*
+`m` is an **absolute total**, spread across the duration:
+
+```
+per-tick value = m / d / 2        (tick interval is 0.50s, so 2 ticks per second)
+```
+
+Verified in a live fight to three decimals on two independent rows:
+`m=250, d=7.0` produced `17.8571` per tick (250/7/2 = 17.857), and `m=400, d=6.0` produced
+`33.3333` (400/6/2 = 33.333). `Damage_BuffEffect.OnTick` contains no multiply against any
+attack attribute — it uses `Buff._amount` directly.
+
+**Why this is the worst silent failure in the system:**
+`HudFloatingTextController.Play` takes an **`int`**, and `HudFloatingText.Config.Amount` is an
+`int`. Author `m: 0.30` believing it means "30% of Attack" and you get `0.30 / 7 / 2 = 0.0214`
+per tick, which truncates to **`0`**. The HUD then correctly displays zero, every tick, with
+no error anywhere. The ability registers, ticks, passes its conditions, reaches the HUD cache,
+and appears completely dead. **If an ability seems to do nothing, log the magnitude before you
+debug the plumbing.**
+
+⚠️ Note `statMods` rows are **global**, so a single absolute `m` cannot be balanced across
+bots of very different Attack. Per-bot scaling via `gc`/`gcv`/`rcv` is unexplored.
+
+**8. Expecting a floating number for an effect that has no producer.**
 `HudFloatingTextStyleFlags` offers ten styles including `Fury` and `Weakness`, but only two
 cache keys exist in the entire binary — `_ftd` (`Damage_BuffEffect`) and `_fth`
 (`Heal_BuffEffect`). Damage and heal numbers have plumbing behind them. **Strengthen and weaken
