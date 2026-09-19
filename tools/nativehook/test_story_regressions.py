@@ -166,7 +166,7 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         # (commit d6f874a, device-verified); no quest-begin error body is ever returned.
         act3 = begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
         assert act3["data"]["act"] == 3
-        assert act3["data"]["image"] == "bludgeon_gs_rd20"
+        assert act3["data"]["image"] == "bludge_gs"
         assert act3["map"]["gridDimension"] == 5
         act3_grid = act3["map"]["grid"]
         # Jazz at (1,2) — first battle

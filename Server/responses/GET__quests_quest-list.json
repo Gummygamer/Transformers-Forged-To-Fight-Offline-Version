@@ -31,7 +31,7 @@
      "category":"story","difficulty":"normal",
      "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
      "minHealthPerTile":100,"maxHealthPerTile":100,
-     "image":"bludgeon_gs_rd20","theme":"primordial"
+     "image":"bludge_gs","theme":"primordial"
    }
  ]
 },
