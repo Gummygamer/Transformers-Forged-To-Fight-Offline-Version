@@ -26,6 +26,11 @@ record EncodeResult
   next: integer
 end
 
+record MemberResult
+  pair: Pair
+  next: integer
+end
+
 function fail(message: text): nothing
   intent: print
   print("[!] jsonout: " ++ message)
@@ -236,7 +241,31 @@ public function json_pair(key: text, value: Json): Pair
   Pair { k: key, v: value }
 end
 
-public function encode_compact(node: Json): text
+function encode_list(items: a list of Json, separator: text, key_separator: text): text
+  intent: encode
+  mutable out: text = "["
+  mutable first: boolean = true
+  for item in items do
+    if not first then set out = out ++ separator end
+    set out = out ++ encode_node(item, separator, key_separator)
+    set first = false
+  end
+  out ++ "]"
+end
+
+function encode_object(pairs: a list of Pair, separator: text, key_separator: text): text
+  intent: encode
+  mutable out: text = "\{"
+  mutable first: boolean = true
+  for pair in pairs do
+    if not first then set out = out ++ separator end
+    set out = out ++ public_json_string(pair.k) ++ key_separator ++ encode_node(pair.v, separator, key_separator)
+    set first = false
+  end
+  out ++ "\}"
+end
+
+function encode_node(node: Json, separator: text, key_separator: text): text
   intent: encode
   match node
     when JNull { unused } then "null"
@@ -244,25 +273,14 @@ public function encode_compact(node: Json): text
     when JInt { v } then to_text(v)
     when JDec { v } then decimal_text(v)
     when JText { v } then public_json_string(v)
-    when JList { items } then
-      mutable out: text = "["
-      mutable first: boolean = true
-      for item in items do
-        if not first then set out = out ++ "," end
-        set out = out ++ encode_compact(item)
-        set first = false
-      end
-      out ++ "]"
-    when JObj { pairs } then
-      mutable out: text = "\{"
-      mutable first: boolean = true
-      for pair in pairs do
-        if not first then set out = out ++ "," end
-        set out = out ++ public_json_string(pair.k) ++ ":" ++ encode_compact(pair.v)
-        set first = false
-      end
-      out ++ "\}"
+    when JList { items } then encode_list(items, separator, key_separator)
+    when JObj { pairs } then encode_object(pairs, separator, key_separator)
   end
+end
+
+public function encode_compact(node: Json): text
+  intent: encode
+  encode_node(node, ",", ":")
 end
 
 function is_digit(character: text): boolean
@@ -314,44 +332,62 @@ function parse_hex_4(source: text, start: integer): integer
   end
 end
 
+function simple_escape(escaped: text): text
+  intent: decode
+  if escaped == "\"" or escaped == "\\" or escaped == "/" then escaped
+  else if escaped == "b" then byte_text(8)
+  else if escaped == "f" then byte_text(12)
+  else if escaped == "n" then "\n"
+  else if escaped == "r" then "\r"
+  else if escaped == "t" then "\t"
+  else ""
+  end
+end
+
+function replacement_escape(start: integer): ParseResult
+  intent: return
+  ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
+end
+
+function parse_surrogate_pair(source: text, start: integer, high: integer): ParseResult
+  intent: parse
+  if start + 11 < text_length(source) and substring(source, start + 6, 2) == "\\u" then
+    let low: integer = parse_hex_4(source, start + 8)
+    if low >= 56320 and low <= 57343 then
+      let cp: integer = 65536 + (high - 55296) * 1024 + (low - 56320)
+      ParseResult { node: json_text(codepoint_to_utf8(cp)), next: start + 12 }
+    else
+      replacement_escape(start)
+    end
+  else
+    replacement_escape(start)
+  end
+end
+
+function parse_unicode_escape(source: text, start: integer): ParseResult
+  intent: parse
+  let val1: integer = parse_hex_4(source, start + 2)
+  if val1 < 0 then
+    fail("malformed JSON unicode escape")
+    ParseResult { node: json_text(""), next: start + 6 }
+  else if val1 >= 55296 and val1 <= 56319 then
+    parse_surrogate_pair(source, start, val1)
+  else if val1 >= 56320 and val1 <= 57343 then
+    replacement_escape(start)
+  else
+    ParseResult { node: json_text(codepoint_to_utf8(val1)), next: start + 6 }
+  end
+end
+
 function parse_escape(source: text, start: integer): ParseResult
   intent: parse
   if start + 1 >= text_length(source) then fail("malformed JSON string escape") end
   let escaped: text = substring(source, start + 1, 1)
-  if escaped == "\"" or escaped == "\\" or escaped == "/" then
-    ParseResult { node: json_text(escaped), next: start + 2 }
-  else if escaped == "b" then
-    ParseResult { node: json_text(byte_text(8)), next: start + 2 }
-  else if escaped == "f" then
-    ParseResult { node: json_text(byte_text(12)), next: start + 2 }
-  else if escaped == "n" then
-    ParseResult { node: json_text("\n"), next: start + 2 }
-  else if escaped == "r" then
-    ParseResult { node: json_text("\r"), next: start + 2 }
-  else if escaped == "t" then
-    ParseResult { node: json_text("\t"), next: start + 2 }
+  let simple: text = simple_escape(escaped)
+  if simple != "" then
+    ParseResult { node: json_text(simple), next: start + 2 }
   else if escaped == "u" and start + 5 < text_length(source) then
-    let val1: integer = parse_hex_4(source, start + 2)
-    if val1 < 0 then
-      fail("malformed JSON unicode escape")
-      ParseResult { node: json_text(""), next: start + 6 }
-    else if val1 >= 55296 and val1 <= 56319 then
-      if start + 11 < text_length(source) and substring(source, start + 6, 2) == "\\u" then
-        let val2: integer = parse_hex_4(source, start + 8)
-        if val2 >= 56320 and val2 <= 57343 then
-          let cp: integer = 65536 + (val1 - 55296) * 1024 + (val2 - 56320)
-          ParseResult { node: json_text(codepoint_to_utf8(cp)), next: start + 12 }
-        else
-          ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
-        end
-      else
-        ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
-      end
-    else if val1 >= 56320 and val1 <= 57343 then
-      ParseResult { node: json_text(codepoint_to_utf8(65533)), next: start + 6 }
-    else
-      ParseResult { node: json_text(codepoint_to_utf8(val1)), next: start + 6 }
-    end
+    parse_unicode_escape(source, start)
   else
     fail("malformed JSON string escape")
     ParseResult { node: json_text(""), next: start }
@@ -386,40 +422,52 @@ function parse_string(source: text, start: integer): ParseResult
   ParseResult { node: json_text(out), next: index }
 end
 
-function parse_number(source: text, start: integer): ParseResult
-  intent: parse
+function scan_digits(source: text, start: integer): integer
+  intent: scan
   mutable index: integer = start
-  mutable decimal_token: boolean = false
-  if has_at(source, index, "-") then set index = index + 1 end
+  while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+  index
+end
+
+function scan_required_digits(source: text, start: integer): integer
+  intent: scan
+  if is_at_end(source, start) or not is_digit(substring(source, start, 1)) then fail("malformed JSON number") end
+  scan_digits(source, start)
+end
+
+function scan_integer_part(source: text, start: integer): integer
+  intent: scan
+  let index: integer = if has_at(source, start, "-") then start + 1 else start end
   if has_at(source, index, "0") then
-    set index = index + 1
-    if not is_at_end(source, index) and is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
+    if not is_at_end(source, index + 1) and is_digit(substring(source, index + 1, 1)) then fail("malformed JSON number") end
+    index + 1
   else if not is_at_end(source, index) and contains_text("123456789", substring(source, index, 1)) then
-    set index = index + 1
-    while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
+    scan_digits(source, index + 1)
   else
     fail("malformed JSON number")
+    index
   end
-  if has_at(source, index, ".") then
-    set decimal_token = true
-    set index = index + 1
-    if is_at_end(source, index) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
-    while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
-  end
-  if has_at(source, index, "e") or has_at(source, index, "E") then
-    set decimal_token = true
-    set index = index + 1
-    if has_at(source, index, "+") or has_at(source, index, "-") then set index = index + 1 end
-    if is_at_end(source, index) or not is_digit(substring(source, index, 1)) then fail("malformed JSON number") end
-    while not is_at_end(source, index) and is_digit(substring(source, index, 1)) do set index = index + 1 end
-  end
+end
+
+function scan_exponent(source: text, start: integer): integer
+  intent: scan
+  let signed: integer = start + 1
+  let index: integer = if has_at(source, signed, "+") or has_at(source, signed, "-") then signed + 1 else signed end
+  scan_required_digits(source, index)
+end
+
+function parse_number(source: text, start: integer): ParseResult
+  intent: parse
+  let after_integer: integer = scan_integer_part(source, start)
+  let has_fraction: boolean = has_at(source, after_integer, ".")
+  let after_fraction: integer = if has_fraction then scan_required_digits(source, after_integer + 1) else after_integer end
+  let has_exponent: boolean = has_at(source, after_fraction, "e") or has_at(source, after_fraction, "E")
+  let index: integer = if has_exponent then scan_exponent(source, after_fraction) else after_fraction end
   let token: text = substring(source, start, index - start)
-  if decimal_token then
-    let value: decimal = unwrap_or(to_decimal(token), 0.0)
-    ParseResult { node: json_dec(value), next: index }
+  if has_fraction or has_exponent then
+    ParseResult { node: json_dec(unwrap_or(to_decimal(token), 0.0)), next: index }
   else
-    let value: integer = unwrap_or(to_integer(token), 0)
-    ParseResult { node: json_int(value), next: index }
+    ParseResult { node: json_int(unwrap_or(to_integer(token), 0)), next: index }
   end
 end
 
@@ -449,6 +497,16 @@ function parse_list(source: text, start: integer): ParseResult
   end
 end
 
+function parse_member(source: text, start: integer): MemberResult
+  intent: parse
+  if not has_at(source, start, "\"") then fail("expected JSON object key") end
+  let key_result: ParseResult = parse_string(source, start)
+  let after_key: integer = skip_space(source, key_result.next)
+  if not has_at(source, after_key, ":") then fail("expected colon after JSON object key") end
+  let value_result: ParseResult = parse_value(source, skip_space(source, after_key + 1))
+  MemberResult { pair: json_pair(as_text(key_result.node), value_result.node), next: value_result.next }
+end
+
 function parse_object(source: text, start: integer): ParseResult
   intent: parse
   mutable index: integer = skip_space(source, start + 1)
@@ -458,14 +516,9 @@ function parse_object(source: text, start: integer): ParseResult
   else
     mutable done: boolean = false
     while not done do
-      if not has_at(source, index, "\"") then fail("expected JSON object key") end
-      let key_result: ParseResult = parse_string(source, index)
-      let key: text = as_text(key_result.node)
-      set index = skip_space(source, key_result.next)
-      if not has_at(source, index, ":") then fail("expected colon after JSON object key") end
-      let value_result: ParseResult = parse_value(source, skip_space(source, index + 1))
-      set pairs = append(pairs, json_pair(key, value_result.node))
-      set index = skip_space(source, value_result.next)
+      let member: MemberResult = parse_member(source, index)
+      set pairs = append(pairs, member.pair)
+      set index = skip_space(source, member.next)
       if has_at(source, index, ",") then
         set index = skip_space(source, index + 1)
         if has_at(source, index, "\}") then fail("trailing comma in JSON object") end
@@ -623,29 +676,5 @@ end
 
 public function encode_spaced(node: Json): text
   intent: encode
-  match node
-    when JNull { unused } then "null"
-    when JBool { v } then if v then "true" else "false" end
-    when JInt { v } then to_text(v)
-    when JDec { v } then decimal_text(v)
-    when JText { v } then public_json_string(v)
-    when JList { items } then
-      mutable out: text = "["
-      mutable first: boolean = true
-      for item in items do
-        if not first then set out = out ++ ", " end
-        set out = out ++ encode_spaced(item)
-        set first = false
-      end
-      out ++ "]"
-    when JObj { pairs } then
-      mutable out: text = "\{"
-      mutable first: boolean = true
-      for pair in pairs do
-        if not first then set out = out ++ ", " end
-        set out = out ++ public_json_string(pair.k) ++ ": " ++ encode_spaced(pair.v)
-        set first = false
-      end
-      out ++ "\}"
-  end
+  encode_node(node, ", ", ": ")
 end
