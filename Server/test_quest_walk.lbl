@@ -168,17 +168,6 @@ function custom_act2_dialogue_wire_matches(dialogue: Json): boolean
   length(jsonout.list_items(entries)) == 3 and jsonout.as_text(jsonout.obj_get(first, "character")) == "fte_marissa_t1" and jsonout.as_text(jsonout.obj_get(first, "line")) == "Scanners found vital resources to repair our ship." and jsonout.as_text(jsonout.obj_get(second, "character")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(second, "line")) == "Understood, lead the way and secure them." and jsonout.as_text(jsonout.obj_get(third, "character")) == "fte_marissa_t1" and jsonout.as_text(jsonout.obj_get(third, "line")) == "Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights."
 end
 
-function complete_bumblebee(base: text, port: integer): nothing
-  intent: complete act2 final boss to unlock act3
-  post(base, port, "/quests/quest-begin/2.2.1", "\{\"setId\":\"custom_story_act1\"\}")
-  post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
-  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.2.1-0\"\}")
-  post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
-  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.2.1-0\"\}")
-  post(base, port, "/quests/quest-movedir/2.2.1-0/1/0", "\{\}")
-  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.2.1-0\"\}")
-end
-
 function act3_branch_keys(base: text, port: integer, branch_dy: integer): a list of text
   intent: walk one branch and return [mid_boss_key, final_boss_key]
   post(base, port, "/quests/quest-movedir/2.3.1-0/1/0", "\{\}")
@@ -197,11 +186,7 @@ end
 function test_custom_story_act3_branches_from_jazz_to_grindor_or_ironhide_then_bludgeon(base: text, port: integer): boolean
   intent: test
   fakeserver.reset_quest_positions()
-  -- Verify act3 is locked before Bumblebee completion
-  let locked_reply: HttpReply = post(base, port, "/quests/quest-begin/2.3.1", "\{\"setId\":\"custom_story_act1\"\}")
-  let locked_ok: boolean = locked_reply.status == "200" and contains_text(locked_reply.body, "not yet available")
-  -- Complete Bumblebee and test left branch (Grindor)
-  complete_bumblebee(base, port)
+  -- Test left branch (Grindor); act3 begins directly (no artificial unlock gate, per commit d6f874a)
   let begin_reply: HttpReply = post(base, port, "/quests/quest-begin/2.3.1", "\{\"setId\":\"custom_story_act1\"\}")
   let begin: Json = result(begin_reply)
   let active: Json = jsonout.obj_get(jsonout.obj_get(begin, "activeQuests"), "2.3.1")
@@ -216,12 +201,11 @@ function test_custom_story_act3_branches_from_jazz_to_grindor_or_ironhide_then_b
   let jazz_battle: Json = jsonout.obj_get(jsonout.obj_get(item(jsonout.obj_get(jazz_move, "results"), 1), "action"), "battle")
   post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.3.1-0\"\}")
   let left_keys: a list of text = act3_branch_keys(base, port, -1)
-  -- Reset, re-complete Bumblebee, test right branch (Ironhide)
+  -- Reset and test right branch (Ironhide)
   fakeserver.reset_quest_positions()
-  complete_bumblebee(base, port)
   post(base, port, "/quests/quest-begin/2.3.1", "\{\"setId\":\"custom_story_act1\"\}")
   let right_keys: a list of text = act3_branch_keys(base, port, 1)
-  locked_ok and begin_reply.status == "200" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(active, "data"), "act")) == 3 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "image")) == "bludgeon_gs_rd20" and jsonout.as_int(jsonout.obj_get(map, "gridDimension")) == 5 and jsonout.as_bool(jsonout.obj_get(jazz, "walkable")) and jsonout.as_text(jsonout.obj_get(jazz, "boss")) == "jazz_gs_twm05" and jsonout.as_text(jsonout.obj_get(grindor, "boss")) == "grindor_cin_rotf" and jsonout.as_text(jsonout.obj_get(ironhide, "boss")) == "ironhide_cin_rotf" and jsonout.as_text(jsonout.obj_get(boss, "boss")) == "bludgeon_gs_rd20" and jsonout.as_bool(jsonout.obj_get(boss, "final")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jazz_battle, "battleEnemy"), "key")) == "jazz_gs_twm05" and not jsonout.as_bool(jsonout.obj_get(jazz_battle, "isFinalBoss")) and unwrap_or(get(left_keys, 0), "") == "grindor_cin_rotf" and unwrap_or(get(left_keys, 1), "") == "bludgeon_gs_rd20" and unwrap_or(get(right_keys, 0), "") == "ironhide_cin_rotf" and unwrap_or(get(right_keys, 1), "") == "bludgeon_gs_rd20"
+  begin_reply.status == "200" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(active, "data"), "act")) == 3 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "image")) == "bludgeon_gs_rd20" and jsonout.as_int(jsonout.obj_get(map, "gridDimension")) == 5 and jsonout.as_bool(jsonout.obj_get(jazz, "walkable")) and jsonout.as_text(jsonout.obj_get(jazz, "boss")) == "jazz_gs_twm05" and jsonout.as_text(jsonout.obj_get(grindor, "boss")) == "grindor_cin_rotf" and jsonout.as_text(jsonout.obj_get(ironhide, "boss")) == "ironhide_cin_rotf" and jsonout.as_text(jsonout.obj_get(boss, "boss")) == "bludgeon_gs_rd20" and jsonout.as_bool(jsonout.obj_get(boss, "final")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jazz_battle, "battleEnemy"), "key")) == "jazz_gs_twm05" and not jsonout.as_bool(jsonout.obj_get(jazz_battle, "isFinalBoss")) and unwrap_or(get(left_keys, 0), "") == "grindor_cin_rotf" and unwrap_or(get(left_keys, 1), "") == "bludgeon_gs_rd20" and unwrap_or(get(right_keys, 0), "") == "ironhide_cin_rotf" and unwrap_or(get(right_keys, 1), "") == "bludgeon_gs_rd20"
 end
 
 function test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_mirage_and_bumblebee(base: text, port: integer): boolean
