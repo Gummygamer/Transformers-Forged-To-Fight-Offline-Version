@@ -34,10 +34,10 @@
 //
 //   4. SETACTFIX. hook_11 carries the maxQueuedActionTime fallback change: keep
 //      the window computed by the game when it exists, and use
-//      SETACT_FALLBACK_WINDOW only when it does not. The real source of that
+//      the shared managed_input.h fallback only when it does not. The real source of that
 //      window is bcg-combat.maxQueuedActionTime, authored in Server/gamedata.lbl;
-//      keep SETACT_FALLBACK_WINDOW in step with it. This armv7 source change has
-//      not been compiled or run on a 32-bit device. It is verified on arm64 only.
+//      keep the shared fallback in step with it. The field-access refactor needs
+//      live verification on both ABIs; host tests do not prove in-game behavior.
 //
 //   5. TSHIDE. The arm64 squad-screen-occlusion workaround in hook.c slots
 //      122-132 is deliberately not ported. It hides the base buildings that
@@ -200,7 +200,6 @@ static struct { uint32_t rva; const char* tag; fn8 orig; } H[] = {
 #define OFF_ACT_COMPLETED     0x19   // a64 0x31  Act.completed  (Chapter.completed too)
 #define OFF_FIGHTERDATA_BP    0x20   // a64 0x40  FighterData.Blueprint
 #define OFF_BLUEPRINT_TAGS    0x68   // a64 0xB8  BCGBlueprintBase.Tags
-#define OFF_QUEUEDACTION_TS   0x0C   // a64 0x14  PlayerInput.QueuedAction.TimeStamp (float)
 
 // Lazily build the shared empty string[]. Offset-free: the klass pointer is the
 // first word of any managed object in both ABIs.
@@ -310,37 +309,7 @@ static void* hook_10(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void*
     return H[10].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 
-// The combat game clock. `abi_map.lbl method` cannot help here: the clock is reached
-// through a GOT slot, i.e. a DATA address, and the two builds place those differently.
-// It was instead re-derived from this binary, which is more robust than translating an
-// address anyway -- QueuedAction.HasAction (armv7 0x907EC0) has to read the very clock
-// it compares TimeStamp against, so the chain is spelled out in its own code:
-//
-//     ldr r0,[pc,#0x3c] ; ldr r0,[pc,r0]   -> r0 = *(g_base + 0x2826E00)   deref 1
-//     ldr r0,[r0]                                                          deref 2
-//     ldr r0,[r0,#0x5c]                                                    deref 3
-//     ldr r4,[r0]                                                          deref 4
-//     vldr s0,[r4,#0xc]                    -> now
-//     vcmpe.f32 s16, s0 ; movwgt r0,#1     -> return TimeStamp > now
-//
-// The two pc-relative literals resolve to GOT slot 0x2826E00, and SetAction's own copy
-// of the chain resolves to the same slot, which is the cross-check. The arm64 build
-// reads it as adrp/ldr from 0x2c1a928 and then the identical four derefs with 0xb8/0x18
-// where this one uses 0x5c/0xc -- the usual pointer-width halving. Both slots live in
-// `.got` in their respective binaries.
-#define GOT_GAMECLOCK   0x2826E00   // a64 0x2c1a928
-#define OFF_CLOCK_NEXT  0x5C        // a64 0xB8
-#define OFF_CLOCK_NOW   0x0C        // a64 0x18
-static float game_clock(void){
-    if (!g_base) return -1.f;
-    uintptr_t p = g_base + GOT_GAMECLOCK;
-    p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
-    p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
-    p = *(uintptr_t*)(p + OFF_CLOCK_NEXT); if (!PLAUSIBLE(p)) return -1.f;
-    p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
-    return *(float*)(p + OFF_CLOCK_NOW);
-}
-#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.lbl; keep in step.
+#include "managed_input.h"
 
 // PlayerInput.QueuedAction.SetAction(this, action) @0x907DD8. Before maxQueuedActionTime was
 // authored, a tap fully registered offline (OnReleaseAttackInput -> SetAction(Attack) ran), but
@@ -352,20 +321,7 @@ static float game_clock(void){
 // TimeStamp window and substitutes the matching 0.2s fallback only when the window is missing.
 static void* hook_11(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[11].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT({
-        uintptr_t q = (uintptr_t)a0;
-        float clk = game_clock();
-        if (PLAUSIBLE(q) && clk >= 0.f) {
-            float ts = *(float*)(q + OFF_QUEUEDACTION_TS);
-            static int diagnostics = 0;
-            if (ts - clk > 0.01f) {
-                if (diagnostics < 4) { diagnostics++; flog("SETACTFIX config window=%.3f (kept)", ts - clk); }
-            } else {
-                *(float*)(q + OFF_QUEUEDACTION_TS) = clk + SETACT_FALLBACK_WINDOW;
-                if (diagnostics < 4) { diagnostics++; flog("SETACTFIX no config window, fallback=%.3f", (float)SETACT_FALLBACK_WINDOW); }
-            }
-        }
-    });
+    PROTECT(managed_input_after_set_action(a0););
     return r;
 }
 
