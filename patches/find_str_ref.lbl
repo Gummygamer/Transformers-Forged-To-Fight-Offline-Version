@@ -99,6 +99,22 @@ function containing_name(starts: a list of integer, addresses: a list of integer
   end
 end
 
+function add_immediate_matches(word: integer, low12: integer): boolean
+  intent: check whether an add-immediate word carries the wanted low twelve bits
+  bit_and(word, parse_hex("FF800000")) == parse_hex("91000000") and bit_and(shift_right(word, 10), parse_hex("FFF")) == low12
+end
+
+function load_offset_matches(word: integer, low12: integer): boolean
+  intent: check whether a 32 or 64 bit load word carries the wanted scaled offset
+  let kind: integer = bit_and(word, parse_hex("FFC00000"))
+  if kind == parse_hex("F9400000") or kind == parse_hex("B9400000") then
+    let shift: integer = if kind == parse_hex("F9400000") then 3 else 2 end
+    shift_left(bit_and(shift_right(word, 10), parse_hex("FFF")), shift) == low12
+  else
+    false
+  end
+end
+
 function has_reference_after(buffer: integer, offset: integer, register: integer, low12: integer): boolean
   intent: return result
   mutable k: integer = 1
@@ -106,19 +122,8 @@ function has_reference_after(buffer: integer, offset: integer, register: integer
   while k <= 6 and not found and offset + 4 * k + 4 <= bytes_length(buffer) do
     let word: integer = bytes_read_u32_le(buffer, offset + 4 * k)
     let base: integer = bit_and(shift_right(word, 5), parse_hex("1F"))
-    if base == register then
-      if bit_and(word, parse_hex("FF800000")) == parse_hex("91000000") then
-        if bit_and(shift_right(word, 10), parse_hex("FFF")) == low12 then
-          set found = true
-        end
-      end
-      let kind: integer = bit_and(word, parse_hex("FFC00000"))
-      if kind == parse_hex("F9400000") or kind == parse_hex("B9400000") then
-        let shift: integer = if kind == parse_hex("F9400000") then 3 else 2 end
-        if shift_left(bit_and(shift_right(word, 10), parse_hex("FFF")), shift) == low12 then
-          set found = true
-        end
-      end
+    if base == register and (add_immediate_matches(word, low12) or load_offset_matches(word, low12)) then
+      set found = true
     end
     set k = k + 1
   end

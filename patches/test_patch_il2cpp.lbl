@@ -144,7 +144,7 @@ function test_preexisting_armv7_sites_retained(): boolean
   offset_present(sites, 15919104) and offset_present(sites, 19285720) and offset_present(sites, 12752884) and offset_present(sites, 20867576) and offset_present(sites, 12759716) and offset_present(sites, 15845172)
 end
 
-function main(): nothing
+function run_group_1(): integer
   intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_new_level_lock_sites_present", test_new_level_lock_sites_present())
@@ -156,6 +156,12 @@ function main(): nothing
   set failed = failed + report("test_ave_no_events_arm64_site_present_and_true", test_ave_no_events_arm64_site_present_and_true())
   set failed = failed + report("test_preexisting_arm64_sites_retained", test_preexisting_arm64_sites_retained())
   set failed = failed + report("test_new_armv7_level_lock_sites_present", test_new_armv7_level_lock_sites_present())
+  failed
+end
+
+function run_group_2(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr", test_new_armv7_level_lock_sites_patch_to_mov_r0_zero_bx_lr())
   set failed = failed + report("test_new_armv7_reachability_sites_present", test_new_armv7_reachability_sites_present())
   set failed = failed + report("test_new_armv7_reachability_sites_patch_to_constants", test_new_armv7_reachability_sites_patch_to_constants())
@@ -165,6 +171,14 @@ function main(): nothing
   set failed = failed + report("test_alliance_gate_armv7_patch_bytes", test_alliance_gate_armv7_patch_bytes())
   set failed = failed + report("test_ave_no_events_armv7_site_present_and_true", test_ave_no_events_armv7_site_present_and_true())
   set failed = failed + report("test_preexisting_armv7_sites_retained", test_preexisting_armv7_sites_retained())
+  failed
+end
+
+function main(): nothing
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + run_group_1()
+  set failed = failed + run_group_2()
   print(to_text(18 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)

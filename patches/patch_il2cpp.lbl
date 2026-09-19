@@ -147,8 +147,8 @@ function print_before_arm32(blob: integer, offset: integer): nothing
   end
 end
 
-public function arm64_sites(): a list of Site
-  intent: return arm64 patch sites
+function arm64_sites_first(): a list of Site
+  intent: return the first half of the arm64_sites patch sites
   [
     Site { offset: 19113788, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "TcpClientSSL.CertificateValidation -> true" }, -- 0x123A73C
     Site { offset: 21940544, patch: bytes_from_hex("c0035fd6"), name: "TcpClientBouncy.NotifyServerCertificate -> noop" }, -- 0x14EC940
@@ -157,7 +157,13 @@ public function arm64_sites(): a list of Site
     Site { offset: 16529176, patch: bytes_from_hex("1f2003d5"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xFC3718
     Site { offset: 19056256, patch: bytes_from_hex("c0035fd6"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" }, -- 0x122C680
     Site { offset: 28599028, patch: bytes_concat(bytes_from_hex("40008052"), bytes_from_hex("c0035fd6")), name: "Application.internetReachability -> ReachableViaLocalAreaNetwork (bundled loopback server needs no Wi-Fi AP)" }, -- 0x1B462F4
-    Site { offset: 20135496, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" }, -- 0x1333E48
+    Site { offset: 20135496, patch: bytes_concat(bytes_from_hex("20008052"), bytes_from_hex("c0035fd6")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" } -- 0x1333E48
+  ]
+end
+
+function arm64_sites_second(): a list of Site
+  intent: return the second half of the arm64_sites patch sites
+  [
     Site { offset: 15779872, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockWidget.get_Locked -> false (game modes never padlocked by profile level)" }, -- 0xF0C820
     Site { offset: 15782864, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockManager.IsLocked -> false (every lock ID reports unlocked)" }, -- 0xF0D3D0
     Site { offset: 15783048, patch: bytes_concat(bytes_from_hex("00008052"), bytes_from_hex("c0035fd6")), name: "LevelLockManager.GetMinLevel -> 0 (lock tooltips have no level requirement)" }, -- 0xF0D488
@@ -169,8 +175,13 @@ public function arm64_sites(): a list of Site
   ]
 end
 
-public function armv7_sites(): a list of Site
-  intent: return armv7 patch sites
+public function arm64_sites(): a list of Site
+  intent: return arm64 patch sites
+  concat(arm64_sites_first(), arm64_sites_second())
+end
+
+function armv7_sites_first(): a list of Site
+  intent: return the first half of the armv7_sites patch sites
   [
     Site { offset: 15919104, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "TcpClientSSL.CertificateValidation -> true" }, -- 0xF2E800
     Site { offset: 19285720, patch: bytes_from_hex("1eff2fe1"), name: "TcpClientBouncy.NotifyServerCertificate -> noop" }, -- 0x12646D8
@@ -179,7 +190,13 @@ public function armv7_sites(): a list of Site
     Site { offset: 12759716, patch: bytes_from_hex("00f020e3"), name: "Hub.SubSystemConnecting -> skip FatalError on subsystem error-state 3" }, -- 0xC2B2A4
     Site { offset: 15845172, patch: bytes_from_hex("1eff2fe1"), name: "SubSystem.FatalError -> ret instead of tail-call Hub.FatalError (silence subsystem fatals)" }, -- 0xF1C734
     Site { offset: 27322892, patch: bytes_concat(bytes_from_hex("0200a0e3"), bytes_from_hex("1eff2fe1")), name: "Application.internetReachability -> ReachableViaLocalAreaNetwork (bundled loopback server needs no Wi-Fi AP)" }, -- 0x1A0EA0C
-    Site { offset: 17149180, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" }, -- 0x105ACFC
+    Site { offset: 17149180, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "EndPoint.HasInternetConnectivity -> true (bundled loopback server needs no Wi-Fi AP)" } -- 0x105ACFC
+  ]
+end
+
+function armv7_sites_second(): a list of Site
+  intent: return the second half of the armv7_sites patch sites
+  [
     Site { offset: 11832648, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockWidget.get_Locked -> false (game modes never padlocked by profile level)" }, -- 0xB48D48
     Site { offset: 11836396, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockManager.IsLocked -> false (every lock ID reports unlocked)" }, -- 0xB49BEC
     Site { offset: 11836620, patch: bytes_concat(bytes_from_hex("0000a0e3"), bytes_from_hex("1eff2fe1")), name: "LevelLockManager.GetMinLevel -> 0 (lock tooltips have no level requirement)" }, -- 0xB49CCC
@@ -189,6 +206,11 @@ public function armv7_sites(): a list of Site
     Site { offset: 12804728, patch: bytes_concat(bytes_from_hex("0100a0e3"), bytes_from_hex("1eff2fe1")), name: "AvEEvent.IsAvailable -> true (keep the supplied offline AvE event out of the no-events empty state)" }, -- 0xC36278
     Site { offset: 8011440, patch: bytes_from_hex("400000ea"), name: "BCGBlueprintBase.get_SynergyBonuses -> skip the null throw and return the fresh empty list" } -- 0x7A3EB0: b 0x7A3FB8
   ]
+end
+
+public function armv7_sites(): a list of Site
+  intent: return armv7 patch sites
+  concat(armv7_sites_first(), armv7_sites_second())
 end
 
 function print_sites(blob: integer, sites: a list of Site, abi: text, apply: boolean): nothing
@@ -221,9 +243,20 @@ function inject_needed_bytes(blob: integer): nothing
   bytes_write_bytes(blob, 45781600, bytes_from_hex("5cfe7b")) -- 0x2BA9260
 end
 
+function elf32_header_valid(blob: integer): boolean
+  intent: check the ELF32 little-endian identification bytes
+  bytes_length(blob) >= 52 and bytes_get(blob, 0) == 127 and bytes_get(blob, 1) == 69 and bytes_get(blob, 2) == 76 and bytes_get(blob, 3) == 70 and bytes_get(blob, 4) == 1 and bytes_get(blob, 5) == 1
+end
+
+function read_section(blob: integer, shoff: integer, shentsize: integer, index: integer): Section
+  intent: read one ELF32 section header
+  let offset: integer = shoff + index * shentsize
+  Section { index: index, kind: bytes_read_u32_le(blob, offset + 4), offset: bytes_read_u32_le(blob, offset + 16), size: bytes_read_u32_le(blob, offset + 20), link: bytes_read_u32_le(blob, offset + 24), entsize: bytes_read_u32_le(blob, offset + 36) }
+end
+
 function elf32_sections(blob: integer): SectionsResult
   intent: read elf32 section headers
-  if bytes_length(blob) < 52 or bytes_get(blob, 0) != 127 or bytes_get(blob, 1) != 69 or bytes_get(blob, 2) != 76 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 1 or bytes_get(blob, 5) != 1 then
+  if not elf32_header_valid(blob) then
     SectionsResult { error: "in-place dependency injection needs a little-endian ELF32 library", sections: [] }
   else
     let shoff: integer = bytes_read_u32_le(blob, 32)
@@ -237,8 +270,7 @@ function elf32_sections(blob: integer): SectionsResult
       mutable sections: a list of Section = []
       mutable index: integer = 0
       while index < shnum do
-        let offset: integer = shoff + index * shentsize
-        set sections = append(sections, Section { index: index, kind: bytes_read_u32_le(blob, offset + 4), offset: bytes_read_u32_le(blob, offset + 16), size: bytes_read_u32_le(blob, offset + 20), link: bytes_read_u32_le(blob, offset + 24), entsize: bytes_read_u32_le(blob, offset + 36) })
+        set sections = append(sections, read_section(blob, shoff, shentsize, index))
         set index = index + 1
       end
       SectionsResult { error: "", sections: sections }
@@ -273,6 +305,11 @@ function empty_symbol(): Symbol
   Symbol { index: 0, entry_offset: 0, name_offset: 0, value: 0, size: 0, kind: 0, section: 0 }
 end
 
+function context_failure(message: text): ContextResult
+  intent: build a failed context result
+  ContextResult { error: message, dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+end
+
 function elf_context(blob: integer): ContextResult
   intent: validate elf dynamic sections
   let result: SectionsResult = elf32_sections(blob)
@@ -290,17 +327,43 @@ function elf_context(blob: integer): ContextResult
     end
   end
   if result.error != "" then
-    ContextResult { error: result.error, dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+    context_failure(result.error)
   else if dynsym_count != 1 or dynamic_count != 1 then
-    ContextResult { error: "expected exactly one ELF32 .dynsym and .dynamic section", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+    context_failure("expected exactly one ELF32 .dynsym and .dynamic section")
   else if dynsym.entsize != 16 or dynamic.entsize != 8 then
-    ContextResult { error: "unexpected ELF32 dynamic table entry size", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+    context_failure("unexpected ELF32 dynamic table entry size")
   else if dynsym.link < 0 or dynsym.link >= length(result.sections) then
-    ContextResult { error: "ELF32 .dynsym has an invalid string-table link", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 }
+    context_failure("ELF32 .dynsym has an invalid string-table link")
   else
     let dynstr: Section = unwrap_or(get(result.sections, dynsym.link), empty_section())
     let limit: integer = dynstr.offset + dynstr.size
-    if limit > bytes_length(blob) then ContextResult { error: "ELF32 dynamic string table is outside the file", dynsym: empty_section(), dynamic: empty_section(), dynstr: empty_section(), str_start: 0, str_limit: 0, dynamic_end: 0 } else ContextResult { error: "", dynsym: dynsym, dynamic: dynamic, dynstr: dynstr, str_start: dynstr.offset, str_limit: limit, dynamic_end: dynamic.offset + dynamic.size } end
+    if limit > bytes_length(blob) then context_failure("ELF32 dynamic string table is outside the file") else ContextResult { error: "", dynsym: dynsym, dynamic: dynamic, dynstr: dynstr, str_start: dynstr.offset, str_limit: limit, dynamic_end: dynamic.offset + dynamic.size } end
+  end
+end
+
+record NeededStep
+  error: text
+  found: boolean
+  stop: boolean
+end
+
+function needed_step(blob: integer, context: ContextResult, offset: integer): NeededStep
+  intent: inspect one dynamic table entry for the needed dependency
+  if offset + 8 > bytes_length(blob) then
+    NeededStep { error: "ELF32 dynamic table is outside the file", found: false, stop: false }
+  else
+    let tag: integer = bytes_read_u32_le(blob, offset)
+    let value: integer = bytes_read_u32_le(blob, offset + 4)
+    if tag == 0 then
+      NeededStep { error: "", found: false, stop: true }
+    else if tag == 1 and value >= context.dynstr.size then
+      NeededStep { error: "ELF32 DT_NEEDED string is outside .dynstr", found: false, stop: false }
+    else if tag == 1 then
+      let text_result: StringResult = elf_cstring(blob, context.str_start + value, context.str_limit)
+      NeededStep { error: text_result.error, found: text_result.error == "" and text_result.value == "libdothook.so", stop: false }
+    else
+      NeededStep { error: "", found: false, stop: false }
+    end
   end
 end
 
@@ -310,24 +373,10 @@ function needed_present(blob: integer, context: ContextResult): BoolResult
   mutable error: text = ""
   mutable found: boolean = false
   while offset < context.dynamic_end and error == "" and not found do
-    if offset + 8 > bytes_length(blob) then
-      set error = "ELF32 dynamic table is outside the file"
-    else
-      let tag: integer = bytes_read_u32_le(blob, offset)
-      let value: integer = bytes_read_u32_le(blob, offset + 4)
-      if tag == 0 then
-        set offset = context.dynamic_end
-      else if tag == 1 and value >= context.dynstr.size then
-        set error = "ELF32 DT_NEEDED string is outside .dynstr"
-      else if tag == 1 then
-        let text_result: StringResult = elf_cstring(blob, context.str_start + value, context.str_limit)
-        if text_result.error != "" then
-          set error = text_result.error
-        else if text_result.value == "libdothook.so" then
-          set found = true
-        end
-      end
-    end
+    let step: NeededStep = needed_step(blob, context, offset)
+    set error = step.error
+    set found = step.found
+    if step.stop then set offset = context.dynamic_end end
     set offset = offset + context.dynamic.entsize
   end
   BoolResult { error: error, value: found }
@@ -372,26 +421,34 @@ function find_alias_symbols(blob: integer, context: ContextResult): SymbolsResul
   SymbolsResult { error: error, donor: donor, alias: alias, has_donor: has_donor, has_alias: has_alias }
 end
 
+function relocation_table_error(blob: integer, relocation: Section, entry_size: integer, donor: Symbol): text
+  intent: scan one relocation table for references to the donor alias
+  mutable error: text = ""
+  mutable offset: integer = relocation.offset
+  while offset < relocation.offset + relocation.size and error == "" do
+    if offset + entry_size > bytes_length(blob) then
+      set error = "ELF32 relocation table is outside the file"
+    else if shift_right_unsigned(bytes_read_u32_le(blob, offset + 4), 8) == donor.index then
+      set error = "the ARMv7 donor alias is referenced by a relocation"
+    end
+    set offset = offset + entry_size
+  end
+  error
+end
+
+function section_relocation_error(blob: integer, relocation: Section, donor: Symbol): text
+  intent: validate one relocation section
+  let expected: integer = if relocation.kind == 4 then 12 else 8 end
+  let entry_size: integer = if relocation.entsize == 0 then expected else relocation.entsize end
+  if entry_size != expected then "unexpected ELF32 relocation entry size" else relocation_table_error(blob, relocation, entry_size, donor) end
+end
+
 function relocation_error(blob: integer, sections: a list of Section, donor: Symbol): ErrorResult
   intent: validate donor relocations
   mutable error: text = ""
   for relocation in sections do
     if (relocation.kind == 4 or relocation.kind == 9) and error == "" then
-      let expected: integer = if relocation.kind == 4 then 12 else 8 end
-      let entry_size: integer = if relocation.entsize == 0 then expected else relocation.entsize end
-      if entry_size != expected then
-        set error = "unexpected ELF32 relocation entry size"
-      else
-        mutable offset: integer = relocation.offset
-        while offset < relocation.offset + relocation.size and error == "" do
-          if offset + entry_size > bytes_length(blob) then
-            set error = "ELF32 relocation table is outside the file"
-          else if shift_right_unsigned(bytes_read_u32_le(blob, offset + 4), 8) == donor.index then
-            set error = "the ARMv7 donor alias is referenced by a relocation"
-          end
-          set offset = offset + entry_size
-        end
-      end
+      set error = section_relocation_error(blob, relocation, donor)
     end
   end
   ErrorResult { error: error }
@@ -438,6 +495,30 @@ function finish_inplace(blob: integer, context: ContextResult, donor: Symbol, al
   end
 end
 
+function alias_symbols_error(symbols: SymbolsResult): text
+  intent: validate the armv7 alias symbols
+  if symbols.error != "" then
+    symbols.error
+  else if not symbols.has_donor or not symbols.has_alias then
+    "expected ARMv7 alias symbols were not found; is this the 9.2.0 library?"
+  else if symbols.donor.value != symbols.alias.value or symbols.donor.size != symbols.alias.size or symbols.donor.kind != symbols.alias.kind or symbols.donor.section != symbols.alias.section or symbols.donor.section == 0 then
+    "ARMv7 alias symbols no longer describe the same defined function"
+  else
+    ""
+  end
+end
+
+function inject_with_symbols(blob: integer, context: ContextResult, symbols: SymbolsResult): InplaceResult
+  intent: inject the dependency once the alias symbols are validated
+  let symbol_error: text = alias_symbols_error(symbols)
+  if symbol_error != "" then
+    InplaceResult { error: symbol_error, changed: false }
+  else
+    let relocation: ErrorResult = relocation_error(blob, elf32_sections(blob).sections, symbols.donor)
+    if relocation.error != "" then InplaceResult { error: relocation.error, changed: false } else finish_inplace(blob, context, symbols.donor, symbols.alias) end
+  end
+end
+
 function inject_needed_armv7_inplace(blob: integer): InplaceResult
   intent: inject armv7 dependency without layout change
   let context: ContextResult = elf_context(blob)
@@ -450,17 +531,7 @@ function inject_needed_armv7_inplace(blob: integer): InplaceResult
     else if existing.value then
       InplaceResult { error: "", changed: false }
     else
-      let symbols: SymbolsResult = find_alias_symbols(blob, context)
-      if symbols.error != "" then
-        InplaceResult { error: symbols.error, changed: false }
-      else if not symbols.has_donor or not symbols.has_alias then
-        InplaceResult { error: "expected ARMv7 alias symbols were not found; is this the 9.2.0 library?", changed: false }
-      else if symbols.donor.value != symbols.alias.value or symbols.donor.size != symbols.alias.size or symbols.donor.kind != symbols.alias.kind or symbols.donor.section != symbols.alias.section or symbols.donor.section == 0 then
-        InplaceResult { error: "ARMv7 alias symbols no longer describe the same defined function", changed: false }
-      else
-        let relocation: ErrorResult = relocation_error(blob, elf32_sections(blob).sections, symbols.donor)
-        if relocation.error != "" then InplaceResult { error: relocation.error, changed: false } else finish_inplace(blob, context, symbols.donor, symbols.alias) end
-      end
+      inject_with_symbols(blob, context, find_alias_symbols(blob, context))
     end
   end
 end
@@ -476,42 +547,70 @@ function shell_quote(value: text): text
   "'" ++ replace(value, "'", "'\"'\"'") ++ "'"
 end
 
+record ParseCursor
+  parsed: ParsedArguments
+  has_so: boolean
+  index: integer
+end
+
+function with_abi(p: ParsedArguments, abi: text): ParsedArguments
+  intent: return the arguments with a new abi
+  ParsedArguments { valid: p.valid, so: p.so, abi: abi, apply: p.apply, needed: p.needed, out: p.out, has_out: p.has_out }
+end
+
+function with_apply(p: ParsedArguments): ParsedArguments
+  intent: return the arguments with apply enabled
+  ParsedArguments { valid: p.valid, so: p.so, abi: p.abi, apply: true, needed: p.needed, out: p.out, has_out: p.has_out }
+end
+
+function with_needed(p: ParsedArguments, needed: text): ParsedArguments
+  intent: return the arguments with a new needed strategy
+  ParsedArguments { valid: p.valid, so: p.so, abi: p.abi, apply: p.apply, needed: needed, out: p.out, has_out: p.has_out }
+end
+
+function with_out(p: ParsedArguments, out: text): ParsedArguments
+  intent: return the arguments with an output path
+  ParsedArguments { valid: p.valid, so: p.so, abi: p.abi, apply: p.apply, needed: p.needed, out: out, has_out: true }
+end
+
+function with_invalid(p: ParsedArguments): ParsedArguments
+  intent: return the arguments marked invalid
+  ParsedArguments { valid: false, so: p.so, abi: p.abi, apply: p.apply, needed: p.needed, out: p.out, has_out: p.has_out }
+end
+
+function with_so(p: ParsedArguments, so: text): ParsedArguments
+  intent: return the arguments with a library path
+  ParsedArguments { valid: p.valid, so: so, abi: p.abi, apply: p.apply, needed: p.needed, out: p.out, has_out: p.has_out }
+end
+
+function scan_argument(arguments: a list of text, cursor: ParseCursor): ParseCursor
+  intent: consume one command line argument
+  let argument: text = unwrap_or(get(arguments, cursor.index), "")
+  let value: text = unwrap_or(get(arguments, cursor.index + 1), "")
+  let parsed: ParsedArguments = cursor.parsed
+  if argument == "--abi" then
+    ParseCursor { parsed: with_abi(parsed, value), has_so: cursor.has_so, index: cursor.index + 2 }
+  else if argument == "--apply" then
+    ParseCursor { parsed: with_apply(parsed), has_so: cursor.has_so, index: cursor.index + 1 }
+  else if argument == "--needed" then
+    ParseCursor { parsed: with_needed(parsed, value), has_so: cursor.has_so, index: cursor.index + 2 }
+  else if argument == "-o" or argument == "--out" then
+    ParseCursor { parsed: with_out(parsed, value), has_so: cursor.has_so, index: cursor.index + 2 }
+  else if starts_with(argument, "-") or cursor.has_so then
+    ParseCursor { parsed: with_invalid(parsed), has_so: cursor.has_so, index: cursor.index + 1 }
+  else
+    ParseCursor { parsed: with_so(parsed, argument), has_so: true, index: cursor.index + 1 }
+  end
+end
+
 function parse_arguments(arguments: a list of text): ParsedArguments
   intent: parse patcher arguments
-  mutable so: text = "extracted/lib/arm64-v8a/libil2cpp.so"
-  mutable abi: text = "arm64-v8a"
-  mutable apply: boolean = false
-  mutable needed: text = ""
-  mutable out: text = ""
-  mutable has_out: boolean = false
-  mutable has_so: boolean = false
-  mutable valid: boolean = true
-  mutable index: integer = 1
-  while index < length(arguments) do
-    let argument: text = unwrap_or(get(arguments, index), "")
-    if argument == "--abi" then
-      set abi = unwrap_or(get(arguments, index + 1), "")
-      set index = index + 1
-    else if argument == "--apply" then
-      set apply = true
-    else if argument == "--needed" then
-      set needed = unwrap_or(get(arguments, index + 1), "")
-      set index = index + 1
-    else if argument == "-o" or argument == "--out" then
-      set out = unwrap_or(get(arguments, index + 1), "")
-      set has_out = true
-      set index = index + 1
-    else if starts_with(argument, "-") or has_so then
-      set valid = false
-    else
-      set so = argument
-      set has_so = true
-    end
-    set index = index + 1
-  end
-  let abi_valid: boolean = abi == "arm64-v8a" or abi == "armeabi-v7a"
-  let needed_valid: boolean = needed == "" or needed == "byte" or needed == "inplace" or needed == "patchelf" or needed == "none"
-  ParsedArguments { valid: valid and abi_valid and needed_valid, so: so, abi: abi, apply: apply, needed: needed, out: out, has_out: has_out }
+  mutable cursor: ParseCursor = ParseCursor { parsed: ParsedArguments { valid: true, so: "extracted/lib/arm64-v8a/libil2cpp.so", abi: "arm64-v8a", apply: false, needed: "", out: "", has_out: false }, has_so: false, index: 1 }
+  while cursor.index < length(arguments) do set cursor = scan_argument(arguments, cursor) end
+  let parsed: ParsedArguments = cursor.parsed
+  let abi_valid: boolean = parsed.abi == "arm64-v8a" or parsed.abi == "armeabi-v7a"
+  let needed_valid: boolean = parsed.needed == "" or parsed.needed == "byte" or parsed.needed == "inplace" or parsed.needed == "patchelf" or parsed.needed == "none"
+  ParsedArguments { valid: parsed.valid and abi_valid and needed_valid, so: parsed.so, abi: parsed.abi, apply: parsed.apply, needed: parsed.needed, out: parsed.out, has_out: parsed.has_out }
 end
 
 function normalized_arguments(arguments: ParsedArguments): ParsedArguments
