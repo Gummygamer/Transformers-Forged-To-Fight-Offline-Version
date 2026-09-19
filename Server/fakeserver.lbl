@@ -1580,9 +1580,6 @@ function quest_begin_response(p: text, btxt: text): text
   let req: Json = request_object(btxt)
   let qid: text = last_segment(p)
   mutable posted: a list of text = []
-  if qid == gamedata.custom_story_act3_qid() and not contains(position_for(gamedata.custom_story_act2_qid()).cleared, "3,1") then
-    jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_text("Quest not yet available")), jsonout.json_pair("result", jsonout.json_null())]))
-  else
   mutable index: integer = 0
   while index < gamedata.team_size_max() do
   let member: text = json_text_or(req, "tm" ++ to_text(index), "")
@@ -1601,7 +1598,6 @@ end
   let team: a list of text = if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()) then gamedata.resolve_quest_team(qid, saved) else saved end
   if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()) and team != saved then set_saved_team(team) end
   spaced_envelope(gamedata.build_quest_begin_with_cleared(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, begin_x, begin_y, cleared_json(previous.cleared)))
-  end
 end
 
 function movedir_response(p: text): text

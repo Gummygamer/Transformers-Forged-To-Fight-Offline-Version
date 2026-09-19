@@ -33,17 +33,6 @@ def request(path, body=None):
         return decoded["result"]
 
 
-def request_raw(path, body=None):
-    """Return the full JSON response including error, without asserting."""
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{PORT}{path}",
-        data=None if body is None else json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=5) as reply:
-        return json.load(reply)
-
-
 def begin(body=None, qid=QID):
     result = request(f"/quests/quest-begin/{qid}", body or {})
     return result["activeQuests"][qid]["instances"][0]
@@ -127,11 +116,6 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert final["results"][1]["action"]["battle"]["isFinalBoss"] is True
         resolve("WON")
 
-        # Act3 should be locked before any Act2 progress
-        locked = request_raw("/quests/quest-begin/" + ACT3_QID, {"setId": "custom_story_act1"})
-        assert locked["error"] == "Quest not yet available", locked
-        assert locked["result"] is None, locked
-
         act2 = begin(qid=ACT2_QID)
         act2_tile1 = act2["map"]["grid"][1][1]
         act2_tile2 = act2["map"]["grid"][2][1]
@@ -159,11 +143,6 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert move(1, ACT2_QID)["progression"]["currentBattleId"] == "mirage_gs_deluxe2016"
         resolve("WON", ACT2_QID)
 
-        # Act3 still locked — only Bumblebee node "3,1" grants access
-        locked2 = request_raw("/quests/quest-begin/" + ACT3_QID, {"setId": "custom_story_act1"})
-        assert locked2["error"] == "Quest not yet available", locked2
-        assert locked2["result"] is None, locked2
-
         bumblebee = move(1, ACT2_QID)
         assert bumblebee["progression"]["currentBattleId"] == "bumblebee_gs_kabam"
         assert bumblebee["results"][1]["action"]["battle"]["isFinalBoss"] is True
@@ -179,11 +158,12 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert_safe(move(1, ACT2_QID), 3)
         other = request("/quests/quest-begin/1.1.1", {})["activeQuests"]["1.1.1"]
         assert other["instances"][0]["cleared"] == []
-        print("PASS: selected squad, forward links, loss, victory, backtracking, restart, Kickback-to-Mirage-to-Bumblebee transition, quest isolation, act3 pre-unlock rejection")
+        print("PASS: selected squad, forward links, loss, victory, backtracking, restart, Kickback-to-Mirage-to-Bumblebee transition, quest isolation")
 
         # --- Act 3: Bludgeon section ---
 
-        # Act3 should now be unlocked (Bumblebee tile "3,1" is in cleared)
+        # Act3 begins directly — the artificial Act-2-completion gate was removed
+        # (commit d6f874a, device-verified); no quest-begin error body is ever returned.
         act3 = begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
         assert act3["data"]["act"] == 3
         assert act3["data"]["image"] == "bludgeon_gs_rd20"
@@ -242,14 +222,8 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         if state_path.exists():
             state_path.unlink()
         start()
-        # Re-complete act2 to unlock act3
-        saved2 = request("/bcg/setSavedTeam", {"teamID": "0", "heroes": TEAM})
-        act2b = begin({"setId": "custom_story_act1",
-                        **{f"tm{i}": bid for i, bid in enumerate(TEAM)}}, qid=ACT2_QID)
-        move(1, ACT2_QID); resolve("WON", ACT2_QID)
-        move(1, ACT2_QID); resolve("WON", ACT2_QID)
-        move(1, ACT2_QID); resolve("WON", ACT2_QID)
-        move(1, ACT2_QID)  # step past Bumblebee
+        # No act2 progression needed to begin act3 (gate removed, commit d6f874a)
+        request("/bcg/setSavedTeam", {"teamID": "0", "heroes": TEAM})
 
         # Right branch
         act3b = begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
