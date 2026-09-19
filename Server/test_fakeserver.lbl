@@ -86,6 +86,11 @@ function resolve(body: text): text
   fakeserver.dynamic("/matches/resolve-match/quests_fight", body)
 end
 
+function test_set_saved_team_updates_active_team_and_remembered_quest_squad_part1(team: a list of text, active: Json, saved_team: Json, users: Json, moved: Json): boolean
+  intent: test
+  fakeserver.get_saved_team() == team and length(object_keys(jsonout.obj_get(active, "heroes"))) == 5 and hero_bids(jsonout.obj_get(saved_team, "heroes")) == team and object_keys(jsonout.obj_get(active, "heroes")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == team
+end
+
 function test_set_saved_team_updates_active_team_and_remembered_quest_squad(): boolean
   intent: test
   let team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
@@ -102,7 +107,8 @@ function test_set_saved_team_updates_active_team_and_remembered_quest_squad(): b
   let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active_quest, "instances")), 0), jsonout.json_obj([]))
   let users: Json = jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users")
   let moved: Json = result(fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}"))
-  fakeserver.get_saved_team() == team and length(object_keys(jsonout.obj_get(active, "heroes"))) == 5 and hero_bids(jsonout.obj_get(saved_team, "heroes")) == team and object_keys(jsonout.obj_get(active, "heroes")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(users, gamedata.local_uid()), "team")) == team and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == team
+  let ok_1: boolean = test_set_saved_team_updates_active_team_and_remembered_quest_squad_part1(team, active, saved_team, users, moved)
+  ok_1
 end
 
 function test_sparse_and_overflow_quest_team_fields_follow_capacity_rules(): boolean
@@ -126,6 +132,16 @@ function test_dynamic_returns_empty_for_unhandled_path(): boolean
   fakeserver.dynamic("/some/unknown/path", "") == ""
 end
 
+function test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part1(session: Session, profile: Json, prefixed: Json, level_rewards: Json, stat_level: integer, reward_level: integer): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and stat_level == fakeserver.account_level() and reward_level == fakeserver.account_level() and stat_level == reward_level and jsonout.type_name(level_rewards) == "object" and jsonout.as_bool(jsonout.obj_get(level_rewards, "enabled")) and jsonout.as_bool(jsonout.obj_get(level_rewards, "isEnabled")) and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list"
+end
+
+function test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part2(): boolean
+  intent: test
+  fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
+end
+
 function test_userprofile_returns_local_profile_without_capturing_bulk_or_find(): boolean
   intent: test
   let session: Session = fakeserver.ensure_session("userprofile-test", "Profile Commander")
@@ -135,7 +151,9 @@ function test_userprofile_returns_local_profile_without_capturing_bulk_or_find()
   let level_rewards: Json = jsonout.obj_get(profile, "levelRewards")
   let stat_level: integer = jsonout.as_int(jsonout.obj_get(stats, "level"))
   let reward_level: integer = jsonout.as_int(jsonout.obj_get(level_rewards, "level"))
-  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and stat_level == fakeserver.account_level() and reward_level == fakeserver.account_level() and stat_level == reward_level and jsonout.type_name(level_rewards) == "object" and jsonout.as_bool(jsonout.obj_get(level_rewards, "enabled")) and jsonout.as_bool(jsonout.obj_get(level_rewards, "isEnabled")) and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list" and fakeserver.dynamic("/userprofile/bulk", "\{\}") == "" and fakeserver.dynamic("/userprofile/find", "\{\}") == ""
+  let ok_1: boolean = test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part1(session, profile, prefixed, level_rewards, stat_level, reward_level)
+  let ok_2: boolean = ok_1 and test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part2()
+  ok_2
 end
 
 function test_tutorial_branches_block_live_and_complete(): boolean
@@ -155,6 +173,16 @@ function test_tutorial_login_starts_intro_once_then_reports_complete(): boolean
   jsonout.as_int(jsonout.obj_get(first, "s")) == 1 and jsonout.as_text(jsonout.obj_get(first, "current_bid")) == "FTEIntroQuest" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(first_branches, "FTEIntroQuest"), "s")) == 1 and jsonout.as_int(jsonout.obj_get(second, "s")) == 2 and jsonout.as_text(jsonout.obj_get(second, "current_bid")) == "FTEComplete"
 end
 
+function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part1(detail: Json, active: Json, custom_user: Json, moved: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["megatron_cin_rotf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["megatron_cin_rotf"]
+end
+
+function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part2(custom_battle: Json, template_move: text): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
+end
+
 function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent(): boolean
   intent: test
   fakeserver.reset_saved_team()
@@ -166,10 +194,25 @@ function test_custom_story_routes_preserve_selected_team_and_keep_template_state
   let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
   let custom_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
   let moved: Json = result(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
+  let ok_1: boolean = test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part1(detail, active, custom_user, moved)
   let custom_battle: Json = battle(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
   fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\}")
   let template_move: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["megatron_cin_rotf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["megatron_cin_rotf"] and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
+  let ok_2: boolean = ok_1 and test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part2(custom_battle, template_move)
+  ok_2
+end
+
+function test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry_part1(selected: a list of text, empty_fallback_ok: boolean, user: Json, moved_team: Json, reentered_user: Json): boolean
+  intent: test
+  empty_fallback_ok and fakeserver.get_saved_team() == selected and object_keys(jsonout.obj_get(user, "team")) == selected and object_keys(jsonout.obj_get(moved_team, "heroes")) == selected and object_keys(jsonout.obj_get(reentered_user, "team")) == selected
+end
+
+function custom_story_begin_user(body: text): Json
+  intent: begin the custom story quest and read the local user from the new instance
+  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/2.1.1", body))
+  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "2.1.1")
+  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
+  jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
 end
 
 function test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry(): boolean
@@ -182,17 +225,17 @@ function test_custom_story_begin_without_team_preserves_saved_squad_across_navig
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   fakeserver.dynamic("/bcg/setSavedTeam", "\{\"teamID\":\"0\",\"heroes\":[\"megatron_cin_rotf\",\"grimlock_gs_mp08\"]\}")
-  let begun: Json = result(fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\"\}"))
-  let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), "2.1.1")
-  let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
-  let user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(instance, "progression"), "users"), gamedata.local_uid())
+  let user: Json = custom_story_begin_user("\{\"setId\":\"custom_story_act1\"\}")
   let moved: Json = result(fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}"))
   let moved_team: Json = jsonout.obj_get(moved, "teamData")
-  let reentered: Json = result(fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\}"))
-  let reentered_active: Json = jsonout.obj_get(jsonout.obj_get(reentered, "activeQuests"), "2.1.1")
-  let reentered_instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(reentered_active, "instances")), 0), jsonout.json_obj([]))
-  let reentered_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(reentered_instance, "progression"), "users"), gamedata.local_uid())
-  empty_fallback_ok and fakeserver.get_saved_team() == selected and object_keys(jsonout.obj_get(user, "team")) == selected and object_keys(jsonout.obj_get(moved_team, "heroes")) == selected and object_keys(jsonout.obj_get(reentered_user, "team")) == selected
+  let reentered_user: Json = custom_story_begin_user("\{\}")
+  let ok_1: boolean = test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry_part1(selected, empty_fallback_ok, user, moved_team, reentered_user)
+  ok_1
+end
+
+function test_challenge_begin_uses_authored_start_on_first_entry_part1(pos: Json, tile: Json): boolean
+  intent: test
+  jsonout.as_int(jsonout.obj_get(pos, "x")) == gamedata.quest_start_x_for(gamedata.challenge_qid()) and jsonout.as_int(jsonout.obj_get(pos, "y")) == gamedata.quest_start_y_for(gamedata.challenge_qid()) and jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and not jsonout.as_bool(jsonout.obj_get(tile, "hidden")) and jsonout.as_bool(jsonout.obj_get(tile, "start"))
 end
 
 function test_challenge_begin_uses_authored_start_on_first_entry(): boolean
@@ -206,7 +249,8 @@ function test_challenge_begin_uses_authored_start_on_first_entry(): boolean
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(jsonout.obj_get(active, "map"), "grid"))
   let row: Json = unwrap_or(get(grid, gamedata.quest_start_x_for(gamedata.challenge_qid())), jsonout.json_list([]))
   let tile: Json = unwrap_or(get(jsonout.list_items(row), gamedata.quest_start_y_for(gamedata.challenge_qid())), jsonout.json_obj([]))
-  jsonout.as_int(jsonout.obj_get(pos, "x")) == gamedata.quest_start_x_for(gamedata.challenge_qid()) and jsonout.as_int(jsonout.obj_get(pos, "y")) == gamedata.quest_start_y_for(gamedata.challenge_qid()) and jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and not jsonout.as_bool(jsonout.obj_get(tile, "hidden")) and jsonout.as_bool(jsonout.obj_get(tile, "start"))
+  let ok_1: boolean = test_challenge_begin_uses_authored_start_on_first_entry_part1(pos, tile)
+  ok_1
 end
 
 function test_pending_bludgeon_survives_reentry_and_reaches_starscream(): boolean
@@ -250,6 +294,30 @@ function test_custom_story_set_is_first_without_removing_template_set(): boolean
   jsonout.as_text(jsonout.obj_get(first, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(first, "category")) == "Story" and template_found and act3_found
 end
 
+function quest_slot_ok(quest: Json, set_id: text, act_count: integer, chapter_counts: a list of Json): boolean
+  intent: check one quest against the summary tables of its set
+  let qid: text = jsonout.as_text(jsonout.obj_get(quest, "id"))
+  let act: integer = jsonout.as_int(jsonout.obj_get(quest, "act"))
+  let chapter: integer = jsonout.as_int(jsonout.obj_get(quest, "chapter"))
+  let mission: integer = jsonout.as_int(jsonout.obj_get(quest, "mission"))
+  let chapter_cap: integer = jsonout.as_int(unwrap_or(get(chapter_counts, act), jsonout.json_int(0)))
+  let summary: Json = gamedata.build_quest_summary(qid, set_id)
+  not (act < 1 or act > act_count or chapter < 1 or mission < 1) and chapter <= chapter_cap and jsonout.as_int(jsonout.obj_get(summary, "act")) == act and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == chapter and jsonout.as_int(jsonout.obj_get(summary, "mission")) == mission
+end
+
+function quest_set_slots_ok(quest_set: Json): boolean
+  intent: check every quest of a set against the summary tables of that set
+  let act_count: integer = jsonout.as_int(jsonout.obj_get(quest_set, "actCount"))
+  let chapter_counts: a list of Json = jsonout.list_items(jsonout.obj_get(quest_set, "chapterCount"))
+  let set_id: text = jsonout.as_text(jsonout.obj_get(quest_set, "setId"))
+  mutable ok: boolean = length(chapter_counts) == act_count + 1
+  for quest in jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests")) do
+    let quest_ok: boolean = quest_slot_ok(quest, set_id, act_count, chapter_counts)
+    set ok = ok and quest_ok
+  end
+  ok
+end
+
 function test_quest_list_slots_fit_client_summary_tables(): boolean
   intent: test
   -- Legacy.QuestSet.BuildSummaryTable gives each set actCount + 1 act slots and
@@ -259,21 +327,8 @@ function test_quest_list_slots_fit_client_summary_tables(): boolean
   let sets: a list of Json = jsonout.list_items(result(fakeserver.resolve_response("GET", "/quests/quest-list").body))
   mutable ok: boolean = length(sets) > 0
   for quest_set in sets do
-    let act_count: integer = jsonout.as_int(jsonout.obj_get(quest_set, "actCount"))
-    let chapter_counts: a list of Json = jsonout.list_items(jsonout.obj_get(quest_set, "chapterCount"))
-    let set_id: text = jsonout.as_text(jsonout.obj_get(quest_set, "setId"))
-    if length(chapter_counts) != act_count + 1 then set ok = false end
-    for quest in jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests")) do
-      let qid: text = jsonout.as_text(jsonout.obj_get(quest, "id"))
-      let act: integer = jsonout.as_int(jsonout.obj_get(quest, "act"))
-      let chapter: integer = jsonout.as_int(jsonout.obj_get(quest, "chapter"))
-      let mission: integer = jsonout.as_int(jsonout.obj_get(quest, "mission"))
-      if act < 1 or act > act_count or chapter < 1 or mission < 1 then set ok = false end
-      let chapter_cap: integer = jsonout.as_int(unwrap_or(get(chapter_counts, act), jsonout.json_int(0)))
-      if chapter > chapter_cap then set ok = false end
-      let summary: Json = gamedata.build_quest_summary(qid, set_id)
-      if jsonout.as_int(jsonout.obj_get(summary, "act")) != act or jsonout.as_int(jsonout.obj_get(summary, "chapter")) != chapter or jsonout.as_int(jsonout.obj_get(summary, "mission")) != mission then set ok = false end
-    end
+    let set_ok: boolean = quest_set_slots_ok(quest_set)
+    set ok = ok and set_ok
   end
   ok
 end
@@ -404,10 +459,19 @@ function test_login_reports_arena_capable_account_level(): boolean
   level == fakeserver.account_level() and level >= 10 and jsonout.as_int(jsonout.obj_get(canned_user, "level")) == level
 end
 
-function test_ave_event_and_difficulty_sets_are_served(): boolean
+function test_ave_event_and_difficulty_sets_are_served_part1(event_ok: boolean, normal: boolean, heroic: boolean, master: boolean): boolean
   intent: test
-  let events: Json = jsonout.obj_get(result(fakeserver.resolve_response("GET", "/events/refresh").body), "events")
-  let sets: Json = result(fakeserver.resolve_response("GET", "/quests/quest-list").body)
+  event_ok and normal and heroic and master
+end
+
+record Difficulties
+  normal: boolean
+  heroic: boolean
+  master: boolean
+end
+
+function ave_event_ok(events: Json): boolean
+  intent: check the offline AvE operation event
   mutable event_ok: boolean = false
   for event in jsonout.list_items(events) do
     if jsonout.as_text(jsonout.obj_get(event, "_id")) == "offline_ave_operation" then
@@ -415,6 +479,11 @@ function test_ave_event_and_difficulty_sets_are_served(): boolean
       set event_ok = jsonout.as_text(jsonout.obj_get(event, "eventtype")) == "ave" and length(jsonout.list_items(names)) == 3
     end
   end
+  event_ok
+end
+
+function ave_difficulties(sets: Json): Difficulties
+  intent: find which AvE difficulties are served with quests
   mutable normal: boolean = false
   mutable heroic: boolean = false
   mutable master: boolean = false
@@ -429,7 +498,17 @@ function test_ave_event_and_difficulty_sets_are_served(): boolean
       if difficulty == "master" then set master = true end
     end
   end
-  event_ok and normal and heroic and master
+  Difficulties { normal: normal, heroic: heroic, master: master }
+end
+
+function test_ave_event_and_difficulty_sets_are_served(): boolean
+  intent: test
+  let events: Json = jsonout.obj_get(result(fakeserver.resolve_response("GET", "/events/refresh").body), "events")
+  let sets: Json = result(fakeserver.resolve_response("GET", "/quests/quest-list").body)
+  let event_ok: boolean = ave_event_ok(events)
+  let difficulties: Difficulties = ave_difficulties(sets)
+  let ok_1: boolean = test_ave_event_and_difficulty_sets_are_served_part1(event_ok, difficulties.normal, difficulties.heroic, difficulties.master)
+  ok_1
 end
 
 function test_ave_profile_and_alliance_refresh_are_consistent(): boolean
@@ -452,7 +531,7 @@ function test_auth_login_data_populates_alliance_manager_contract(): boolean
   jsonout.as_text(jsonout.obj_get(alliance, "aid")) == "offline-alliance" and length(jsonout.list_items(members)) == 1 and jsonout.as_text(jsonout.obj_get(local_member, "rank")) == "leader" and jsonout.type_name(jsonout.obj_get(config, "ranks")) == "object" and jsonout.type_name(set_data) == "object"
 end
 
-function main(): nothing
+function main_group_1(): integer
   intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_set_saved_team_updates_active_team_and_remembered_quest_squad", test_set_saved_team_updates_active_team_and_remembered_quest_squad())
@@ -463,6 +542,12 @@ function main(): nothing
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
+  failed
+end
+
+function main_group_2(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry", test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry())
   set failed = failed + report("test_challenge_begin_uses_authored_start_on_first_entry", test_challenge_begin_uses_authored_start_on_first_entry())
   set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
@@ -471,6 +556,12 @@ function main(): nothing
   set failed = failed + report("test_quest_list_slots_fit_client_summary_tables", test_quest_list_slots_fit_client_summary_tables())
   set failed = failed + report("test_movedir_walks_full_board_after_wins", test_movedir_walks_full_board_after_wins())
   set failed = failed + report("test_lost_replays_pending_battle", test_lost_replays_pending_battle())
+  failed
+end
+
+function main_group_3(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_nested_won_with_board_qid_advances", test_nested_won_with_board_qid_advances())
   set failed = failed + report("test_completed_node_does_not_replay_on_zero_offset_or_rebegin", test_completed_node_does_not_replay_on_zero_offset_or_rebegin())
   set failed = failed + report("test_quit_and_empty_keep_pending", test_quit_and_empty_keep_pending())
@@ -479,10 +570,26 @@ function main(): nothing
   set failed = failed + report("test_quest_resets_and_legacy_state_disarm_pending", test_quest_resets_and_legacy_state_disarm_pending())
   set failed = failed + report("test_resolve_response_prefers_canned_then_rule_then_default", test_resolve_response_prefers_canned_then_rule_then_default())
   set failed = failed + report("test_encode_spacing_matches_python", test_encode_spacing_matches_python())
+  failed
+end
+
+function main_group_4(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_login_reports_arena_capable_account_level", test_login_reports_arena_capable_account_level())
   set failed = failed + report("test_ave_event_and_difficulty_sets_are_served", test_ave_event_and_difficulty_sets_are_served())
   set failed = failed + report("test_ave_profile_and_alliance_refresh_are_consistent", test_ave_profile_and_alliance_refresh_are_consistent())
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
+  failed
+end
+
+function main(): nothing
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + main_group_1()
+  set failed = failed + main_group_2()
+  set failed = failed + main_group_3()
+  set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   print(to_text(28 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
