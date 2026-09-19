@@ -86,6 +86,9 @@ static void unavailable(ManagedInput *s) {
 }
 int main(void) {
     float window;
+    ManagedInput null_state = {0};
+    assert(!managed_input_bind(NULL, resolve));
+    assert(!managed_input_bind(&null_state, NULL));
     ManagedInput s = fresh();
     queue.value = 10.4f;
     assert(managed_input_apply(&s, &queue, 0.2f, &window) == 0 && writes == 0);
@@ -119,7 +122,7 @@ int main(void) {
     s = fresh(); stamp_field.flags = 0x10; unavailable(&s); stamp_field.flags = 0;
     s = fresh(); instance_field.flags = 0; unavailable(&s); instance_field.flags = 0x10;
     s = (ManagedInput){0}; missing_symbol = "il2cpp_field_set_value";
-    assert(!managed_input_bind(&s, resolve) && !s.api.domain_get);
+    assert(!managed_input_bind(&s, resolve) && !s.runtime.api.domain_get);
     unavailable(&s); missing_symbol = NULL;
     s = fresh();
     assert(managed_input_apply(&s, NULL, 0.2f, &window) == -1);
