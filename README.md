@@ -12,6 +12,18 @@ For a complete native Windows 7 build of the 32-bit `armeabi-v7a` phone APK,
 including server setup, signing, installation, Wi-Fi, and USB operation, see
 [`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md).
 
+### The other documents in this repository
+
+The rest of the repository's documentation is easy to miss, so here is the index:
+
+| document | what it covers |
+|---|---|
+| [`ABILITY_AUTHORING.md`](ABILITY_AUTHORING.md) | **Authoring abilities from the server.** The `statMods` wire format field by field, the complete trigger / condition / state / stat vocabularies, the effect-type registry recovered from both factories, and a recipe for building one end to end. Every claim is marked with how it is known — observed in a live fight, present in the served payload, read from the binary, or inferred — so you can tell settled mechanics from open questions at a glance. Start here if you want to design or add an ability. |
+| [`TECHNICAL_NOTES.md`](TECHNICAL_NOTES.md) | Client internals, patches and the reverse-engineering record. |
+| [`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md) | Native Windows 7 build of the 32-bit phone APK, end to end. |
+| [`COMPLIANCE.md`](COMPLIANCE.md) | What may and may not be added to this project, and the record of what each change contained. |
+| [`AGENTS.md`](AGENTS.md) | Rules for AI agents working in this repository. |
+
 
 ## What actually works right now
 
