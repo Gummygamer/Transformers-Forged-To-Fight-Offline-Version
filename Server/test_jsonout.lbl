@@ -78,6 +78,65 @@ function unicode_tests(): integer
   failed
 end
 
+function main_group_1(): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + unicode_tests()
+  failed
+end
+
+function main_group_2(order_source: text): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("key order", compact(order_source) == order_source, "object keys were reordered")
+  failed
+end
+
+function main_group_3(decimal_ok: boolean): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("decimal formatting", decimal_ok, "whole decimals lost .0 or integer changed")
+  failed
+end
+
+function main_group_4(escaped: text): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("string escaping", compact(escaped) == escaped, "escaped characters changed")
+  failed
+end
+
+function main_group_5(appended: Json): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("obj_set order", jsonout.encode_compact(appended) == "\{\"b\":1,\"a\":3,\"c\":4\}", "replacement or append position changed")
+  failed
+end
+
+function main_group_6(nested: text): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("nesting and empties", compact(nested) == "\{\"x\":[[],\{\},[null,true,false,-2,1000.0]]\}", "nested values did not compact correctly")
+  failed
+end
+
+function main_group_7(spaced: Json): integer
+  intent: run
+  mutable failed: integer = 0
+  set failed = failed + report("spaced encoding", jsonout.encode_spaced(spaced) == "\{\"a\": [1, 2], \"b\": true\}", "spaced separators changed")
+  failed
+end
+
+function decimal_encoding_ok(): boolean
+  intent: check
+  jsonout.encode_compact(jsonout.json_dec(1.0)) == "1.0" and jsonout.encode_compact(jsonout.json_dec(100.0)) == "100.0" and jsonout.encode_compact(jsonout.json_dec(1.75)) == "1.75" and jsonout.encode_compact(jsonout.json_int(1)) == "1"
+end
+
+function spaced_fixture(): Json
+  intent: build
+  jsonout.json_obj([jsonout.json_pair("a", jsonout.json_list([jsonout.json_int(1), jsonout.json_int(2)])), jsonout.json_pair("b", jsonout.json_bool(true))])
+end
+
 function main(): nothing
   intent: run
   let arguments: a list of text = get_args()
@@ -88,22 +147,21 @@ function main(): nothing
     exit_process(1)
   end
   mutable failed: integer = corpus_tests(responses)
-  set failed = failed + unicode_tests()
+  set failed = failed + main_group_1()
   let order_source: text = "\{" ++ "\"b\":1,\"a\":2" ++ "\}"
-  set failed = failed + report("key order", compact(order_source) == order_source, "object keys were reordered")
-  let decimal_ok: boolean = jsonout.encode_compact(jsonout.json_dec(1.0)) == "1.0" and jsonout.encode_compact(jsonout.json_dec(100.0)) == "100.0" and jsonout.encode_compact(jsonout.json_dec(1.75)) == "1.75" and jsonout.encode_compact(jsonout.json_int(1)) == "1"
-  set failed = failed + report("decimal formatting", decimal_ok, "whole decimals lost .0 or integer changed")
+  set failed = failed + main_group_2(order_source)
+  let decimal_ok: boolean = decimal_encoding_ok()
+  set failed = failed + main_group_3(decimal_ok)
   let escaped: text = "\{\"s\":\"\\\"\\\\\\n\\t\\u0001\"\}"
-  set failed = failed + report("string escaping", compact(escaped) == escaped, "escaped characters changed")
-
+  set failed = failed + main_group_4(escaped)
   let object: Json = jsonout.parse_json(order_source)
   let replaced: Json = jsonout.obj_set(object, "a", jsonout.json_int(3))
   let appended: Json = jsonout.obj_set(replaced, "c", jsonout.json_int(4))
-  set failed = failed + report("obj_set order", jsonout.encode_compact(appended) == "\{\"b\":1,\"a\":3,\"c\":4\}", "replacement or append position changed")
+  set failed = failed + main_group_5(appended)
   let nested: text = "\{\"x\":[[],\{\},[null,true,false,-2,1e3]]\}"
-  set failed = failed + report("nesting and empties", compact(nested) == "\{\"x\":[[],\{\},[null,true,false,-2,1000.0]]\}", "nested values did not compact correctly")
-  let spaced: Json = jsonout.json_obj([jsonout.json_pair("a", jsonout.json_list([jsonout.json_int(1), jsonout.json_int(2)])), jsonout.json_pair("b", jsonout.json_bool(true))])
-  set failed = failed + report("spaced encoding", jsonout.encode_spaced(spaced) == "\{\"a\": [1, 2], \"b\": true\}", "spaced separators changed")
+  set failed = failed + main_group_6(nested)
+  let spaced: Json = spaced_fixture()
+  set failed = failed + main_group_7(spaced)
   let total: integer = 28
   let passed: integer = total - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")

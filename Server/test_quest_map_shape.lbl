@@ -6,33 +6,57 @@ function flag(node: Json, key: text): boolean
   if jsonout.obj_has(node, key) then jsonout.as_bool(jsonout.obj_get(node, key)) else false end
 end
 
+record MapTally
+  valid: boolean
+  starts: integer
+  walkable: integer
+end
+
+function tile_links(tile: Json): a list of Json
+  intent: read the optional links of a tile
+  if jsonout.obj_has(tile, "links") then jsonout.list_items(jsonout.obj_get(tile, "links")) else [] end
+end
+
+function link_valid(rows: a list of Json, dim: integer, link: Json): boolean
+  intent: check that a link stays inside the grid and lands on a walkable tile
+  let x: integer = jsonout.as_int(jsonout.obj_get(link, "x"))
+  let y: integer = jsonout.as_int(jsonout.obj_get(link, "y"))
+  let target_row: Json = unwrap_or(get(rows, x), jsonout.json_list([]))
+  let target: Json = unwrap_or(get(jsonout.list_items(target_row), y), jsonout.json_obj([]))
+  x >= 0 and x < dim and y >= 0 and y < dim and flag(target, "walkable")
+end
+
+function tally_row(rows: a list of Json, dim: integer, row: Json, tally: MapTally): MapTally
+  intent: add one grid row to the running start, walkable and link checks
+  mutable valid: boolean = tally.valid and length(jsonout.list_items(row)) == dim
+  mutable starts: integer = tally.starts
+  mutable walkable: integer = tally.walkable
+  for tile in jsonout.list_items(row) do
+    if flag(tile, "start") then set starts = starts + 1 end
+    if flag(tile, "walkable") then set walkable = walkable + 1 end
+    for link in tile_links(tile) do
+      let link_ok: boolean = link_valid(rows, dim, link)
+      set valid = valid and link_ok
+    end
+  end
+  MapTally { valid: valid, starts: starts, walkable: walkable }
+end
+
+function map_shape_valid(qid: text): boolean
+  intent: check one quest map against the client square grid contract
+  let map: Json = gamedata.build_quest_map(qid)
+  let dim: integer = jsonout.as_int(jsonout.obj_get(map, "gridDimension"))
+  let rows: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  mutable tally: MapTally = MapTally { valid: dim > 0 and length(rows) == dim, starts: 0, walkable: 0 }
+  for row in rows do set tally = tally_row(rows, dim, row, tally) end
+  tally.valid and tally.starts == 1 and tally.walkable == jsonout.as_int(jsonout.obj_get(map, "walkableCount"))
+end
+
 function main(): nothing
   intent: test quest map dimensions against the client square grid contract
   mutable failed: integer = 0
   for qid in ["1.1.1", gamedata.custom_story_qid(), gamedata.custom_story_act2_qid(), gamedata.custom_story_act3_qid(), gamedata.challenge_qid()] do
-    let map: Json = gamedata.build_quest_map(qid)
-    let dim: integer = jsonout.as_int(jsonout.obj_get(map, "gridDimension"))
-    let rows: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
-    mutable valid: boolean = dim > 0 and length(rows) == dim
-    mutable starts: integer = 0
-    mutable walkable: integer = 0
-    for row in rows do
-      set valid = valid and length(jsonout.list_items(row)) == dim
-      for tile in jsonout.list_items(row) do
-        if flag(tile, "start") then set starts = starts + 1 end
-        if flag(tile, "walkable") then set walkable = walkable + 1 end
-        let links: a list of Json = if jsonout.obj_has(tile, "links") then jsonout.list_items(jsonout.obj_get(tile, "links")) else [] end
-        for link in links do
-          let x: integer = jsonout.as_int(jsonout.obj_get(link, "x"))
-          let y: integer = jsonout.as_int(jsonout.obj_get(link, "y"))
-          let target_row: Json = unwrap_or(get(rows, x), jsonout.json_list([]))
-          let target: Json = unwrap_or(get(jsonout.list_items(target_row), y), jsonout.json_obj([]))
-          set valid = valid and x >= 0 and x < dim and y >= 0 and y < dim and flag(target, "walkable")
-        end
-      end
-    end
-    set valid = valid and starts == 1 and walkable == jsonout.as_int(jsonout.obj_get(map, "walkableCount"))
-    if valid then print("[ok] map shape " ++ qid)
+    if map_shape_valid(qid) then print("[ok] map shape " ++ qid)
     else print("[!] map shape " ++ qid) set failed = failed + 1 end
   end
   if failed > 0 then exit_process(1) end

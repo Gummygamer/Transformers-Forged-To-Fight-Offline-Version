@@ -92,34 +92,40 @@ function is_hex(value: text): boolean
   valid
 end
 
-function parse_slot_line(line: text): an optional Slot
-  intent: parse slot entry line
+function slot_body(line: text): text
+  intent: strip the comment, whitespace and trailing comma from a slot line
   let cleaned: text = trim(strip_line_comment(line))
+  if ends_with(cleaned, ",") then trim(substring(cleaned, 0, text_length(cleaned) - 1)) else cleaned end
+end
+
+function slot_from_content(content: text): an optional Slot
+  intent: parse the inside of a slot entry
   let left_brace: text = "\{"
   let right_brace: text = "\}"
   let quote: text = "\""
-  mutable body: text = cleaned
-  if ends_with(body, ",") then
-    set body = trim(substring(body, 0, text_length(body) - 1))
-  end
-  if not starts_with(body, left_brace) or not ends_with(body, right_brace) or text_length(body) < 3 then
+  let parts: a list of text = split(content, ",")
+  if length(parts) < 3 then
     none
   else
-    let content: text = substring(body, 1, text_length(body) - 2)
-    let parts: a list of text = split(content, ",")
-    if length(parts) < 3 then
+    let address_text: text = trim(unwrap_or(get(parts, 0), ""))
+    let quoted_tag: text = trim(unwrap_or(get(parts, 1), ""))
+    let rest_start: integer = unwrap_or(index_of(content, ","), -1) + 1
+    let rest: text = substring(content, rest_start, text_length(content) - rest_start)
+    if not is_hex(address_text) or not starts_with(quoted_tag, quote) or not ends_with(quoted_tag, quote) or text_length(quoted_tag) < 2 or contains_text(rest, left_brace) or contains_text(rest, right_brace) then
       none
     else
-      let address_text: text = trim(unwrap_or(get(parts, 0), ""))
-      let quoted_tag: text = trim(unwrap_or(get(parts, 1), ""))
-      let rest_start: integer = unwrap_or(index_of(content, ","), -1) + 1
-      let rest: text = substring(content, rest_start, text_length(content) - rest_start)
-      if not is_hex(address_text) or not starts_with(quoted_tag, quote) or not ends_with(quoted_tag, quote) or text_length(quoted_tag) < 2 or contains_text(rest, left_brace) or contains_text(rest, right_brace) then
-        none
-      else
-        Slot { address: parse_hex(address_text), tag: substring(quoted_tag, 1, text_length(quoted_tag) - 2) }
-      end
+      Slot { address: parse_hex(address_text), tag: substring(quoted_tag, 1, text_length(quoted_tag) - 2) }
     end
+  end
+end
+
+function parse_slot_line(line: text): an optional Slot
+  intent: parse slot entry line
+  let body: text = slot_body(line)
+  if not starts_with(body, "\{") or not ends_with(body, "\}") or text_length(body) < 3 then
+    none
+  else
+    slot_from_content(substring(body, 1, text_length(body) - 2))
   end
 end
 
@@ -183,29 +189,41 @@ function handler_header(line: text): boolean
   contains_text(remove_whitespace(line), "staticvoid*handlers[]=\{")
 end
 
+function digits_end(value: text, start: integer): integer
+  intent: find where a run of digits ends
+  mutable finish: integer = start
+  mutable scanning: boolean = true
+  while scanning do
+    if finish >= text_length(value) then
+      set scanning = false
+    else if unwrap_or(index_of("0123456789", substring(value, finish, 1)), -1) >= 0 then
+      set finish = finish + 1
+    else
+      set scanning = false
+    end
+  end
+  finish
+end
+
+function hook_number(piece: text): integer
+  intent: read the hook number in a handler piece or -1 when there is none
+  let found: integer = unwrap_or(index_of(piece, "hook_"), -1)
+  if found < 0 then
+    -1
+  else
+    let before_ok: boolean = if found == 0 then true else not is_word_char(substring(piece, found - 1, 1)) end
+    let finish: integer = digits_end(piece, found + 5)
+    let after_ok: boolean = if finish == text_length(piece) then true else not is_word_char(substring(piece, finish, 1)) end
+    if before_ok and finish > found + 5 and after_ok then unwrap_or(to_integer(substring(piece, found + 5, finish - found - 5)), 0) else -1 end
+  end
+end
+
 function handler_numbers(content: text): a list of integer
   intent: return numbers
   mutable numbers: a list of integer = []
   for piece in split(content, ",") do
-    let found: integer = unwrap_or(index_of(piece, "hook_"), -1)
-    if found >= 0 then
-      let before_ok: boolean = if found == 0 then true else not is_word_char(substring(piece, found - 1, 1)) end
-      mutable finish: integer = found + 5
-      mutable scanning: boolean = true
-      while scanning do
-        if finish >= text_length(piece) then
-          set scanning = false
-        else if unwrap_or(index_of("0123456789", substring(piece, finish, 1)), -1) >= 0 then
-          set finish = finish + 1
-        else
-          set scanning = false
-        end
-      end
-      let after_ok: boolean = if finish == text_length(piece) then true else not is_word_char(substring(piece, finish, 1)) end
-      if before_ok and finish > found + 5 and after_ok then
-        set numbers = append(numbers, unwrap_or(to_integer(substring(piece, found + 5, finish - found - 5)), 0))
-      end
-    end
+    let number: integer = hook_number(piece)
+    if number >= 0 then set numbers = append(numbers, number) end
   end
   numbers
 end
@@ -229,43 +247,81 @@ function text_after(value: text, start: integer): text
   if start >= text_length(value) then "" else substring(value, start, text_length(value) - start) end
 end
 
+record HandlerScan
+  numbers: a list of integer
+  collecting: boolean
+  found: boolean
+end
+
+function scan_handler_line(scan: HandlerScan, raw_line: text): HandlerScan
+  intent: advance the handler array scan by one source line
+  let array_end: text = "\}" ++ ";"
+  let line: text = if scan.collecting or contains_text(raw_line, "handlers") then strip_line_comment(raw_line) else "" end
+  if not scan.collecting and handler_header(line) then
+    let opening: integer = unwrap_or(index_of(line, "\{"), -1)
+    if opening >= 0 then HandlerScan { numbers: append_numbers(scan.numbers, handler_numbers(text_after(line, opening + 1))), collecting: true, found: true } else scan end
+  else if scan.collecting then
+    let closing: integer = unwrap_or(index_of(line, array_end), -1)
+    if closing >= 0 then
+      HandlerScan { numbers: append_numbers(scan.numbers, handler_numbers(text_before(line, closing))), collecting: false, found: scan.found }
+    else
+      HandlerScan { numbers: append_numbers(scan.numbers, handler_numbers(line)), collecting: true, found: scan.found }
+    end
+  else
+    scan
+  end
+end
+
 function parse_handlers(source: text): a list of integer
   intent: locate parse handlers dispatch array
   let lines: a list of text = split(source, "\n")
-  let array_end: text = "\}" ++ ";"
-  mutable numbers: a list of integer = []
-  mutable collecting: boolean = false
-  mutable found: boolean = false
-  mutable index: integer = 0
-  while index < length(lines) do
-    let raw_line: text = unwrap_or(get(lines, index), "")
-    mutable line: text = ""
-    if collecting or contains_text(raw_line, "handlers") then
-      set line = strip_line_comment(raw_line)
-    end
-    if not collecting and handler_header(line) then
-      let opening: integer = unwrap_or(index_of(line, "\{"), -1)
-      if opening >= 0 then
-        set collecting = true
-        set found = true
-        set numbers = append_numbers(numbers, handler_numbers(text_after(line, opening + 1)))
-      end
-    else if collecting then
-      let closing: integer = unwrap_or(index_of(line, array_end), -1)
-      if closing >= 0 then
-        set numbers = append_numbers(numbers, handler_numbers(text_before(line, closing)))
-        set collecting = false
-      else
-        set numbers = append_numbers(numbers, handler_numbers(line))
-      end
-    end
-    set index = index + 1
-  end
-  if not found then
+  mutable scan: HandlerScan = HandlerScan { numbers: [], collecting: false, found: false }
+  for raw_line in lines do set scan = scan_handler_line(scan, raw_line) end
+  if not scan.found then
     print("[!] could not locate handlers dispatch array")
     exit_process(1)
   end
-  numbers
+  scan.numbers
+end
+
+function first_non_blank(value: text): integer
+  intent: find the first character that is not a space or tab
+  mutable index: integer = 0
+  mutable skipping: boolean = true
+  while skipping do
+    if index >= text_length(value) then
+      set skipping = false
+    else if substring(value, index, 1) == " " or substring(value, index, 1) == "\t" then
+      set index = index + 1
+    else
+      set skipping = false
+    end
+  end
+  index
+end
+
+function comment_wants(comment: text, wanted_text: text): boolean
+  intent: check that a comment starts with the wanted number as a whole word
+  let index: integer = first_non_blank(comment)
+  let remainder: text = substring(comment, index, text_length(comment) - index)
+  if starts_with(remainder, wanted_text) then
+    let boundary: integer = text_length(wanted_text)
+    text_length(remainder) == boundary or not is_word_char(substring(remainder, boundary, 1))
+  else
+    false
+  end
+end
+
+function line_comment_matches(line: text, quoted: text, wanted_text: text): boolean
+  intent: check the trailing comment of a line that names the tag
+  let tag_at: integer = unwrap_or(index_of(line, quoted), -1)
+  if tag_at < 0 then
+    false
+  else
+    let after_tag: text = substring(line, tag_at + text_length(quoted), text_length(line) - tag_at - text_length(quoted))
+    let comment_at: integer = unwrap_or(index_of(after_tag, "//"), -1)
+    if comment_at < 0 then false else comment_wants(substring(after_tag, comment_at + 2, text_length(after_tag) - comment_at - 2), wanted_text) end
+  end
 end
 
 function tag_comment_matches(source: text, tag: text, wanted: integer): boolean
@@ -273,32 +329,7 @@ function tag_comment_matches(source: text, tag: text, wanted: integer): boolean
   let quoted: text = "\"" ++ tag ++ "\""
   let wanted_text: text = to_text(wanted)
   for line in split(source, "\n") do
-    let tag_at: integer = unwrap_or(index_of(line, quoted), -1)
-    if tag_at >= 0 then
-      let after_tag: text = substring(line, tag_at + text_length(quoted), text_length(line) - tag_at - text_length(quoted))
-      let comment_at: integer = unwrap_or(index_of(after_tag, "//"), -1)
-      if comment_at >= 0 then
-        let comment: text = substring(after_tag, comment_at + 2, text_length(after_tag) - comment_at - 2)
-        mutable index: integer = 0
-        mutable skipping: boolean = true
-        while skipping do
-          if index >= text_length(comment) then
-            set skipping = false
-          else if substring(comment, index, 1) == " " or substring(comment, index, 1) == "\t" then
-            set index = index + 1
-          else
-            set skipping = false
-          end
-        end
-        let remainder: text = substring(comment, index, text_length(comment) - index)
-        if starts_with(remainder, wanted_text) then
-          let boundary: integer = text_length(wanted_text)
-          if text_length(remainder) == boundary or not is_word_char(substring(remainder, boundary, 1)) then
-            return true
-          end
-        end
-      end
-    end
+    if line_comment_matches(line, quoted, wanted_text) then return true end
   end
   false
 end
@@ -324,40 +355,40 @@ function handler_definition_matches(compact: text, wanted: integer): boolean
   false
 end
 
+record SlotHit
+  index: integer
+  address: integer
+end
+
+function find_slot_hit(slots: a list of Slot, tag: text): SlotHit
+  intent: find the last slot carrying the tag
+  mutable hit: SlotHit = SlotHit { index: -1, address: -1 }
+  mutable slot_index: integer = 0
+  while slot_index < length(slots) do
+    let slot: Slot = unwrap_or(get(slots, slot_index), Slot { address: -1, tag: "" })
+    if slot.tag == tag then set hit = SlotHit { index: slot_index, address: slot.address } end
+    set slot_index = slot_index + 1
+  end
+  hit
+end
+
+function slot_tag_detail(slots: a list of Slot, source: text, tag: text, expected_index: integer, expected_address: integer): text
+  intent: describe what is wrong with one tagged slot, or nothing
+  let hit: SlotHit = find_slot_hit(slots, tag)
+  let placement: text = if hit.index < 0 then tag ++ " missing; " else if hit.index != expected_index or hit.address != expected_address then tag ++ " expected index " ++ to_text(expected_index) ++ " address " ++ to_text(expected_address) ++ ", got index " ++ to_text(hit.index) ++ " address " ++ to_text(hit.address) ++ "; " else "" end
+  let comment: text = if tag_comment_matches(source, tag, expected_index) then "" else tag ++ " missing comment index " ++ to_text(expected_index) ++ "; " end
+  placement ++ comment
+end
+
 function test_feature_slots(slots: a list of Slot, source: text, feature: text, tags: a list of text, indices: a list of integer, addresses: a list of integer): TestResult
   intent: test feature slots expected addresses comments
-  mutable passed: boolean = true
   mutable detail: text = ""
   mutable wanted_index: integer = 0
   while wanted_index < length(tags) do
-    let tag: text = unwrap_or(get(tags, wanted_index), "")
-    let expected_index: integer = unwrap_or(get(indices, wanted_index), -1)
-    let expected_address: integer = unwrap_or(get(addresses, wanted_index), -1)
-    mutable found_index: integer = -1
-    mutable found_address: integer = -1
-    mutable slot_index: integer = 0
-    while slot_index < length(slots) do
-      let slot: Slot = unwrap_or(get(slots, slot_index), Slot { address: -1, tag: "" })
-      if slot.tag == tag then
-        set found_index = slot_index
-        set found_address = slot.address
-      end
-      set slot_index = slot_index + 1
-    end
-    if found_index < 0 then
-      set passed = false
-      set detail = detail ++ tag ++ " missing; "
-    else if found_index != expected_index or found_address != expected_address then
-      set passed = false
-      set detail = detail ++ tag ++ " expected index " ++ to_text(expected_index) ++ " address " ++ to_text(expected_address) ++ ", got index " ++ to_text(found_index) ++ " address " ++ to_text(found_address) ++ "; "
-    end
-    if not tag_comment_matches(source, tag, expected_index) then
-      set passed = false
-      set detail = detail ++ tag ++ " missing comment index " ++ to_text(expected_index) ++ "; "
-    end
+    set detail = detail ++ slot_tag_detail(slots, source, unwrap_or(get(tags, wanted_index), ""), unwrap_or(get(indices, wanted_index), -1), unwrap_or(get(addresses, wanted_index), -1))
     set wanted_index = wanted_index + 1
   end
-  TestResult { passed: passed, detail: feature ++ ": " ++ detail }
+  TestResult { passed: detail == "", detail: feature ++ ": " ++ detail }
 end
 
 function test_feature_handlers(handlers: a list of integer, source: text, feature: text, wanted: a list of integer): TestResult
@@ -564,6 +595,31 @@ function report(name: text, result: TestResult): integer
   end
 end
 
+function run_reports_1(slots: a list of Slot, handlers: a list of integer, source: text): integer
+  intent: run
+  report("roster lifecycle slots have expected order and addresses", test_feature_slots(slots, source, "roster", ["RSENTER", "RSEXIT", "RSHOME"], [133, 134, 144], [parse_hex("0xC587B8"), parse_hex("0xC595AC"), parse_hex("0xE746B8")])) + report("roster lifecycle handlers match their slot indices", test_feature_handlers(handlers, source, "roster", [133, 134, 144])) + report("roster drag slots have expected order and addresses", test_feature_slots(slots, source, "roster drag", ["ROSTERDRAGFIX", "ROSTERDRAGCTX", "ROSTERDRAGCHOKE"], [135, 136, 137], [parse_hex("0xB210CC"), parse_hex("0x1E5F444"), parse_hex("0x1404E6C")]))
+end
+
+function run_reports_2(slots: a list of Slot, handlers: a list of integer, source: text): integer
+  intent: run
+  report("roster drag handlers match their slot indices", test_feature_handlers(handlers, source, "roster drag", [135, 136, 137])) + report("SP3 slots have expected order and addresses", test_feature_slots(slots, source, "SP3", ["PROPGOACT", "SP3MOVE", "SP3XNEW", "SP3XHOLD", "SP3XIN", "SP3XOUT", "SP3BEAT"], [138, 139, 140, 141, 142, 143, 145], [parse_hex("0xEA023C"), parse_hex("0x100A76C"), parse_hex("0xDE7CF4"), parse_hex("0x117A67C"), parse_hex("0x1174038"), parse_hex("0x1174484"), parse_hex("0xDE8750")])) + report("SP3 handlers match their slot indices", test_feature_handlers(handlers, source, "SP3", [138, 139, 140, 141, 142, 143, 145]))
+end
+
+function run_reports_3(slots: a list of Slot, handlers: a list of integer, source: text): integer
+  intent: run
+  report("handler array aligns with every hook slot", test_handler_array_alignment(slots, handlers)) + report("roster and SP3 shipped source invariants hold", test_source_invariants(source)) + report("hardened safe action slot is retained", test_safe_action(slots))
+end
+
+function run_reports_4(slots: a list of Slot, handlers: a list of integer, source: text): integer
+  intent: run
+  report("payout slots keep their indices and addresses", test_payout_slots_preserved(slots, source)) + report("gesture selection slots follow the payouts", test_gesture_slots(slots, source)) + report("payout handlers match their slot indices", test_feature_handlers(handlers, source, "payout handlers", [162, 163]))
+end
+
+function run_reports_5(handlers: a list of integer, source: text): integer
+  intent: run
+  report("gesture handlers are defined as functions", test_gesture_handler_definitions(source)) + report("special gesture suppression and lifecycle invariants hold", test_gesture_invariants(source))
+end
+
 function main(): nothing
   intent: run nativehook slots tests report
   let arguments: a list of text = get_args()
@@ -575,21 +631,7 @@ function main(): nothing
   let source: text = read_file(path)
   let slots: a list of Slot = parse_slots(source)
   let handlers: a list of integer = parse_handlers(source)
-  let roster_slots: TestResult = test_feature_slots(slots, source, "roster", ["RSENTER", "RSEXIT", "RSHOME"], [133, 134, 144], [parse_hex("0xC587B8"), parse_hex("0xC595AC"), parse_hex("0xE746B8")])
-  let roster_handlers: TestResult = test_feature_handlers(handlers, source, "roster", [133, 134, 144])
-  let drag_slots: TestResult = test_feature_slots(slots, source, "roster drag", ["ROSTERDRAGFIX", "ROSTERDRAGCTX", "ROSTERDRAGCHOKE"], [135, 136, 137], [parse_hex("0xB210CC"), parse_hex("0x1E5F444"), parse_hex("0x1404E6C")])
-  let drag_handlers: TestResult = test_feature_handlers(handlers, source, "roster drag", [135, 136, 137])
-  let sp3_slots: TestResult = test_feature_slots(slots, source, "SP3", ["PROPGOACT", "SP3MOVE", "SP3XNEW", "SP3XHOLD", "SP3XIN", "SP3XOUT", "SP3BEAT"], [138, 139, 140, 141, 142, 143, 145], [parse_hex("0xEA023C"), parse_hex("0x100A76C"), parse_hex("0xDE7CF4"), parse_hex("0x117A67C"), parse_hex("0x1174038"), parse_hex("0x1174484"), parse_hex("0xDE8750")])
-  let sp3_handlers: TestResult = test_feature_handlers(handlers, source, "SP3", [138, 139, 140, 141, 142, 143, 145])
-  let alignment: TestResult = test_handler_array_alignment(slots, handlers)
-  let invariants: TestResult = test_source_invariants(source)
-  let safe_action: TestResult = test_safe_action(slots)
-  let payout_slots: TestResult = test_payout_slots_preserved(slots, source)
-  let gesture_slots: TestResult = test_gesture_slots(slots, source)
-  let gesture_handlers: TestResult = test_feature_handlers(handlers, source, "payout handlers", [162, 163])
-  let gesture_defs: TestResult = test_gesture_handler_definitions(source)
-  let gesture_invariants: TestResult = test_gesture_invariants(source)
-  let failed: integer = report("roster lifecycle slots have expected order and addresses", roster_slots) + report("roster lifecycle handlers match their slot indices", roster_handlers) + report("roster drag slots have expected order and addresses", drag_slots) + report("roster drag handlers match their slot indices", drag_handlers) + report("SP3 slots have expected order and addresses", sp3_slots) + report("SP3 handlers match their slot indices", sp3_handlers) + report("handler array aligns with every hook slot", alignment) + report("roster and SP3 shipped source invariants hold", invariants) + report("hardened safe action slot is retained", safe_action) + report("payout slots keep their indices and addresses", payout_slots) + report("gesture selection slots follow the payouts", gesture_slots) + report("payout handlers match their slot indices", gesture_handlers) + report("gesture handlers are defined as functions", gesture_defs) + report("special gesture suppression and lifecycle invariants hold", gesture_invariants)
+  let failed: integer = run_reports_1(slots, handlers, source) + run_reports_2(slots, handlers, source) + run_reports_3(slots, handlers, source) + run_reports_4(slots, handlers, source) + run_reports_5(handlers, source)
   let passed: integer = 14 - failed
   print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
