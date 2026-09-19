@@ -9,12 +9,35 @@ function adb_path(): text
   if configured != "" then configured else "/home/darabat/Android/Sdk/platform-tools/adb" end
 end
 
+function adb_shell(adb: text, serial: text, command: text): nothing
+  intent: run one adb shell command on the emulator and ignore its output
+  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell " ++ command)
+end
+
+function game_pid(device: integer): integer
+  intent: find the running game process or stop the tool
+  let pid: integer = frida_device_process_pid(device, "Transformers")
+  if pid == -1 then
+    print("could not attach: process 'Transformers' was not found")
+    exit_process(1)
+  end
+  pid
+end
+
+function launch_game(adb: text, serial: text, package: text, activity: text, boot: integer): nothing
+  intent: restart the game and wait for its menu
+  adb_shell(adb, serial, "am force-stop " ++ shell_quote(package))
+  adb_shell(adb, serial, "am start -n " ++ shell_quote(activity) ++ " > /dev/null 2>&1")
+  print("launched; booting " ++ to_text(boot) ++ "s to menu before attach...")
+  shell_exec("sleep " ++ to_text(boot))
+end
+
 function message_line(raw: text): text
   intent: render one Frida message as a Python-compatible log line
   let message: a mapping from text to text = json_parse(raw)
   let kind: text = unwrap_or(get(message, "type"), "")
   if kind == "send" then
-    let payload: text = unwrap_or(get(message, "payload"), none)
+    let payload: an optional text = unwrap_or(get(message, "payload"), none)
     let rendered: text = json_encode(payload)
     if starts_with(rendered, "\"") then to_text(payload) ++ "\n" else rendered ++ "\n" end
   else if kind == "log" then
@@ -65,23 +88,16 @@ function main(): nothing
   let serial: text = "127.0.0.1:5555"
   let package: text = "com.kabam.bigrobot"
   let activity: text = "com.kabam.bigrobot/com.explodingbarrel.Activity"
-  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell am force-stop " ++ shell_quote(package))
-  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell am start -n " ++ shell_quote(activity) ++ " > /dev/null 2>&1")
-  print("launched; booting " ++ to_text(boot) ++ "s to menu before attach...")
-  shell_exec("sleep " ++ to_text(boot))
+  launch_game(adb, serial, package, activity, boot)
   let device: integer = frida_usb_device(15)
-  let pid: integer = frida_device_process_pid(device, "Transformers")
-  if pid == -1 then
-    print("could not attach: process 'Transformers' was not found")
-    exit_process(1)
-  end
+  let pid: integer = game_pid(device)
   let session: integer = frida_attach(device, pid)
   let script: integer = frida_create_script(session, read_file(source_path))
   write_file(output_path, "")
   frida_load_script(script)
   print("attached at menu + hooks loaded")
   mutable contents: text = pump_messages(script, output_path, 3, "")
-  shell_exec(shell_quote(adb) ++ " -s " ++ shell_quote(serial) ++ " shell input tap 960 810")
+  adb_shell(adb, serial, "input tap 960 810")
   print("tapped PLAY NOW; capturing " ++ to_text(run) ++ "s")
   set contents = pump_messages(script, output_path, run, contents)
   if session > 0 then frida_detach(session) end
