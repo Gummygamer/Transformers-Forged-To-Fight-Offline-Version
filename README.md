@@ -115,6 +115,11 @@ is how every screen in this build was brought up.
 
 ## What is in this package
 
+The dedicated `research/mono-decompilation` branch contains the full managed-client
+recovery workspace. See [`DECOMPILATION.md`](DECOMPILATION.md) for the reproducible export,
+per-assembly manifest, generated solution, and compilation audit. Generated assemblies and
+source stay under ignored `build/` paths.
+
 ```
 README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
