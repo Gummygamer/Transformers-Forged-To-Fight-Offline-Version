@@ -129,15 +129,10 @@ function reply_file(path: text): text
   if file_exists(path) then read_file(path) else "" end
 end
 
-function request(base: text, port: integer, method: text, path: text, body: text, close: boolean, has_body: boolean): HttpReply
-  intent: request
-  let response: text = path_join(base, "resp.bin")
-  let headers: text = path_join(base, "resp.hdr")
+function request_command(base: text, close: boolean, method: text, body: text, has_body: boolean): text
+  intent: build the curl command line and stage the request body
   let request_body: text = path_join(base, "req.bin")
-  let url: text = "http://127.0.0.1:" ++ to_text(port) ++ path
-  write_file(response, "")
-  write_file(headers, "")
-  mutable command: text = "curl -sS --http1.1 --max-time 10 -D " ++ headers ++ " -o " ++ response ++ " -w \"%\{http_code\}\""
+  mutable command: text = "curl -sS --http1.1 --max-time 10 -D " ++ path_join(base, "resp.hdr") ++ " -o " ++ path_join(base, "resp.bin") ++ " -w \"%\{http_code\}\""
   if close then set command = command ++ " -H \"Connection: close\"" end
   if method == "HEAD" then
     set command = command ++ " -I"
@@ -148,7 +143,17 @@ function request(base: text, port: integer, method: text, path: text, body: text
       set command = command ++ " --data-binary @" ++ request_body
     end
   end
-  let ran: a mapping from text to text = shell_exec(command ++ " '" ++ url ++ "'")
+  command
+end
+
+function request(base: text, port: integer, method: text, path: text, body: text, close: boolean, has_body: boolean): HttpReply
+  intent: request
+  let response: text = path_join(base, "resp.bin")
+  let headers: text = path_join(base, "resp.hdr")
+  write_file(response, "")
+  write_file(headers, "")
+  let command: text = request_command(base, close, method, body, has_body)
+  let ran: a mapping from text to text = shell_exec(command ++ " '" ++ "http://127.0.0.1:" ++ to_text(port) ++ path ++ "'")
   if command_failed(ran) then print("[!] " ++ method ++ " " ++ path ++ ": " ++ command_error(ran)) end
   HttpReply { status: trim(command_output(ran)), body: reply_file(response), headers: reply_file(headers) }
 end
@@ -163,6 +168,16 @@ function reused_bodies(base: text, port: integer, first: text, second: text): a 
   [reply_file(a), reply_file(b)]
 end
 
+function payload_basic_checks_part1(account: text, auth: text, one: HttpReply, two: HttpReply, three: HttpReply, four: HttpReply): boolean
+  intent: test
+  expect("GET account status", one.status, "200") and expect("GET account", one.body, account) and expect("POST auth status", two.status, "200") and expect("POST auth", two.body, auth) and expect("unknown status", three.status, "200") and expect("unknown", three.body, "\{\"error\":null,\"result\":\{\}\}") and expect("autorefresh status", four.status, "200")
+end
+
+function payload_basic_checks_part2(account: text, prefix: text, four: HttpReply, reused: a list of text, head: HttpReply): boolean
+  intent: test
+  expect("autorefresh", four.body, prefix) and expect("reuse account", unwrap_or(get(reused, 0), ""), account) and expect("reuse autorefresh", unwrap_or(get(reused, 1), ""), prefix) and expect("HEAD status", head.status, "200") and contains_text(lowercase(head.headers), "content-length: 0")
+end
+
 function payload_basic_checks(base: text, port: integer): boolean
   intent: test
   let account: text = read_file(path_join(fakeserver.resp_dir(), "GET__account_data.json"))
@@ -172,9 +187,11 @@ function payload_basic_checks(base: text, port: integer): boolean
   let two: HttpReply = request(base, port, "POST", "/auth/init", "\{\}", false, true)
   let three: HttpReply = request(base, port, "GET", "/totally/unknown/route?x=1", "", false, false)
   let four: HttpReply = request(base, port, "GET", "/autorefresh/somethingelse", "", false, false)
+  let ok_1: boolean = payload_basic_checks_part1(account, auth, one, two, three, four)
   let reused: a list of text = reused_bodies(base, port, "/account/data", "/autorefresh/somethingelse")
   let head: HttpReply = request(base, port, "HEAD", "/account/data", "", false, false)
-  expect("GET account status", one.status, "200") and expect("GET account", one.body, account) and expect("POST auth status", two.status, "200") and expect("POST auth", two.body, auth) and expect("unknown status", three.status, "200") and expect("unknown", three.body, "\{\"error\":null,\"result\":\{\}\}") and expect("autorefresh status", four.status, "200") and expect("autorefresh", four.body, prefix) and expect("reuse account", unwrap_or(get(reused, 0), ""), account) and expect("reuse autorefresh", unwrap_or(get(reused, 1), ""), prefix) and expect("HEAD status", head.status, "200") and contains_text(lowercase(head.headers), "content-length: 0")
+  let ok_2: boolean = ok_1 and payload_basic_checks_part2(account, prefix, four, reused, head)
+  ok_2
 end
 
 function payload_dynamic_checks(base: text, port: integer): boolean
@@ -188,21 +205,51 @@ function payload_dynamic_checks(base: text, port: integer): boolean
   expect(one, one_reply.body, fakeserver.dynamic(one, "")) and expect(two, two_reply.body, fakeserver.dynamic(two, "")) and expect(three, three_reply.body, fakeserver.dynamic(three, ""))
 end
 
+function payload_tutorial_checks_part1(one: text, two: text, a: HttpReply, b: HttpReply, tutorial: HttpReply): boolean
+  intent: test
+  expect("tutorial one", a.body, fakeserver.dynamic("/tutorial/start-branch", one)) and expect("tutorial two", b.body, fakeserver.dynamic("/tutorial/start-branch", two))
+end
+
+function payload_tutorial_checks_part2(three: text, four: text, c: HttpReply, d: HttpReply, tutorial: HttpReply): boolean
+  intent: test
+  expect("tutorial three", c.body, fakeserver.dynamic("/tutorial/start-branch", three)) and expect("tutorial four", d.body, fakeserver.dynamic("/tutorial/start-branch", four))
+end
+
+function payload_tutorial_checks_part3(one: text, complete: HttpReply, tutorial: HttpReply, first_login: HttpReply): boolean
+  intent: test
+  expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json"))) and expect("tutorial first login", first_login.body, fakeserver.tutorial_login_started_response())
+end
+
+function payload_tutorial_checks_part4(second_login: HttpReply): boolean
+  intent: test
+  expect("tutorial second login", second_login.body, fakeserver.tutorial_login_completed_response())
+end
+
 function payload_tutorial_checks(base: text, port: integer): boolean
   intent: test
-  let one: text = "\{\"tid\":\"FTE\",\"bid\":\"IntroFight\"\}"
-  let two: text = "\{\"tid\":\"ShieldTutorial\"\}"
-  let three: text = "\{\"tid\":\"SomeOther\",\"bid\":\"b1\"\}"
-  let four: text = "\{\"tid\":\"FTE\"\}"
-  let a: HttpReply = request(base, port, "POST", "/tutorial/start-branch", one, false, true)
-  let b: HttpReply = request(base, port, "POST", "/tutorial/start-branch", two, false, true)
-  let c: HttpReply = request(base, port, "POST", "/tutorial/start-branch", three, false, true)
-  let d: HttpReply = request(base, port, "POST", "/tutorial/start-branch", four, false, true)
-  let complete: HttpReply = request(base, port, "POST", "/tutorial/complete-tutorial", one, false, true)
+  let a: HttpReply = request(base, port, "POST", "/tutorial/start-branch", "\{\"tid\":\"FTE\",\"bid\":\"IntroFight\"\}", false, true)
+  let b: HttpReply = request(base, port, "POST", "/tutorial/start-branch", "\{\"tid\":\"ShieldTutorial\"\}", false, true)
+  let c: HttpReply = request(base, port, "POST", "/tutorial/start-branch", "\{\"tid\":\"SomeOther\",\"bid\":\"b1\"\}", false, true)
+  let d: HttpReply = request(base, port, "POST", "/tutorial/start-branch", "\{\"tid\":\"FTE\"\}", false, true)
+  let complete: HttpReply = request(base, port, "POST", "/tutorial/complete-tutorial", "\{\"tid\":\"FTE\",\"bid\":\"IntroFight\"\}", false, true)
   let tutorial: HttpReply = request(base, port, "POST", "/tutorial/start-tutorial", "\{\}", false, true)
+  let ok_1: boolean = payload_tutorial_checks_part1("\{\"tid\":\"FTE\",\"bid\":\"IntroFight\"\}", "\{\"tid\":\"ShieldTutorial\"\}", a, b, tutorial)
+  let ok_2: boolean = ok_1 and payload_tutorial_checks_part2("\{\"tid\":\"SomeOther\",\"bid\":\"b1\"\}", "\{\"tid\":\"FTE\"\}", c, d, tutorial)
   let first_login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
+  let ok_3: boolean = ok_2 and payload_tutorial_checks_part3("\{\"tid\":\"FTE\",\"bid\":\"IntroFight\"\}", complete, tutorial, first_login)
   let second_login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
-  expect("tutorial one", a.body, fakeserver.dynamic("/tutorial/start-branch", one)) and expect("tutorial two", b.body, fakeserver.dynamic("/tutorial/start-branch", two)) and expect("tutorial three", c.body, fakeserver.dynamic("/tutorial/start-branch", three)) and expect("tutorial four", d.body, fakeserver.dynamic("/tutorial/start-branch", four)) and expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json"))) and expect("tutorial first login", first_login.body, fakeserver.tutorial_login_started_response()) and expect("tutorial second login", second_login.body, fakeserver.tutorial_login_completed_response())
+  let ok_4: boolean = ok_3 and payload_tutorial_checks_part4(second_login)
+  ok_4
+end
+
+function payload_custom_story_checks_part1(has_custom_team: boolean, active_path: text, active: HttpReply, begin: HttpReply, expected_begin: text): boolean
+  intent: test
+  has_custom_team and active.status == "200" and expect("custom quest is not preloaded", active.body, fakeserver.resolve_response("GET", active_path).body) and expect("custom quest begin", begin.body, expected_begin)
+end
+
+function payload_custom_story_checks_part2(begin: HttpReply, moved: HttpReply, expected_moved: text): boolean
+  intent: test
+  expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"chicago\"") and contains_text(begin.body, "\"optimusprime_cin_tf\"") and contains_text(begin.body, "\"optimusprimal_bw_mp32\"") and contains_text(begin.body, "\"megatron_gs_leader2015\"")
 end
 
 function payload_custom_story_checks(base: text, port: integer): boolean
@@ -216,32 +263,53 @@ function payload_custom_story_checks(base: text, port: integer): boolean
   for team in jsonout.list_items(jsonout.obj_get(updates, "activeTeams")) do
     if jsonout.as_text(jsonout.obj_get(team, "aid")) == "2.1.1-0" and length(object_keys(jsonout.obj_get(team, "heroes"))) > 0 then set has_custom_team = true end
   end
-  let active_path: text = "/quests/quest-active?categories.0=PvE"
-  let begin_path: text = "/quests/quest-begin/2.1.1"
-  let begin_body: text = "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}"
-  let move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
-  let active: HttpReply = request(base, port, "GET", active_path, "", false, false)
-  let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
-  let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
-  let moved: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
-  let expected_moved: text = fakeserver.dynamic(move_path, "\{\}")
-  has_custom_team and active.status == "200" and expect("custom quest is not preloaded", active.body, fakeserver.resolve_response("GET", active_path).body) and expect("custom quest begin", begin.body, expected_begin) and expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"chicago\"") and contains_text(begin.body, "\"optimusprime_cin_tf\"") and contains_text(begin.body, "\"optimusprimal_bw_mp32\"") and contains_text(begin.body, "\"megatron_gs_leader2015\"")
+  let active: HttpReply = request(base, port, "GET", "/quests/quest-active?categories.0=PvE", "", false, false)
+  let begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}", false, true)
+  let expected_begin: text = fakeserver.dynamic("/quests/quest-begin/2.1.1", "\{\"setId\":\"custom_story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}")
+  let moved: HttpReply = request(base, port, "POST", "/quests/quest-movedir/2.1.1-0/1/0", "\{\}", false, true)
+  let expected_moved: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
+  let ok_1: boolean = payload_custom_story_checks_part1(has_custom_team, "/quests/quest-active?categories.0=PvE", active, begin, expected_begin)
+  let ok_2: boolean = ok_1 and payload_custom_story_checks_part2(begin, moved, expected_moved)
+  ok_2
 end
 
-function payload_session_checks(base: text, port: integer): boolean
+function session_first_ok_part1(hero_one: HttpReply): boolean
   intent: test
-  let heroes: text = "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":0,\"flvl\":0,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\}],\"nonce\":\"x\",\"api\":6\}"
-  let heroes_two: text = "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":3,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\},\{\"level\":2,\"sig_lvl\":4,\"rank\":1,\"bid\":\"optimusprime_cin_tf\"\}]\}"
-  let saved: text = "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\"],\"api\":6,\"nonce\":\"x\",\"teamID\":\"0\"\}"
-  let detail: text = "\{\"hash\":\"\",\"setId\":\"story_act1\"\}"
-  let detail_path: text = "/quests/quest-detail/1.1.1?sig=x&stoken=y"
-  let begin: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\"\}"
-  let hero_one: HttpReply = request(base, port, "POST", "/bcg/getBaseHeroData", heroes, false, true)
-  let hero_two: HttpReply = request(base, port, "POST", "/bcg/getBaseHeroData", heroes_two, false, true)
-  let saved_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", saved, false, true)
-  let detail_reply: HttpReply = request(base, port, "POST", detail_path, detail, false, true)
-  let begin_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", begin, false, true)
-  mutable good: boolean = expect("hero one", hero_one.body, fakeserver.dynamic("/bcg/getBaseHeroData", heroes)) and expect("hero two", hero_two.body, fakeserver.dynamic("/bcg/getBaseHeroData", heroes_two)) and expect("saved", saved_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", saved)) and expect("detail", detail_reply.body, fakeserver.dynamic(detail_path, detail)) and expect("begin", begin_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", begin))
+  expect("hero one", hero_one.body, fakeserver.dynamic("/bcg/getBaseHeroData", "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":0,\"flvl\":0,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\}],\"nonce\":\"x\",\"api\":6\}"))
+end
+
+function session_first_ok_part2(hero_two: HttpReply): boolean
+  intent: test
+  expect("hero two", hero_two.body, fakeserver.dynamic("/bcg/getBaseHeroData", "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":3,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\},\{\"level\":2,\"sig_lvl\":4,\"rank\":1,\"bid\":\"optimusprime_cin_tf\"\}]\}"))
+end
+
+function session_first_ok_part3(saved_reply: HttpReply, detail_reply: HttpReply): boolean
+  intent: test
+  expect("saved", saved_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\"],\"api\":6,\"nonce\":\"x\",\"teamID\":\"0\"\}")) and expect("detail", detail_reply.body, fakeserver.dynamic("/quests/quest-detail/1.1.1?sig=x&stoken=y", "\{\"hash\":\"\",\"setId\":\"story_act1\"\}"))
+end
+
+function session_first_ok_part4(begin_reply: HttpReply): boolean
+  intent: test
+  expect("begin", begin_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\"\}"))
+end
+
+function session_first_ok(base: text, port: integer): boolean
+  intent: test
+  let hero_one: HttpReply = request(base, port, "POST", "/bcg/getBaseHeroData", "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":0,\"flvl\":0,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\}],\"nonce\":\"x\",\"api\":6\}", false, true)
+  let ok_1: boolean = session_first_ok_part1(hero_one)
+  let hero_two: HttpReply = request(base, port, "POST", "/bcg/getBaseHeroData", "\{\"heroes\":[\{\"level\":1,\"sig_lvl\":3,\"rank\":1,\"bid\":\"sharkticon_gs_brawler\"\},\{\"level\":2,\"sig_lvl\":4,\"rank\":1,\"bid\":\"optimusprime_cin_tf\"\}]\}", false, true)
+  let ok_2: boolean = ok_1 and session_first_ok_part2(hero_two)
+  let saved_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\"],\"api\":6,\"nonce\":\"x\",\"teamID\":\"0\"\}", false, true)
+  let detail_reply: HttpReply = request(base, port, "POST", "/quests/quest-detail/1.1.1?sig=x&stoken=y", "\{\"hash\":\"\",\"setId\":\"story_act1\"\}", false, true)
+  let ok_3: boolean = ok_2 and session_first_ok_part3(saved_reply, detail_reply)
+  let begin_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\"\}", false, true)
+  let ok_4: boolean = ok_3 and session_first_ok_part4(begin_reply)
+  ok_4
+end
+
+function session_movedir_ok(base: text, port: integer): boolean
+  intent: test
+  mutable good: boolean = true
   mutable index: integer = 0
   while index < 3 do
     let path: text = "/quests/quest-movedir/1.1.1-0/1/0"
@@ -255,33 +323,88 @@ function payload_session_checks(base: text, port: integer): boolean
   good
 end
 
-function native_retry_gate_checks(base: text, port: integer): boolean
+function payload_session_checks(base: text, port: integer): boolean
   intent: test
-  let begin_path: text = "/quests/quest-begin/1.1.1"
-  let move_path: text = "/quests/quest-movedir/1.1.1-0/1/0"
-  let begin_body: text = "\{\"setId\":\"story_act1\"\}"
-  let lost_body: text = "\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}"
-  let won_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}"
-  let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
-  let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
-  let first: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
-  let expected_first: text = fakeserver.dynamic(move_path, "\{\}")
-  let lost: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", lost_body, false, true)
-  fakeserver.dynamic("/matches/resolve-match/quests_fight", lost_body)
-  let replay: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
-  let expected_replay: text = fakeserver.dynamic(move_path, "\{\}")
-  let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
-  fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
-  let completed_revisit_path: text = "/quests/quest-movedir/1.1.1-0/0/0"
-  let completed_revisit: HttpReply = request(base, port, "POST", completed_revisit_path, "\{\}", false, true)
-  let expected_completed_revisit: text = fakeserver.dynamic(completed_revisit_path, "\{\}")
-  let advanced: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
-  let expected_advanced: text = fakeserver.dynamic(move_path, "\{\}")
+  let first: boolean = session_first_ok(base, port)
+  let loop_ok: boolean = session_movedir_ok(base, port)
+  first and loop_ok
+end
+
+function native_retry_gate_checks_part1(begin: HttpReply, expected_begin: text, first: HttpReply, expected_first: text, lost: HttpReply): boolean
+  intent: test
+  expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}"
+end
+
+function native_retry_gate_checks_part2(replay: HttpReply, expected_replay: text, won: HttpReply, completed_revisit: HttpReply, expected_completed_revisit: text): boolean
+  intent: test
+  expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and completed_revisit.status == "200" and expect("retry completed revisit", completed_revisit.body, expected_completed_revisit)
+end
+
+function native_retry_gate_checks_part3(advanced: HttpReply, expected_advanced: text, missing: HttpReply, held: HttpReply, expected_held: text): boolean
+  intent: test
+  expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
+end
+
+function native_retry_gate_checks_tail(base: text, port: integer, ok_1: boolean, replay: HttpReply, expected_replay: text, won: HttpReply): boolean
+  intent: test
+  let completed_revisit: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/0/0", "\{\}", false, true)
+  let expected_completed_revisit: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/0/0", "\{\}")
+  let ok_2: boolean = ok_1 and native_retry_gate_checks_part2(replay, expected_replay, won, completed_revisit, expected_completed_revisit)
+  let advanced: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "\{\}", false, true)
+  let expected_advanced: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
   let missing: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", "\{\}", false, true)
   fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\}")
-  let held: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
-  let expected_held: text = fakeserver.dynamic(move_path, "\{\}")
-  expect("retry begin", begin.body, expected_begin) and expect("retry first", first.body, expected_first) and lost.status == "200" and lost.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry replay", replay.body, expected_replay) and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and completed_revisit.status == "200" and expect("retry completed revisit", completed_revisit.body, expected_completed_revisit) and expect("retry advance", advanced.body, expected_advanced) and missing.status == "200" and missing.body == "\{\"error\":null,\"result\":\{\}\}" and expect("retry missing held", held.body, expected_held)
+  let held: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "\{\}", false, true)
+  let expected_held: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  let ok_3: boolean = ok_2 and native_retry_gate_checks_part3(advanced, expected_advanced, missing, held, expected_held)
+  ok_3
+end
+
+function native_retry_gate_checks(base: text, port: integer): boolean
+  intent: test
+  let begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}", false, true)
+  let expected_begin: text = fakeserver.dynamic("/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}")
+  let first: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "\{\}", false, true)
+  let expected_first: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  let lost: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}", false, true)
+  let ok_1: boolean = native_retry_gate_checks_part1(begin, expected_begin, first, expected_first, lost)
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"1.1.1-0\"\}")
+  let replay: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "\{\}", false, true)
+  let expected_replay: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}", false, true)
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}")
+  native_retry_gate_checks_tail(base, port, ok_1, replay, expected_replay, won)
+end
+
+record RestartFirst
+  begin: HttpReply
+  expected_begin: text
+  first: HttpReply
+  expected_first: text
+  won: HttpReply
+end
+
+function restart_first_phase(base: text, port: integer): RestartFirst
+  intent: begin, move and win a fight before the native server restarts
+  let begin_body: text = "\{\"tm0\":\"megatron_cin_rotf\",\"tm1\":\"grimlock_gs_mp08\"\}"
+  let begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/2.1.1", begin_body, false, true)
+  let expected_begin: text = fakeserver.dynamic("/quests/quest-begin/2.1.1", begin_body)
+  let first: HttpReply = request(base, port, "POST", "/quests/quest-movedir/2.1.1-0/1/0", "\{\}", false, true)
+  let expected_first: text = fakeserver.dynamic("/quests/quest-movedir/2.1.1-0/1/0", "\{\}")
+  let won_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}"
+  let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
+  fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
+  RestartFirst { begin: begin, expected_begin: expected_begin, first: first, expected_first: expected_first, won: won }
+end
+
+function restart_first_ok(phase: RestartFirst): boolean
+  intent: check the replies from before the restart
+  phase.begin.status == "200" and phase.begin.body == phase.expected_begin and phase.first.status == "200" and phase.first.body == phase.expected_first and phase.won.status == "200" and phase.won.body == "\{\"error\":null,\"result\":\{\}\}"
+end
+
+function restart_resumed_ok(resumed_begin: HttpReply, resumed: HttpReply): boolean
+  intent: check the replies after the restart restored the completed position
+  resumed_begin.status == "200" and resumed.status == "200" and contains_text(resumed_begin.body, "megatron_cin_rotf") and contains_text(resumed_begin.body, "grimlock_gs_mp08") and contains_text(resumed.body, "megatron_cin_rotf") and contains_text(resumed.body, "grimlock_gs_mp08") and contains_text(resumed.body, "fte_stars_gs_t3")
 end
 
 function native_progression_restart_checks(harness: text, payload: text, port: integer): TestResult
@@ -290,21 +413,12 @@ function native_progression_restart_checks(harness: text, payload: text, port: i
   create_dir(base)
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  let begin_path: text = "/quests/quest-begin/2.1.1"
-  let move_path: text = "/quests/quest-movedir/2.1.1-0/1/0"
-  let begin_body: text = "\{\"tm0\":\"megatron_cin_rotf\",\"tm1\":\"grimlock_gs_mp08\"\}"
   let started: HarnessStart = start_harness(base, harness, payload, port)
   if started.error != "" then
     stop_harness(started.pid)
     failed(started.error)
   else
-    let begin: HttpReply = request(base, port, "POST", begin_path, begin_body, false, true)
-    let expected_begin: text = fakeserver.dynamic(begin_path, begin_body)
-    let first: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
-    let expected_first: text = fakeserver.dynamic(move_path, "\{\}")
-    let won_body: text = "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.1.1-0\"\}"
-    let won: HttpReply = request(base, port, "POST", "/matches/resolve-match/quests_fight", won_body, false, true)
-    fakeserver.dynamic("/matches/resolve-match/quests_fight", won_body)
+    let phase: RestartFirst = restart_first_phase(base, port)
     stop_harness(started.pid)
     let restarted: HarnessStart = start_harness(base, harness, payload, port)
     if restarted.error != "" then
@@ -312,11 +426,11 @@ function native_progression_restart_checks(harness: text, payload: text, port: i
       shell_exec("rm -rf -- " ++ base)
       failed(restarted.error)
     else
-      let resumed_begin: HttpReply = request(base, port, "POST", begin_path, "\{\}", false, true)
-      let resumed: HttpReply = request(base, port, "POST", move_path, "\{\}", false, true)
+      let resumed_begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/2.1.1", "\{\}", false, true)
+      let resumed: HttpReply = request(base, port, "POST", "/quests/quest-movedir/2.1.1-0/1/0", "\{\}", false, true)
       stop_harness(restarted.pid)
       shell_exec("rm -rf -- " ++ base)
-      let good: boolean = begin.status == "200" and begin.body == expected_begin and first.status == "200" and first.body == expected_first and won.status == "200" and won.body == "\{\"error\":null,\"result\":\{\}\}" and resumed_begin.status == "200" and resumed.status == "200" and contains_text(resumed_begin.body, "megatron_cin_rotf") and contains_text(resumed_begin.body, "grimlock_gs_mp08") and contains_text(resumed.body, "megatron_cin_rotf") and contains_text(resumed.body, "grimlock_gs_mp08") and contains_text(resumed.body, "fte_stars_gs_t3")
+      let good: boolean = restart_first_ok(phase) and restart_resumed_ok(resumed_begin, resumed)
       if good then ok() else failed("completed quest position was not restored across native server restart") end
     end
   end
@@ -341,18 +455,50 @@ function normalized_profile(body: text): text
   normalize_profile_timestamp(normalize_profile_timestamp(body, "lastLogin"), "_createTime")
 end
 
+function user_profile_checks_part1(profile: HttpReply, no_slash: HttpReply, prefixed: HttpReply, unsafe: HttpReply, expected: text): boolean
+  intent: test
+  profile.status == "200" and expect("userprofile", normalized_profile(profile.body), normalized_profile(expected)) and no_slash.status == "200" and expect("userprofile no slash", normalized_profile(no_slash.body), normalized_profile(expected)) and prefixed.status == "200" and expect("userprofile prefixed", normalized_profile(prefixed.body), normalized_profile(expected)) and unsafe.status == "200"
+end
+
+function user_profile_checks_part2(body: text, unsafe: HttpReply, bulk: HttpReply, find: HttpReply): boolean
+  intent: test
+  contains_text(unsafe.body, "\"uid\":\"1000000000001\"") and bulk.status == "200" and find.status == "200" and fakeserver.dynamic("/userprofile/bulk", body) == "" and fakeserver.dynamic("/userprofile/find", body) == "" and expect("userprofile bulk", bulk.body, "\{\"error\":null,\"result\":\{\}\}") and expect("userprofile find", find.body, "\{\"error\":null,\"result\":\{\}\}")
+end
+
 function user_profile_checks(base: text, port: integer): boolean
   intent: test
-  let body: text = "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}"
   fakeserver.reset_sessions()
-  let profile: HttpReply = request(base, port, "POST", "/userprofile/", body, false, true)
-  let no_slash: HttpReply = request(base, port, "POST", "/userprofile", body, false, true)
-  let prefixed: HttpReply = request(base, port, "POST", "/prod/userprofile/?stoken=unknown", body, false, true)
+  let profile: HttpReply = request(base, port, "POST", "/userprofile/", "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}", false, true)
+  let no_slash: HttpReply = request(base, port, "POST", "/userprofile", "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}", false, true)
+  let prefixed: HttpReply = request(base, port, "POST", "/prod/userprofile/?stoken=unknown", "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}", false, true)
   let unsafe: HttpReply = request(base, port, "POST", "/userprofile", "\{\"uid\":\"invalid uid\"\}", false, true)
-  let bulk: HttpReply = request(base, port, "POST", "/userprofile/bulk", body, false, true)
-  let find: HttpReply = request(base, port, "POST", "/userprofile/find", body, false, true)
-  let expected: text = fakeserver.dynamic("/userprofile/", body)
-  profile.status == "200" and expect("userprofile", normalized_profile(profile.body), normalized_profile(expected)) and no_slash.status == "200" and expect("userprofile no slash", normalized_profile(no_slash.body), normalized_profile(expected)) and prefixed.status == "200" and expect("userprofile prefixed", normalized_profile(prefixed.body), normalized_profile(expected)) and unsafe.status == "200" and contains_text(unsafe.body, "\"uid\":\"1000000000001\"") and bulk.status == "200" and find.status == "200" and fakeserver.dynamic("/userprofile/bulk", body) == "" and fakeserver.dynamic("/userprofile/find", body) == "" and expect("userprofile bulk", bulk.body, "\{\"error\":null,\"result\":\{\}\}") and expect("userprofile find", find.body, "\{\"error\":null,\"result\":\{\}\}")
+  let bulk: HttpReply = request(base, port, "POST", "/userprofile/bulk", "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}", false, true)
+  let find: HttpReply = request(base, port, "POST", "/userprofile/find", "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}", false, true)
+  let expected: text = fakeserver.dynamic("/userprofile/", "\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}")
+  let ok_1: boolean = user_profile_checks_part1(profile, no_slash, prefixed, unsafe, expected)
+  let ok_2: boolean = ok_1 and user_profile_checks_part2("\{\"uid\":\"1000000000002\",\"nonce\":\"x\",\"api\":1\}", unsafe, bulk, find)
+  ok_2
+end
+
+function payload_wire_checks(base: text, port: integer): boolean
+  intent: run every wire comparison against the started native server
+  let a: boolean = payload_basic_checks(base, port)
+  let b: boolean = payload_dynamic_checks(base, port)
+  let c: boolean = payload_tutorial_checks(base, port)
+  let d: boolean = payload_session_checks(base, port)
+  let e: boolean = native_retry_gate_checks(base, port)
+  let f: boolean = payload_custom_story_checks(base, port)
+  a and b and c and d and e and f
+end
+
+function tutorial_login_persisted(base: text, port: integer, restarted: HarnessStart): boolean
+  intent: check the completed tutorial login survives a native server restart
+  if restarted.error == "" then
+    let login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
+    expect("tutorial login after restart", login.body, fakeserver.tutorial_login_completed_response())
+  else
+    false
+  end
 end
 
 function test_payload_server_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
@@ -366,21 +512,12 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
     stop_harness(started.pid)
     failed(started.error)
   else
-    let a: boolean = payload_basic_checks(base, port)
-    let b: boolean = payload_dynamic_checks(base, port)
-    let c: boolean = payload_tutorial_checks(base, port)
-    let d: boolean = payload_session_checks(base, port)
-    let e: boolean = native_retry_gate_checks(base, port)
-    let f: boolean = payload_custom_story_checks(base, port)
+    let wire: boolean = payload_wire_checks(base, port)
     stop_harness(started.pid)
     let restarted: HarnessStart = start_harness(base, harness, payload, port)
-    mutable persisted: boolean = false
-    if restarted.error == "" then
-      let login: HttpReply = request(base, port, "POST", "/tutorial/get-login-data", "\{\}", false, true)
-      set persisted = expect("tutorial login after restart", login.body, fakeserver.tutorial_login_completed_response())
-    end
+    let persisted: boolean = tutorial_login_persisted(base, port, restarted)
     stop_harness(restarted.pid)
-    if a and b and c and d and e and f and persisted then ok() else failed("wire regressions") end
+    if wire and persisted then ok() else failed("wire regressions") end
   end
 end
 
@@ -397,31 +534,53 @@ function test_user_profile_matches_fake_server(base: text, harness: text, payloa
   end
 end
 
-function selected_squad_checks(base: text, port: integer): boolean
+function selected_squad_checks_part1(path: text, default_reply: HttpReply, selected: text, selected_reply: HttpReply, after_selected: HttpReply): boolean
   intent: test
-  let path: text = "/bcg/getUserData"
-  let default_reply: HttpReply = request(base, port, "GET", path, "", true, false)
-  let selected: text = "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\"],\"teamID\":\"0\"\}"
-  let selected_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", selected, true, true)
-  let after_selected: HttpReply = request(base, port, "GET", path, "", true, false)
-  let set_id: text = "\{\"setId\":\"story_act1\"\}"
-  let simple_begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", set_id, true, true)
-  let empty_move: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "", true, false)
-  let switched: text = "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\"\}"
-  let switched_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", switched, true, true)
-  let unknown: text = "\{\"heroes\":[\"not_a_real_bot\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}"
-  let unknown_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", unknown, true, true)
-  let overcap: text = "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\",\"soundwave_gs\"],\"teamID\":\"0\"\}"
-  let overcap_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", overcap, true, true)
-  let final_reply: HttpReply = request(base, port, "GET", path, "", true, false)
+  expect("default user", default_reply.body, fakeserver.dynamic(path, "")) and expect("default canned", default_reply.body, read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))) and expect("selected", selected_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", selected)) and expect("after selected", after_selected.body, fakeserver.dynamic(path, ""))
+end
+
+function selected_squad_checks_part2(set_id: text, simple_begin: HttpReply, empty_move: HttpReply, switched: text, switched_reply: HttpReply): boolean
+  intent: test
+  expect("simple begin", simple_begin.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", set_id)) and expect("empty move", empty_move.body, fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) and expect("switched", switched_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", switched))
+end
+
+function selected_squad_checks_part3(path: text, unknown: text, unknown_reply: HttpReply, overcap: text, overcap_reply: HttpReply, final_reply: HttpReply): boolean
+  intent: test
+  expect("unknown preserves", unknown_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", unknown)) and expect("overcap preserves", overcap_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", overcap)) and expect("final", final_reply.body, fakeserver.dynamic(path, ""))
+end
+
+function selected_squad_checks_part4(bid: text, team: a list of text): boolean
+  intent: test
+  expect("selection retained", bid, unwrap_or(get(team, 0), ""))
+end
+
+function selected_squad_checks_tail(base: text, port: integer, ok_2: boolean, unknown_reply: HttpReply, overcap_reply: HttpReply): boolean
+  intent: test
+  let final_reply: HttpReply = request(base, port, "GET", "/bcg/getUserData", "", true, false)
+  let ok_3: boolean = ok_2 and selected_squad_checks_part3("/bcg/getUserData", "\{\"heroes\":[\"not_a_real_bot\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}", unknown_reply, "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\",\"soundwave_gs\"],\"teamID\":\"0\"\}", overcap_reply, final_reply)
   let decoded: Json = jsonout.parse_json(final_reply.body)
   let saved_teams: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(decoded, "result"), "updates"), "savedTeams")
   let first_team: Json = unwrap_or(get(jsonout.list_items(saved_teams), 0), jsonout.json_obj([]))
   let heroes: Json = jsonout.obj_get(first_team, "heroes")
   let first_hero: Json = unwrap_or(get(jsonout.list_items(heroes), 0), jsonout.json_obj([]))
   let bid: text = jsonout.as_text(jsonout.obj_get(first_hero, "bid"))
-  let team: a list of text = ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"]
-  expect("default user", default_reply.body, fakeserver.dynamic(path, "")) and expect("default canned", default_reply.body, read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))) and expect("selected", selected_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", selected)) and expect("after selected", after_selected.body, fakeserver.dynamic(path, "")) and expect("simple begin", simple_begin.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", set_id)) and expect("empty move", empty_move.body, fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")) and expect("switched", switched_reply.body, fakeserver.dynamic("/quests/quest-begin/1.1.1", switched)) and expect("unknown preserves", unknown_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", unknown)) and expect("overcap preserves", overcap_reply.body, fakeserver.dynamic("/bcg/setSavedTeam", overcap)) and expect("final", final_reply.body, fakeserver.dynamic(path, "")) and expect("selection retained", bid, unwrap_or(get(team, 0), ""))
+  let ok_4: boolean = ok_3 and selected_squad_checks_part4(bid, ["optimusprime_cin_tf", "optimusprimal_bw_mp32", "megatron_gs_leader2015", "grimlock_gs_mp08", "megatron_cin_rotf"])
+  ok_4
+end
+
+function selected_squad_checks(base: text, port: integer): boolean
+  intent: test
+  let default_reply: HttpReply = request(base, port, "GET", "/bcg/getUserData", "", true, false)
+  let selected_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\"],\"teamID\":\"0\"\}", true, true)
+  let after_selected: HttpReply = request(base, port, "GET", "/bcg/getUserData", "", true, false)
+  let ok_1: boolean = selected_squad_checks_part1("/bcg/getUserData", default_reply, "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\"],\"teamID\":\"0\"\}", selected_reply, after_selected)
+  let simple_begin: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\"\}", true, true)
+  let empty_move: HttpReply = request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "", true, false)
+  let switched_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\"\}", true, true)
+  let ok_2: boolean = ok_1 and selected_squad_checks_part2("\{\"setId\":\"story_act1\"\}", simple_begin, empty_move, "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\",\"tm3\":\"grimlock_gs_mp08\",\"tm4\":\"megatron_cin_rotf\"\}", switched_reply)
+  let unknown_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", "\{\"heroes\":[\"not_a_real_bot\",\"optimusprimal_bw_mp32\"],\"teamID\":\"0\"\}", true, true)
+  let overcap_reply: HttpReply = request(base, port, "POST", "/bcg/setSavedTeam", "\{\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\",\"grimlock_gs_mp08\",\"megatron_cin_rotf\",\"soundwave_gs\"],\"teamID\":\"0\"\}", true, true)
+  selected_squad_checks_tail(base, port, ok_2, unknown_reply, overcap_reply)
 end
 
 function test_selected_squad_session_matches_fake_server(base: text, harness: text, payload: text, port: integer): TestResult
@@ -492,6 +651,49 @@ function compile_harness(base: text, root: text, output: text, source: text): Te
   end
 end
 
+function suite_names(): a list of text
+  intent: list the names reported for the suite results
+  ["test_payload_server_matches_fake_server", "test_user_profile_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_native_progression_restart_checks", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
+end
+
+function suite_results(base: text, harness: text, candidate_harness: text, payload: text, port: integer, restart: TestResult): a list of TestResult
+  intent: run the suite tests in reporting order
+  [test_payload_server_matches_fake_server(base, harness, payload, port), test_user_profile_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), restart, test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
+end
+
+function report_all(names: a list of text, results: a list of TestResult): integer
+  intent: report each named result and count the failures
+  mutable failures: integer = 0
+  mutable index: integer = 0
+  while index < length(names) do
+    set failures = failures + report(unwrap_or(get(names, index), ""), unwrap_or(get(results, index), failed("missing result")))
+    set index = index + 1
+  end
+  failures
+end
+
+function compile_failed(base: text, server_build: TestResult, candidate_build: TestResult): nothing
+  intent: report the harness compile failures and stop
+  report("compile inapk server harness", server_build)
+  report("compile inapk candidate harness", candidate_build)
+  shell_exec("rm -rf -- " ++ base)
+  exit_process(1)
+end
+
+function run_compiled_suite(base: text, harness: text, candidate_harness: text, port: integer): nothing
+  intent: export the payload and run the suite against the compiled harnesses
+  print("using port " ++ to_text(port))
+  let payload: text = path_join(base, to_text(port) ++ ".bin")
+  let blob: integer = export_payload.build_payload(port)
+  write_file_bytes(payload, blob)
+  bytes_free(blob)
+  let restart: TestResult = native_progression_restart_checks(harness, payload, port)
+  let failures: integer = report_all(suite_names(), suite_results(base, harness, candidate_harness, payload, port, restart))
+  shell_exec("rm -rf -- " ++ base)
+  print(to_text(6 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  if failures != 0 then exit_process(1) end
+end
+
 function run_suite(): nothing
   intent: run
   let base: text = "/tmp/tftf-inapk-" ++ random_hex(8)
@@ -503,32 +705,13 @@ function run_suite(): nothing
   let candidate_build: TestResult = compile_harness(base, root, candidate_harness, "inapk_candidates_main.c")
   let port: integer = find_port()
   if not server_build.passed or not candidate_build.passed then
-    report("compile inapk server harness", server_build)
-    report("compile inapk candidate harness", candidate_build)
-    shell_exec("rm -rf -- " ++ base)
-    exit_process(1)
+    compile_failed(base, server_build, candidate_build)
   else if port == 0 then
     print("[!] could not select a free TCP port")
     shell_exec("rm -rf -- " ++ base)
     exit_process(1)
   else
-    print("using port " ++ to_text(port))
-    let payload: text = path_join(base, to_text(port) ++ ".bin")
-    let blob: integer = export_payload.build_payload(port)
-    write_file_bytes(payload, blob)
-    bytes_free(blob)
-    let restart: TestResult = native_progression_restart_checks(harness, payload, port)
-    let names: a list of text = ["test_payload_server_matches_fake_server", "test_user_profile_matches_fake_server", "test_selected_squad_session_matches_fake_server", "test_native_progression_restart_checks", "test_game_apk_is_ranked_ahead_of_earlier_play_services_apk", "test_empty_or_missing_cmdline_still_returns_all_apks"]
-    let results: a list of TestResult = [test_payload_server_matches_fake_server(base, harness, payload, port), test_user_profile_matches_fake_server(base, harness, payload, port), test_selected_squad_session_matches_fake_server(base, harness, payload, port), restart, test_game_apk_is_ranked_ahead_of_earlier_play_services_apk(base, candidate_harness), test_empty_or_missing_cmdline_still_returns_all_apks(base, candidate_harness)]
-    mutable failures: integer = 0
-    mutable index: integer = 0
-    while index < length(names) do
-      set failures = failures + report(unwrap_or(get(names, index), ""), unwrap_or(get(results, index), failed("missing result")))
-      set index = index + 1
-    end
-    shell_exec("rm -rf -- " ++ base)
-    print(to_text(6 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
-    if failures != 0 then exit_process(1) end
+    run_compiled_suite(base, harness, candidate_harness, port)
   end
 end
 
