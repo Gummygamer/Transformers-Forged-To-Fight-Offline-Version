@@ -4845,7 +4845,24 @@ static void hooked_FloatingText_OnTick(void* self, void* buff, float dt){
             try_extract_string(*(void**)(t + 0x40), k, sizeof k);
             style=*(int*)(t + 0x48);
         }
-        LOG("KITFT FloatingText.OnTick self=%p player=%p key='%s' style=%d dt=%.2f", self, player, k, style, (double)dt);
+        /* Read the value OnTick actually branches on. FloatingText_BuffEffect.OnTick
+         * draws only when GetCachedValue(_key) > 0 (fcmp at 0xDC7CD8); logging the key
+         * alone proves the effect ticks but not why it stays silent. This calls the same
+         * PlayerController.GetCachedValue (0x117A1C0) the effect calls, so one fight
+         * distinguishes "the value never arrives" from "the value is there but tiny".
+         * This is what established that `m` is an absolute total - see
+         * ABILITY_AUTHORING.md section 7, pitfall 7. */
+        float cached = -1.0f;
+        if (g_base && player && ((uintptr_t)player >= 0x100000) && !((uintptr_t)player & 7)) {
+            void* keyObj = *(void**)(t + 0x40);
+            if (keyObj) {
+                float (*get_cached)(void*, void*) =
+                    (float (*)(void*, void*))(g_base + 0x117A1C0);
+                cached = get_cached(player, keyObj);
+            }
+        }
+        LOG("KITFT FloatingText.OnTick self=%p player=%p key='%s' style=%d dt=%.2f cached=%.4f",
+            self, player, k, style, (double)dt, (double)cached);
     });
     if (orig_FloatingText_OnTick)
         ((void(*)(void*, void*, float))orig_FloatingText_OnTick)(self, buff, dt);
@@ -5049,6 +5066,39 @@ static float hooked_CalculateBuffAmount(void* self, void* buff){
     return ret;
 }
 
+/* StatModifier._statModifier (BCGStatModifier) @ +0x18, BCGStatModifier.ID @ +0x10.
+ * Without the id these logs are bare pointers and cannot answer "which ability". */
+static void statmod_id(void* statMod, char* out, size_t n){
+    out[0] = 0;
+    uintptr_t sm = (uintptr_t)statMod;
+    if (sm < 0x100000 || (sm & 7)) return;
+    void* bcg = *(void**)(sm + 0x18);
+    if (!bcg || ((uintptr_t)bcg < 0x100000)) return;
+    try_extract_string(*(void**)((uintptr_t)bcg + 0x10), out, n);
+}
+
+/* StatModifierController.TestForConditionsAndRoll @ 0xCCF35C
+ *   private bool TestForConditionsAndRoll(StatModifier, out float roll, out float chance,
+ *                                         BuffTriggerParams)
+ * The condition/chance gate. Activation chain is ApplyStatModifiers (0xCCF1FC) ->
+ * GetFilteredStatModifiers (0xCCEE00) -> this -> ApplyStatModifier (0xCCF30C).
+ * Logging pass/roll/chance per ability id is how the `trs` condition format was
+ * verified - see ABILITY_AUTHORING.md section 7, pitfall 5. */
+static int (*orig_TestForConditionsAndRoll)(void*, void*, float*, float*, void*) = NULL;
+static int hooked_TestForConditionsAndRoll(void* self, void* statMod, float* roll,
+                                           float* chance, void* trigParams){
+    int ret = 0;
+    if (orig_TestForConditionsAndRoll)
+        ret = orig_TestForConditionsAndRoll(self, statMod, roll, chance, trigParams);
+    PROTECT({
+        char id[64]; statmod_id(statMod, id, sizeof id);
+        LOG("KITGATE_ROLL id='%s' pass=%d roll=%.4f chance=%.4f statMod=%p",
+            id[0] ? id : "<none>", ret,
+            (double)(roll ? *roll : -1.0f), (double)(chance ? *chance : -1.0f), statMod);
+    });
+    return ret;
+}
+
 // BuffsController.ApplyStatModifier RVA 0xEEFC30
 static void* (*orig_ApplyStatModifier)(void*, void*, void*, int, int, float) = NULL;
 static void* hooked_ApplyStatModifier(void* self, void* applicant, void* statMod, int updateAttrs, int useOverrideDur, float overrideDur){
@@ -5177,6 +5227,7 @@ static void* installer(void* arg){
     int r11 = inline_hook((void*)(g_base + 0xE5DB00),  (void*)hooked_KITREG4, &orig_KITREG4);
     int r12 = inline_hook((void*)(g_base + 0xEED720),  (void*)hooked_CalculateBuffAmount, (fn8*)&orig_CalculateBuffAmount);
     int r13 = inline_hook((void*)(g_base + 0xEEFC30),  (void*)hooked_ApplyStatModifier, (fn8*)&orig_ApplyStatModifier);
+    int rGate = inline_hook((void*)(g_base + 0xCCF35C), (void*)hooked_TestForConditionsAndRoll, (fn8*)&orig_TestForConditionsAndRoll);
     int r14 = inline_hook((void*)(g_base + 0xDC7AFC),  (void*)hooked_FloatingText_ctor, (fn8*)&orig_FloatingText_ctor);
     int r15 = inline_hook((void*)(g_base + 0xDC7C40),  (void*)hooked_FloatingText_OnInitTarget, (fn8*)&orig_FloatingText_OnInitTarget);
     int r16 = inline_hook((void*)(g_base + 0xE5D884),  (void*)hooked_BuffEffect_Clone, (fn8*)&orig_BuffEffect_Clone);
@@ -5189,7 +5240,7 @@ static void* installer(void* arg){
     int r22 = inline_hook((void*)(g_base + 0xA5F51C), (void*)hooked_BCGStatModifierAppearance_ctor, &orig_BCGStatModifierAppearance_ctor);
     int r23 = inline_hook((void*)(g_base + 0xC65C70), (void*)hooked_HudBuffWidgetsContainer_Add, &orig_HudBuffWidgetsContainer_Add);
 
-    LOG("adhoc hooks status: FT_ctor=%d FT_OnInitTarget=%d FT_Clone=%d FT_OnTick=%d Dmg_OnTick=%d targetFrameRate=%d vSync=%d RefreshDisplay=%d ShouldDisplayStatMod=%d AbilityItem_SetData=%d KITREG1=%d KITREG2=%d KITREG3=%d KITREG4=%d CalculateBuffAmount=%d ApplyStatModifier=%d ParamsTable_ToString=%d BuffUtils_ParseParams=%d HudBuffWidget_Init=%d UILabel_set_text=%d TryLocalize=%d App_ctor=%d HudBuffContainer_Add=%d",
+    LOG("adhoc hooks status: TestForConditionsAndRoll=%d FT_ctor=%d FT_OnInitTarget=%d FT_Clone=%d FT_OnTick=%d Dmg_OnTick=%d targetFrameRate=%d vSync=%d RefreshDisplay=%d ShouldDisplayStatMod=%d AbilityItem_SetData=%d KITREG1=%d KITREG2=%d KITREG3=%d KITREG4=%d CalculateBuffAmount=%d ApplyStatModifier=%d ParamsTable_ToString=%d BuffUtils_ParseParams=%d HudBuffWidget_Init=%d UILabel_set_text=%d TryLocalize=%d App_ctor=%d HudBuffContainer_Add=%d", rGate,
         r14, r15, r16, r6, r7, r1, r2, r3, r4, r5, r8, r9, r10, r11, r12, r13, r17, r18, r19, r20, r21, r22, r23);
     // FIX_QUEST_REENTER: prevent NullReferenceException / IndexOutOfRangeException when
     // re-entering a story quest after a battle or quitting a map. Ported from the kmcbest
