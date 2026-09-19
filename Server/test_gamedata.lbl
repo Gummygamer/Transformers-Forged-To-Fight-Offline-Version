@@ -210,23 +210,40 @@ function has_three_special_attacks(node: Json): boolean
   jsonout.as_int(jsonout.obj_get(node, "special_attacks")) == 3
 end
 
+function test_max_special_attacks_are_three_for_every_bot_and_wire_builder_step1(requests: a list of Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  for detail in jsonout.list_items(gamedata.build_base_hero_details(requests)) do
+    set passed = passed and has_three_special_attacks(detail)
+  end
+  passed
+end
+
+function sample_bots_have_three_specials(): boolean
+  intent: test
+  gamedata.max_special_attacks("waspinator_gs_deluxe", 2) == 3 and gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 3 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 3 and gamedata.max_special_attacks("fte_optimus_gs_t3", 3) == 3 and gamedata.max_special_attacks("ironhide_cin_rotf", 3) == 3
+end
+
+function roster_bot_has_three_specials(entry: RosterEntry, blueprints: Json): boolean
+  intent: test
+  let bp: Json = jsonout.obj_get(blueprints, entry.bid)
+  gamedata.max_special_attacks(entry.bid, entry.star) == 3 and jsonout.as_int(jsonout.obj_get(bp, "msa")) == 3 and has_three_special_attacks(gamedata.build_hero_base(entry.bid, 1)) and has_three_special_attacks(gamedata.build_hero_entry(entry.bid, 1, 1))
+end
+
 function test_max_special_attacks_are_three_for_every_bot_and_wire_builder(): boolean
   intent: test
   let blueprints: Json = gamedata.build_blueprints()
   mutable requests: a list of Json = []
-  mutable passed: boolean = gamedata.max_special_attacks("waspinator_gs_deluxe", 2) == 3 and gamedata.max_special_attacks("bumblebee_gs_kabam", 3) == 3 and gamedata.max_special_attacks("sharkticon_gs_kabam", 1) == 3 and gamedata.max_special_attacks("fte_optimus_gs_t3", 3) == 3 and gamedata.max_special_attacks("ironhide_cin_rotf", 3) == 3
+  mutable passed: boolean = sample_bots_have_three_specials()
   for entry in gamedata.roster() do
-    let bp: Json = jsonout.obj_get(blueprints, entry.bid)
     set requests = append(requests, jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(entry.bid))]))
-    set passed = passed and gamedata.max_special_attacks(entry.bid, entry.star) == 3 and jsonout.as_int(jsonout.obj_get(bp, "msa")) == 3 and has_three_special_attacks(gamedata.build_hero_base(entry.bid, 1)) and has_three_special_attacks(gamedata.build_hero_entry(entry.bid, 1, 1))
+    set passed = passed and roster_bot_has_three_specials(entry, blueprints)
   end
   for bid in gamedata.default_team() do
     set requests = append(requests, jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid))]))
     set passed = passed and has_three_special_attacks(gamedata.build_hero_entry(bid, 1, 1))
   end
-  for detail in jsonout.list_items(gamedata.build_base_hero_details(requests)) do
-    set passed = passed and has_three_special_attacks(detail)
-  end
+  set passed = test_max_special_attacks_are_three_for_every_bot_and_wire_builder_step1(requests, passed)
   passed
 end
 
@@ -280,17 +297,9 @@ function test_generated_login_snapshot_has_three_specials_for_every_bot(): boole
   passed
 end
 
-function test_generated_user_data_snapshot_has_three_specials_for_every_bot(): boolean
-  intent: test
-  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getUserData.json")))
-  let updates: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "updates")
-  let owned: a list of Json = jsonout.list_items(jsonout.obj_get(updates, "heroes"))
-  let saved_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
-  let saved: a list of Json = jsonout.list_items(jsonout.obj_get(saved_team, "heroes"))
-  let active_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
-  let active: Json = jsonout.obj_get(active_team, "heroes")
-  let defaults: a list of text = gamedata.default_team()
-  mutable passed: boolean = length(owned) == length(gamedata.owned()) and length(saved) == length(defaults)
+function test_generated_user_data_snapshot_has_three_specials_for_every_bot_step1(owned: a list of Json, saved: a list of Json, active: Json, defaults: a list of text, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
   for hero in owned do
     set passed = passed and encoded_field(hero, "entity_type") == "\"bot\"" and has_three_special_attacks(hero)
   end
@@ -302,6 +311,21 @@ function test_generated_user_data_snapshot_has_three_specials_for_every_bot(): b
     set passed = passed and field_text(saved_hero, "bid") == bid and has_three_special_attacks(saved_hero) and has_three_special_attacks(active_hero)
     set index = index + 1
   end
+  passed
+end
+
+function test_generated_user_data_snapshot_has_three_specials_for_every_bot(): boolean
+  intent: test
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getUserData.json")))
+  let updates: Json = jsonout.obj_get(jsonout.obj_get(response, "result"), "updates")
+  let owned: a list of Json = jsonout.list_items(jsonout.obj_get(updates, "heroes"))
+  let saved_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
+  let saved: a list of Json = jsonout.list_items(jsonout.obj_get(saved_team, "heroes"))
+  let active_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
+  let active: Json = jsonout.obj_get(active_team, "heroes")
+  let defaults: a list of text = gamedata.default_team()
+  mutable passed: boolean = length(owned) == length(gamedata.owned()) and length(saved) == length(defaults)
+  set passed = test_generated_user_data_snapshot_has_three_specials_for_every_bot_step1(owned, saved, active, defaults, passed)
   passed
 end
 
@@ -494,28 +518,133 @@ function test_custom_story_uses_revised_five_scene_script(): boolean
   let entries: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_custom_story_dialogue_sets(), "custom_opening_intro"))
   length(entries) == 5 and dialogue_entry_matches(entries, 0, "optimusprime_cin_tf", "left", "I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector.") and dialogue_entry_matches(entries, 1, "optimusprime_cin_tf", "left", "Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone.") and dialogue_entry_matches(entries, 2, "optimusprime_cin_tf", "left", "Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!") and dialogue_entry_matches(entries, 3, "bludgeon_gs_rd20", "right", "There is no escape, Optimus... Your time is up, and the final reckoning has arrived!") and dialogue_entry_matches(entries, 4, "optimusprime_cin_tf", "left", "Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!")
 end
-function test_dialogue_speaker_factions_are_accurate(): boolean
-  intent: test
-  mutable passed: boolean = true
-  let standard: Json = gamedata.build_dialogue_sets()
-  -- arrival_intro: Optimus (autobot), Sharkticon (decepticon), Optimus (autobot)
+function test_dialogue_speaker_factions_are_accurate_step1(standard: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
   let arrival: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "arrival_intro"))
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(arrival, 0), jsonout.json_obj([])), "character"))) == "autobot"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(arrival, 1), jsonout.json_obj([])), "character"))) == "decepticon"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(arrival, 2), jsonout.json_obj([])), "character"))) == "autobot"
   -- midpoint_rally: Primal (autobot), Soundwave (decepticon), Optimus (autobot)
+  passed
+end
+
+function test_dialogue_speaker_factions_are_accurate_step2(standard: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
   let midpoint: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "midpoint_rally"))
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(midpoint, 0), jsonout.json_obj([])), "character"))) == "autobot"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(midpoint, 1), jsonout.json_obj([])), "character"))) == "decepticon"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(midpoint, 2), jsonout.json_obj([])), "character"))) == "autobot"
   -- final_stand: Nemesis (decepticon), Optimus (autobot)
+  passed
+end
+
+function test_dialogue_speaker_factions_are_accurate_step3(standard: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
   let final: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "final_stand"))
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(final, 0), jsonout.json_obj([])), "character"))) == "decepticon"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(final, 1), jsonout.json_obj([])), "character"))) == "autobot"
   -- shore_secured: Optimus (autobot), Primal (autobot)
+  passed
+end
+
+function test_dialogue_speaker_factions_are_accurate_step4(standard: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
   let shore: a list of Json = jsonout.list_items(jsonout.obj_get(standard, "shore_secured"))
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(shore, 0), jsonout.json_obj([])), "character"))) == "autobot"
   set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(shore, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  passed
+end
+
+function test_dialogue_speaker_factions_are_accurate(): boolean
+  intent: test
+  mutable passed: boolean = true
+  let standard: Json = gamedata.build_dialogue_sets()
+  -- arrival_intro: Optimus (autobot), Sharkticon (decepticon), Optimus (autobot)
+  set passed = test_dialogue_speaker_factions_are_accurate_step1(standard, passed)
+  set passed = test_dialogue_speaker_factions_are_accurate_step2(standard, passed)
+  set passed = test_dialogue_speaker_factions_are_accurate_step3(standard, passed)
+  set passed = test_dialogue_speaker_factions_are_accurate_step4(standard, passed)
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step1(intro: a list of Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 3), jsonout.json_obj([])), "character"))) == "decepticon"
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step2(intro: a list of Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 4), jsonout.json_obj([])), "character"))) == "autobot"
+  -- custom_bludgeon_defeated: Optimus (autobot), Marissa (autobot)
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step3(custom: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  let defeated: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_bludgeon_defeated"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  -- custom_starscream_ambush: Optimus (autobot), Starscream (decepticon), Optimus (autobot)
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step4(custom: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  let starscream: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_starscream_ambush"))
+  set passed = passed and length(starscream) == 3
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(starscream, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(starscream, 1), jsonout.json_obj([])), "character"))) == "decepticon"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(starscream, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step5(custom: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  let starscream_defeated: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_starscream_defeated"))
+  set passed = passed and length(starscream_defeated) == 1
+  set passed = passed and dialogue_entry_matches(starscream_defeated, 0, "optimusprime_cin_tf", "left", "Teletran scanned a Decepticon designated as Starscream, though his signature differed vastly from any foes we've faced previously. It feels as if he crossed over from an alternate dimension, and judging by the signs, additional threats are heading our way")
+  -- custom_ironhide_ambush: Optimus (autobot), Ironhide (autobot), Optimus (autobot)
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step6(custom: Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  let ambush: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_ironhide_ambush"))
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 2), jsonout.json_obj([])), "character"))) == "autobot"
+  -- custom_ironhide_defeated: Optimus (autobot), Marissa (autobot)
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step7(defeated_stars: a list of Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  set passed = passed and length(defeated_stars) == 2
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 0), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 1), jsonout.json_obj([])), "character"))) == "autobot"
+  set passed = passed and dialogue_entry_matches(defeated_stars, 0, "optimusprime_cin_tf", "left", "Ironhide is dead.")
+  passed
+end
+
+function test_custom_story_dialogue_factions_match_their_speakers_step8(defeated_stars: a list of Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  set passed = passed and dialogue_entry_matches(defeated_stars, 1, "fte_marissa_t1", "left", "Great, excellent progress. We will definitely find out what planet we are on--it's certainly an unknown world, but I sense it's packed with Energon energy. And we will surely figure out which dimension or world these guys came from")
   passed
 end
 
@@ -525,36 +654,15 @@ function test_custom_story_dialogue_factions_match_their_speakers(): boolean
   -- custom_opening_intro: Optimus (autobot), Optimus (autobot), Optimus (autobot), Bludgeon (decepticon), Optimus (autobot)
   let intro: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_opening_intro"))
   mutable passed: boolean = length(intro) == 5
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 0), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 1), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 2), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 3), jsonout.json_obj([])), "character"))) == "decepticon"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(intro, 4), jsonout.json_obj([])), "character"))) == "autobot"
-  -- custom_bludgeon_defeated: Optimus (autobot), Marissa (autobot)
-  let defeated: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_bludgeon_defeated"))
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated, 0), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated, 1), jsonout.json_obj([])), "character"))) == "autobot"
-  -- custom_starscream_ambush: Optimus (autobot), Starscream (decepticon), Optimus (autobot)
-  let starscream: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_starscream_ambush"))
-  set passed = passed and length(starscream) == 3
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(starscream, 0), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(starscream, 1), jsonout.json_obj([])), "character"))) == "decepticon"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(starscream, 2), jsonout.json_obj([])), "character"))) == "autobot"
-  let starscream_defeated: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_starscream_defeated"))
-  set passed = passed and length(starscream_defeated) == 1
-  set passed = passed and dialogue_entry_matches(starscream_defeated, 0, "optimusprime_cin_tf", "left", "Teletran scanned a Decepticon designated as Starscream, though his signature differed vastly from any foes we've faced previously. It feels as if he crossed over from an alternate dimension, and judging by the signs, additional threats are heading our way")
-  -- custom_ironhide_ambush: Optimus (autobot), Ironhide (autobot), Optimus (autobot)
-  let ambush: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_ironhide_ambush"))
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 0), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 1), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(ambush, 2), jsonout.json_obj([])), "character"))) == "autobot"
-  -- custom_ironhide_defeated: Optimus (autobot), Marissa (autobot)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step1(intro, passed)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step2(intro, passed)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step3(custom, passed)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step4(custom, passed)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step5(custom, passed)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step6(custom, passed)
   let defeated_stars: a list of Json = jsonout.list_items(jsonout.obj_get(custom, "custom_ironhide_defeated"))
-  set passed = passed and length(defeated_stars) == 2
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 0), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(unwrap_or(get(defeated_stars, 1), jsonout.json_obj([])), "character"))) == "autobot"
-  set passed = passed and dialogue_entry_matches(defeated_stars, 0, "optimusprime_cin_tf", "left", "Ironhide is dead.")
-  set passed = passed and dialogue_entry_matches(defeated_stars, 1, "fte_marissa_t1", "left", "Great, excellent progress. We will definitely find out what planet we are on--it's certainly an unknown world, but I sense it's packed with Energon energy. And we will surely figure out which dimension or world these guys came from")
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step7(defeated_stars, passed)
+  set passed = test_custom_story_dialogue_factions_match_their_speakers_step8(defeated_stars, passed)
   passed
 end
 
@@ -566,58 +674,145 @@ function test_custom_act2_dialogue_is_exact_and_ordered(): boolean
   let third: Json = unwrap_or(get(act2, 2), jsonout.json_obj([]))
   length(act2) == 3 and dialogue_entry_matches(act2, 0, "fte_marissa_t1", "left", "Scanners found vital resources to repair our ship.") and dialogue_entry_matches(act2, 1, "optimusprime_cin_tf", "left", "Understood, lead the way and secure them.") and dialogue_entry_matches(act2, 2, "fte_marissa_t1", "left", "Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights.") and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(first, "character"))) == "autobot" and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(second, "character"))) == "autobot" and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(third, "character"))) == "autobot"
 end
+function test_custom_story_has_independent_identity_and_compact_map_part1(qid: text, summary: Json): boolean
+  intent: test
+  qid == "2.1.1" and gamedata.custom_story_set_id() == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Bludgeon's Ambush" and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == gamedata.team_size_max() and jsonout.as_int(jsonout.obj_get(summary, "act")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(summary, "hash")) == gamedata.custom_story_set_hash()
+end
+
+function test_custom_story_has_independent_identity_and_compact_map_part2(qid: text, map: Json, grid: a list of Json): boolean
+  intent: test
+  gamedata.quest_dim_for(qid) == 4 and length(grid) == 4 and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == 4 and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 4
+end
+
 function test_custom_story_has_independent_identity_and_compact_map(): boolean
   intent: test
   let qid: text = gamedata.custom_story_qid()
   let summary: Json = gamedata.build_quest_summary(qid, gamedata.custom_story_set_id())
+  let ok_1: boolean = test_custom_story_has_independent_identity_and_compact_map_part1(qid, summary)
   let map: Json = gamedata.build_quest_map(qid)
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
-  qid == "2.1.1" and gamedata.custom_story_set_id() == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Bludgeon's Ambush" and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == gamedata.team_size_max() and jsonout.as_int(jsonout.obj_get(summary, "act")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(summary, "hash")) == gamedata.custom_story_set_hash() and gamedata.quest_dim_for(qid) == 4 and length(grid) == 4 and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == 4 and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 4
+  let ok_2: boolean = ok_1 and test_custom_story_has_independent_identity_and_compact_map_part2(qid, map, grid)
+  ok_2
 end
 
 
-function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee(): boolean
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part1(tile1: Json, enemy1: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago"
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part2(enemy1: Json, tile2: Json, battle1: Json): boolean
+  intent: test
+  jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "dialoguePE")) == "custom_starscream_defeated"
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part3(tile2: Json, enemy2: Json, battle2: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(tile2, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3"
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part4(tile3: Json, enemy3: Json, battle2: Json): boolean
+  intent: test
+  (not jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(tile3, "dialogue")) == "custom_ironhide_ambush" and jsonout.as_text(jsonout.obj_get(tile3, "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and jsonout.as_bool(jsonout.obj_get(enemy3, "isFinalBoss"))
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part5(enemy3: Json, battle3: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(enemy3, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy3, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle3, "battleEnemy"), "key")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss"))
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1(): boolean
   intent: test
   let qid: text = gamedata.custom_story_qid()
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map(qid), "grid"))
-  let row1: Json = unwrap_or(get(grid, 1), jsonout.json_list([]))
-  let tile1: Json = unwrap_or(get(jsonout.list_items(row1), 1), jsonout.json_obj([]))
+  let tile1: Json = map_tile(grid, 1)
   let enemy1: Json = jsonout.obj_get(jsonout.obj_get(tile1, "entities"), gamedata.custom_story_enemy())
-  let row2: Json = unwrap_or(get(grid, 2), jsonout.json_list([]))
-  let tile2: Json = unwrap_or(get(jsonout.list_items(row2), 1), jsonout.json_obj([]))
+  let ok_1: boolean = test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part1(tile1, enemy1)
+  let tile2: Json = map_tile(grid, 2)
   let enemy2: Json = jsonout.obj_get(jsonout.obj_get(tile2, "entities"), "fte_stars_gs_t3")
-  let row3: Json = unwrap_or(get(grid, 3), jsonout.json_list([]))
-  let tile3: Json = unwrap_or(get(jsonout.list_items(row3), 1), jsonout.json_obj([]))
+  let tile3: Json = map_tile(grid, 3)
   let enemy3: Json = jsonout.obj_get(jsonout.obj_get(tile3, "entities"), "ironhide_cin_rotf")
+  let moved1: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 1, [])
+  let battle1: Json = move_battle(moved1)
+  let ok_2: boolean = ok_1 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part2(enemy1, tile2, battle1)
+  let moved2: Json = gamedata.build_quest_movedir(qid, 1, 0, 1, 1, [])
+  let battle2: Json = move_battle(moved2)
+  let ok_3: boolean = ok_2 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part3(tile2, enemy2, battle2)
+  let ok_4: boolean = ok_3 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part4(tile3, enemy3, battle2)
+  let moved3: Json = gamedata.build_quest_movedir(qid, 1, 0, 2, 1, [])
+  let battle3: Json = move_battle(moved3)
+  let ok_5: boolean = ok_4 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part5(enemy3, battle3)
+  ok_5
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part1(act2_summary: Json, act2_map: Json, act2_grid: a list of Json, act2_tile1: Json, act2_entities1: Json): boolean
+  intent: test
+  jsonout.as_int(jsonout.obj_get(act2_summary, "act")) == 2 and jsonout.as_int(jsonout.obj_get(act2_map, "gridDimension")) == 4 and length(act2_grid) == 4 and jsonout.as_text(jsonout.obj_get(act2_tile1, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile1, "boss")) == "bumblebee_gs_kabam" and jsonout.obj_has(act2_entities1, "bumblebee_gs_kabam")
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part2(act2_tile1: Json, act2_image: Json, act2_moved1: Json, act2_battle1: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(act2_image, "key")) == "bumblebee_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_tile1, "final"))) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved1, "progression"), "currentBattleId")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle1, "battleEnemy"), "key")) == "kickback_gs_kabam"
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part3(act2_tile2: Json, act2_enemy1: Json, act2_battle1: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(act2_enemy1, "key")) == "kickback_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(act2_enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(act2_enemy1, "todIndex")) == 0 and (not jsonout.obj_has(act2_tile2, "dialogue")) and jsonout.as_text(jsonout.obj_get(act2_tile2, "boss")) == "mirage_gs_deluxe2016"
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part4(act2_tile2: Json, act2_enemy2: Json, act2_moved2: Json, act2_battle2: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(act2_enemy2, "key")) == "mirage_gs_deluxe2016" and (not jsonout.as_bool(jsonout.obj_get(act2_tile2, "final"))) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved2, "progression"), "currentBattleId")) == "mirage_gs_deluxe2016" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle2, "battleEnemy"), "key")) == "mirage_gs_deluxe2016"
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part5(act2_tile3: Json, act2_enemy2: Json, act2_enemy3: Json, act2_battle2: Json): boolean
+  intent: test
+  (not jsonout.as_bool(jsonout.obj_get(act2_battle2, "isFinalBoss"))) and (not jsonout.as_bool(jsonout.obj_get(act2_enemy2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(act2_tile3, "dialogue")) == "custom_bumblebee_intro" and jsonout.as_text(jsonout.obj_get(act2_tile3, "boss")) == "bumblebee_gs_kabam" and jsonout.as_text(jsonout.obj_get(act2_enemy3, "key")) == "bumblebee_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_tile3, "final"))
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part6(act2_enemy3: Json, act2_battle3: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle3, "battleEnemy"), "key")) == "bumblebee_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_battle3, "isFinalBoss")) and jsonout.as_bool(jsonout.obj_get(act2_enemy3, "isFinalBoss"))
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_tail(act2_qid: text, act2_grid: a list of Json, act2_tile2: Json, ok_3: boolean): boolean
+  intent: test
+  let act2_entities2: Json = jsonout.obj_get(act2_tile2, "entities")
+  let act2_enemy2: Json = jsonout.obj_get(act2_entities2, "mirage_gs_deluxe2016")
+  let act2_moved2: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 1, 1, [])
+  let act2_battle2: Json = move_battle(act2_moved2)
+  let ok_4: boolean = ok_3 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part4(act2_tile2, act2_enemy2, act2_moved2, act2_battle2)
+  let act2_tile3: Json = map_tile(act2_grid, 3)
+  let act2_enemy3: Json = jsonout.obj_get(jsonout.obj_get(act2_tile3, "entities"), "bumblebee_gs_kabam")
+  let ok_5: boolean = ok_4 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part5(act2_tile3, act2_enemy2, act2_enemy3, act2_battle2)
+  let act2_moved3: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 2, 1, [])
+  let act2_battle3: Json = move_battle(act2_moved3)
+  let ok_6: boolean = ok_5 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part6(act2_enemy3, act2_battle3)
+  ok_6
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2(): boolean
+  intent: test
   let act2_qid: text = gamedata.custom_story_act2_qid()
   let act2_summary: Json = gamedata.build_quest_summary(act2_qid, gamedata.custom_story_set_id())
   let act2_map: Json = gamedata.build_quest_map(act2_qid)
   let act2_grid: a list of Json = jsonout.list_items(jsonout.obj_get(act2_map, "grid"))
-  let act2_tile1: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(act2_grid, 1), jsonout.json_list([]))), 1), jsonout.json_obj([]))
-  let act2_tile2: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(act2_grid, 2), jsonout.json_list([]))), 1), jsonout.json_obj([]))
-  let act2_tile3: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(act2_grid, 3), jsonout.json_list([]))), 1), jsonout.json_obj([]))
+  let act2_tile1: Json = map_tile(act2_grid, 1)
   let act2_entities1: Json = jsonout.obj_get(act2_tile1, "entities")
-  let act2_enemy1: Json = jsonout.obj_get(act2_entities1, "kickback_gs_kabam")
+  let ok_1: boolean = test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part1(act2_summary, act2_map, act2_grid, act2_tile1, act2_entities1)
   let act2_image: Json = jsonout.obj_get(act2_entities1, "bumblebee_gs_kabam")
-  let act2_entities2: Json = jsonout.obj_get(act2_tile2, "entities")
-  let act2_enemy2: Json = jsonout.obj_get(act2_entities2, "mirage_gs_deluxe2016")
-  let act2_enemy3: Json = jsonout.obj_get(jsonout.obj_get(act2_tile3, "entities"), "bumblebee_gs_kabam")
-  let moved1: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 1, [])
-  let battle1: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved1, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  let moved2: Json = gamedata.build_quest_movedir(qid, 1, 0, 1, 1, [])
-  let battle2: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved2, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  let moved3: Json = gamedata.build_quest_movedir(qid, 1, 0, 2, 1, [])
-  let battle3: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved3, "results")), 1), jsonout.json_obj([])), "action"), "battle")
   let act2_moved1: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 0, 1, [])
-  let act2_battle1: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(act2_moved1, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  let act2_moved2: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 1, 1, [])
-  let act2_battle2: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(act2_moved2, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  let act2_moved3: Json = gamedata.build_quest_movedir(act2_qid, 1, 0, 2, 1, [])
-  let act2_battle3: Json = jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(act2_moved3, "results")), 1), jsonout.json_obj([])), "action"), "battle")
-  jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and
-  jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "dialoguePE")) == "custom_starscream_defeated" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(tile2, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(battle2, "isFinalBoss"))) and
-  jsonout.as_text(jsonout.obj_get(tile3, "dialogue")) == "custom_ironhide_ambush" and jsonout.as_text(jsonout.obj_get(tile3, "dialoguePE")) == "custom_ironhide_defeated" and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and jsonout.as_bool(jsonout.obj_get(enemy3, "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(enemy3, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy3, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle3, "battleEnemy"), "key")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss")) and
-  jsonout.as_int(jsonout.obj_get(act2_summary, "act")) == 2 and jsonout.as_int(jsonout.obj_get(act2_map, "gridDimension")) == 4 and length(act2_grid) == 4 and jsonout.as_text(jsonout.obj_get(act2_tile1, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile1, "boss")) == "bumblebee_gs_kabam" and jsonout.obj_has(act2_entities1, "bumblebee_gs_kabam") and jsonout.as_text(jsonout.obj_get(act2_image, "key")) == "bumblebee_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_tile1, "final"))) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved1, "progression"), "currentBattleId")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle1, "battleEnemy"), "key")) == "kickback_gs_kabam" and jsonout.as_text(jsonout.obj_get(act2_enemy1, "key")) == "kickback_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(act2_enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(act2_enemy1, "todIndex")) == 0 and (not jsonout.obj_has(act2_tile2, "dialogue")) and jsonout.as_text(jsonout.obj_get(act2_tile2, "boss")) == "mirage_gs_deluxe2016" and jsonout.as_text(jsonout.obj_get(act2_enemy2, "key")) == "mirage_gs_deluxe2016" and (not jsonout.as_bool(jsonout.obj_get(act2_tile2, "final"))) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_moved2, "progression"), "currentBattleId")) == "mirage_gs_deluxe2016" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle2, "battleEnemy"), "key")) == "mirage_gs_deluxe2016" and (not jsonout.as_bool(jsonout.obj_get(act2_battle2, "isFinalBoss"))) and (not jsonout.as_bool(jsonout.obj_get(act2_enemy2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(act2_tile3, "dialogue")) == "custom_bumblebee_intro" and jsonout.as_text(jsonout.obj_get(act2_tile3, "boss")) == "bumblebee_gs_kabam" and jsonout.as_text(jsonout.obj_get(act2_enemy3, "key")) == "bumblebee_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_tile3, "final")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(act2_battle3, "battleEnemy"), "key")) == "bumblebee_gs_kabam" and jsonout.as_bool(jsonout.obj_get(act2_battle3, "isFinalBoss")) and jsonout.as_bool(jsonout.obj_get(act2_enemy3, "isFinalBoss"))
+  let act2_battle1: Json = move_battle(act2_moved1)
+  let ok_2: boolean = ok_1 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part2(act2_tile1, act2_image, act2_moved1, act2_battle1)
+  let act2_tile2: Json = map_tile(act2_grid, 2)
+  let act2_enemy1: Json = jsonout.obj_get(act2_entities1, "kickback_gs_kabam")
+  let ok_3: boolean = ok_2 and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part3(act2_tile2, act2_enemy1, act2_battle1)
+  test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_tail(act2_qid, act2_grid, act2_tile2, ok_3)
+end
+
+function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee(): boolean
+  intent: test
+  test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1() and test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2()
 end
 
 
@@ -632,22 +827,56 @@ function test_custom_story_preserves_explicit_team_and_defaults_to_initial_squad
   team_object_matches(jsonout.obj_get(custom_user, "team"), ["megatron_cin_rotf"]) and team_object_matches(jsonout.obj_get(fallback_user, "team"), gamedata.default_team()) and team_object_matches(jsonout.obj_get(template_user, "team"), ["megatron_cin_rotf"])
 end
 
+function selectable_team_ok(bid: text): boolean
+  intent: test
+  let selected: a list of text = [bid]
+  let progression: Json = gamedata.build_quest_progression(gamedata.custom_story_qid(), 0, 1, selected)
+  let user: Json = jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid())
+  let team: Json = jsonout.obj_get(user, "team")
+  let active: Json = gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", selected)
+  gamedata.resolve_quest_team(gamedata.custom_story_qid(), selected) == selected and team_object_matches(team, selected) and team_object_matches(jsonout.obj_get(active, "heroes"), selected)
+end
+
+function selectable_detail_ok(bid: text): boolean
+  intent: test
+  let detail_request: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(bid))])
+  let detail: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([detail_request])), 0), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(detail, "bid")) == bid and jsonout.as_int(jsonout.obj_get(detail, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(detail, "attack")) > 0 and jsonout.as_int(jsonout.obj_get(detail, "special_attacks")) == 3 and jsonout.as_text(jsonout.obj_get(detail, "mdl")) == gamedata.model_id(bid)
+end
+
+function selectable_models_ok(bid: text): boolean
+  intent: test
+  let blueprint: Json = jsonout.obj_get(gamedata.build_blueprints(), bid)
+  let character: Json = jsonout.obj_get(gamedata.build_characters(), bid)
+  jsonout.as_text(jsonout.obj_get(blueprint, "mdl")) == gamedata.model_id(bid) and jsonout.as_text(jsonout.obj_get(character, "mdl")) == gamedata.model_id(bid)
+end
+
 function test_every_catalog_robot_is_selectable_in_custom_story(): boolean
   intent: test
   mutable passed: boolean = true
   for entry in gamedata.roster() do
-    let selected: a list of text = [entry.bid]
-    let progression: Json = gamedata.build_quest_progression(gamedata.custom_story_qid(), 0, 1, selected)
-    let user: Json = jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid())
-    let team: Json = jsonout.obj_get(user, "team")
-    let active: Json = gamedata.build_active_team(gamedata.custom_story_qid() ++ "-0", selected)
-    let detail_request: Json = jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(entry.bid))])
-    let detail: Json = unwrap_or(get(jsonout.list_items(gamedata.build_base_hero_details([detail_request])), 0), jsonout.json_obj([]))
-    let blueprint: Json = jsonout.obj_get(gamedata.build_blueprints(), entry.bid)
-    let character: Json = jsonout.obj_get(gamedata.build_characters(), entry.bid)
-    set passed = passed and gamedata.resolve_quest_team(gamedata.custom_story_qid(), selected) == selected and team_object_matches(team, selected) and team_object_matches(jsonout.obj_get(active, "heroes"), selected) and jsonout.as_text(jsonout.obj_get(detail, "bid")) == entry.bid and jsonout.as_int(jsonout.obj_get(detail, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(detail, "attack")) > 0 and jsonout.as_int(jsonout.obj_get(detail, "special_attacks")) == 3 and jsonout.as_text(jsonout.obj_get(detail, "mdl")) == gamedata.model_id(entry.bid) and jsonout.as_text(jsonout.obj_get(blueprint, "mdl")) == gamedata.model_id(entry.bid) and jsonout.as_text(jsonout.obj_get(character, "mdl")) == gamedata.model_id(entry.bid)
+    set passed = passed and selectable_team_ok(entry.bid) and selectable_detail_ok(entry.bid) and selectable_models_ok(entry.bid)
   end
   passed
+end
+
+function test_team_size_max_is_advertised_by_account_and_quest_responses_part1(user_data: Json, summary: Json, static_user: Json, static_summary: Json, custom_summary: Json): boolean
+  intent: test
+  gamedata.team_size_max() == 5 and jsonout.as_int(jsonout.obj_get(user_data, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(static_user, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(static_summary, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(custom_summary, "teamSizeMax")) == 5
+end
+
+function set_with_id(sets: a list of Json, set_id: text): Json
+  intent: find the last quest set carrying the id
+  mutable found: Json = jsonout.json_obj([])
+  for candidate in sets do
+    if jsonout.as_text(jsonout.obj_get(candidate, "setId")) == set_id then set found = candidate end
+  end
+  found
+end
+
+function first_quest_summary(quest_set: Json): Json
+  intent: read the first available quest summary of a set
+  unwrap_or(get(jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests")), 0), jsonout.json_obj([]))
 end
 
 function test_team_size_max_is_advertised_by_account_and_quest_responses(): boolean
@@ -656,17 +885,10 @@ function test_team_size_max_is_advertised_by_account_and_quest_responses(): bool
   let summary: Json = gamedata.build_quest_summary("1.1.1", "story_act1")
   let static_user: Json = jsonout.obj_get(jsonout.obj_get(jsonout.parse_json(read_file(path_join(fakeserver.resp_dir(), "GET__bcg_getUserData.json"))), "result"), "userData")
   let static_sets: a list of Json = jsonout.list_items(jsonout.obj_get(jsonout.parse_json(read_file(path_join(fakeserver.resp_dir(), "GET__quests_quest-list.json"))), "result"))
-  mutable static_set: Json = jsonout.json_obj([])
-  mutable custom_set: Json = jsonout.json_obj([])
-  for candidate in static_sets do
-    if jsonout.as_text(jsonout.obj_get(candidate, "setId")) == "story_act1" then set static_set = candidate end
-    if jsonout.as_text(jsonout.obj_get(candidate, "setId")) == gamedata.custom_story_set_id() then set custom_set = candidate end
-  end
-  let static_quests: Json = jsonout.obj_get(static_set, "availableQuests")
-  let static_summary: Json = unwrap_or(get(jsonout.list_items(static_quests), 0), jsonout.json_obj([]))
-  let custom_quests: Json = jsonout.obj_get(custom_set, "availableQuests")
-  let custom_summary: Json = unwrap_or(get(jsonout.list_items(custom_quests), 0), jsonout.json_obj([]))
-  gamedata.team_size_max() == 5 and jsonout.as_int(jsonout.obj_get(user_data, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(static_user, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(static_summary, "teamSizeMax")) == 5 and jsonout.as_int(jsonout.obj_get(custom_summary, "teamSizeMax")) == 5
+  let static_summary: Json = first_quest_summary(set_with_id(static_sets, "story_act1"))
+  let custom_summary: Json = first_quest_summary(set_with_id(static_sets, gamedata.custom_story_set_id()))
+  let ok_1: boolean = test_team_size_max_is_advertised_by_account_and_quest_responses_part1(user_data, summary, static_user, static_summary, custom_summary)
+  ok_1
 end
 
 function run_custom_story_tests(): integer
@@ -683,8 +905,8 @@ function run_custom_story_tests(): integer
   failed
 end
 
-function main(): nothing
-  intent: test
+function main_group_1(): integer
+  intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_specials_escalate_by_index", test_specials_escalate_by_index(), "special ratios did not escalate")
   set failed = failed + report("test_blueprint_model_id_matches_model_id_helper", test_blueprint_model_id_matches_model_id_helper(), "blueprint model id differed")
@@ -694,6 +916,12 @@ function main(): nothing
   set failed = failed + report("test_all_roster_portraits_ship_both_sizes", test_all_roster_portraits_ship_both_sizes(), "a portrait size was missing")
   set failed = failed + report("test_art_base_overrides_cover_only_irregular_roster_bots", test_art_base_overrides_cover_only_irregular_roster_bots(), "override coverage was wrong")
   set failed = failed + report("base_stats spot checks", test_base_stats_spot_checks(), "stat arithmetic differed")
+  failed
+end
+
+function main_group_2(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_max_special_attacks_are_three_for_every_bot_and_wire_builder", test_max_special_attacks_are_three_for_every_bot_and_wire_builder(), "a bot or wire builder did not expose three specials")
   set failed = failed + report("test_default_mana_start_is_zero", test_default_mana_start_is_zero(), "default mana start was not zero")
   set failed = failed + report("test_mana_start_diagnostic_can_be_enabled", test_mana_start_diagnostic_can_be_enabled(), "mana start diagnostic did not reload")
@@ -702,6 +930,12 @@ function main(): nothing
   set failed = failed + report("test_generated_login_snapshot_has_three_specials_for_every_bot", test_generated_login_snapshot_has_three_specials_for_every_bot(), "generated login special counts were wrong")
   set failed = failed + report("test_generated_user_data_snapshot_has_three_specials_for_every_bot", test_generated_user_data_snapshot_has_three_specials_for_every_bot(), "generated user-data special counts were wrong")
   set failed = failed + report("test_normal_attack_levels_have_nonzero_damage_rows", test_normal_attack_levels_have_nonzero_damage_rows(), "attack values were wrong")
+  failed
+end
+
+function main_group_3(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_generated_login_response_contains_current_attack_rows", test_generated_login_response_contains_current_attack_rows(), "login attack values differed")
   set failed = failed + report("test_generated_login_response_uses_current_special_ratios", test_generated_login_response_uses_current_special_ratios(), "login special ratios differed")
   set failed = failed + report("test_login_response_carries_model_ids", test_login_response_carries_model_ids(), "login model ids differed")
@@ -710,6 +944,12 @@ function main(): nothing
   set failed = failed + report("test_character_model_id_matches_model_id_helper", test_character_model_id_matches_model_id_helper(), "character model id differed")
   set failed = failed + report("test_player_lead_is_optimus_prime", test_player_lead_is_optimus_prime(), "team lead was wrong")
   set failed = failed + report("test_combat_armor_rating_constant_is_finite_and_positive", test_combat_armor_rating_constant_is_finite_and_positive(), "combat config was wrong")
+  failed
+end
+
+function main_group_4(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_account_response_contains_current_missions_config", test_account_response_contains_current_missions_config(), "account missions config differed")
   set failed = failed + report("test_direct_autorefresh_repeats_current_missions_config", test_direct_autorefresh_repeats_current_missions_config(), "direct autorefresh differed")
   set failed = failed + report("test_group_autorefresh_update_has_exact_client_fields", test_group_autorefresh_update_has_exact_client_fields(), "group autorefresh update was wrong")
@@ -718,9 +958,26 @@ function main(): nothing
   set failed = failed + report("test_story_board_geometry_is_square_and_fully_revealed", test_story_board_geometry_is_square_and_fully_revealed(), "story board geometry was wrong")
   set failed = failed + report("test_every_encounter_row_triggers_a_battle_on_movedir", test_every_encounter_row_triggers_a_battle_on_movedir(), "story encounter did not trigger")
   set failed = failed + report("test_story_encounters_use_varied_enemy_blueprints", test_story_encounters_use_varied_enemy_blueprints(), "story encounters were not varied")
+  failed
+end
+
+function main_group_5(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing")
   set failed = failed + run_custom_story_tests() + run_slice3_tests()
   set failed = failed + run_slice4_tests()
+  failed
+end
+
+function main(): nothing
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + main_group_1()
+  set failed = failed + main_group_2()
+  set failed = failed + main_group_3()
+  set failed = failed + main_group_4()
+  set failed = failed + main_group_5()
   print(to_text(72 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
@@ -732,8 +989,8 @@ function arena_level_known(level: text): boolean
   level == "chicago" or level == "hongkong" or level == "karnak" or level == "mine" or level == "rust"
 end
 
-function run_slice3_tests(): integer
-  intent: test
+function run_slice3_tests_group_1(): integer
+  intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_intermediate_map_tile_carries_an_authored_nonfinal_encounter", test_intermediate_map_tile_carries_an_authored_nonfinal_encounter(), "intermediate encounter tile was wrong")
   set failed = failed + report("test_intermediate_blueprint_is_a_distinct_owned_roster_member", test_intermediate_blueprint_is_a_distinct_owned_roster_member(), "intermediate blueprint roster membership was wrong")
@@ -743,6 +1000,12 @@ function run_slice3_tests(): integer
   set failed = failed + report("test_quest_enemy_names_a_shipped_ai_profile_and_personality", test_quest_enemy_names_a_shipped_ai_profile_and_personality(), "enemy AI profile or personality was invalid")
   set failed = failed + report("test_default_arena_is_not_the_black_karnak_fallback", test_default_arena_is_not_the_black_karnak_fallback(), "default arena was invalid")
   set failed = failed + report("test_quest_enemy_assigns_a_nonempty_shipped_arena_level", test_quest_enemy_assigns_a_nonempty_shipped_arena_level(), "enemy arena assignment was invalid")
+  failed
+end
+
+function run_slice3_tests_group_2(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_quest_enemy_tod_is_valid_for_its_arena_level", test_quest_enemy_tod_is_valid_for_its_arena_level(), "enemy time of day was invalid")
   set failed = failed + report("test_arena_environment_overrides_are_applied_on_reload", test_arena_environment_overrides_are_applied_on_reload(), "arena environment override failed")
   set failed = failed + report("test_invalid_arena_level_raises_on_reload", test_invalid_arena_level_raises_on_reload(), "invalid arena level did not fail")
@@ -751,6 +1014,12 @@ function run_slice3_tests(): integer
   set failed = failed + report("test_arena_inventory_matches_shipped_level_prefabs_when_available", test_arena_inventory_matches_shipped_level_prefabs_when_available(), "arena asset inventory was wrong")
   set failed = failed + report("test_quest_progression_uses_the_supplied_squad", test_quest_progression_uses_the_supplied_squad(), "quest squad was lost")
   set failed = failed + report("test_quest_begin_threads_the_squad_into_its_instance_progression", test_quest_begin_threads_the_squad_into_its_instance_progression(), "quest begin squad was lost")
+  failed
+end
+
+function run_slice3_tests_group_3(): integer
+  intent: run
+  mutable failed: integer = 0
   set failed = failed + report("test_five_member_quest_squad_reaches_quest_and_active_teams", test_five_member_quest_squad_reaches_quest_and_active_teams(), "five member squad was lost")
   set failed = failed + report("test_quest_movedir_preserves_the_squad_in_progression_and_team_data", test_quest_movedir_preserves_the_squad_in_progression_and_team_data(), "move squad was lost")
   set failed = failed + report("test_user_data_uses_the_supplied_saved_and_active_team", test_user_data_uses_the_supplied_saved_and_active_team(), "user data squad was lost")
@@ -758,6 +1027,15 @@ function run_slice3_tests(): integer
   set failed = failed + report("test_unknown_blueprint_falls_back_to_the_default_squad", test_unknown_blueprint_falls_back_to_the_default_squad(), "unknown squad did not fall back")
   set failed = failed + report("test_six_member_team_falls_back_to_the_default_squad", test_six_member_team_falls_back_to_the_default_squad(), "over-cap squad did not fall back")
   set failed = failed + report("test_team_size_max_is_advertised_by_account_and_quest_responses", test_team_size_max_is_advertised_by_account_and_quest_responses(), "team capacity was not five")
+  failed
+end
+
+function run_slice3_tests(): integer
+  intent: test
+  mutable failed: integer = 0
+  set failed = failed + run_slice3_tests_group_1()
+  set failed = failed + run_slice3_tests_group_2()
+  set failed = failed + run_slice3_tests_group_3()
   failed
 end
 
@@ -770,13 +1048,35 @@ function team_object_matches(node: Json, team: a list of text): boolean
   jsonout.encode_compact(node) == jsonout.encode_compact(jsonout.json_obj(expected))
 end
 
+function map_tile(grid: a list of Json, row: integer): Json
+  intent: read the tile in the second column of a map row
+  unwrap_or(get(jsonout.list_items(unwrap_or(get(grid, row), jsonout.json_list([]))), 1), jsonout.json_obj([]))
+end
+
+function move_battle(moved: Json): Json
+  intent: read the battle triggered by a movedir response
+  jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved, "results")), 1), jsonout.json_obj([])), "action"), "battle")
+end
+
+function test_intermediate_map_tile_carries_an_authored_nonfinal_encounter_part1(tile: Json, enemy: Json): boolean
+  intent: test
+  jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and (not jsonout.obj_has(tile, "final") or not jsonout.as_bool(jsonout.obj_get(tile, "final"))) and jsonout.as_text(jsonout.obj_get(tile, "boss")) == gamedata.minion_blueprint() and jsonout.as_text(jsonout.obj_get(enemy, "entityType")) == "boss" and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) == false and jsonout.encode_compact(jsonout.obj_get(enemy, "characters")) == jsonout.encode_compact(jsonout.json_list([jsonout.json_text(gamedata.minion_blueprint())]))
+end
+
+function test_intermediate_map_tile_carries_an_authored_nonfinal_encounter_part2(enemy: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == gamedata.arena_level() and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == gamedata.arena_tod_index()
+end
+
 function test_intermediate_map_tile_carries_an_authored_nonfinal_encounter(): boolean
   intent: test
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map("1.1.1"), "grid"))
   let row: Json = unwrap_or(get(grid, 1), jsonout.json_list([]))
   let tile: Json = unwrap_or(get(jsonout.list_items(row), 1), jsonout.json_obj([]))
   let enemy: Json = jsonout.obj_get(jsonout.obj_get(tile, "entities"), gamedata.minion_blueprint())
-  jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and (not jsonout.obj_has(tile, "final") or not jsonout.as_bool(jsonout.obj_get(tile, "final"))) and jsonout.as_text(jsonout.obj_get(tile, "boss")) == gamedata.minion_blueprint() and jsonout.as_text(jsonout.obj_get(enemy, "entityType")) == "boss" and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) == false and jsonout.encode_compact(jsonout.obj_get(enemy, "characters")) == jsonout.encode_compact(jsonout.json_list([jsonout.json_text(gamedata.minion_blueprint())])) and jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == gamedata.arena_level() and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == gamedata.arena_tod_index()
+  let ok_1: boolean = test_intermediate_map_tile_carries_an_authored_nonfinal_encounter_part1(tile, enemy)
+  let ok_2: boolean = ok_1 and test_intermediate_map_tile_carries_an_authored_nonfinal_encounter_part2(enemy)
+  ok_2
 end
 
 function test_intermediate_blueprint_is_a_distinct_owned_roster_member(): boolean
@@ -978,6 +1278,16 @@ function test_user_data_uses_the_supplied_saved_and_active_team(): boolean
   saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team) and jsonout.as_text(jsonout.obj_get(custom, "aid")) == gamedata.custom_story_qid() ++ "-0" and team_object_matches(jsonout.obj_get(custom, "heroes"), team) and jsonout.as_text(jsonout.obj_get(challenge, "aid")) == gamedata.challenge_qid() ++ "-0" and team_object_matches(jsonout.obj_get(challenge, "heroes"), team)
 end
 
+function test_none_and_empty_team_preserve_default_json_part1(fixture: Json, story_set: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(fixture, "sourceCommit")) == "848e4d3" and jsonout.encode_compact(story_set) == jsonout.encode_compact(jsonout.obj_get(fixture, "questList")) and jsonout.encode_compact(gamedata.build_quest_summary("1.1.1", "story_act1")) == jsonout.encode_compact(jsonout.obj_get(fixture, "summary")) and jsonout.encode_compact(gamedata.build_quest_map("1.1.1")) == jsonout.encode_compact(jsonout.obj_get(fixture, "map")) and jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) == jsonout.encode_compact(jsonout.obj_get(fixture, "begin"))
+end
+
+function test_none_and_empty_team_preserve_default_json_part2(fixture: Json): boolean
+  intent: test
+  jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) == jsonout.encode_compact(jsonout.obj_get(fixture, "firstMovedir"))
+end
+
 function test_none_and_empty_team_preserve_default_json(): boolean
   intent: test
   let fixture: Json = jsonout.parse_json(read_file(path_join(gamedata.here(), "fixtures/story_act1_848e4d3.json")))
@@ -986,7 +1296,9 @@ function test_none_and_empty_team_preserve_default_json(): boolean
   for candidate in sets do
     if jsonout.as_text(jsonout.obj_get(candidate, "setId")) == "story_act1" then set story_set = candidate end
   end
-  jsonout.as_text(jsonout.obj_get(fixture, "sourceCommit")) == "848e4d3" and jsonout.encode_compact(story_set) == jsonout.encode_compact(jsonout.obj_get(fixture, "questList")) and jsonout.encode_compact(gamedata.build_quest_summary("1.1.1", "story_act1")) == jsonout.encode_compact(jsonout.obj_get(fixture, "summary")) and jsonout.encode_compact(gamedata.build_quest_map("1.1.1")) == jsonout.encode_compact(jsonout.obj_get(fixture, "map")) and jsonout.encode_compact(gamedata.build_quest_begin("1.1.1", "story_act1", [])) == jsonout.encode_compact(jsonout.obj_get(fixture, "begin")) and jsonout.encode_compact(gamedata.build_quest_movedir("1.1.1", 1, 0, 0, 1, [])) == jsonout.encode_compact(jsonout.obj_get(fixture, "firstMovedir"))
+  let ok_1: boolean = test_none_and_empty_team_preserve_default_json_part1(fixture, story_set)
+  let ok_2: boolean = ok_1 and test_none_and_empty_team_preserve_default_json_part2(fixture)
+  ok_2
 end
 
 function test_unknown_blueprint_falls_back_to_the_default_squad(): boolean
@@ -1057,6 +1369,20 @@ function test_map_has_path_data_so_the_path_analyzer_cannot_null_deref(): boolea
   passed
 end
 
+function test_every_walkable_tile_offers_an_unlocked_building_socket_part1(map: Json, passed: boolean, walkable: integer): boolean
+  intent: test
+  passed and walkable == jsonout.as_int(jsonout.obj_get(map, "walkableCount"))
+end
+
+function tile_socket_ok(tile: Json, row_index: integer, col_index: integer, user_sockets: Json): boolean
+  intent: test
+  let socket_id: text = gamedata.base_socket_id(row_index, col_index)
+  let sockets: Json = jsonout.obj_get(tile, "sockets")
+  let socket: Json = jsonout.obj_get(sockets, socket_id)
+  let expected: Json = jsonout.json_obj([jsonout.json_pair(socket_id, socket)])
+  jsonout.obj_has(sockets, socket_id) and jsonout.encode_compact(sockets) == jsonout.encode_compact(expected) and jsonout.as_text(jsonout.obj_get(socket, "entityType")) == "building" and jsonout.obj_has(user_sockets, socket_id) and jsonout.as_bool(jsonout.obj_get(user_sockets, socket_id))
+end
+
 function test_every_walkable_tile_offers_an_unlocked_building_socket(): boolean
   intent: test
   let result: Json = base_active()
@@ -1070,18 +1396,15 @@ function test_every_walkable_tile_offers_an_unlocked_building_socket(): boolean
     mutable col_index: integer = 0
     for tile in jsonout.list_items(row) do
       if jsonout.as_bool(jsonout.obj_get(tile, "walkable")) then
-  set walkable = walkable + 1
-  let socket_id: text = gamedata.base_socket_id(row_index, col_index)
-  let sockets: Json = jsonout.obj_get(tile, "sockets")
-  let socket: Json = jsonout.obj_get(sockets, socket_id)
-  let expected: Json = jsonout.json_obj([jsonout.json_pair(socket_id, socket)])
-  set passed = passed and jsonout.obj_has(sockets, socket_id) and jsonout.encode_compact(sockets) == jsonout.encode_compact(expected) and jsonout.as_text(jsonout.obj_get(socket, "entityType")) == "building" and jsonout.obj_has(user_sockets, socket_id) and jsonout.as_bool(jsonout.obj_get(user_sockets, socket_id))
-end
+        set walkable = walkable + 1
+        set passed = passed and tile_socket_ok(tile, row_index, col_index, user_sockets)
+      end
       set col_index = col_index + 1
     end
     set row_index = row_index + 1
   end
-  passed and walkable == jsonout.as_int(jsonout.obj_get(map, "walkableCount"))
+  let ok_1: boolean = test_every_walkable_tile_offers_an_unlocked_building_socket_part1(map, passed, walkable)
+  ok_1
 end
 
 function available_has(available: a list of Json, bid: text): boolean
@@ -1095,6 +1418,16 @@ end
   found
 end
 
+function test_placements_reference_authored_sockets_and_buildings_step1(placements: Json, available: a list of Json, passed_in: boolean): boolean
+  intent: check
+  mutable passed: boolean = passed_in
+  for socket_id in [gamedata.base_socket_id(2, 2), gamedata.base_socket_id(2, 1), gamedata.base_socket_id(2, 3), gamedata.base_socket_id(1, 2), gamedata.base_socket_id(3, 2)] do
+    let placement: Json = jsonout.obj_get(placements, socket_id)
+    set passed = passed and jsonout.obj_has(placements, socket_id) and gamedata.base_is_walkable(jsonout.as_int(jsonout.obj_get(jsonout.obj_get(placement, "position"), "x")), jsonout.as_int(jsonout.obj_get(jsonout.obj_get(placement, "position"), "y"))) and jsonout.as_text(jsonout.obj_get(placement, "entityType")) == "building" and available_has(available, jsonout.as_text(jsonout.obj_get(placement, "key")))
+  end
+  passed
+end
+
 function test_placements_reference_authored_sockets_and_buildings(): boolean
   intent: test
   let result: Json = base_active()
@@ -1103,10 +1436,7 @@ function test_placements_reference_authored_sockets_and_buildings(): boolean
   let available: a list of Json = jsonout.list_items(jsonout.obj_get(result, "userAvailableBuildings"))
   let expected: Json = jsonout.json_obj([jsonout.json_pair(gamedata.base_socket_id(2, 2), jsonout.obj_get(placements, gamedata.base_socket_id(2, 2))), jsonout.json_pair(gamedata.base_socket_id(2, 1), jsonout.obj_get(placements, gamedata.base_socket_id(2, 1))), jsonout.json_pair(gamedata.base_socket_id(2, 3), jsonout.obj_get(placements, gamedata.base_socket_id(2, 3))), jsonout.json_pair(gamedata.base_socket_id(1, 2), jsonout.obj_get(placements, gamedata.base_socket_id(1, 2))), jsonout.json_pair(gamedata.base_socket_id(3, 2), jsonout.obj_get(placements, gamedata.base_socket_id(3, 2)))])
   mutable passed: boolean = jsonout.encode_compact(placements) == jsonout.encode_compact(expected)
-  for socket_id in [gamedata.base_socket_id(2, 2), gamedata.base_socket_id(2, 1), gamedata.base_socket_id(2, 3), gamedata.base_socket_id(1, 2), gamedata.base_socket_id(3, 2)] do
-    let placement: Json = jsonout.obj_get(placements, socket_id)
-    set passed = passed and jsonout.obj_has(placements, socket_id) and gamedata.base_is_walkable(jsonout.as_int(jsonout.obj_get(jsonout.obj_get(placement, "position"), "x")), jsonout.as_int(jsonout.obj_get(jsonout.obj_get(placement, "position"), "y"))) and jsonout.as_text(jsonout.obj_get(placement, "entityType")) == "building" and available_has(available, jsonout.as_text(jsonout.obj_get(placement, "key")))
-  end
+  set passed = test_placements_reference_authored_sockets_and_buildings_step1(placements, available, passed)
   passed
 end
 
