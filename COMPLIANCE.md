@@ -554,3 +554,29 @@ Nothing was transcribed from recovered Kabam server data or from the fork's own
 authored content. No asset, binary APK, captured audiovisual content, credential, or
 recovered server dataset was added. Nothing under `media/` was touched. No new
 dependency was introduced.
+
+## 2026-09-18 — ABILITY_AUTHORING.md corrections (conditions, magnitude)
+
+Documentation-only. Three corrections to `ABILITY_AUTHORING.md`, all of them to text I
+authored in PR #10 that later testing showed to be wrong or incomplete.
+
+1. The guide stated in two places that there is **no generic predicate system** and that
+   *"opponent is class Y"* cannot be expressed as a condition. That is false. Conditions
+   are authored in the `trs` field as `<target>:<key><op><value>`, parsed by
+   `BuffTriggerFactory.ParseConditions` with the regex `([\w\.]+)(=|<=|>=|!=|>|<)(.+)`,
+   six operators, and twelve readable keys. Demonstrated in a live fight with a matched
+   pass/fail pair differing only by operator, plus an unconditioned control row.
+2. The `m` field was documented only as "magnitude". It is an absolute total spread across
+   the duration (`per tick = m / d / 2`), not a fraction of Attack, and because the HUD
+   renderer takes an `int` a fractional value truncates to zero with no error. Added as a
+   numbered pitfall with the measured values that established it.
+3. The condition-class inventory was expanded to name the comparison family and
+   `BuffConditionOp`, and to state the real remaining limit (no health key).
+
+All findings are original: derived from disassembly of the client binary this repository
+already targets, and from runtime logging via this repository's own `tools/nativehook`
+harness during local play. Nothing was transcribed from recovered Kabam server data or from
+any other fork's authored content. No asset, binary APK, captured audiovisual content,
+credential, or recovered server dataset was added. Nothing under `media/` was touched. No
+new dependency was introduced. No generated payload changed, so no regeneration was
+required.
