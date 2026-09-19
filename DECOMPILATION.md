@@ -40,6 +40,7 @@ workspace are the exact references used by the generated projects.
 The script rejects an IL2CPP APK with a clear message. Use the native path for 9.2:
 
 ```bash
+mkdir -p /tmp/tftf-il2cpp
 unzip -p "Transformers 9.2 offline.apk" \
   lib/arm64-v8a/libil2cpp.so > /tmp/tftf-il2cpp/libil2cpp.so
 unzip -p "Transformers 9.2 offline.apk" \
@@ -53,7 +54,7 @@ python3 tools/index_il2cpp_dump.py /tmp/tftf-il2cpp-out/dump.cs \
 ## Compilation status
 
 Managed recovery and compilation are separate claims. `compile-audit` checks that the
-export has not been modified since it was produced, invokes Roslyn against the recovered
+extracted assemblies have not been modified since export, invokes Roslyn against the recovered
 game sources, and writes a machine-readable report. It is deliberately an audit rather
 than a promise that Unity can be rebuilt:
 
@@ -68,6 +69,57 @@ The current APK's recovered game assemblies export cleanly. The audit records co
 errors in `compile-*/report.json`; the known blockers are Unity/Mono framework contracts,
 platform bindings, and decompiler output that depends on the original Unity build setup.
 Treat those errors as the prioritized porting list, not as missing decompilation coverage.
+
+### First compilation milestone
+
+The APK framework DLLs are incomplete as compiler references: for example, its
+`DllImportAttribute` lacks the constructor required to compile native imports.
+Use locally installed, unstripped framework references for compilation. The audit accepts
+repeatable `--reference-dir` arguments; a matching filename overrides the APK reference,
+and the report records its path and SHA-256. These are compiler inputs only and must not
+be packaged into the game as runtime replacements.
+
+The tested framework inputs are Microsoft's
+[net20](https://www.nuget.org/packages/Microsoft.NETFramework.ReferenceAssemblies.net20/1.0.3)
+and [net35](https://www.nuget.org/packages/Microsoft.NETFramework.ReferenceAssemblies.net35/1.0.3)
+reference packages, version 1.0.3. Download the `.nupkg` archives from NuGet and extract
+locally under `build/tooling/net20` and `build/tooling/net35`. A fresh clone must supply
+these tools and references; they are not tracked.
+
+```bash
+python3 tools/decompilation.py compile-audit build/decompilation/mono-XXXX \
+  --dotnet /path/to/dotnet \
+  --csc /path/to/sdk/8.0.422/Roslyn/bincore/csc.dll \
+  --reference-dir build/tooling/net20/build/.NETFramework/v2.0 \
+  --reference-dir build/tooling/net35/build/.NETFramework/v3.5 \
+  --assembly Assembly-CSharp-firstpass --assembly Assembly-CSharp \
+  --assembly Fabric.Core --assembly NBidi --repair-accessors
+```
+
+Each audit compiles an isolated source snapshot and records input and compiled source
+hashes. Compiler output uses deterministic mode and maps temporary paths to a stable
+prefix. The audit compiles C# only; it does not reconstruct embedded-resource packaging,
+signing, or the Unity project. `--repair-accessors` rewrites only simple explicit-interface getter methods into
+property getters, recording each changed file. It does not modify the original export.
+Each assembly is tested independently against original dependencies; a successful audit
+does not establish that all dependencies can be rebuilt together.
+
+On the local 2.0.2 APK with SHA-256
+`61c1860df9d5bb64ab28934b0fd6954c71c5410887f66260917351820b08aca4`,
+`Fabric.Core` and `NBidi` compile successfully with Roslyn 8.0.422. The first compiler
+pass for the two game assemblies falls from 879 errors to 25 with reference overrides,
+then to 11 after seven getter repairs. The remaining reported errors are ambiguous type
+names, one self-referencing constant, four invalid optional-parameter declarations, and
+four Unity attribute member mismatches. Later compilation phases may reveal more errors.
+No rebuilt DLL has been installed or runtime-verified. This Mono milestone does not
+reconstruct the 9.2 IL2CPP client.
+
+Next milestones: resolve those declarations with IL evidence, compile game assemblies
+against rebuilt dependencies, compare assembly APIs and serialized field layouts, then
+test a locally packaged Mono APK against the offline server. The 2.0.2 protocol and assets
+must be verified independently before claiming parity with patched 9.2.
+
+Run synthetic tooling tests with `python3 -m unittest discover -s tools -p test_decompilation.py`.
 
 ## Scope and provenance
 

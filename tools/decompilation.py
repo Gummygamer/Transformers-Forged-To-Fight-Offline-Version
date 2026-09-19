@@ -116,24 +116,76 @@ def recover(apk, ilspy):
     return 0 if manifest["status"] == "exported" else 1
 
 
-def compile_audit(workspace, dotnet, csc):
+def normalize_accessors(source):
+    """Repair only standalone explicit getter methods with one simple return.
+
+    This deliberately does not rewrite setters, attributes, complex bodies, or
+    other virtual methods. Input is an isolated copy of decompiler output.
+    """
+    pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]+)virtual (?P<type>[\w.<>]+) "
+        r"(?P<interface>[\w.<>]+)\.get_(?P<property>\w+)\(\)\n"
+        r"(?P=indent)\{\n(?P=indent)\treturn (?P<value>[\w.]+);\n"
+        r"(?P=indent)\}")
+
+    def replace(match):
+        g = match.groupdict()
+        return (f"{g['indent']}{g['type']} {g['interface']}.{g['property']}\n"
+                f"{g['indent']}{{\n{g['indent']}\tget {{ return {g['value']}; }}\n"
+                f"{g['indent']}}}")
+
+    return pattern.subn(replace, source)
+
+
+def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
+                  repair_accessors=False):
     """Compile recovered game code against the APK's own framework, without NuGet."""
     manifest = json.loads((workspace / "manifest.json").read_text())
     # Verify input provenance before using assemblies as compiler references.
     for row in manifest["assemblies"]:
         if digest(workspace / "managed" / row["name"]) != row["sha256"]:
             raise ValueError(f"Assembly changed since export: {row['name']}")
+    names = assemblies or ["Assembly-CSharp-firstpass", "Assembly-CSharp"]
+    available = {Path(row["name"]).stem for row in manifest["assemblies"]}
+    if not names or any(name not in available for name in names):
+        raise ValueError("Select assembly names present in the export manifest")
+    references = {p.name: p for p in (workspace / "managed").glob("*.dll")}
+    overrides = {}
+    for directory in reference_dirs:
+        dlls = sorted(directory.resolve().glob("*.dll"))
+        if not dlls:
+            raise ValueError(f"No reference assemblies in {directory}")
+        for path in dlls:
+            if path.name in references:
+                references[path.name] = path
+                overrides[path.name] = {"path": str(path), "sha256": digest(path)}
     audit = Path(tempfile.mkdtemp(prefix="compile-", dir=workspace))
     report = {"scope": "game assemblies against original APK references; not a Unity build",
-              "compiler": str(csc), "compiler_sha256": digest(csc), "assemblies": []}
-    for name in ("Assembly-CSharp-firstpass", "Assembly-CSharp"):
+              "compiler": str(csc), "compiler_sha256": digest(csc),
+              "reference_overrides": overrides, "runtime_verified": False, "assemblies": []}
+    for name in names:
         sources = sorted((workspace / "source" / name).rglob("*.cs"))
         if not sources:
             report["assemblies"].append({"name": name, "status": "missing-source"})
             continue
+        source_hashes = {p.relative_to(workspace).as_posix(): digest(p) for p in sources}
+        changes = []
+        snapshot = audit / "source" / name
+        for path in sources:
+            relative = path.relative_to(workspace / "source" / name)
+            target = snapshot / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            text = path.read_text()
+            if repair_accessors:
+                text, count = normalize_accessors(text)
+                if count:
+                    changes.append({"path": relative.as_posix(), "explicit_getters": count})
+            target.write_text(text)
+        sources = sorted(snapshot.rglob("*.cs"))
         flags = ["-nologo", "-target:library", "-unsafe", "-nostdlib+", "-langversion:12",
+                 "-deterministic+", f'-pathmap:"{audit}=/_/reconstruction"',
                  f'-out:"{audit / (name + ".dll")}"']
-        flags += [f'-reference:"{p}"' for p in sorted((workspace / "managed").glob("*.dll"))
+        flags += [f'-reference:"{p}"' for p in sorted(references.values())
                   if p.stem != name]
         flags += [f'"{p}"' for p in sources]
         rsp = audit / f"{name}.rsp"
@@ -145,13 +197,21 @@ def compile_audit(workspace, dotnet, csc):
         errors = Counter(re.findall(r"\berror (CS\d+):", log.read_text()))
         report["assemblies"].append({"name": name, "exit_code": result.returncode,
                                      "status": "compiled" if result.returncode == 0 else "failed",
-                                     "errors": dict(sorted(errors.items()))})
+                                     "errors": dict(sorted(errors.items())),
+                                     "source_hashes": source_hashes,
+                                     "compiled_source_hashes": {
+                                         p.relative_to(audit).as_posix(): digest(p) for p in sources},
+                                     "repairs": changes,
+                                     "output_sha256": digest(audit / (name + ".dll"))
+                                     if result.returncode == 0 else None})
     save(audit / "report.json", report)
     success = all(r["status"] == "compiled" for r in report["assemblies"])
-    manifest["compilation"] = "game-assemblies-compiled" if success else "failed"
+    manifest["compilation"] = "selected-assemblies-compiled" if success else "failed"
     manifest["latest_compile_report"] = (audit / "report.json").relative_to(workspace).as_posix()
     save(workspace / "manifest.json", manifest)
-    print(json.dumps(report, indent=2))
+    print(json.dumps([{k: v for k, v in row.items()
+                       if k not in ("source_hashes", "compiled_source_hashes")}
+                      for row in report["assemblies"]], indent=2))
     print(f"Report: {audit / 'report.json'}")
     return 0 if success else 1
 
@@ -166,11 +226,17 @@ def main():
     audit.add_argument("workspace", type=Path)
     audit.add_argument("--dotnet", default="dotnet")
     audit.add_argument("--csc", required=True, type=Path, help="SDK Roslyn/bincore/csc.dll")
+    audit.add_argument("--reference-dir", action="append", default=[], type=Path,
+                       help="Override matching APK references with unstripped SDK DLLs (repeatable)")
+    audit.add_argument("--assembly", action="append", help="Assembly name without .dll (repeatable)")
+    audit.add_argument("--repair-accessors", action="store_true",
+                       help="Normalize simple explicit getters in a local source snapshot")
     args = parser.parse_args()
     try:
         if args.command == "export":
             return recover(args.apk.resolve(), args.ilspy)
-        return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve())
+        return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
+                             args.reference_dir, args.assembly, args.repair_accessors)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Error: {error}\n")
 
