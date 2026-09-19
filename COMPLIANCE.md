@@ -609,3 +609,39 @@ targets. Nothing was transcribed from recovered Kabam server data or from any ot
 authored content. No asset, binary APK, captured audiovisual content, credential, or
 recovered server dataset was added. Nothing under `media/` was touched. No new dependency
 was introduced. No generated payload changed.
+
+## 2026-09-19 — ABILITY_AUTHORING.md restructure + merge of the ability reference
+
+Documentation-only. Restructures the authoring guide and merges in an ability-grammar
+reference built during local testing. No payload, asset or code change; nothing regenerates.
+
+**Restructure.** Sections are reorganised by what a reader came to do rather than by the order
+we investigated things, hard-coded section numbers are dropped in favour of descriptive
+headings, project history and method move to appendices, and status claims are consolidated in
+one section so they rot in a single place. A table of contents with anchor links is added, and
+heading levels are strictly nested so the document converts cleanly to HTML/Word/PDF via
+pandoc — stated near the top so nobody forks a second copy in another format.
+
+**New reference content**, all of it original and derived from disassembly of the client binary
+this repository already targets, plus runtime logging via this repository's own
+`tools/nativehook` harness during local play:
+
+- the complete `t` type-string registry recovered from both effect factories
+  (`TFormBuffEffectFactory` `0xB07138`, `BuffEffectFactory` `0xE5DCC0`)
+- the `tm` parameter keys for the effect classes that parse them, each corroborated against
+  the class's own private field names
+- the constructor-arity split that determines whether a class can receive `tm` at all
+- the complete `ta`, `mt`, trigger, condition-key, state and stat-attribute vocabularies
+- a capability map grouping the effect classes by what a player would recognise
+
+**Every factual claim carries a provenance mark** stating how it is known — observed in a live
+fight, present in the served payload, read from the binary, or inferred — with a legend and the
+rule that a single-source claim is provisional. Claims that are unverified say so rather than
+being asserted. Known limits are stated in the document: the type registry is known-good rather
+than proven exhaustive, the multi-key `tm` separator is unconfirmed, and the area-spawner keys
+are inherited from an abstract base.
+
+Nothing was transcribed from recovered Kabam server data or from any other fork's authored
+content. No asset, binary APK, captured audiovisual content, credential, or recovered server
+dataset was added. Nothing under `media/` was touched. No new dependency was introduced. No
+generated payload changed, so no regeneration was required.
