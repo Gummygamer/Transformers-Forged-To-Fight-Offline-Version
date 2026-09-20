@@ -48,7 +48,6 @@ class PvpStore(
     private val matches = Matches(RecordFile(File(dir, "matches")))
     private val fights = FightEvents(RecordFile(File(dir, "fights")))
     private val results = Results(RecordFile(File(dir, "results")))
-    private val tutorial = TutorialState(RecordFile(File(dir, "tutorial")))
 
     @Volatile
     var presenceTtlMs: Long = if (presenceTtlMs > 0L) presenceTtlMs else DEFAULT_PRESENCE_TTL_MS
@@ -178,11 +177,7 @@ class PvpStore(
         matches.clear()
         fights.clear()
         results.clear()
-        tutorial.clear()
     }
-
-    /** Returns true once per peer, preserving tutorial progress across service restarts. */
-    fun markTutorialLogin(peer: String): Boolean = locked { tutorial.markFirstLogin(peer) }
 
     private fun touch(peer: String, name: String, nowMs: Long): Presence {
         val sessionName = sessions.forToken(Fields.idSafe(peer))?.name ?: ""

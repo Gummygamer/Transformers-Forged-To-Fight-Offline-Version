@@ -133,6 +133,10 @@ class EndpointSequenceTest {
 
         val saved = call("/bcg/setSavedTeam?stoken=$token", "{\"teamID\":\"PVP1\",\"heroes\":[\"hero_a\",\"hero_b\"]}")
         assertTrue(saved, saved.contains("\"sid\": \"PVP1\""))
+        val activeId = JsonParse.parse(saved).obj("result").obj("updates").list("activeTeams")[0].text("aid")
+        assertEquals("arena_versus", activeId)
+        val story = call("/bcg/setSavedTeam?stoken=$token", "{\"teamID\":\"0\",\"heroes\":[\"hero_a\",\"hero_b\"]}")
+        assertTrue(story, story.contains("\"aid\": \"1.1.1-0\""))
         val activeHeroes = (JsonParse.parse(saved).obj("result").obj("updates").list("activeTeams")[0]).obj("heroes")
         assertEquals(setOf("hero_a", "hero_b"), (activeHeroes as JsonObj).pairs.map { it.first }.toSet())
         assertEquals(listOf("hero_a", "hero_b"), store.rosterFor(token)!!.heroes)
@@ -167,7 +171,9 @@ class EndpointSequenceTest {
         assertTrue(call("/autorefresh/grouprefresh?groups.0.name=missionsconfig", "", "GET").contains("missionsconfig"))
         val first = call("/tutorial/get-login-data?peer=boot-a", "", "GET")
         val second = call("/tutorial/get-login-data?peer=boot-a", "", "GET")
-        assertTrue(first.contains("FTEIntroQuest"))
+        // The host serves no STORY data, so the intro quest is never offered, even on first login.
+        assertTrue(first.contains("FTEComplete"))
+        assertTrue(!first.contains("FTEIntroQuest"))
         assertTrue(second.contains("FTEComplete"))
         assertTrue(call("/tutorial/start-tutorial?peer=boot-a", "{\"tid\":\"FTE\",\"bid\":\"Intro\"}").contains("Intro"))
         val heroes = call("/bcg/getBaseHeroData?peer=boot-a", "{\"heroes\":[{\"bid\":\"hero_a\",\"rank\":1,\"level\":1}]}")

@@ -98,18 +98,15 @@ class GameHandlers(
         return game.lookup(key)
     }
 
-    /** The FTE marker is per peer so one device cannot consume another device's introduction. */
-    fun tutorialLogin(call: Call): ByteArray = if (store.markTutorialLogin(call.peer)) {
-        Reply.compact(jsonObj("FTE" to jsonObj(
-            "s" to jsonInt(1),
-            "current_bid" to jsonText("FTEIntroQuest"),
-            "branches" to jsonObj("FTEIntroQuest" to jsonObj("s" to jsonInt(1))),
-        )))
-    } else {
-        Reply.compact(jsonObj("FTE" to jsonObj(
-            "s" to jsonInt(2), "current_bid" to jsonText("FTEComplete"), "branches" to JsonObj(emptyList()),
-        )))
-    }
+    /**
+     * The FTE is always complete. Unlike Server/fakeserver.lbl, the host serves no STORY quest
+     * data, so a first-login `FTEIntroQuest` made the game start an intro quest it cannot load
+     * and fail with "An unknown error has occurred" on every fresh install.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun tutorialLogin(call: Call): ByteArray = Reply.compact(jsonObj("FTE" to jsonObj(
+        "s" to jsonInt(2), "current_bid" to jsonText("FTEComplete"), "branches" to JsonObj(emptyList()),
+    )))
 
     /** Serves the payload's started/completed tutorial template, or null for an unknown tid. */
     fun tutorialStep(call: Call): ByteArray? {
@@ -148,8 +145,14 @@ class GameHandlers(
     private fun savedTeamBody(teamId: String, squad: List<String>): ByteArray? {
         val template = game.lookup(SAVED_TEAM_TEMPLATE) ?: return null
         val parts = teamFragments(squad) ?: return null
+        // The client resolves the Arena team as GetActiveTeam(match.PVPID), so a PVP* team must be
+        // active under the arena id (fakeserver.lbl saved_team_envelope); the template's story-style
+        // `1.1.1-%TID%` aid leaves Team null and PVPPlayerContestantItem.Init throws. The longer
+        // token is listed first so it wins over `%TID%` at that position.
+        val activeId = if (teamId.startsWith("PVP")) config.defaultArena else "1.1.1-$teamId"
         val spliced = Templates.splice(
-            template, "%TID%" to teamId, "%STEAM%" to parts.first, "%ATEAM%" to parts.second)
+            template, "1.1.1-%TID%" to activeId, "%TID%" to teamId,
+            "%STEAM%" to parts.first, "%ATEAM%" to parts.second)
         return spliced?.let(Templates::jsonDefaultSpaces)
     }
 

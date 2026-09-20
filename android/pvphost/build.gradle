@@ -27,8 +27,8 @@ android {
         applicationId = "com.gummygamer.tftfpvphost"
         minSdk = 26
         targetSdk = 35
-        versionCode = (project.findProperty("hermesPvpHostVersionCode") ?: "1").toInteger()
-        versionName = project.findProperty("hermesPvpHostVersionName") ?: "1.0"
+        versionCode = (project.findProperty("hermesPvpHostVersionCode") ?: "2").toInteger()
+        versionName = project.findProperty("hermesPvpHostVersionName") ?: "0.2"
     }
 
     signingConfigs {
