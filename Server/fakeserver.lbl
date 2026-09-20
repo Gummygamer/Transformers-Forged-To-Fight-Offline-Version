@@ -148,12 +148,12 @@ end
 
 public function tutorial_login_started_response(): text
   intent: encode
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([jsonout.json_pair("s", jsonout.json_int(1)), jsonout.json_pair("current_bid", jsonout.json_text("FTEIntroQuest")), jsonout.json_pair("branches", jsonout.json_obj([jsonout.json_pair("FTEIntroQuest", jsonout.json_obj([jsonout.json_pair("s", jsonout.json_int(1))]))]))]))]))
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 1), pair_text("current_bid", "FTEIntroQuest"), jsonout.json_pair("branches", jsonout.json_obj([jsonout.json_pair("FTEIntroQuest", jsonout.json_obj([pair_int("s", 1)]))]))]))]))
 end
 
 public function tutorial_login_completed_response(): text
   intent: encode
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([jsonout.json_pair("s", jsonout.json_int(2)), jsonout.json_pair("current_bid", jsonout.json_text("FTEComplete")), jsonout.json_pair("branches", jsonout.json_obj([]))]))]))
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))]))]))
 end
 
 function tutorial_login_response(): text
@@ -177,36 +177,35 @@ public function live_tutorials(): a list of text
   ["FTE"]
 end
 
-function load_state(): ServerState
-  intent: get
-  if not file_exists(state_file()) then
-  ServerState { team: [], positions: [] }
-else
-  let lines: a list of text = split(read_file(state_file()), "\n")
+function parse_position(fields: a list of text): Position
+  intent: read one saved quest position from the fields of a Q line
+  let joined: text = unwrap_or(get(fields, 7), "")
+  Position { qid: unwrap_or(get(fields, 1), ""), x: unwrap_or(to_integer(unwrap_or(get(fields, 2), "0")), 0), y: unwrap_or(to_integer(unwrap_or(get(fields, 3), "1")), 1), pending: unwrap_or(get(fields, 5), "0") == "1", completed: unwrap_or(get(fields, 6), "0") == "1", cleared: if joined == "" then [] else split(joined, ";") end }
+end
+
+function state_from_lines(lines: a list of text): ServerState
+  intent: rebuild the saved squad and quest positions from the state file lines
   mutable team: a list of text = []
   mutable positions: a list of Position = []
   for line in lines do
     let fields: a list of text = split(line, "|")
     let kind: text = unwrap_or(get(fields, 0), "")
-    if kind == "S" then
-  let joined: text = unwrap_or(get(fields, 1), "")
-  if joined != "" then
-  set team = split(joined, ",")
-end
-else if kind == "Q" then
-  let qid: text = unwrap_or(get(fields, 1), "")
-  let x: integer = unwrap_or(to_integer(unwrap_or(get(fields, 2), "0")), 0)
-  let y: integer = unwrap_or(to_integer(unwrap_or(get(fields, 3), "1")), 1)
-  let pending: boolean = unwrap_or(get(fields, 5), "0") == "1"
-  let completed: boolean = unwrap_or(get(fields, 6), "0") == "1"
-  let cleared: a list of text = if unwrap_or(get(fields, 7), "") == "" then [] else split(unwrap_or(get(fields, 7), ""), ";") end
-  if qid != "" then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed, cleared: cleared })
-end
-end
+    if kind == "S" and unwrap_or(get(fields, 1), "") != "" then
+      set team = split(unwrap_or(get(fields, 1), ""), ",")
+    else if kind == "Q" and parse_position(fields).qid != "" then
+      set positions = append(positions, parse_position(fields))
+    end
   end
   ServerState { team: team, positions: positions }
 end
+
+function load_state(): ServerState
+  intent: get the saved squad and quest positions or an empty state
+  if not file_exists(state_file()) then
+    ServerState { team: [], positions: [] }
+  else
+    state_from_lines(split(read_file(state_file()), "\n"))
+  end
 end
 
 function save_state(state: ServerState): nothing
@@ -266,23 +265,20 @@ end
   Position { qid: qid, x: 0, y: 1, pending: false, completed: false, cleared: [] }
 end
 
-function set_position(qid: text, x: integer, y: integer, pending: boolean, completed: boolean, cleared: a list of text): nothing
-  intent: save
+function set_position(position: Position): nothing
+  intent: save one quest position replacing any earlier entry for the same quest
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   mutable replaced: boolean = false
-  for position in state.positions do
-    if position.qid == qid then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed, cleared: cleared })
-  set replaced = true
-else
-  set positions = append(positions, position)
-end
-
+  for existing in state.positions do
+    if existing.qid == position.qid then
+      set positions = append(positions, position)
+      set replaced = true
+    else
+      set positions = append(positions, existing)
+    end
   end
-  if not replaced then
-  set positions = append(positions, Position { qid: qid, x: x, y: y, pending: pending, completed: completed, cleared: cleared })
-end
+  if not replaced then set positions = append(positions, position) end
   save_state(ServerState { team: state.team, positions: positions })
 end
 
@@ -725,35 +721,51 @@ end
   selected
 end
 
-public function reconcile_match(match_id: text): Reconciliation
-  intent: reconcile
-  let reports: a list of MatchReport = reports_for_reconciliation(match_id)
-  let count: integer = length(reports)
-  if count == 0 then
-  Reconciliation { match_id: roster_safe(match_id), status: "pending", winner: "", loser: "", reports: 0 }
-else if count == 1 then
-  Reconciliation { match_id: roster_safe(match_id), status: "pending", winner: "", loser: "", reports: 1 }
-else
-  let first: MatchReport = unwrap_or(get(reports, 0), MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 })
-  let second: MatchReport = unwrap_or(get(reports, 1), MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 })
-  if first.outcome == "WON" and second.outcome == "LOST" then
-  Reconciliation { match_id: roster_safe(match_id), status: "agreed", winner: first.peer, loser: second.peer, reports: 2 }
-else if first.outcome == "LOST" and second.outcome == "WON" then
-  Reconciliation { match_id: roster_safe(match_id), status: "agreed", winner: second.peer, loser: first.peer, reports: 2 }
-else if first.outcome == "DRAW" and second.outcome == "DRAW" then
-  Reconciliation { match_id: roster_safe(match_id), status: "agreed", winner: "", loser: "", reports: 2 }
-else
+function unknown_report(): MatchReport
+  intent: build the placeholder report used when a peer has not reported
+  MatchReport { match_id: "", peer: "", outcome: "UNKNOWN", reported_ms: 0 }
+end
+
+function settled(key: text, status: text, winner: text, loser: text): Reconciliation
+  intent: build a reconciliation backed by two reports
+  Reconciliation { match_id: key, status: status, winner: winner, loser: loser, reports: 2 }
+end
+
+function disputed_reconciliation(key: text, first: MatchReport, second: MatchReport): Reconciliation
+  intent: settle disagreeing reports by trusting whichever peer reported first
   let tiebreak: MatchReport = if first.reported_ms < second.reported_ms or (first.reported_ms == second.reported_ms and first.peer < second.peer) then first else second end
   let other: MatchReport = if tiebreak.peer == first.peer then second else first end
   if tiebreak.outcome == "WON" then
-  Reconciliation { match_id: roster_safe(match_id), status: "disputed", winner: tiebreak.peer, loser: other.peer, reports: 2 }
-else if tiebreak.outcome == "LOST" then
-  Reconciliation { match_id: roster_safe(match_id), status: "disputed", winner: other.peer, loser: tiebreak.peer, reports: 2 }
-else
-  Reconciliation { match_id: roster_safe(match_id), status: "disputed", winner: "", loser: "", reports: 2 }
+    settled(key, "disputed", tiebreak.peer, other.peer)
+  else if tiebreak.outcome == "LOST" then
+    settled(key, "disputed", other.peer, tiebreak.peer)
+  else
+    settled(key, "disputed", "", "")
+  end
 end
+
+function two_report_reconciliation(key: text, first: MatchReport, second: MatchReport): Reconciliation
+  intent: agree when the two outcomes are consistent and dispute otherwise
+  if first.outcome == "WON" and second.outcome == "LOST" then
+    settled(key, "agreed", first.peer, second.peer)
+  else if first.outcome == "LOST" and second.outcome == "WON" then
+    settled(key, "agreed", second.peer, first.peer)
+  else if first.outcome == "DRAW" and second.outcome == "DRAW" then
+    settled(key, "agreed", "", "")
+  else
+    disputed_reconciliation(key, first, second)
+  end
 end
-end
+
+public function reconcile_match(match_id: text): Reconciliation
+  intent: reconcile the reports filed for a match
+  let reports: a list of MatchReport = reports_for_reconciliation(match_id)
+  let count: integer = length(reports)
+  if count < 2 then
+    Reconciliation { match_id: roster_safe(match_id), status: "pending", winner: "", loser: "", reports: count }
+  else
+    two_report_reconciliation(roster_safe(match_id), unwrap_or(get(reports, 0), unknown_report()), unwrap_or(get(reports, 1), unknown_report()))
+  end
 end
 
 public function report_result_at(match_id: text, peer: text, outcome: text, now_ms: integer): Reconciliation
@@ -1098,6 +1110,21 @@ function compact_envelope(result: Json): text
   jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
 end
 
+function pair_text(key: text, value: text): Pair
+  intent: build an object pair holding a text value
+  jsonout.json_pair(key, jsonout.json_text(value))
+end
+
+function pair_int(key: text, value: integer): Pair
+  intent: build an object pair holding an integer value
+  jsonout.json_pair(key, jsonout.json_int(value))
+end
+
+function pair_bool(key: text, value: boolean): Pair
+  intent: build an object pair holding a boolean value
+  jsonout.json_pair(key, jsonout.json_bool(value))
+end
+
 function spaced_envelope(result: Json): text
   intent: encode
   jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
@@ -1138,7 +1165,7 @@ else
 end
   let name: text = if device_name != "" then device_name else if device_model != "" then device_model else "Commander" end
   let session: Session = ensure_session(fingerprint, name)
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("stoken", jsonout.json_text(session.stoken)), jsonout.json_pair("server_tag", jsonout.json_text("prod")), jsonout.json_pair("userToken", jsonout.json_text("")), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(unwrap_or(to_integer(session.uid), 1000000000001))), jsonout.json_pair("name", jsonout.json_text(session.name)), jsonout.json_pair("level", jsonout.json_int(account_level())), jsonout.json_pair("email", jsonout.json_text("")), jsonout.json_pair("fbid", jsonout.json_text("")), jsonout.json_pair("geo", jsonout.json_text("US")), jsonout.json_pair("naid", jsonout.json_text("")), jsonout.json_pair("cohort", jsonout.json_int(0)), jsonout.json_pair("revenue", jsonout.json_int(0))]))]))
+  compact_envelope(jsonout.json_obj([pair_text("stoken", session.stoken), pair_text("server_tag", "prod"), pair_text("userToken", ""), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([pair_int("uid", unwrap_or(to_integer(session.uid), 1000000000001)), pair_text("name", session.name), pair_int("level", account_level()), pair_text("email", ""), pair_text("fbid", ""), pair_text("geo", "US"), pair_text("naid", ""), pair_int("cohort", 0), pair_int("revenue", 0)]))]))
 end
 
 function tutorial_response(p: text, btxt: text): text
@@ -1148,7 +1175,7 @@ function tutorial_response(p: text, btxt: text): text
   if tid == "" then
   ""
 else if contains(block_tutorials(), tid) then
-  jsonout.encode_spaced(jsonout.json_obj([jsonout.json_pair("err", jsonout.json_text("unavailable")), jsonout.json_pair("error", jsonout.json_text("unavailable")), jsonout.json_pair("retry", jsonout.json_bool(false)), jsonout.json_pair("fatal", jsonout.json_bool(false)), jsonout.json_pair("result", jsonout.json_obj([]))]))
+  jsonout.encode_spaced(jsonout.json_obj([pair_text("err", "unavailable"), pair_text("error", "unavailable"), pair_bool("retry", false), pair_bool("fatal", false), jsonout.json_pair("result", jsonout.json_obj([]))]))
 else
   let bid: text = json_text_first(req, "bid", "branchId", "")
   let state: text = if contains(live_tutorials(), tid) and not ends_with(p, "/tutorial/complete-tutorial") then
@@ -1159,9 +1186,9 @@ end
   let branches: Json = if bid == "" then
   jsonout.json_obj([])
 else
-  jsonout.json_obj([jsonout.json_pair(bid, jsonout.json_obj([jsonout.json_pair("s", jsonout.json_text(state))]))])
+  jsonout.json_obj([jsonout.json_pair(bid, jsonout.json_obj([pair_text("s", state)]))])
 end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair(tid, jsonout.json_obj([jsonout.json_pair("current_bid", jsonout.json_text(bid)), jsonout.json_pair("s", jsonout.json_text(state)), jsonout.json_pair("branches", branches)]))]))
+  spaced_envelope(jsonout.json_obj([jsonout.json_pair(tid, jsonout.json_obj([pair_text("current_bid", bid), pair_text("s", state), jsonout.json_pair("branches", branches)]))]))
 end
 end
 
@@ -1182,11 +1209,11 @@ function pvp_lobby_result(peer: text, include_self: boolean, now_ms: integer): J
   for presence in live_peers_at(now_ms) do
     if include_self or presence.peer != key then
   let m: Match = match_for_peer(presence.peer)
-  set peers = append(peers, jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(presence.peer)), jsonout.json_pair("name", jsonout.json_text(presence.name)), jsonout.json_pair("ageMs", jsonout.json_int(now_ms - presence.seen_ms)), jsonout.json_pair("inMatch", jsonout.json_text(m.match_id))]))
+  set peers = append(peers, jsonout.json_obj([pair_text("peer", presence.peer), pair_text("name", presence.name), pair_int("ageMs", now_ms - presence.seen_ms), pair_text("inMatch", m.match_id)]))
 end
   end
   let own_match: Match = match_for_peer(key)
-  jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(key)), jsonout.json_pair("now", jsonout.json_int(now_ms)), jsonout.json_pair("ttl", jsonout.json_int(presence_ttl_ms())), jsonout.json_pair("peers", jsonout.json_list(peers)), jsonout.json_pair("match", jsonout.json_text(own_match.match_id))])
+  jsonout.json_obj([pair_text("peer", key), pair_int("now", now_ms), pair_int("ttl", presence_ttl_ms()), jsonout.json_pair("peers", jsonout.json_list(peers)), pair_text("match", own_match.match_id)])
 end
 
 function pvp_heartbeat_response(path: text, btxt: text): text
@@ -1208,7 +1235,7 @@ function pvp_leave_match_response(path: text): text
   let m: Match = match_for_peer(peer)
   let left: boolean = m.match_id != ""
   if left then end_match(m.match_id) end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("left", jsonout.json_bool(left))]))
+  spaced_envelope(jsonout.json_obj([pair_text("peer", peer), pair_bool("left", left)]))
 end
 
 function relay_match_id(path: text, req: Json, peer: text): text
@@ -1252,7 +1279,7 @@ function pvp_fight_post_response(path: text, btxt: text): text
 else
   FightEvent { match_id: match_id, peer: peer, seq: 0, kind: "", payload: "", sent_ms: 0 }
 end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("matchID", jsonout.json_text(match_id)), jsonout.json_pair("seq", jsonout.json_int(event.seq)), jsonout.json_pair("accepted", jsonout.json_bool(accepted)), jsonout.json_pair("error", jsonout.json_text(error))]))
+  spaced_envelope(jsonout.json_obj([pair_text("peer", peer), pair_text("matchID", match_id), pair_int("seq", event.seq), pair_bool("accepted", accepted), pair_text("error", error)]))
 end
 
 function requested_since(path: text, req: Json): integer
@@ -1274,15 +1301,15 @@ function pvp_fight_poll_response(path: text, btxt: text): text
   mutable rows: a list of Json = []
   mutable next_seq: integer = since
   for event in events do
-    set rows = append(rows, jsonout.json_obj([jsonout.json_pair("seq", jsonout.json_int(event.seq)), jsonout.json_pair("peer", jsonout.json_text(event.peer)), jsonout.json_pair("kind", jsonout.json_text(event.kind)), jsonout.json_pair("payload", jsonout.json_text(event.payload)), jsonout.json_pair("sentMs", jsonout.json_int(event.sent_ms)), jsonout.json_pair("mine", jsonout.json_bool(event.peer == peer))]))
+    set rows = append(rows, jsonout.json_obj([pair_int("seq", event.seq), pair_text("peer", event.peer), pair_text("kind", event.kind), pair_text("payload", event.payload), pair_int("sentMs", event.sent_ms), pair_bool("mine", event.peer == peer)]))
     if event.seq > next_seq then set next_seq = event.seq end
   end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("matchID", jsonout.json_text(match_id)), jsonout.json_pair("since", jsonout.json_int(since)), jsonout.json_pair("nextSeq", jsonout.json_int(next_seq)), jsonout.json_pair("opponent", jsonout.json_text(match_opponent(m, peer))), jsonout.json_pair("events", jsonout.json_list(rows))]))
+  spaced_envelope(jsonout.json_obj([pair_text("peer", peer), pair_text("matchID", match_id), pair_int("since", since), pair_int("nextSeq", next_seq), pair_text("opponent", match_opponent(m, peer)), jsonout.json_pair("events", jsonout.json_list(rows))]))
 end
 
 function reconciliation_json(peer: text, reconciliation: Reconciliation): Json
   intent: build
-  jsonout.json_obj([jsonout.json_pair("peer", jsonout.json_text(peer)), jsonout.json_pair("matchID", jsonout.json_text(reconciliation.match_id)), jsonout.json_pair("status", jsonout.json_text(reconciliation.status)), jsonout.json_pair("winner", jsonout.json_text(reconciliation.winner)), jsonout.json_pair("loser", jsonout.json_text(reconciliation.loser)), jsonout.json_pair("reports", jsonout.json_int(reconciliation.reports))])
+  jsonout.json_obj([pair_text("peer", peer), pair_text("matchID", reconciliation.match_id), pair_text("status", reconciliation.status), pair_text("winner", reconciliation.winner), pair_text("loser", reconciliation.loser), pair_int("reports", reconciliation.reports)])
 end
 
 function pvp_report_result_response(path: text, btxt: text): text
@@ -1329,7 +1356,7 @@ end
   for presence in live_peers() do
     if presence.peer != peer then set other_live_peers = other_live_peers + 1 end
   end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(peer)), jsonout.json_pair("winStreak", jsonout.json_int(win_streak)), jsonout.json_pair("wins", jsonout.json_int(wins)), jsonout.json_pair("losses", jsonout.json_int(losses)), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("livePeers", jsonout.json_int(other_live_peers))]))
+  spaced_envelope(jsonout.json_obj([pair_text("pid", peer), pair_int("winStreak", win_streak), pair_int("wins", wins), pair_int("losses", losses), pair_text("arenaID", arena), pair_text("matchID", m.match_id), pair_bool("live", m.match_id != ""), pair_int("livePeers", other_live_peers)]))
 end
 
 function pvp_arena_id(req: Json): text
@@ -1338,17 +1365,13 @@ function pvp_arena_id(req: Json): text
   if arena_id != "" then arena_id else json_text_or(req, "pid", "arena_versus") end
 end
 
-function pvp_lock_in_response(path: text, btxt: text): text
-  intent: encode
-  let req: Json = request_object(btxt)
-  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
-  let arena: text = pvp_arena_id(req)
-  let posted: a list of Json = json_list_or_empty(req, "heroes")
-  let hero_nodes: a list of Json = if length(posted) > 0 then posted else json_list_or_empty(req, "team") end
-  let heroes: a list of text = text_list_from_json(jsonout.json_list(hero_nodes))
-  if length(heroes) == 0 then
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("locked", jsonout.json_bool(false)), jsonout.json_pair("matchID", jsonout.json_text(match_for_peer(caller.peer).match_id)), jsonout.json_pair("live", jsonout.json_bool(match_for_peer(caller.peer).match_id != "")), jsonout.json_pair("arenaID", jsonout.json_text(arena)), jsonout.json_pair("error", jsonout.json_text("heroes are required"))]))
-else
+function pvp_lock_rejected(caller: Presence, arena: text): text
+  intent: answer a lock in that carried no heroes
+  spaced_envelope(jsonout.json_obj([pair_bool("locked", false), pair_text("matchID", match_for_peer(caller.peer).match_id), pair_bool("live", match_for_peer(caller.peer).match_id != ""), pair_text("arenaID", arena), pair_text("error", "heroes are required")]))
+end
+
+function pvp_lock_accepted(path: text, btxt: text, caller: Presence, arena: text, heroes: a list of text): text
+  intent: store the roster, pair the peers and answer a lock in
   store_roster(caller.peer, caller.name, heroes)
   let m: Match = pair_peers(caller.peer, arena)
   let result: Json = pvp_match_result(path, btxt, "active")
@@ -1358,6 +1381,16 @@ else
   let with_arena: Json = jsonout.obj_set(with_live, "arenaID", jsonout.json_text(arena))
   spaced_envelope(jsonout.obj_set(with_arena, "error", jsonout.json_text("")))
 end
+
+function pvp_lock_in_response(path: text, btxt: text): text
+  intent: encode the answer to a lock in request
+  let req: Json = request_object(btxt)
+  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+  let arena: text = pvp_arena_id(req)
+  let posted: a list of Json = json_list_or_empty(req, "heroes")
+  let hero_nodes: a list of Json = if length(posted) > 0 then posted else json_list_or_empty(req, "team") end
+  let heroes: a list of text = text_list_from_json(jsonout.json_list(hero_nodes))
+  if length(heroes) == 0 then pvp_lock_rejected(caller, arena) else pvp_lock_accepted(path, btxt, caller, arena, heroes) end
 end
 
 function pvp_select_opponent_response(path: text, btxt: text): text
@@ -1384,7 +1417,7 @@ function pvp_quit_arena_response(path: text, btxt: text): text
   end_match(m.match_id)
   purge_fight_events(m.match_id)
 end
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("quit", jsonout.json_bool(true)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id))]))
+  spaced_envelope(jsonout.json_obj([pair_bool("quit", true), pair_text("matchID", m.match_id)]))
 end
 
 function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of text): a list of Json
@@ -1393,53 +1426,89 @@ function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of te
   mutable index: integer = 0
   for opponent_hero in opponent_heroes do
     let user_hero: text = unwrap_or(get(user_heroes, index), unwrap_or(get(user_heroes, 0), opponent_hero))
-    set matchups = append(matchups, jsonout.json_obj([jsonout.json_pair("userHero", jsonout.json_text(user_hero)), jsonout.json_pair("opponentHero", jsonout.json_text(opponent_hero)), jsonout.json_pair("aip", jsonout.json_text("normal")), jsonout.json_pair("state", jsonout.json_text("none")), jsonout.json_pair("outcome", jsonout.json_text("NONE")), jsonout.json_pair("basePoints", jsonout.json_dec(0)), jsonout.json_pair("actualPoints", jsonout.json_dec(0)), jsonout.json_pair("fightId", jsonout.json_text(""))]))
+    set matchups = append(matchups, jsonout.json_obj([pair_text("userHero", user_hero), pair_text("opponentHero", opponent_hero), pair_text("aip", "normal"), pair_text("state", "none"), pair_text("outcome", "NONE"), jsonout.json_pair("basePoints", jsonout.json_dec(0.0)), jsonout.json_pair("actualPoints", jsonout.json_dec(0.0)), pair_text("fightId", "")]))
     set index = index + 1
   end
   matchups
 end
 
+function caller_roster_for(peer: text, name: text): Roster
+  intent: find the roster the caller stored or fall back to the default team
+  mutable found: Roster = Roster { peer: peer, name: name, heroes: gamedata.default_team() }
+  for roster in load_rosters() do
+    if roster.peer == peer then set found = roster end
+  end
+  found
+end
+
+function match_opponent_roster(m: Match, peer: text, fallback: Roster): Roster
+  intent: find the roster of the peer paired with the caller or fall back
+  if m.match_id == "" then
+    fallback
+  else
+    let opponent_peer: text = match_opponent(m, peer)
+    mutable opponent: Roster = Roster { peer: opponent_peer, name: live_presence_name(opponent_peer), heroes: gamedata.default_team() }
+    for roster in load_rosters() do
+      if roster.peer == opponent_peer then set opponent = roster end
+    end
+    opponent
+  end
+end
+
+function opponent_uid_for(opponent_peer: text): integer
+  intent: pick the uid of the session that owns the opponent token
+  mutable uid: integer = 1000000000
+  mutable session_index: integer = 0
+  for session in load_sessions() do
+    if session.stoken == opponent_peer then set uid = 1000000001 + session_index end
+    set session_index = session_index + 1
+  end
+  uid
+end
+
+function hero_entries(heroes: a list of text): a list of Json
+  intent: build the team entry of every hero at rank one and level one
+  mutable team: a list of Json = []
+  for hero in heroes do
+    set team = append(team, gamedata.build_hero_entry(hero, 1, 1))
+  end
+  team
+end
+
+function pvp_arena_stats(arena: text): Json
+  intent: build the empty arena statistics node
+  jsonout.json_obj([pair_text("pid", arena), pair_int("winStreak", 0), pair_int("wins", 0), pair_int("losses", 0), pair_int("longestStreak", 0), pair_int("findAttempts", 0)])
+end
+
+function pvp_opponent_node(opponent: Roster, heroes: a list of text, matchups: a list of Json, stats: Json): Json
+  intent: build the opponent node with its team, matchups and user data
+  let user_data: Json = jsonout.json_obj([pair_text("name", opponent.name), pair_text("tag", "LAN"), pair_int("level", 40), pair_text("portrait", unwrap_or(get(heroes, 0), "")), pair_text("factionId", ""), jsonout.json_pair("pvpStats", stats)])
+  jsonout.json_obj([pair_int("uid", opponent_uid_for(opponent.peer)), jsonout.json_pair("team", jsonout.json_list(hero_entries(heroes))), jsonout.json_pair("matchups", jsonout.json_list(matchups)), jsonout.json_pair("userData", user_data)])
+end
+
+function pvp_match_data(arena: text, m: Match, state: text, node: Json): Json
+  intent: build the match data node around one opponent node
+  jsonout.json_obj([pair_text("pid", arena), pair_text("matchID", m.match_id), pair_bool("live", m.match_id != ""), pair_text("state", state), pair_int("opponentIndex", 0), jsonout.json_pair("opponents", jsonout.json_list([node])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_obj([pair_bool("claimed", false), pair_text("box", "")])), jsonout.json_pair("milestones", jsonout.json_list([]))])
+end
+
+function pvp_match_json(m: Match, arena: text, state: text, caller_roster: Roster, opponent: Roster): Json
+  intent: build the match and user data returned for a match
+  let stats: Json = pvp_arena_stats(arena)
+  let heroes: a list of text = gamedata.resolve_team(opponent.heroes)
+  let matchups: a list of Json = pvp_matchups(gamedata.resolve_team(caller_roster.heroes), heroes)
+  let node: Json = pvp_opponent_node(opponent, heroes, matchups, stats)
+  jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([pvp_match_data(arena, m, state, node)])), jsonout.json_pair("pvpUserData", jsonout.json_list([stats]))])
+end
+
 function pvp_match_result(path: text, btxt: text, state: text): Json
-  intent: build
+  intent: build the match result for the caller after pairing peers
   let req: Json = request_object(btxt)
   let arena: text = pvp_arena_id(req)
   let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
-  let peer: text = caller.peer
-  let m: Match = pair_peers(peer, arena)
-  mutable caller_roster: Roster = Roster { peer: peer, name: caller.name, heroes: gamedata.default_team() }
-  mutable opponent: Roster = opponent_roster(peer)
-  for roster in load_rosters() do
-    if roster.peer == peer then set caller_roster = roster end
-  end
-  if m.match_id != "" then
-  let opponent_peer: text = match_opponent(m, peer)
-  mutable found: boolean = false
-  for roster in load_rosters() do
-    if roster.peer == opponent_peer then
-  set opponent = roster
-  set found = true
-end
-  end
-  if not found then
-  set opponent = Roster { peer: opponent_peer, name: live_presence_name(opponent_peer), heroes: gamedata.default_team() }
-end
-end
-  mutable opponent_uid: integer = 1000000000
-  mutable session_index: integer = 0
-  for session in load_sessions() do
-    if session.stoken == opponent.peer then set opponent_uid = 1000000001 + session_index end
-    set session_index = session_index + 1
-  end
-  let opponent_heroes: a list of text = gamedata.resolve_team(opponent.heroes)
-  mutable team: a list of Json = []
-  for hero in opponent_heroes do
-    set team = append(team, gamedata.build_hero_entry(hero, 1, 1))
-  end
-  let matchups: a list of Json = pvp_matchups(gamedata.resolve_team(caller_roster.heroes), opponent_heroes)
-  let portrait: text = unwrap_or(get(opponent_heroes, 0), "")
-  let arena_stats: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("winStreak", jsonout.json_int(0)), jsonout.json_pair("wins", jsonout.json_int(0)), jsonout.json_pair("losses", jsonout.json_int(0)), jsonout.json_pair("longestStreak", jsonout.json_int(0)), jsonout.json_pair("findAttempts", jsonout.json_int(0))])
-  let match_data: Json = jsonout.json_obj([jsonout.json_pair("pid", jsonout.json_text(arena)), jsonout.json_pair("matchID", jsonout.json_text(m.match_id)), jsonout.json_pair("live", jsonout.json_bool(m.match_id != "")), jsonout.json_pair("state", jsonout.json_text(state)), jsonout.json_pair("opponentIndex", jsonout.json_int(0)), jsonout.json_pair("opponents", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_int(opponent_uid)), jsonout.json_pair("team", jsonout.json_list(team)), jsonout.json_pair("matchups", jsonout.json_list(matchups)), jsonout.json_pair("userData", jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text(opponent.name)), jsonout.json_pair("tag", jsonout.json_text("LAN")), jsonout.json_pair("level", jsonout.json_int(40)), jsonout.json_pair("portrait", jsonout.json_text(portrait)), jsonout.json_pair("factionId", jsonout.json_text("")), jsonout.json_pair("pvpStats", arena_stats)]))])])), jsonout.json_pair("fightRewards", jsonout.json_list([])), jsonout.json_pair("seriesRewards", jsonout.json_obj([jsonout.json_pair("claimed", jsonout.json_bool(false)), jsonout.json_pair("box", jsonout.json_text(""))])), jsonout.json_pair("milestones", jsonout.json_list([]))])
-  jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([match_data])), jsonout.json_pair("pvpUserData", jsonout.json_list([arena_stats]))])
+  let m: Match = pair_peers(caller.peer, arena)
+  let caller_roster: Roster = caller_roster_for(caller.peer, caller.name)
+  let opponent: Roster = match_opponent_roster(m, caller.peer, opponent_roster(caller.peer))
+  pvp_match_json(m, arena, state, caller_roster, opponent)
 end
 
 function pvp_opponent_response(path: text, btxt: text): text
@@ -1450,7 +1519,7 @@ end
 function pvp_fight_loaded_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
-  spaced_envelope(jsonout.json_obj([jsonout.json_pair("loaded", jsonout.json_bool(true)), jsonout.json_pair("fightID", jsonout.json_text(json_text_or(req, "fightID", json_text_or(req, "fid", ""))))]))
+  spaced_envelope(jsonout.json_obj([pair_bool("loaded", true), pair_text("fightID", json_text_or(req, "fightID", json_text_or(req, "fid", "")))]))
 end
 
 function pvp_retry_match_response(path: text, btxt: text): text
@@ -1458,19 +1527,25 @@ function pvp_retry_match_response(path: text, btxt: text): text
   spaced_envelope(pvp_match_result(path, btxt, "active"))
 end
 
-function pvp_activate_match_response(path: text, btxt: text): text
-  intent: encode
-  let req: Json = request_object(btxt)
+function activation_teams(path: text, req: Json): a list of text
+  intent: pick the posted or saved squad and the stored opponent squad
   let posted: a list of text = text_list_from_json(if jsonout.obj_has(req, "heroes") then jsonout.obj_get(req, "heroes") else jsonout.json_list([]) end)
   let user_team: a list of text = gamedata.resolve_team(if length(posted) > 0 then posted else get_saved_team() end)
-  let peer: text = peer_key(path)
-  let stored_opponent: Roster = opponent_roster(peer)
+  let stored_opponent: Roster = opponent_roster(peer_key(path))
   let opponent_team: a list of text = gamedata.resolve_team(if length(stored_opponent.heroes) > 0 then stored_opponent.heroes else gamedata.default_team() end)
-  let user_bid: text = unwrap_or(get(user_team, 0), unwrap_or(get(gamedata.default_team(), 0), ""))
-  let opponent_bid: text = unwrap_or(get(opponent_team, 0), unwrap_or(get(gamedata.default_team(), 0), ""))
-  let details: a list of Json = jsonout.list_items(gamedata.build_base_hero_details([jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(user_bid))]), jsonout.json_obj([jsonout.json_pair("bid", jsonout.json_text(opponent_bid))])]))
-  let user_hero: Json = unwrap_or(get(details, 0), jsonout.json_obj([]))
-  let opponent_hero: Json = unwrap_or(get(details, 1), jsonout.json_obj([]))
+  [unwrap_or(get(user_team, 0), unwrap_or(get(gamedata.default_team(), 0), "")), unwrap_or(get(opponent_team, 0), unwrap_or(get(gamedata.default_team(), 0), ""))]
+end
+
+function activation_match_attributes(path: text, req: Json): Json
+  intent: build the matchAttributes node from the first hero of each squad
+  let bids: a list of text = activation_teams(path, req)
+  let details: a list of Json = jsonout.list_items(gamedata.build_base_hero_details([jsonout.json_obj([pair_text("bid", unwrap_or(get(bids, 0), ""))]), jsonout.json_obj([pair_text("bid", unwrap_or(get(bids, 1), ""))])]))
+  jsonout.json_obj([jsonout.json_pair("userHero", unwrap_or(get(details, 0), jsonout.json_obj([]))), jsonout.json_pair("opponentHero", unwrap_or(get(details, 1), jsonout.json_obj([])))])
+end
+
+function pvp_activate_match_response(path: text, btxt: text): text
+  intent: encode the match activation with its async payload
+  let req: Json = request_object(btxt)
   -- PVPFlow discards this response body; the fight data is read from
   -- PVPManager.CurrentMatchData + CurrentMatchAttributes. CurrentMatchAttributes is
   -- only populated by the "match-activated" async, which the client dispatches from a
@@ -1485,84 +1560,110 @@ function pvp_activate_match_response(path: text, btxt: text): text
   -- A missing "matchAttributes" leaves CurrentMatchAttributes null and
   -- PVPUtil.GenerateFightData @0xb34cd8 NREs on it. So the async payload node itself must
   -- be the flat data dict: { pvpMatchData, pvpUserData, matchAttributes } at the top level.
-  let match_attributes: Json = jsonout.json_obj([jsonout.json_pair("userHero", user_hero), jsonout.json_pair("opponentHero", opponent_hero)])
+  let match_attributes: Json = activation_match_attributes(path, req)
   let match_state: Json = pvp_match_result(path, btxt, "active")
   let data: Json = jsonout.obj_set(match_state, "matchAttributes", match_attributes)
-  let async_msg: Json = jsonout.json_obj([jsonout.json_pair("component", jsonout.json_text("PVPManager")), jsonout.json_pair("channel", jsonout.json_text("")), jsonout.json_pair("message", jsonout.json_text("match-activated")), jsonout.json_pair("payload", data)])
+  let async_msg: Json = jsonout.json_obj([pair_text("component", "PVPManager"), pair_text("channel", ""), pair_text("message", "match-activated"), jsonout.json_pair("payload", data)])
   spaced_envelope_async(data, [async_msg])
 end
 
-function pvp_static_dynamic(path: text, p: text, btxt: text): text
-  intent: encode
-  if ends_with(p, "/pvp/heartbeat") then
-  pvp_heartbeat_response(path, btxt)
-else if ends_with(p, "/pvp/lobby") then
-  pvp_lobby_response(path)
-else if ends_with(p, "/pvp/leave-match") then
-  pvp_leave_match_response(path)
-else if ends_with(p, "/pvp/fight-post") then
-  pvp_fight_post_response(path, btxt)
-else if ends_with(p, "/pvp/fight-poll") then
-  pvp_fight_poll_response(path, btxt)
-else if ends_with(p, "/pvp/report-result") then
-  pvp_report_result_response(path, btxt)
-else if ends_with(p, "/pvp/match-result") then
-  pvp_match_result_response(path, btxt)
-else if ends_with(p, "/pvp/get-login-data") then
-  let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
-  ""
-else if ends_with(p, "/pvp/get-user-data") or ends_with(p, "/pvp/get-active-pvp-data") then
-  pvp_arena_state_response(path, btxt)
-else if ends_with(p, "/pvp/lockin") or ends_with(p, "/pvp/lock-in") then
-  pvp_lock_in_response(path, btxt)
-else if ends_with(p, "/pvp/select-opponent") then
-  pvp_select_opponent_response(path, btxt)
-else if ends_with(p, "/pvp/quit") or ends_with(p, "/pvp/quit-arena") then
-  pvp_quit_arena_response(path, btxt)
-else if ends_with(p, "/pvp/match-loaded") then
-  pvp_fight_loaded_response(path, btxt)
-else if ends_with(p, "/pvp/retry-match") then
-  pvp_retry_match_response(path, btxt)
-else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
-  pvp_opponent_response(path, btxt)
-else
-  ""
-end
+
+
+function pvp_static_dynamic_second(path: text, p: text, btxt: text): text
+  intent: encode the arena state, lock in, quit, match loaded, retry and opponent search endpoints
+  if ends_with(p, "/pvp/get-user-data") or ends_with(p, "/pvp/get-active-pvp-data") then
+    pvp_arena_state_response(path, btxt)
+  else if ends_with(p, "/pvp/lockin") or ends_with(p, "/pvp/lock-in") then
+    pvp_lock_in_response(path, btxt)
+  else if ends_with(p, "/pvp/select-opponent") then
+    pvp_select_opponent_response(path, btxt)
+  else if ends_with(p, "/pvp/quit") or ends_with(p, "/pvp/quit-arena") then
+    pvp_quit_arena_response(path, btxt)
+  else if ends_with(p, "/pvp/match-loaded") then
+    pvp_fight_loaded_response(path, btxt)
+  else if ends_with(p, "/pvp/retry-match") then
+    pvp_retry_match_response(path, btxt)
+  else if ends_with(p, "/pvp/find-arena-opponent") or ends_with(p, "/pvp/get-new-opponent") or ends_with(p, "/pvp/get-new-arena-opponent") or ends_with(p, "/pvp/get-opponents") then
+    pvp_opponent_response(path, btxt)
+  else
+    ""
+  end
 end
 
-function static_dynamic(path: text, p: text, btxt: text): text
-  intent: encode
-  if ends_with(p, "/auth/login") then
-  auth_login_response(path, btxt)
-else if ends_with(p, "/tutorial/get-login-data") then
-  tutorial_login_response()
-else if ends_with(p, "/bcg/getUserData") then
-  compact_envelope(gamedata.build_user_data(get_saved_team()))
-else if ends_with(p, "/autorefresh/grouprefresh") then
-  let updates: a list of Json = if query_has_missionsconfig(path) then
-  [gamedata.build_missions_autorefresh_update()]
-else
-  []
+function pvp_static_dynamic(path: text, p: text, btxt: text): text
+  intent: encode the presence, relay and result endpoints and hand the rest to the second group
+  if ends_with(p, "/pvp/heartbeat") then
+    pvp_heartbeat_response(path, btxt)
+  else if ends_with(p, "/pvp/lobby") then
+    pvp_lobby_response(path)
+  else if ends_with(p, "/pvp/leave-match") then
+    pvp_leave_match_response(path)
+  else if ends_with(p, "/pvp/fight-post") then
+    pvp_fight_post_response(path, btxt)
+  else if ends_with(p, "/pvp/fight-poll") then
+    pvp_fight_poll_response(path, btxt)
+  else if ends_with(p, "/pvp/report-result") then
+    pvp_report_result_response(path, btxt)
+  else if ends_with(p, "/pvp/match-result") then
+    pvp_match_result_response(path, btxt)
+  else if ends_with(p, "/pvp/get-login-data") then
+    let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
+    ""
+  else
+    pvp_static_dynamic_second(path, p, btxt)
+  end
 end
+
+function grouprefresh_response(path: text): text
+  intent: encode the group refresh with the missions config update when it was requested
+  let updates: a list of Json = if query_has_missionsconfig(path) then [gamedata.build_missions_autorefresh_update()] else [] end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
-else if ends_with(p, "/base/active") then
-  compact_envelope(gamedata.build_base_active())
-else if ends_with(p, "/matches/activate-match/pvp_fight") then
-  pvp_activate_match_response(path, btxt)
-else if contains_text(p, "/pvp/") then
-  pvp_static_dynamic(path, p, btxt)
-else if endpoint_is_tutorial(p) then
-  tutorial_response(p, btxt)
-else if ends_with(p, "/bcg/getBaseHeroData") then
-  let req: Json = request_object(btxt)
-  spaced_envelope(gamedata.build_base_hero_details(json_list_or_empty(req, "heroes")))
-else if contains_text(p, "/quests/quest-detail/") then
+end
+
+function base_hero_response(btxt: text): text
+  intent: encode the base hero details for the heroes in the request
+  spaced_envelope(gamedata.build_base_hero_details(json_list_or_empty(request_object(btxt), "heroes")))
+end
+
+function quest_detail_response(p: text, btxt: text): text
+  intent: encode the quest detail for the quest named at the end of the path
   let req: Json = request_object(btxt)
   let qid: text = last_segment(p)
   spaced_envelope(gamedata.build_quest_detail(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid))))
-else
-  ""
 end
+
+function static_dynamic_second(path: text, p: text, btxt: text): text
+  intent: encode the pvp, tutorial, base hero and quest detail endpoints
+  if ends_with(p, "/matches/activate-match/pvp_fight") then
+    pvp_activate_match_response(path, btxt)
+  else if contains_text(p, "/pvp/") then
+    pvp_static_dynamic(path, p, btxt)
+  else if endpoint_is_tutorial(p) then
+    tutorial_response(p, btxt)
+  else if ends_with(p, "/bcg/getBaseHeroData") then
+    base_hero_response(btxt)
+  else if contains_text(p, "/quests/quest-detail/") then
+    quest_detail_response(p, btxt)
+  else
+    ""
+  end
+end
+
+function static_dynamic(path: text, p: text, btxt: text): text
+  intent: encode the login, user data and base endpoints and hand the rest to the second group
+  if ends_with(p, "/auth/login") then
+    auth_login_response(path, btxt)
+  else if ends_with(p, "/tutorial/get-login-data") then
+    tutorial_login_response()
+  else if ends_with(p, "/bcg/getUserData") then
+    compact_envelope(gamedata.build_user_data(get_saved_team()))
+  else if ends_with(p, "/autorefresh/grouprefresh") then
+    grouprefresh_response(path)
+  else if ends_with(p, "/base/active") then
+    compact_envelope(gamedata.build_base_active())
+  else
+    static_dynamic_second(path, p, btxt)
+  end
 end
 
 function cleared_json(points: a list of text): Json
@@ -1570,95 +1671,141 @@ function cleared_json(points: a list of text): Json
   mutable nodes: a list of Json = []
   for point in points do
     let coords: a list of text = split(point, ",")
-    set nodes = append(nodes, jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(to_integer(unwrap_or(get(coords, 0), "0")))), jsonout.json_pair("y", jsonout.json_int(to_integer(unwrap_or(get(coords, 1), "1"))))]))
+    set nodes = append(nodes, jsonout.json_obj([pair_int("x", unwrap_or(to_integer(unwrap_or(get(coords, 0), "0")), 0)), pair_int("y", unwrap_or(to_integer(unwrap_or(get(coords, 1), "1")), 1))]))
   end
   jsonout.json_list(nodes)
 end
 
-function quest_begin_response(p: text, btxt: text): text
-  intent: encode
-  let req: Json = request_object(btxt)
-  let qid: text = last_segment(p)
+function posted_team(req: Json): a list of text
+  intent: collect the squad members posted as tm0 to the overflow slot
   mutable posted: a list of text = []
   mutable index: integer = 0
   while index < gamedata.team_size_max() do
-  let member: text = json_text_or(req, "tm" ++ to_text(index), "")
-  if member != "" then set posted = append(posted, member) end
-  set index = index + 1
-end
+    let member: text = json_text_or(req, "tm" ++ to_text(index), "")
+    if member != "" then set posted = append(posted, member) end
+    set index = index + 1
+  end
   let overflow: text = json_text_or(req, "tm" ++ to_text(gamedata.team_size_max()), "")
   if overflow != "" then set posted = append(posted, overflow) end
-  if length(posted) > 0 then set_saved_team(posted) end
+  posted
+end
+
+function is_custom_story(qid: text): boolean
+  intent: check whether the quest is one of the custom story acts
+  qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()
+end
+
+function begin_position(qid: text): Position
+  intent: save the quest start position keeping earlier progress and return it
   let previous: Position = position_for(qid)
   let preserve_progress: boolean = position_exists(qid)
   let begin_x: integer = if preserve_progress then previous.x else gamedata.quest_start_x_for(qid) end
   let begin_y: integer = if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end
-  set_position(qid, begin_x, begin_y, previous.pending and preserve_progress, previous.completed and preserve_progress, previous.cleared)
-  let saved: a list of text = get_saved_team()
-  let team: a list of text = if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()) then gamedata.resolve_quest_team(qid, saved) else saved end
-  if length(posted) == 0 and (qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()) and team != saved then set_saved_team(team) end
-  spaced_envelope(gamedata.build_quest_begin_with_cleared(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, begin_x, begin_y, cleared_json(previous.cleared)))
+  let begun: Position = Position { qid: qid, x: begin_x, y: begin_y, pending: previous.pending and preserve_progress, completed: previous.completed and preserve_progress, cleared: previous.cleared }
+  set_position(begun)
+  begun
 end
 
-function movedir_response(p: text): text
-  intent: encode
-  let qid: text = movedir_qid(p)
-  mutable offx: integer = movedir_offset(p, 2)
-  mutable offy: integer = movedir_offset(p, 1)
-  if offx == 999999 or offy == 999999 then
-  set offx = 1
-  set offy = 0
-  end
-  let start: Position = position_for(qid)
-  mutable cleared: a list of text = start.cleared
+function quest_begin_response(p: text, btxt: text): text
+  intent: encode the quest start after saving the posted squad and position
+  let req: Json = request_object(btxt)
+  let qid: text = last_segment(p)
+  let posted: a list of text = posted_team(req)
+  if length(posted) > 0 then set_saved_team(posted) end
+  let begun: Position = begin_position(qid)
+  let saved: a list of text = get_saved_team()
+  let story_default: boolean = length(posted) == 0 and is_custom_story(qid)
+  let team: a list of text = if story_default then gamedata.resolve_quest_team(qid, saved) else saved end
+  if story_default and team != saved then set_saved_team(team) end
+  spaced_envelope(gamedata.build_quest_begin_with_cleared(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid)), team, begun.x, begun.y, cleared_json(begun.cleared)))
+end
+
+function movedir_dx(p: text): integer
+  intent: read the horizontal step of a move path defaulting to one step east
+  if movedir_offset(p, 2) == 999999 or movedir_offset(p, 1) == 999999 then 1 else movedir_offset(p, 2) end
+end
+
+function movedir_dy(p: text): integer
+  intent: read the vertical step of a move path defaulting to none
+  if movedir_offset(p, 2) == 999999 or movedir_offset(p, 1) == 999999 then 0 else movedir_offset(p, 1) end
+end
+
+function cleared_with_start(qid: text, start: Position): a list of text
+  intent: add the start tile to the cleared tiles when it holds no encounter
   let start_point: text = to_text(start.x) ++ "," ++ to_text(start.y)
-  if not gamedata.quest_has_encounter_at(qid, start.x, start.y) and not contains(cleared, start_point) then set cleared = append(cleared, start_point) end
+  if not gamedata.quest_has_encounter_at(qid, start.x, start.y) and not contains(start.cleared, start_point) then append(start.cleared, start_point) else start.cleared end
+end
+
+function moved_offsets(qid: text, start: Position, cleared: a list of text, dx: integer, dy: integer): a list of integer
+  intent: save the new position when the step is allowed and return the offsets actually taken
+  let candidate_x: integer = start.x + dx
+  let candidate_y: integer = start.y + dy
   if start.pending then
-  set offx = 0
-  set offy = 0
+    [0, 0]
+  else if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and gamedata.quest_can_move(qid, start.x, start.y, candidate_x, candidate_y) then
+    let point: text = to_text(candidate_x) ++ "," ++ to_text(candidate_y)
+    let revisiting_completed: boolean = contains(start.cleared, point) or (start.completed and candidate_x == start.x and candidate_y == start.y)
+    set_position(Position { qid: qid, x: candidate_x, y: candidate_y, pending: gamedata.quest_has_encounter_at(qid, candidate_x, candidate_y) and not revisiting_completed, completed: revisiting_completed, cleared: cleared })
+    [dx, dy]
   else
-  let candidate_x: integer = start.x + offx
-  let candidate_y: integer = start.y + offy
-  if candidate_x >= 0 and candidate_x < gamedata.quest_dim_for(qid) and gamedata.quest_can_move(qid, start.x, start.y, candidate_x, candidate_y) then
-  let point: text = to_text(candidate_x) ++ "," ++ to_text(candidate_y)
-  let revisiting_completed: boolean = contains(start.cleared, point) or (start.completed and candidate_x == start.x and candidate_y == start.y)
-  set_position(qid, candidate_x, candidate_y, gamedata.quest_has_encounter_at(qid, candidate_x, candidate_y) and not revisiting_completed, revisiting_completed, cleared)
-  else
-    set offx = 0
-    set offy = 0
+    [0, 0]
   end
-  end
+end
+
+function movedir_envelope(qid: text, start: Position, cleared: a list of text, offx: integer, offy: integer): text
+  intent: encode the move result with the cleared tiles attached to the progression
   let team: a list of text = get_saved_team()
   let progression: Json = if contains(cleared, to_text(start.x + offx) ++ "," ++ to_text(start.y + offy)) or (start.completed and offx == 0 and offy == 0) then
-  gamedata.build_quest_movedir_completed(qid, offx, offy, start.x, start.y, team)
-else
-  gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team)
-end
+    gamedata.build_quest_movedir_completed(qid, offx, offy, start.x, start.y, team)
+  else
+    gamedata.build_quest_movedir(qid, offx, offy, start.x, start.y, team)
+  end
   spaced_envelope(jsonout.obj_set(progression, "progression", jsonout.obj_set(jsonout.obj_get(progression, "progression"), "cleared", cleared_json(cleared))))
 end
 
-function resolve_match_response(path: text, btxt: text): text
-  intent: resolve
-  let req: Json = request_object(btxt)
-  let nested: Json = if jsonout.obj_has(req, "results") and jsonout.type_name(jsonout.obj_get(req, "results")) == "object" then jsonout.obj_get(req, "results") else jsonout.json_obj([]) end
-  let outcome: text = json_text_or(nested, "result", json_text_or(req, "result", ""))
-  if uppercase(outcome) == "WON" then
-  let submitted: text = json_text_or(req, "qid", "")
+function movedir_response(p: text): text
+  intent: encode the result of moving one step on the quest map
+  let qid: text = movedir_qid(p)
+  let start: Position = position_for(qid)
+  let cleared: a list of text = cleared_with_start(qid, start)
+  let offsets: a list of integer = moved_offsets(qid, start, cleared, movedir_dx(p), movedir_dy(p))
+  movedir_envelope(qid, start, cleared, unwrap_or(get(offsets, 0), 0), unwrap_or(get(offsets, 1), 0))
+end
+
+function position_after_win(position: Position, submitted: text): Position
+  intent: mark a pending position as cleared and completed when the winning quest matches
+  let clears: boolean = position.pending and (submitted == "" or position.qid == normalize_qid(submitted))
+  let point: text = to_text(position.x) ++ "," ++ to_text(position.y)
+  let cleared: a list of text = if clears and not contains(position.cleared, point) then append(position.cleared, point) else position.cleared end
+  Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end, cleared: cleared }
+end
+
+function record_win(submitted: text): nothing
+  intent: save every position after applying a won match
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   for position in state.positions do
-  let clears: boolean = position.pending and (submitted == "" or position.qid == normalize_qid(submitted))
-  mutable cleared: a list of text = position.cleared
-  if clears and not contains(cleared, to_text(position.x) ++ "," ++ to_text(position.y)) then set cleared = append(cleared, to_text(position.x) ++ "," ++ to_text(position.y)) end
-  set positions = append(positions, Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end, cleared: cleared })
-end
+    set positions = append(positions, position_after_win(position, submitted))
+  end
   save_state(ServerState { team: state.team, positions: positions })
 end
+
+function resolved_outcome(req: Json): text
+  intent: read the match result from the nested results or the request itself
+  let nested: Json = if jsonout.obj_has(req, "results") and jsonout.type_name(jsonout.obj_get(req, "results")) == "object" then jsonout.obj_get(req, "results") else jsonout.json_obj([]) end
+  json_text_or(nested, "result", json_text_or(req, "result", ""))
+end
+
+function resolve_match_response(path: text, btxt: text): text
+  intent: record a won quest match and report the outcome to the pvp reconciliation
+  let req: Json = request_object(btxt)
+  let outcome: text = resolved_outcome(req)
+  if uppercase(outcome) == "WON" then record_win(json_text_or(req, "qid", "")) end
   let peer: text = peer_key(path)
   let m: Match = match_for_peer(peer)
   if m.match_id != "" and outcome != "" then
-  report_result_at(m.match_id, peer, normalize_outcome(outcome), current_time_ms())
-end
+    report_result_at(m.match_id, peer, normalize_outcome(outcome), current_time_ms())
+  end
   ""
 end
 
@@ -1706,12 +1853,12 @@ function synthetic_alliance(uid: text, name: text, now: integer): Json
   intent: build
   -- creationTime / joinTime are fixed (not `now`) so the exported @userprofile:template
   -- stays byte-identical to the live /userprofile response, which the payload parity test checks.
-  jsonout.json_obj([jsonout.json_pair("aid", jsonout.json_text("offline-alliance")), jsonout.json_pair("name", jsonout.json_text("Offline Alliance")), jsonout.json_pair("tag", jsonout.json_text("OFF")), jsonout.json_pair("msg", jsonout.json_text("A local alliance for offline missions.")), jsonout.json_pair("privMsg", jsonout.json_text("")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("localizedCountry", jsonout.json_text("")), jsonout.json_pair("geo", jsonout.json_text("")), jsonout.json_pair("pubType", jsonout.json_text("open")), jsonout.json_pair("data", jsonout.json_obj([])), jsonout.json_pair("joinReqs", jsonout.json_list([])), jsonout.json_pair("creationTime", jsonout.json_int(1)), jsonout.json_pair("stats", jsonout.json_obj([])), jsonout.json_pair("resourcesStatus", jsonout.json_obj([])), jsonout.json_pair("numMembers", jsonout.json_int(1)), jsonout.json_pair("members", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("rank", jsonout.json_int(0)), jsonout.json_pair("joinTime", jsonout.json_int(1))])])), jsonout.json_pair("kickedMembers", jsonout.json_list([]))])
+  jsonout.json_obj([pair_text("aid", "offline-alliance"), pair_text("name", "Offline Alliance"), pair_text("tag", "OFF"), pair_text("msg", "A local alliance for offline missions."), pair_text("privMsg", ""), pair_text("language", "en"), pair_text("locale", "en"), pair_text("localizedCountry", ""), pair_text("geo", ""), pair_text("pubType", "open"), jsonout.json_pair("data", jsonout.json_obj([])), jsonout.json_pair("joinReqs", jsonout.json_list([])), pair_int("creationTime", 1), jsonout.json_pair("stats", jsonout.json_obj([])), jsonout.json_pair("resourcesStatus", jsonout.json_obj([])), pair_int("numMembers", 1), jsonout.json_pair("members", jsonout.json_list([jsonout.json_obj([pair_text("uid", uid), pair_text("name", name), pair_text("tag", ""), pair_int("rank", 0), pair_int("joinTime", 1)])])), jsonout.json_pair("kickedMembers", jsonout.json_list([]))])
 end
 
 public function user_profile_response_values(uid: text, name: text, level: integer, now: integer): text
   intent: encode
-  let profile: Json = jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("aid", jsonout.json_text("offline-alliance")), jsonout.json_pair("name", jsonout.json_text(name)), jsonout.json_pair("tag", jsonout.json_text("")), jsonout.json_pair("locale", jsonout.json_text("en")), jsonout.json_pair("language", jsonout.json_text("en")), jsonout.json_pair("highestRank", jsonout.json_text("")), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), jsonout.json_pair("lastLogin", jsonout.json_int(now)), jsonout.json_pair("alliance", synthetic_alliance(uid, name, now)), jsonout.json_pair("levelRewards", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level)), jsonout.json_pair("enabled", jsonout.json_bool(true)), jsonout.json_pair("isEnabled", jsonout.json_bool(true)), jsonout.json_pair("types", jsonout.json_list([]))])), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([jsonout.json_pair("level", jsonout.json_int(level))])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), jsonout.json_pair("_createTime", jsonout.json_int(now)), jsonout.json_pair("_abbrivated", jsonout.json_bool(false))])
+  let profile: Json = jsonout.json_obj([pair_text("uid", uid), pair_text("aid", "offline-alliance"), pair_text("name", name), pair_text("tag", ""), pair_text("locale", "en"), pair_text("language", "en"), pair_text("highestRank", ""), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), pair_int("lastLogin", now), jsonout.json_pair("alliance", synthetic_alliance(uid, name, now)), jsonout.json_pair("levelRewards", jsonout.json_obj([pair_int("level", level), pair_bool("enabled", true), pair_bool("isEnabled", true), jsonout.json_pair("types", jsonout.json_list([]))])), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([pair_int("level", level)])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), pair_int("_createTime", now), pair_bool("_abbrivated", false)])
   compact_envelope(profile)
 end
 
@@ -1825,42 +1972,48 @@ end
   out
 end
 
-function request_loop(): nothing
-  intent: serve
-  while true do
-    let req: Request = http_next_request()
-    let path: text = if req.query == "" then
-  req.path
-else
-  req.path ++ "?" ++ req.query
+function request_url(req: Request): text
+  intent: join the request path and query
+  if req.query == "" then req.path else req.path ++ "?" ++ req.query end
 end
-    let stamp: text = timestamp()
-    let host: text = unwrap_or(get(req.headers, "host"), "?")
-    log_line("[" ++ stamp ++ "] " ++ req.method ++ " https://" ++ host ++ path)
-    log_line("    HDRS: " ++ headers_text(req.headers))
-    if req.body != "" then
-  log_line("    BODY(" ++ to_text(text_length(req.body)) ++ "): " ++ substring(req.body, 0, min(4000, text_length(req.body))))
+
+function log_request(req: Request, path: text): nothing
+  intent: log the request line, headers and a clipped body
+  let stamp: text = timestamp()
+  let host: text = unwrap_or(get(req.headers, "host"), "?")
+  log_line("[" ++ stamp ++ "] " ++ req.method ++ " https://" ++ host ++ path)
+  log_line("    HDRS: " ++ headers_text(req.headers))
+  if req.body != "" then
+    log_line("    BODY(" ++ to_text(text_length(req.body)) ++ "): " ++ substring(req.body, 0, min(4000, text_length(req.body))))
+  end
 end
-    if req.method == "HEAD" then
-  http_respond_with_headers(200, {"Content-Length": "0"}, "")
-else
-  let generated: text = dynamic(path, req.body)
-  let choice: ResponseChoice = if generated == "" then
-  resolve_response(req.method, path)
-else
-  ResponseChoice { source: "dynamic", body: generated }
-end
+
+function log_choice(choice: ResponseChoice): nothing
+  intent: log which source produced the response
   if choice.source == "dynamic" then
-  log_line("    -> dynamic (" ++ to_text(text_length(choice.body)) ++ "B)")
-else if starts_with(choice.source, "canned ") then
-  log_line("    -> " ++ choice.source ++ " (" ++ to_text(text_length(choice.body)) ++ "B)")
-else if starts_with(choice.source, "rule ") then
-  log_line("    -> " ++ choice.source ++ " (" ++ to_text(text_length(choice.body)) ++ "B)")
-else
-  log_line("    -> default 200 envelope")
+    log_line("    -> dynamic (" ++ to_text(text_length(choice.body)) ++ "B)")
+  else if starts_with(choice.source, "canned ") or starts_with(choice.source, "rule ") then
+    log_line("    -> " ++ choice.source ++ " (" ++ to_text(text_length(choice.body)) ++ "B)")
+  else
+    log_line("    -> default 200 envelope")
+  end
 end
+
+function respond_to(req: Request, path: text): nothing
+  intent: answer a request with the dynamic, canned or default body
+  let generated: text = dynamic(path, req.body)
+  let choice: ResponseChoice = if generated == "" then resolve_response(req.method, path) else ResponseChoice { source: "dynamic", body: generated } end
+  log_choice(choice)
   http_respond_with_headers(200, {"Content-Type": "application/json", "Content-Length": to_text(text_length(choice.body))}, choice.body)
 end
+
+function request_loop(): nothing
+  intent: serve requests forever logging each one
+  while true do
+    let req: Request = http_next_request()
+    let path: text = request_url(req)
+    log_request(req, path)
+    if req.method == "HEAD" then http_respond_with_headers(200, {"Content-Length": "0"}, "") else respond_to(req, path) end
   end
 end
 
