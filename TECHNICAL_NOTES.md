@@ -636,7 +636,7 @@ frame, its probe logged transitions only to avoid flooding the device log.
 Those diagnostics were removed before shipping. The local reproduction patch is
 `.longtask/hitstun-combat/findings/seg-06-hitstun-diagnostic-hooks.patch`; `.longtask/` is
 gitignored, so this RVA list is the durable record. The shipped fix is one authored stat-modifier
-row: `build_stat_modifiers()` in `Server/gamedata.lbl` emits `statMods["gp_hit_stun"]`, covered
+row: `build_stat_modifiers()` in `Server/gamedata.lbl` (data in `Server/data/stat_modifiers.json`) emits `statMods["gp_hit_stun"]`, covered
 by `test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row` in `Server/test_gamedata.lbl`.
 
 | Device log | `STATMOD id=gp_hit_stun` | `HITSTQ ... now=1` (`get_HitStunned` true) |

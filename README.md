@@ -140,6 +140,8 @@ patches/
 Server/
   fakeserver.lbl              the fake Sparx server (request synthesis, HTTP and HTTPS listeners)
   gamedata.lbl                hand-authored roster, battle balance, mission, and tuning data
+  data/                       static JSON tables gamedata.lbl loads (stat modifiers and appearances, buffs,
+                              missions config); edit these, not gamedata.lbl
   test_gamedata.lbl           verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
   run_local.lbl               run the Legible plain-HTTP server on an unprivileged port
@@ -473,7 +475,7 @@ unchanged and remain the default.
 `--bundle-server` supports both `arm64-v8a` (the default and primary tested path) and
 `armeabi-v7a`. It requires plain HTTP on loopback: `--scheme https` and non-loopback
 `--server-host` values are rejected. The baked payload is a snapshot of the authored data at build
-time, so changing `Server/gamedata.lbl` requires rebuilding the APK. Its responses are the same
+time, so changing `Server/gamedata.lbl` or a table in `Server/data/` requires rebuilding the APK. Its responses are the same
 ones served by `Server/fakeserver.lbl`. For a recognised stock `libil2cpp.so`, the builder now
 applies the two offline reachability stubs before packaging; an unknown library hard-fails with a
 patch command instead of producing an APK that still requires Android networking.

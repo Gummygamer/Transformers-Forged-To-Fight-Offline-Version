@@ -437,6 +437,8 @@ Recovered by resolving each ctor's string literals through a double indirection,
 ## The recipe — building an ability end to end
 
 ### Define the buff behaviour — build_buffs_set()
+Authored in `Server/data/buffs_set.json`; `build_buffs_set()` in `Server/gamedata.lbl` loads it.
+
 `buffs_set.globalBuffs["<id>"]`. Keys are **camelCase** here (unlike the statMods row):
 `buffType`, `valueType`, `value`, `displayValue`, `hasDuration`, `time:{amount}`, `group`,
 `scope`, `modeAvail`, `p`.
@@ -445,6 +447,8 @@ Recovered by resolving each ctor's string literals through a double indirection,
 `{"key":"_ftd","style":0}` for floating text.
 
 ### Define the modifier — build_stat_modifiers()
+Authored in `Server/data/stat_modifiers.json`; `build_stat_modifiers()` in `Server/gamedata.lbl` loads it.
+
 `statMods["<id>"]`. Keys are **short codes**, and several are **lists** — a wrong accessor
 type yields a silent empty value and no error anywhere:
 
@@ -518,6 +522,8 @@ The three rows in bold are live channels we currently send empty or blank. They 
 mechanism, only values.
 
 ### Define the appearance — build_stat_mod_appears()
+Authored in `Server/data/stat_mod_appears.json`; `build_stat_mod_appears()` in `Server/gamedata.lbl` loads it.
+
 `statModAppears["<id>"]`. **These wire keys were read off the client itself**, not
 guessed:
 
