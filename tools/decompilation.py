@@ -315,6 +315,87 @@ def _framework_reference_changes(reference_diff):
     return {name: reference_diff["changed"][name] for name in framework}
 
 
+def _api_visibility(flags, kind):
+    """Return a review bucket while retaining exact ECMA-335 visibility elsewhere."""
+    visibility = _metadata_visibility(flags, kind)
+    if kind == "type":
+        public = {"public", "nested-public", "nested-family", "nested-fam-or-assem"}
+    else:
+        public = {"public", "family", "fam-or-assem"}
+    return "public" if visibility in public else "non-public"
+
+
+def _member_visibility_diff(original, compiled, type_diff):
+    """Summarize API visibility for exact type/member additions and removals.
+
+    This is intentionally a classification of the exact diff, not a compatibility
+    verdict.  Private, internal, and nested non-public declarations share the
+    ``non-public`` review bucket; their raw ECMA-335 flags remain in ``differences``.
+    """
+    result = {
+        "types": {"added": {"public": [], "non-public": []},
+                  "removed": {"public": [], "non-public": []},
+                  "changed": {"public": [], "non-public": []}},
+        "members": {"added": {"public": [], "non-public": []},
+                    "removed": {"public": [], "non-public": []},
+                    "changed": {"public": [], "non-public": []}},
+        "visibility_changed": [],
+    }
+    original_types = original["types"]
+    compiled_types = compiled["types"]
+    for name in type_diff["added"]:
+        bucket = _api_visibility(compiled_types[name]["flags"], "type")
+        result["types"]["added"][bucket].append(name)
+    for name in type_diff["removed"]:
+        bucket = _api_visibility(original_types[name]["flags"], "type")
+        result["types"]["removed"][bucket].append(name)
+    for name, change in type_diff["changed"].items():
+        old_bucket = _api_visibility(original_types[name]["flags"], "type")
+        new_bucket = _api_visibility(compiled_types[name]["flags"], "type")
+        result["types"]["changed"][old_bucket].append(name)
+        if old_bucket != new_bucket:
+            result["visibility_changed"].append({"kind": "type", "name": name,
+                                                   "original": old_bucket, "compiled": new_bucket})
+
+        def member_map(type_info, member_kind):
+            members = type_info[member_kind]
+            if isinstance(members, dict):
+                return members
+            if member_kind == "properties":
+                return {f"{item['name']}:{item['signature']}": item for item in members}
+            return {f"{item['name']}:{item['type']}": item for item in members}
+
+        for member_kind in ("fields", "methods", "properties", "events"):
+            old_members = member_map(original_types[name], member_kind)
+            new_members = member_map(compiled_types[name], member_kind)
+            added = set(new_members) - set(old_members)
+            removed = set(old_members) - set(new_members)
+            changed = {member for member in set(old_members) & set(new_members)
+                       if old_members[member] != new_members[member]}
+            for action, members, source in (("added", added, new_members),
+                                            ("removed", removed, old_members),
+                                            ("changed", changed, old_members)):
+                for member in sorted(members):
+                    bucket = _api_visibility(source[member]["flags"], "member")
+                    result["members"][action][bucket].append(f"{name}::{member_kind}:{member}")
+                    if action == "changed":
+                        old_bucket = _api_visibility(old_members[member]["flags"], "member")
+                        new_bucket = _api_visibility(new_members[member]["flags"], "member")
+                        if old_bucket != new_bucket:
+                            result["visibility_changed"].append(
+                                {"kind": member_kind, "name": f"{name}::{member}",
+                                 "original": old_bucket, "compiled": new_bucket})
+
+    for section in result["types"].values():
+        for names in section.values():
+            names.sort()
+    for section in result["members"].values():
+        for names in section.values():
+            names.sort()
+    result["visibility_changed"].sort(key=lambda item: (item["kind"], item["name"]))
+    return result
+
+
 def metadata_contract_diff(original, compiled):
     """Compare two helper models without loading either managed assembly.
 
@@ -402,7 +483,8 @@ def metadata_contract_diff(original, compiled):
     changed_fields = sum(len(value.get("fields", {}).get("changed", {}))
                          for value in type_diff["changed"].values())
     changed_methods = sum(len(value.get("methods", {}).get("changed", {}))
-                          for value in type_diff["changed"].values())
+                         for value in type_diff["changed"].values())
+    api_visibility = _member_visibility_diff(original, compiled, type_diff)
     return {"equal": not differences,
             "summary": {"original_type_count": len(original_types),
                         "compiled_type_count": len(compiled_types),
@@ -420,6 +502,7 @@ def metadata_contract_diff(original, compiled):
             "classification": {
                 "compiler_generated_type_differences": _generated_type_summary(type_diff),
                 "framework_reference_differences": _framework_reference_changes(reference_diff),
+                "api_visibility_differences": api_visibility,
                 "evidence_note": "Classifications do not remove exact metadata differences or establish runtime compatibility."
             },
             "differences": differences}

@@ -205,9 +205,11 @@ framework versions/public-key tokens than the APK's `2.0.5.0` framework referenc
 the compiled firstpass output carries an additional `Assembly-CSharp` reference. These
 are compatibility work items, not evidence that the DLLs can replace the APK originals.
 The comparison report now retains those exact differences while classifying
-compiler-generated type churn and framework-reference identity drift separately, so
-reviewers can distinguish compiler noise from non-generated API changes without treating
-either category as harmless.
+compiler-generated type churn, framework-reference identity drift, and public versus
+non-public type/member changes separately. Properties and events are included in the
+visibility classification. This lets reviewers prioritize externally visible API shape
+without treating non-public or compiler-generated changes as harmless, and without
+discarding the exact metadata evidence.
 
 For the playable-client boundary, `replacement-plan` computes the transitive closure of
 explicit replacement roots using both PE assembly references and ILSpy project references:

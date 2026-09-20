@@ -109,6 +109,54 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(classification["compiler_generated_type_differences"]["added_count"], 1)
         self.assertEqual(classification["compiler_generated_type_differences"]["removed_count"], 1)
 
+    def test_metadata_diff_classifies_public_and_non_public_api_changes(self):
+        original = {
+            "identity": {"name": "Example"}, "metadata_version": "v2", "machine": "I386",
+            "cor_flags": "ILOnly", "module_name": "Example.dll", "assembly_attributes": [],
+            "module_attributes": [], "references": [], "resources": [], "types": {
+                "Demo.PublicBot": {
+                    "flags": 1, "base_type": "Object", "layout": {"size": -1},
+                    "generics": [], "attributes": [], "interfaces": [], "method_impls": [],
+                    "field_order": ["health"],
+                    "fields": {"health": {"signature": "I4", "flags": 6}},
+                    "methods": {"Attack:I4": {"flags": 6}},
+                    "properties": [{"name": "Health", "signature": "I4", "flags": 6}],
+                    "events": [{"name": "Hit", "type": "Demo.HitEvent", "flags": 6}],
+                },
+                "Demo.InternalBot": {
+                    "flags": 0, "base_type": "Object", "layout": {"size": -1},
+                    "generics": [], "attributes": [], "interfaces": [], "method_impls": [],
+                    "field_order": [], "fields": {}, "methods": {}, "properties": [], "events": [],
+                },
+            }
+        }
+        compiled = json.loads(json.dumps(original))
+        compiled["types"]["Demo.PublicBot"]["fields"]["newHealth"] = {
+            "signature": "I4", "flags": 3
+        }
+        compiled["types"]["Demo.PublicBot"]["methods"]["Defend:I4"] = {"flags": 6}
+        compiled["types"]["Demo.PublicBot"]["properties"][0]["flags"] = 1
+        compiled["types"]["Demo.PublicBot"]["events"].append(
+            {"name": "Died", "type": "Demo.DeathEvent", "flags": 3})
+        compiled["types"].pop("Demo.InternalBot")
+        compiled["types"]["Demo.AddedBot"] = {
+            "flags": 1, "base_type": "Object", "layout": {"size": -1},
+            "generics": [], "attributes": [], "interfaces": [], "method_impls": [],
+            "field_order": [], "fields": {}, "methods": {}, "properties": [], "events": [],
+        }
+        classification = metadata_contract_diff(original, compiled)["classification"]
+        visibility = classification["api_visibility_differences"]
+        self.assertEqual(visibility["types"]["added"]["public"], ["Demo.AddedBot"])
+        self.assertEqual(visibility["types"]["removed"]["non-public"], ["Demo.InternalBot"])
+        self.assertEqual(visibility["members"]["added"]["public"],
+                         ["Demo.PublicBot::methods:Defend:I4"])
+        self.assertEqual(visibility["members"]["added"]["non-public"],
+                         ["Demo.PublicBot::events:Died:Demo.DeathEvent",
+                          "Demo.PublicBot::fields:newHealth"])
+        self.assertEqual(visibility["visibility_changed"], [{
+            "kind": "properties", "name": "Demo.PublicBot::Health:I4",
+            "original": "public", "compiled": "non-public"}])
+
     def test_zip_rejects_traversal_and_case_collisions(self):
         for extra in ("../escape.dll", "ASSEMBLY-CSHARP.dll"):
             stream = io.BytesIO()
