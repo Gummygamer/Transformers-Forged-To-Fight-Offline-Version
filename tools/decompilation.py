@@ -684,7 +684,100 @@ def replacement_closure(roots, references):
     return closure
 
 
-def replacement_plan(workspace, dotnet, metadata_tool, roots):
+def reference_identity(value, definition=False):
+    """Normalize AssemblyDef public keys and AssemblyRef keys/tokens for comparison."""
+    key = value["public_key"] if definition else value["public_key_or_token"]
+    if key and (definition or value["flags"] & 1):
+        key = hashlib.sha1(bytes.fromhex(key)).digest()[-8:][::-1].hex()
+    return {"name": value["name"], "version": value["version"],
+            "culture": value["culture"], "public_key_token": key.upper()}
+
+
+def reference_inventory(metadata):
+    """Check exact identities within a proposed file set, not Mono binding policy."""
+    edges = []
+    for consumer, value in sorted(metadata.items()):
+        for reference in value["references"]:
+            requested = reference_identity(reference)
+            provider = metadata.get(reference["name"])
+            supplied = reference_identity(provider["identity"], definition=True) if provider else None
+            differences = ([key for key in requested if requested[key] != supplied[key]]
+                           if supplied else [])
+            edges.append({"consumer": consumer, "provider": reference["name"],
+                          "requested": requested, "supplied": supplied,
+                          "reference_metadata": reference,
+                          "status": "missing-provider" if provider is None else
+                                    "identity-mismatch" if differences else "exact-identity-match",
+                          "differing_identity_fields": differences})
+    return {"counts": dict(sorted(Counter(row["status"] for row in edges).items())),
+            "edges": edges}
+
+
+def compile_candidate_paths(workspace, compile_report, roots):
+    """Pin explicit roots to successful, hash-verified isolated audit outputs."""
+    compile_report = compile_report.resolve()
+    if not compile_report.is_relative_to(workspace.resolve()):
+        raise ValueError("Compile report must be inside the generated workspace")
+    report_hash = digest(compile_report)
+    audit = json.loads(compile_report.read_text())
+    rows = {}
+    for row in audit["assemblies"]:
+        if row["name"] in rows:
+            raise ValueError(f"Duplicate compile audit assembly: {row['name']}")
+        rows[row["name"]] = row
+    outputs = {}
+    for name in sorted(set(roots)):
+        row = rows.get(name)
+        if row is None or row.get("status") != "compiled" or row.get("exit_code") != 0:
+            raise ValueError(f"No successful compile audit output for root: {name}")
+        path = (compile_report.parent / row["output_path"]).resolve()
+        expected = compile_report.parent / "bin" / f"{name}.dll"
+        if path != expected or path.is_relative_to((workspace / "managed").resolve()):
+            raise ValueError(f"Root must use an isolated audit bin output: {name}")
+        if digest(path) != row["output_sha256"]:
+            raise ValueError(f"Compiled assembly changed since audit: {name}")
+        outputs[name] = {"path": path, "sha256": row["output_sha256"]}
+    if digest(compile_report) != report_hash:
+        raise ValueError("Compile report changed during candidate validation")
+    return outputs, {"path": str(compile_report), "sha256": report_hash,
+                     "evidence_note": "Output hashes match the audit; compilation was not rerun."}
+
+
+def substitution_candidate(original, compiled):
+    """Assess the combined replacement/retention set without copying any DLL."""
+    selected = {**original, **compiled}
+    baseline = reference_inventory(original)
+    candidate = reference_inventory(selected)
+    baseline_issues = {json.dumps(row, sort_keys=True) for row in baseline["edges"]
+                       if row["status"] != "exact-identity-match"}
+    introduced = [row for row in candidate["edges"]
+                  if row["status"] != "exact-identity-match"
+                  and json.dumps(row, sort_keys=True) not in baseline_issues]
+    baseline_edges = {(row["consumer"], row["provider"]) for row in baseline["edges"]}
+    return {
+        "replacement_set": sorted(compiled),
+        "preserved_originals": sorted(set(original) - set(compiled)),
+        "comparisons": {name: metadata_contract_diff(original[name], compiled[name])
+                        for name in sorted(compiled)},
+        "reference_inventory": {"original_baseline": baseline, "candidate": candidate,
+                                "introduced_or_changed_issues": introduced,
+                                "added_edges": [row for row in candidate["edges"]
+                                                if (row["consumer"], row["provider"]) not in baseline_edges],
+                                "retained_consumers_of_replacements": [
+                                    row for row in candidate["edges"]
+                                    if row["consumer"] not in compiled and row["provider"] in compiled]},
+        "status": "review-required",
+        "packaging_authorized": False, "runtime_verified": False,
+        "limitations": [
+            "Exact reference identity matching is not Mono binding-policy or member-resolution verification.",
+            "Preserving original dependencies does not establish that rebuilt callers use supported APIs.",
+            "Metadata differences retain API, attributes, layout and native-import evidence; no behavioral equivalence is inferred.",
+            "Resource contents, FieldRVA contents, type forwarders, Unity asset type trees, native binding resolution and runtime load order are not verified.",
+            "This is a file-selection report only; no DLL is copied, installed or packaged."
+        ]}
+
+
+def replacement_plan(workspace, dotnet, metadata_tool, roots, compile_report=None):
     """Write an evidence report for the proposed managed replacement boundary.
 
     Roots are an explicit engineering choice.  The report computes only the
@@ -695,6 +788,9 @@ def replacement_plan(workspace, dotnet, metadata_tool, roots):
     rows = {Path(row["name"]).stem: row for row in manifest["assemblies"]}
     if not roots or any(root not in rows for root in roots):
         raise ValueError("Replacement roots must name assemblies present in the export manifest")
+    roots = sorted(set(roots))
+    outputs, provenance = (compile_candidate_paths(workspace, compile_report, roots)
+                           if compile_report else ({}, None))
     metadata = {}
     references = {}
     for name, row in rows.items():
@@ -717,7 +813,7 @@ def replacement_plan(workspace, dotnet, metadata_tool, roots):
                            "role": "replacement-root" if name in roots else
                                    "dependency-in-closure" if name in closure else "outside-root-closure",
                            "runtime_replacement_decision": "requires separate compatibility evidence"})
-    report = {"schema": 1,
+    report = {"schema": 2,
               "scope": "managed replacement-boundary evidence; no packaging or runtime claim",
               "evidence": {"metadata": "System.Reflection.Metadata over original managed PE",
                            "project_graph": "ILSpy-generated project references",
@@ -731,6 +827,34 @@ def replacement_plan(workspace, dotnet, metadata_tool, roots):
                   "Assemblies outside the closure are not needed by these roots according to retained metadata references, but may still be loaded by other client code.",
                   "Assembly identity, resources, native bindings, Android packaging, and runtime load order remain unverified."
               ]}
+    if compile_report:
+        compiled = {}
+        for name, output in outputs.items():
+            compiled[name] = json.loads(subprocess.check_output(
+                [dotnet, str(metadata_tool), str(output["path"])], text=True))
+            if digest(output["path"]) != output["sha256"]:
+                raise ValueError(f"Compiled assembly changed during metadata inspection: {name}")
+        candidate = substitution_candidate(metadata, compiled)
+        candidate["compile_audit"] = provenance
+        candidate["files"] = [
+            {"name": name, "apk_path": MANAGED + row["name"],
+             "action": "replace" if name in outputs else "preserve-original",
+             "original_sha256": row["sha256"],
+             "selected_path": str(outputs[name]["path"] if name in outputs else
+                                  workspace / "managed" / row["name"]),
+             "selected_sha256": outputs[name]["sha256"] if name in outputs else row["sha256"]}
+            for name, row in sorted(rows.items())]
+        report["substitution_candidate"] = candidate
+    # Reject concurrent changes rather than publishing stale provenance.
+    for name, row in rows.items():
+        if digest(workspace / "managed" / row["name"]) != row["sha256"]:
+            raise ValueError(f"Assembly changed during metadata inspection: {name}")
+    if compile_report:
+        if digest(compile_report.resolve()) != provenance["sha256"]:
+            raise ValueError("Compile report changed during metadata inspection")
+        for name, output in outputs.items():
+            if digest(output["path"]) != output["sha256"]:
+                raise ValueError(f"Compiled assembly changed during metadata inspection: {name}")
     report_dir = Path(tempfile.mkdtemp(prefix="replacement-", dir=workspace))
     save(report_dir / "report.json", report)
     print(f"Report: {report_dir / 'report.json'}")
@@ -1143,6 +1267,8 @@ def main():
                       help="Built MonoMetadata .NET tool assembly")
     plan.add_argument("--root", action="append", required=True,
                       help="Managed replacement root without .dll (repeatable)")
+    plan.add_argument("--compile-report", type=Path,
+                      help="Pin roots to isolated audit outputs and assess them with preserved originals")
     audit = commands.add_parser("compile-audit", help="Measure game-source compiler blockers")
     audit.add_argument("workspace", type=Path)
     audit.add_argument("--dotnet", default="dotnet")
@@ -1169,7 +1295,7 @@ def main():
                                     args.assembly)
         if args.command == "replacement-plan":
             return replacement_plan(args.workspace.resolve(), args.dotnet,
-                                    args.metadata_tool.resolve(), args.root)
+                                    args.metadata_tool.resolve(), args.root, args.compile_report)
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
                              args.reference_dir, args.assembly, args.repair_accessors,
                              args.repair_contracts)

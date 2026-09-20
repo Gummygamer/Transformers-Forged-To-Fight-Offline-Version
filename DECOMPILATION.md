@@ -240,6 +240,29 @@ only after identity, API, resources, native bindings, Android packaging, and run
 order are separately verified. This is the replacement boundary evidence for the 2.0.2
 client, not a packaging or playability result.
 
+To pin a candidate to a successful isolated compile audit and assess it alongside the
+preserved original DLLs, pass that audit's report:
+
+```bash
+python3 tools/decompilation.py replacement-plan build/decompilation/mono-XXXX \
+  --dotnet /home/darabat/.dotnet/dotnet \
+  --metadata-tool tools/mono_metadata/bin/Debug/net8.0/MonoMetadata.dll \
+  --root Assembly-CSharp --root Assembly-CSharp-firstpass \
+  --compile-report build/decompilation/mono-XXXX/compile-XXXX/report.json
+```
+
+The schema-2 report records the exact replacement and preservation file set, the compile
+report hash, output hashes, per-root metadata diffs, and an exact AssemblyRef-to-supplied
+AssemblyDef identity inventory. It compares that inventory with the original all-DLL
+baseline, so compiler-reference drift and newly introduced edges are visible without
+copying a DLL. On the current `mono-2fviys29` audit, the proposed set is exactly the two
+game roots; all other managed files are preserved. The candidate has 24 exact internal
+identity matches and 28 mismatches, including six newly exposed framework-reference
+mismatches and one added `Assembly-CSharp-firstpass` → `Assembly-CSharp` edge. The report
+therefore remains `review-required`, with `packaging_authorized=false` and
+`runtime_verified=false`. These are metadata and loader-risk signals, not proof that Mono
+will reject or accept the files.
+
 The metadata report also establishes the current compiler/runtime profile facts for this
 APK. `mscorlib.dll`, `System.dll`, and `System.Core.dll` identify as version `2.0.5.0`,
 carry metadata version `v2.0.50727`, and are `I386`/`ILOnly` PE images. `UnityEngine.dll`,

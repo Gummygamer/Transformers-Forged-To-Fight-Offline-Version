@@ -8,13 +8,136 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
+from decompilation import (assembly_entries, compile_audit, compile_candidate_paths, dependency_order, digest,
                            export_il, metadata_api_surface, metadata_contract_diff,
                            normalize_accessors, normalize_source_contracts, replacement_closure,
-                           source_declaration_inventory)
+                           reference_identity, reference_inventory, replacement_plan,
+                           source_declaration_inventory, substitution_candidate)
+
+
+def synthetic_metadata(name, version="1.0.0.0", references=()):
+    return {"identity": {"name": name, "version": version, "culture": "",
+                         "public_key": "", "flags": 0},
+            "references": [{"name": dependency, "version": required, "culture": "",
+                            "public_key_or_token": "", "flags": 0, "hash": ""}
+                           for dependency, required in references],
+            "resources": [], "types": {}}
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_reference_identity_normalizes_full_keys_and_tokens(self):
+        definition = {"name": "Library", "version": "1.0.0.0", "culture": "",
+                      "public_key": "00000000000000000400000000000000", "flags": 1}
+        expected = {"name": "Library", "version": "1.0.0.0", "culture": "",
+                    "public_key_token": "B77A5C561934E089"}
+        self.assertEqual(reference_identity(definition, definition=True), expected)
+        reference = {**definition, "public_key_or_token": definition["public_key"]}
+        self.assertEqual(reference_identity(reference), expected)
+        reference.update(flags=0, public_key_or_token="b77a5c561934e089")
+        self.assertEqual(reference_identity(reference), expected)
+
+    def test_candidate_checks_retained_consumers_and_baseline_gaps(self):
+        original = {
+            "Game": synthetic_metadata("Game", references=[("Framework", "1.0.0.0")]),
+            "Framework": synthetic_metadata("Framework"),
+            "Plugin": synthetic_metadata("Plugin", references=[("Game", "1.0.0.0"),
+                                                                 ("External", "1.0.0.0")])}
+        compiled = {"Game": synthetic_metadata("Game", "2.0.0.0",
+                                              [("Framework", "3.0.0.0"), ("New", "1.0.0.0")])}
+        result = substitution_candidate(original, compiled)
+        self.assertEqual(result["replacement_set"], ["Game"])
+        self.assertEqual(result["preserved_originals"], ["Framework", "Plugin"])
+        refs = result["reference_inventory"]
+        self.assertEqual(refs["original_baseline"]["counts"],
+                         {"exact-identity-match": 2, "missing-provider": 1})
+        self.assertEqual(refs["candidate"]["counts"],
+                         {"identity-mismatch": 2, "missing-provider": 2})
+        self.assertEqual([(r["consumer"], r["provider"]) for r in refs["introduced_or_changed_issues"]],
+                         [("Game", "Framework"), ("Game", "New"), ("Plugin", "Game")])
+        self.assertEqual(refs["retained_consumers_of_replacements"][0]["status"], "identity-mismatch")
+        self.assertEqual(refs["added_edges"][0]["provider"], "New")
+        self.assertFalse(result["comparisons"]["Game"]["equal"])
+        self.assertFalse(result["packaging_authorized"])
+
+    def test_exact_identity_matches_do_not_approve_candidate(self):
+        original = {"Game": synthetic_metadata("Game")}
+        result = substitution_candidate(original, original)
+        self.assertTrue(result["comparisons"]["Game"]["equal"])
+        self.assertEqual(result["status"], "review-required")
+        self.assertFalse(result["runtime_verified"])
+
+    def test_reference_inventory_detects_culture_and_key_drift(self):
+        metadata = {"Game": synthetic_metadata("Game", references=[("Library", "1.0.0.0")]),
+                    "Library": synthetic_metadata("Library")}
+        metadata["Library"]["identity"].update(
+            culture="fr", public_key="00000000000000000400000000000000")
+        edge = reference_inventory(metadata)["edges"][0]
+        self.assertEqual(edge["differing_identity_fields"], ["culture", "public_key_token"])
+
+    def test_candidate_output_provenance_and_rejections(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            audit = workspace / "compile-fixture"
+            (audit / "bin").mkdir(parents=True)
+            output = audit / "bin" / "Game.dll"
+            output.write_bytes(b"synthetic output")
+            row = {"name": "Game", "status": "compiled", "exit_code": 0,
+                   "output_path": "bin/Game.dll", "output_sha256": digest(output)}
+            report = audit / "report.json"
+            report.write_text(json.dumps({"assemblies": [row]}))
+            paths, provenance = compile_candidate_paths(workspace, report, ["Game"])
+            self.assertEqual(paths["Game"]["path"], output)
+            self.assertEqual(provenance["sha256"], digest(report))
+            for replacement, message in [
+                ({"status": "failed"}, "No successful"),
+                ({"exit_code": 1}, "No successful"),
+                ({"output_path": "../managed/Game.dll"}, "isolated audit"),
+                ({"output_sha256": "wrong"}, "changed since audit")]:
+                with self.subTest(replacement=replacement):
+                    report.write_text(json.dumps({"assemblies": [{**row, **replacement}]}))
+                    with self.assertRaisesRegex(ValueError, message):
+                        compile_candidate_paths(workspace, report, ["Game"])
+            report.write_text(json.dumps({"assemblies": [row, row]}))
+            with self.assertRaisesRegex(ValueError, "Duplicate"):
+                compile_candidate_paths(workspace, report, ["Game"])
+            report.write_text(json.dumps({"assemblies": [row]}))
+            with self.assertRaisesRegex(ValueError, "No successful"):
+                compile_candidate_paths(workspace, report, ["Missing"])
+            output.write_bytes(b"changed")
+            with self.assertRaisesRegex(ValueError, "changed since audit"):
+                compile_candidate_paths(workspace, report, ["Game"])
+
+    def test_replacement_plan_selects_only_explicit_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            (workspace / "managed").mkdir()
+            audit = workspace / "compile-fixture"
+            (audit / "bin").mkdir(parents=True)
+            manifest_rows, audit_rows = [], []
+            for name in ("Assembly-CSharp", "Library"):
+                original = workspace / "managed" / f"{name}.dll"
+                original.write_bytes(b"original fixture")
+                manifest_rows.append({"name": original.name, "sha256": digest(original)})
+                output = audit / "bin" / original.name
+                output.write_bytes(b"compiled fixture")
+                audit_rows.append({"name": name, "status": "compiled", "exit_code": 0,
+                                   "output_path": f"bin/{name}.dll", "output_sha256": digest(output)})
+            (workspace / "manifest.json").write_text(json.dumps({"assemblies": manifest_rows}))
+            compile_report = audit / "report.json"
+            compile_report.write_text(json.dumps({"assemblies": audit_rows}))
+            def inspect(command, **kwargs):
+                return json.dumps(synthetic_metadata(Path(command[-1]).stem))
+            with patch("decompilation.subprocess.check_output", side_effect=inspect), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(replacement_plan(workspace, "dotnet", Path("helper.dll"),
+                                                  ["Assembly-CSharp"], compile_report), 0)
+            report = json.loads(next(workspace.glob("replacement-*/report.json")).read_text())
+            candidate = report["substitution_candidate"]
+            self.assertEqual(candidate["replacement_set"], ["Assembly-CSharp"])
+            self.assertEqual(candidate["preserved_originals"], ["Library"])
+            self.assertEqual(candidate["files"][1]["selected_sha256"], manifest_rows[1]["sha256"])
+            self.assertEqual(candidate["files"][0]["apk_path"],
+                             "assets/bin/Data/Managed/Assembly-CSharp.dll")
+
     def test_replacement_closure_follows_only_retained_references(self):
         refs = {"Game": ["FirstPass", "UnityEngine"], "FirstPass": ["crypto"],
                 "UnityEngine": ["System"], "crypto": ["mscorlib"], "System": ["mscorlib"]}
