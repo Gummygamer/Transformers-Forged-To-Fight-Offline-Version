@@ -282,6 +282,39 @@ def _value_difference(original, compiled):
     return {"original": original, "compiled": compiled}
 
 
+def _is_compiler_generated_type(name):
+    """Recognize common compiler-generated type names without hiding them.
+
+    This is only a reporting classification.  Generated types remain in the
+    exact added/removed/changed metadata diff because their names can still be
+    relevant to Unity serialization or reflection.
+    """
+    return (name.startswith("<PrivateImplementationDetails>")
+            or "+<>" in name
+            or "+<" in name
+            or "c__DisplayClass" in name
+            or "c__Iterator" in name
+            or "d__" in name)
+
+
+def _generated_type_summary(type_diff):
+    added = [name for name in type_diff["added"] if _is_compiler_generated_type(name)]
+    removed = [name for name in type_diff["removed"] if _is_compiler_generated_type(name)]
+    changed = [name for name in type_diff["changed"] if _is_compiler_generated_type(name)]
+    return {"added": added, "removed": removed, "changed": changed,
+            "added_count": len(added), "removed_count": len(removed),
+            "changed_count": len(changed)}
+
+
+def _framework_reference_changes(reference_diff):
+    """Separate framework identity drift from application-reference changes."""
+    names = set(reference_diff["changed"])
+    framework = sorted(name for name in names
+                       if name == "mscorlib" or name == "Mono.Security"
+                       or name == "System" or name.startswith("System."))
+    return {name: reference_diff["changed"][name] for name in framework}
+
+
 def metadata_contract_diff(original, compiled):
     """Compare two helper models without loading either managed assembly.
 
@@ -377,7 +410,18 @@ def metadata_contract_diff(original, compiled):
                         "removed_type_count": len(type_diff["removed"]),
                         "changed_type_count": changed_types,
                         "changed_field_count": changed_fields,
-                        "changed_method_count": changed_methods},
+                        "changed_method_count": changed_methods,
+                        "compiler_generated_type_differences": {
+                            "added": _generated_type_summary(type_diff)["added_count"],
+                            "removed": _generated_type_summary(type_diff)["removed_count"],
+                            "changed": _generated_type_summary(type_diff)["changed_count"]},
+                        "framework_reference_change_count": len(
+                            _framework_reference_changes(reference_diff))},
+            "classification": {
+                "compiler_generated_type_differences": _generated_type_summary(type_diff),
+                "framework_reference_differences": _framework_reference_changes(reference_diff),
+                "evidence_note": "Classifications do not remove exact metadata differences or establish runtime compatibility."
+            },
             "differences": differences}
 
 

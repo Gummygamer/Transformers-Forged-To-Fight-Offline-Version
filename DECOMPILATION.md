@@ -204,6 +204,10 @@ closure types use different names, the .NET 2.0/3.5 reference inputs emit differ
 framework versions/public-key tokens than the APK's `2.0.5.0` framework references, and
 the compiled firstpass output carries an additional `Assembly-CSharp` reference. These
 are compatibility work items, not evidence that the DLLs can replace the APK originals.
+The comparison report now retains those exact differences while classifying
+compiler-generated type churn and framework-reference identity drift separately, so
+reviewers can distinguish compiler noise from non-generated API changes without treating
+either category as harmless.
 
 For the playable-client boundary, `replacement-plan` computes the transitive closure of
 explicit replacement roots using both PE assembly references and ILSpy project references:
@@ -232,14 +236,38 @@ compiled DLL will load under the APK's embedded Mono runtime. A packaging experi
 preserve these identities and verify load behavior on the original APK before any runtime
 claim is made.
 
+The audit's compiler profile is also explicit: Roslyn `csc.dll` from the local .NET SDK
+8.0.422, `/langversion:12`, deterministic output, and the unstripped Microsoft .NET
+Framework 2.0/3.5 reference assemblies under `build/tooling/`. Those inputs are a modern
+source-checking profile. The recovered APK does not establish which historical C# compiler
+produced its assemblies, and the audit does not replace or reconstruct Unity's embedded
+Mono compiler/runtime, Unity native bindings, or editor build pipeline. Only the managed
+PE metadata profile is established by this workspace.
+
 Two closure members currently demonstrate why “dependency” does not mean “rebuild”: the
 original `crypto` IL has no instance constructor metadata on `DsaPrivateKeyParameters`,
 `RsaPrivateCrtKeyParameters`, or `BerOutputStream`, so Roslyn's synthesized constructor
-cannot satisfy their parameterized bases without inventing a new API. The original
-SharpZipLib transform types expose `CanTransformMultipleBlocks` but no
-`CanReuseTransform` member in IL, while the modern `ICryptoTransform` reference requires
-it. These are retained original binaries or separate runtime-profile work items, not
-contracts to guess into the reconstructed source.
+cannot satisfy their parameterized bases without inventing a new API. The metadata helper
+confirms the exact declarations: `BerOutputStream` has no methods; `DsaPrivateKeyParameters`
+has equality/hash methods but no constructor; and `RsaPrivateCrtKeyParameters` has
+accessors plus equality/hash methods but no constructor. The original SharpZipLib transform
+types expose `CanTransformMultipleBlocks` but no `CanReuseTransform` member in IL, while
+the modern `ICryptoTransform` reference requires it. The three affected transforms still
+have their input/output block properties, transform methods, and `Dispose`. The Unity
+blockers are similarly exact: `Hash128` and `NetworkSceneId` expose `op_Equality` but no
+`op_Inequality`, and `UnityLogWriter` has no `Encoding` property despite inheriting
+`TextWriter`. These are retained original binaries or separate runtime-profile work items,
+not contracts to guess into the reconstructed source.
+
+The static 2.0.2 Mono endpoint and payload inventory is maintained separately in
+[`MONO_SERVER_CONTRACTS.md`](MONO_SERVER_CONTRACTS.md). It records paths, verbs,
+API versions, request keys, and response containers recovered from the managed
+client. It is not network capture or runtime verification, and it must not be
+substituted with the 9.2 IL2CPP server path.
+The static comparison against the offline server is recorded in
+[`MONO_SERVER_COMPARISON.md`](MONO_SERVER_COMPARISON.md); it identifies route,
+request-field, version-validation, and response-container gaps without changing
+the server or claiming end-to-end compatibility.
 
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against

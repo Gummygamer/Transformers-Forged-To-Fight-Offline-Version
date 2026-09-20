@@ -51,6 +51,12 @@ in the APK is `v2.0.50727`; `mscorlib`, `System`, and `System.Core` identify as 
 `2.0.5.0`. The current Roslyn audit against .NET 2.0/3.5 reference assemblies is only a
 source check and does not prove Mono loader compatibility.
 
+The audit itself uses Roslyn from .NET SDK 8.0.422 with `/langversion:12`, deterministic
+output, and Microsoft .NET Framework 2.0/3.5 reference assemblies. This is not the
+historical Unity/Mono compiler profile. The APK evidence establishes `v2.0.50727`
+metadata and `I386`/`ILOnly` managed PE images, but does not identify the original C#
+compiler or prove that Roslyn output loads in the embedded Unity Mono runtime.
+
 The substitution process must also preserve the APK's native ABI set, `libmono` and Unity
 runtime pairing, native plugin names, Android manifest/package identity, resource table,
 asset paths, ZIP alignment, and signing/re-signing requirements. No framework reference

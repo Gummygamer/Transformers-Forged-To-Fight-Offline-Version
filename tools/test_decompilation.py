@@ -83,6 +83,32 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(diff["summary"]["changed_field_count"], 1)
         self.assertEqual(diff["summary"]["changed_method_count"], 1)
 
+    def test_metadata_diff_classifies_generated_and_framework_changes(self):
+        original = {
+            "identity": {"name": "Example"}, "metadata_version": "v2", "machine": "I386",
+            "cor_flags": "ILOnly", "module_name": "Example.dll", "assembly_attributes": [],
+            "module_attributes": [], "references": [{"name": "mscorlib", "version": "2.0.0.0"}],
+            "resources": [], "types": {
+                "<PrivateImplementationDetails>+$ArrayType$8": {
+                    "flags": 1, "base_type": "Object", "layout": {"size": 8},
+                    "generics": [], "attributes": [], "interfaces": [], "method_impls": [],
+                    "field_order": [], "fields": {}, "methods": {}, "properties": [], "events": []
+                },
+                "Demo.Bot": {"flags": 1, "base_type": "Object", "layout": {"size": -1},
+                              "generics": [], "attributes": [], "interfaces": [], "method_impls": [],
+                              "field_order": [], "fields": {}, "methods": {}, "properties": [], "events": []}
+            }
+        }
+        compiled = json.loads(json.dumps(original))
+        compiled["references"][0]["version"] = "8.0.0.0"
+        compiled["types"]["<PrivateImplementationDetails>+$ArrayType$8"] = compiled["types"].pop("Demo.Bot")
+        compiled["types"]["Demo.Bot+<>c"] = compiled["types"].pop("<PrivateImplementationDetails>+$ArrayType$8")
+        diff = metadata_contract_diff(original, compiled)
+        classification = diff["classification"]
+        self.assertEqual(classification["framework_reference_differences"]["mscorlib"]["original"]["version"], "2.0.0.0")
+        self.assertEqual(classification["compiler_generated_type_differences"]["added_count"], 1)
+        self.assertEqual(classification["compiler_generated_type_differences"]["removed_count"], 1)
+
     def test_zip_rejects_traversal_and_case_collisions(self):
         for extra in ("../escape.dll", "ASSEMBLY-CSHARP.dll"):
             stream = io.BytesIO()
