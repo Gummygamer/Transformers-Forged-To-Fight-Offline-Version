@@ -380,6 +380,27 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn('[Header("Right")]', repaired)
         self.assertEqual(len(changes), 5)
 
+    def test_explicit_offline_runtime_repairs_are_opt_in(self):
+        setup = 'ApiEndPoint = EB.Version.GetApiEndPoint("Default.Prod");\n'
+        repaired, changes = normalize_source_contracts(
+            Path("Setup.cs"), setup, "http://127.0.0.1:8080")
+        self.assertIn('ApiEndPoint = "http://127.0.0.1:8080";', repaired)
+        self.assertEqual(len(changes), 1)
+
+        hub = "if (Config.UseGooglePlayGames && !flag)\n"
+        repaired, changes = normalize_source_contracts(
+            Path("EB.Sparx/Hub.cs"), hub, disable_google_play_games=True)
+        self.assertIn("if (false && Config.UseGooglePlayGames && !flag)", repaired)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(normalize_source_contracts(Path("EB.Sparx/Hub.cs"), hub), (hub, []))
+
+        inventory = ("Action<int, string, Hashtable> callback2 = "
+                     "default(Action<int, string, Hashtable>);\n")
+        repaired, changes = normalize_source_contracts(
+            Path("EB.Sparx/InventoryAPI.cs"), inventory)
+        self.assertIn("callback2 = callback;", repaired)
+        self.assertEqual(len(changes), 1)
+
     def test_facebook_method_call_restores_il_backing_fields(self):
         source = ("using System.Runtime.CompilerServices;\n\n"
                   "namespace Facebook.Unity;\n\n"

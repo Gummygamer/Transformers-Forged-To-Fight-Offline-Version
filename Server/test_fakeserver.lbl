@@ -230,7 +230,7 @@ function test_quest_active_does_not_preload_custom_story(): boolean
   fakeserver.reset_quest_positions()
   let intro: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
   let active_result: Json = result(fakeserver.resolve_response("GET", "/quests/quest-active?categories.0=PvE").body)
-  jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and jsonout.type_name(active_result) == "list" and length(jsonout.list_items(active_result)) == 0
+  jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and jsonout.type_name(active_result) == "object"
 end
 
 function test_custom_story_set_is_first_without_removing_template_set(): boolean

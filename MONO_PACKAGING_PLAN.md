@@ -1,7 +1,8 @@
 # 2.0.2 Mono substitution plan
 
-This is a design record only. No rebuilt DLL has been installed, and no APK has been
-modified or packaged from this plan.
+This began as a design record. A disposable candidate has since been packaged and
+installed for direct evidence; the candidate is not a release artifact and this document
+does not claim playability or runtime compatibility.
 
 The input APK was checked before analysis:
 
@@ -75,6 +76,15 @@ assembly used for compilation may be copied into the APK as a runtime replacemen
 6. Run the original Mono client and capture loader/startup failures before testing server
    requests. Then validate the 2.0.2 request/response contracts independently; the 9.2
    IL2CPP server path is not evidence of Mono protocol compatibility.
+
+The current disposable validation uses only the two approved game DLL replacements and
+can route the isolated `Setup.ApiEndPoint` to the reconstructed LAN server. Because the
+physical test device cannot authenticate this APK's debug certificate with Google Play
+Games, the isolated compile option `--disable-google-play-games` suppresses optional
+`GooglePlayGamesManager` registration; it does not modify device Google accounts. The
+candidate reached the reconstructed server's authentication, account, BCG, tutorial,
+inventory, quest, base, and PVP-login routes, but still stopped at the client's generic
+connection-failure screen. This remains runtime evidence, not a playability claim.
 
 Until those steps succeed, the result is a source/metadata reconstruction and not a
 playable or runtime-compatible client.

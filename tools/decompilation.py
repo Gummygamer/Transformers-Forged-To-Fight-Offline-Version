@@ -882,7 +882,7 @@ def normalize_accessors(source):
     return pattern.subn(replace, source)
 
 
-def normalize_source_contracts(path, source):
+def normalize_source_contracts(path, source, server_endpoint=None, disable_google_play_games=False):
     """Apply narrow, IL-backed repairs to declarations rejected by Roslyn.
 
     ILSpy exposes a few metadata contracts that C# cannot spell directly: a
@@ -891,6 +891,50 @@ def normalize_source_contracts(path, source):
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
+    if disable_google_play_games and path.as_posix().endswith("EB.Sparx/Hub.cs"):
+        old = "if (Config.UseGooglePlayGames && !flag)"
+        new = "if (false && Config.UseGooglePlayGames && !flag)"
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append(
+                "disable GooglePlayGamesManager registration in the isolated offline snapshot; "
+                "device logs showed optional Play Games silent-auth attempts and certificate-mismatch DEVELOPER_ERROR")
+    if path.as_posix() == "Setup.cs" and server_endpoint:
+        old = 'ApiEndPoint = EB.Version.GetApiEndPoint("Default.Prod");'
+        new = f'ApiEndPoint = {json.dumps(server_endpoint)};'
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append(f"route Setup.ApiEndPoint to configured revival endpoint {server_endpoint}")
+    if path.as_posix().endswith("EB.Sparx/InventoryAPI.cs"):
+        old = "Action<int, string, Hashtable> callback2 = default(Action<int, string, Hashtable>);"
+        new = "Action<int, string, Hashtable> callback2 = callback;"
+        count = source.count(old)
+        if count:
+            source = source.replace(old, new)
+            changes.append(
+                f"restore {count} InventoryAPI callback bindings from original IL iterator callback field")
+    # Original firstpass IL calls MulticastDelegate.op_Inequality at these
+    # three sites. Roslyn's concrete-delegate comparison instead binds to
+    # Delegate.op_Inequality, absent from the APK's stripped mscorlib.
+    # Cast only the observed operands; do not invent a runtime declaration.
+    # Roslyn 8 lowers this explicit MulticastDelegate comparison to `ceq`
+    # (verified in the emitted IL), which is runtime-profile safe even though
+    # it does not reproduce the historical operator call byte-for-byte.
+    delegate_sites = {
+        "UITransition.cs": (("callback", "_callback", "Transition.Play"),
+                            ("completionCallback", "_callback", "Transition.JumpToProgress")),
+        "UIWidget.cs": (("mOnRender", "value", "UIWidget.set_onRender"),),
+    }
+    for left, right, method in delegate_sites.get(path.as_posix(), ()):
+        old = f"{left} != {right}"
+        new = f"(System.MulticastDelegate){left} != (System.MulticastDelegate){right}"
+        if source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append(
+                f"{method}: cast inequality operands to System.MulticastDelegate; "
+                "original IL calls MulticastDelegate.op_Inequality(MulticastDelegate, MulticastDelegate); "
+                "unadapted Roslyn calls Delegate.op_Inequality(Delegate, Delegate); "
+                "adapted Roslyn emits ceq; original mscorlib declares only the former operator")
     if (path.name in {"InputField.cs", "ScrollRect.cs", "Graphic.cs", "Slider.cs",
                       "Toggle.cs", "Scrollbar.cs"}
             and "namespace UnityEngine.UI;" in source):
@@ -1140,7 +1184,8 @@ def dependency_order(workspace, names):
 
 
 def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
-                  repair_accessors=False, repair_contracts=False):
+                  repair_accessors=False, repair_contracts=False, server_endpoint=None,
+                  disable_google_play_games=False):
     """Compile recovered game code against the APK's own framework, without NuGet."""
     manifest = json.loads((workspace / "manifest.json").read_text())
     # Verify input provenance before using assemblies as compiler references.
@@ -1168,6 +1213,12 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
     report = {"scope": "game assemblies against original APK references; not a Unity build",
               "compiler": str(csc), "compiler_sha256": digest(csc),
               "reference_overrides": overrides, "runtime_verified": False, "assemblies": []}
+    if server_endpoint:
+        if not re.match(r"^https?://[^\s\"']+$", server_endpoint):
+            raise ValueError("server endpoint must be an absolute http:// or https:// URL")
+        report["server_endpoint"] = server_endpoint
+    if disable_google_play_games:
+        report["disable_google_play_games"] = True
     compiled_refs = {}
     for name in names:
         sources = sorted((workspace / "source" / name).rglob("*.cs"))
@@ -1187,7 +1238,8 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                 if count:
                     changes.append({"path": relative.as_posix(), "explicit_getters": count})
             if repair_contracts:
-                text, contract_changes = normalize_source_contracts(relative, text)
+                text, contract_changes = normalize_source_contracts(
+                    relative, text, server_endpoint, disable_google_play_games)
                 if contract_changes:
                     changes.append({"path": relative.as_posix(), "contracts": contract_changes})
             target.write_text(text)
@@ -1280,6 +1332,10 @@ def main():
                        help="Normalize simple explicit getters in a local source snapshot")
     audit.add_argument("--repair-contracts", action="store_true",
                        help="Apply IL-backed compiler-contract repairs in a local source snapshot")
+    audit.add_argument("--server-endpoint",
+                       help="Route Setup.ApiEndPoint to this revival HTTP(S) endpoint in the isolated snapshot")
+    audit.add_argument("--disable-google-play-games", action="store_true",
+                       help="Disable GooglePlayGamesManager registration in the isolated offline snapshot")
     args = parser.parse_args()
     try:
         if args.command == "export":
@@ -1298,7 +1354,8 @@ def main():
                                     args.metadata_tool.resolve(), args.root, args.compile_report)
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
                              args.reference_dir, args.assembly, args.repair_accessors,
-                             args.repair_contracts)
+                             args.repair_contracts, args.server_endpoint,
+                             args.disable_google_play_games)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Error: {error}\n")
 

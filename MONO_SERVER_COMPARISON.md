@@ -18,7 +18,7 @@ Mono contract. A route-name match is not treated as compatibility.
 | Mono route | Offline-server evidence | Static result |
 | --- | --- | --- |
 | `POST /auth/init` | `POST__auth_init.json` | partial: canned `result` is an empty object; request fields are not validated |
-| `POST /auth/enumerate` | `POST__auth_enumerate.json` | mismatch: fixture `result` is an object containing `accounts`, while `LoginAPI.Enumerate` selects `Response.arrayList` |
+| `POST /auth/enumerate` | `POST__auth_enumerate.json` | container match (`ArrayList`); fixture is an empty list because `LoginAPI.Enumerate` selects `Response.arrayList` |
 | `POST /auth/prelogin` | `POST__auth_prelogin.json` | partial: canned `result` has `nonce` and `salt`; `_v=4` and `sha1` are not validated |
 | `POST /auth/login` | `auth_login_response` in `Server/fakeserver.lbl` | partial: returns a hashtable and `stoken`, but only a subset of the request is used; no API-version validation |
 | `GET /account` | no dynamic handler or matching fixture | missing |
@@ -50,7 +50,7 @@ Mono contract. A route-name match is not treated as compatibility.
 | `GET /quests/quest-list` | `GET__quests_quest-list.json` | container match (`ArrayList`); authored quest data is not evidence of Mono parity |
 | `GET /quests/quest-historical-results/{category}` | no handler or matching fixture | missing |
 | `GET /quests/quest-progression` | `GET__quests_quest-progression.json` | mismatch: fixture result is `[]`, while `QuestsAPI.GetQuestsProgression` selects `Response.hashtable` |
-| `GET /quests/quest-active` | `GET__quests_quest-active.json` | mismatch: fixture result is `[]`, while `QuestsAPI.GetActiveQuests` selects `Response.hashtable` |
+| `GET /quests/quest-active` | `GET__quests_quest-active.json` | container match (`Hashtable`); fixture is an empty object because `QuestsAPI.GetActiveQuests` selects `Response.hashtable`; quest contents remain unverified |
 | `POST /quests/quest-detail/{qid}` | `static_dynamic` → `build_quest_detail` | container match (`Hashtable`); nested parser coverage still needs comparison per quest mode |
 | `POST /quests/quest-begin/{qid}` | `quest_begin_response` | partial: `tm0...` team fields are consumed; `api`, `hash`, `setId`, costs, and difficulty are not fully validated |
 | `POST /quests/quest-join/{qid}` | no handler or matching fixture | missing |
@@ -110,18 +110,16 @@ compatibility remains unverified. The concrete request/response mismatches
 above are sufficient to show that the current server is not yet a demonstrated
 2.0.2 Mono backend.
 
-The most important response-container mismatches are:
+The remaining most important response-container mismatches are:
 
-1. `/auth/enumerate`: object fixture versus `ArrayList` callback.
-2. `/quests/quest-progression`: array fixture versus `Hashtable` callback.
-3. `/quests/quest-active`: array fixture versus `Hashtable` callback.
-4. `/pvp/get-user-data`: generated object versus `ArrayList` callback.
-5. `/matches/resolve-match/{type}`: empty body versus `Hashtable` callback.
+1. `/quests/quest-progression`: array fixture versus `Hashtable` callback.
+2. `/pvp/get-user-data`: generated object versus `ArrayList` callback.
+3. `/matches/resolve-match/{type}`: empty body versus `Hashtable` callback.
 
 These are static facts from the current source and fixtures, not claims that the
-client has already failed on them. No server routes or fixtures were changed as
-part of this comparison because doing so would require a separately justified
-compatibility implementation and later Mono runtime verification.
+client has already failed on them. The authentication and active-quest fixture
+changes above were narrow container adaptations made after the Mono client
+directly requested those routes; their nested contents remain unverified.
 
 ## Verification boundary
 
