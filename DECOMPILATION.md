@@ -196,6 +196,25 @@ only after identity, API, resources, native bindings, Android packaging, and run
 order are separately verified. This is the replacement boundary evidence for the 2.0.2
 client, not a packaging or playability result.
 
+The metadata report also establishes the current compiler/runtime profile facts for this
+APK. `mscorlib.dll`, `System.dll`, and `System.Core.dll` identify as version `2.0.5.0`,
+carry metadata version `v2.0.50727`, and are `I386`/`ILOnly` PE images. `UnityEngine.dll`,
+`Assembly-CSharp-firstpass.dll`, and `Assembly-CSharp.dll` use the same metadata version
+and have assembly identity version `0.0.0.0`. The Roslyn audit therefore uses .NET 2.0/3.5
+reference assemblies as source-compatibility inputs; it does not establish that a newly
+compiled DLL will load under the APK's embedded Mono runtime. A packaging experiment must
+preserve these identities and verify load behavior on the original APK before any runtime
+claim is made.
+
+Two closure members currently demonstrate why “dependency” does not mean “rebuild”: the
+original `crypto` IL has no instance constructor metadata on `DsaPrivateKeyParameters`,
+`RsaPrivateCrtKeyParameters`, or `BerOutputStream`, so Roslyn's synthesized constructor
+cannot satisfy their parameterized bases without inventing a new API. The original
+SharpZipLib transform types expose `CanTransformMultipleBlocks` but no
+`CanReuseTransform` member in IL, while the modern `ICryptoTransform` reference requires
+it. These are retained original binaries or separate runtime-profile work items, not
+contracts to guess into the reconstructed source.
+
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against
 the offline server. The 2.0.2 protocol and assets
