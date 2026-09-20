@@ -467,6 +467,16 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(len(changes), 1)
         self.assertEqual(normalize_source_contracts(Path("EB.Sparx/Hub.cs"), hub), (hub, []))
 
+        endpoint = ("protected bool HasInternetConnectivity => "
+                    "Application.internetReachability != NetworkReachability.NotReachable;\n")
+        repaired, changes = normalize_source_contracts(
+            Path("EB.Sparx/EndPoint.cs"), endpoint, allow_offline_network=True)
+        self.assertIn("protected bool HasInternetConnectivity => true;", repaired)
+        self.assertEqual(changes, ["allow local revival-server requests without Internet reachability"])
+        self.assertEqual(
+            normalize_source_contracts(Path("EB.Sparx/EndPoint.cs"), endpoint),
+            (endpoint, []))
+
         inventory = ("Action<int, string, Hashtable> callback2 = "
                      "default(Action<int, string, Hashtable>);\n")
         repaired, changes = normalize_source_contracts(

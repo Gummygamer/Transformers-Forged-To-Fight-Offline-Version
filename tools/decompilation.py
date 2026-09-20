@@ -883,7 +883,8 @@ def normalize_accessors(source):
 
 
 def normalize_source_contracts(path, source, server_endpoint=None, disable_google_play_games=False,
-                               runtime_diagnostics=False, disable_push=False):
+                               runtime_diagnostics=False, disable_push=False,
+                               allow_offline_network=False):
     """Apply narrow, IL-backed repairs to declarations rejected by Roslyn.
 
     ILSpy exposes a few metadata contracts that C# cannot spell directly: a
@@ -892,6 +893,19 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
+    if allow_offline_network and path.as_posix().endswith("EB.Sparx/EndPoint.cs"):
+        # The reconstructed client is routed to the local revival server. The
+        # original endpoint rejects every request when Unity reports no
+        # Internet reachability, even when the loopback server is reachable via
+        # adb reverse. Keep this authored offline behavior isolated to the
+        # replacement snapshot; the exported source and original IL stay intact.
+        old = "protected bool HasInternetConnectivity => Application.internetReachability != NetworkReachability.NotReachable;"
+        new = "protected bool HasInternetConnectivity => true;"
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("allow local revival-server requests without Internet reachability")
+        elif "protected bool HasInternetConnectivity =>" in source:
+            raise ValueError(f"EndPoint offline-network repair anchor changed: {path}")
     if path.as_posix().endswith("EB/Assets.cs"):
         # Original IL stores every async resource/bundle callback result in
         # the iterator's obj field and marks checkedResources in the first
@@ -1385,7 +1399,7 @@ def dependency_order(workspace, names):
 def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                   repair_accessors=False, repair_contracts=False, server_endpoint=None,
                   disable_google_play_games=False, runtime_diagnostics=False,
-                  disable_push=False):
+                  disable_push=False, allow_offline_network=False):
     """Compile recovered game code against the APK's own framework, without NuGet."""
     manifest = json.loads((workspace / "manifest.json").read_text())
     # Verify input provenance before using assemblies as compiler references.
@@ -1427,6 +1441,10 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
         if not repair_contracts:
             raise ValueError("disabling push requires --repair-contracts")
         report["disable_push"] = True
+    if allow_offline_network:
+        if not repair_contracts:
+            raise ValueError("allowing offline network requires --repair-contracts")
+        report["allow_offline_network"] = True
     compiled_refs = {}
     for name in names:
         sources = sorted((workspace / "source" / name).rglob("*.cs"))
@@ -1448,7 +1466,7 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
             if repair_contracts:
                 text, contract_changes = normalize_source_contracts(
                     relative, text, server_endpoint, disable_google_play_games, runtime_diagnostics,
-                    disable_push)
+                    disable_push, allow_offline_network)
                 if contract_changes:
                     changes.append({"path": relative.as_posix(), "contracts": contract_changes})
             target.write_text(text)
@@ -1549,6 +1567,8 @@ def main():
                        help="Log Mono subsystem/fatal transitions in the isolated snapshot")
     audit.add_argument("--disable-push", action="store_true",
                        help="Disable optional PushManager registration in the isolated offline snapshot")
+    audit.add_argument("--allow-offline-network", action="store_true",
+                       help="Allow local revival-server requests when Unity reports no Internet reachability")
     args = parser.parse_args()
     try:
         if args.command == "export":
@@ -1569,7 +1589,7 @@ def main():
                              args.reference_dir, args.assembly, args.repair_accessors,
                              args.repair_contracts, args.server_endpoint,
                              args.disable_google_play_games, args.runtime_diagnostics,
-                             args.disable_push)
+                             args.disable_push, args.allow_offline_network)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Error: {error}\n")
 
