@@ -380,6 +380,79 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn('[Header("Right")]', repaired)
         self.assertEqual(len(changes), 5)
 
+    def test_asset_manager_repair_restores_original_iterator_captures(self):
+        source = ("\t\tstring path2 = default(string);\n"
+                  "\t\t\tloadingInfo = _AssetLoads.Find((LoadingInfo info) => info.Path.Equals(path2));\n"
+                  "\t\tint assetType2 = default(int);\n"
+                  "\t\tfloat estimatedSize2 = default(float);\n"
+                  "\t\tfloat estimatedInstantiatedSize2 = default(float);\n"
+                  "\t\tbool hold2 = default(bool);\n"
+                  "\t\tAssets.LoadAsync(path, delegate(UnityEngine.Object obj)\n"
+                  "\t\t{\n"
+                  "\t\t\tfuseTimer.Stop();\n"
+                  "\t\t\tif (obj == null)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tDebug.LogError(\"[AssetManager.Load] ERROR - The requested object ({0}) does not exist with the specified path ({1}s)\", path2, Time.realtimeSinceStartup);\n"
+                  "\t\t\t}\n"
+                  "\t\t\telse\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tloadedObject = new LoadedObject(path2, obj, assetType2, priority, estimatedSize2, estimatedInstantiatedSize2);\n"
+                  "\t\t\t\tAddToAssetRegistry(loadedObject);\n"
+                  "\t\t\t}\n"
+                  "\t\t\tloadingInfo.OnLoaded(obj);\n"
+                  "\t\t\tif (hold2)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tHold(path2, assetType2, hold: true);\n"
+                  "\t\t\t}\n"
+                  "\t\t\tif (_UnloadUnusedAssetsDelayed)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tUnloadUnusedAssetsInternal();\n"
+                  "\t\t\t}\n"
+                  "\t\t\t_AssetLoads.Remove(loadingInfo);\n"
+                  "\t\t\t_CanAttemptToUnloadUnusedAssets = true;\n"
+                  "\t\t});\n")
+        repaired, changes = normalize_source_contracts(Path("EB/AssetManager.cs"), source)
+        self.assertEqual(changes, ["restore EB.AssetManager.LoadInternal closure captures from original IL"])
+        self.assertNotIn("path2", repaired)
+        self.assertNotIn("assetType2", repaired)
+        self.assertIn("info.Path.Equals(path)", repaired)
+        self.assertIn("new LoadedObject(path, obj, assetType, priority, estimatedSize, estimatedInstantiatedSize)", repaired)
+        self.assertIn("if (hold)", repaired)
+        self.assertEqual(normalize_source_contracts(Path("EB/AssetManager.cs"), repaired), (repaired, []))
+
+    def test_assets_repair_restores_async_object_capture(self):
+        source = ("\t\t\tT val;\n"
+                  "\t\t\tif (ODRManager.Instance == null)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tbool flag;\n"
+                  "\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n"
+                  "\t\t\t\t{\n"
+                  "\t\t\t\t\tval = resourceObj;\n"
+                  "\t\t\t\t\tflag = true;\n"
+                  "\t\t\t\t});\n"
+                  "\t\t\t}\n"
+                  "\t\t\tif (obj == null)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(T val2)\n"
+                  "\t\t\t\t{\n"
+                  "\t\t\t\t\tval = val2;\n"
+                  "\t\t\t\t});\n"
+                  "\t\t\t\tif (obj == null && !checkedResources)\n"
+                  "\t\t\t\t{\n"
+                  "\t\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n"
+                  "\t\t\t\t\t{\n"
+                  "\t\t\t\t\t\tval = resourceObj;\n"
+                  "\t\t\t\t\t});\n"
+                  "\t\t\t\t}\n")
+        repaired, changes = normalize_source_contracts(Path("EB/Assets.cs"), source)
+        self.assertEqual(changes, ["restore EB.Assets.DoLoadAsync iterator captures from original IL"])
+        self.assertNotIn("T val;", repaired)
+        self.assertNotIn("bool flag;", repaired)
+        self.assertIn("obj = resourceObj;", repaired)
+        self.assertIn("checkedResources = true;", repaired)
+        self.assertIn("obj = val2;", repaired)
+        self.assertEqual(normalize_source_contracts(Path("EB/Assets.cs"), repaired), (repaired, []))
+
     def test_explicit_offline_runtime_repairs_are_opt_in(self):
         setup = 'ApiEndPoint = EB.Version.GetApiEndPoint("Default.Prod");\n'
         repaired, changes = normalize_source_contracts(

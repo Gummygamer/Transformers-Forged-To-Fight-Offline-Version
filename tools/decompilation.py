@@ -882,7 +882,8 @@ def normalize_accessors(source):
     return pattern.subn(replace, source)
 
 
-def normalize_source_contracts(path, source, server_endpoint=None, disable_google_play_games=False):
+def normalize_source_contracts(path, source, server_endpoint=None, disable_google_play_games=False,
+                               runtime_diagnostics=False, disable_push=False):
     """Apply narrow, IL-backed repairs to declarations rejected by Roslyn.
 
     ILSpy exposes a few metadata contracts that C# cannot spell directly: a
@@ -891,6 +892,204 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
+    if path.as_posix().endswith("EB/Assets.cs"):
+        # Original IL stores every async resource/bundle callback result in
+        # the iterator's obj field and marks checkedResources in the first
+        # Resources fallback. ILSpy emitted a dead val/flag pair instead;
+        # with an ODRManager present that left obj null and made the outer
+        # AssetManager callback receive null even when loading succeeded.
+        old = ("\t\t\tT val;\n"
+               "\t\t\tif (ODRManager.Instance == null)\n"
+               "\t\t\t{\n"
+               "\t\t\t\tbool flag;\n"
+               "\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n"
+               "\t\t\t\t{\n"
+               "\t\t\t\t\tval = resourceObj;\n"
+               "\t\t\t\t\tflag = true;\n"
+               "\t\t\t\t});\n"
+               "\t\t\t}\n"
+               "\t\t\tif (obj == null)\n"
+               "\t\t\t{\n"
+               "\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(T val2)\n"
+               "\t\t\t\t{\n"
+               "\t\t\t\t\tval = val2;\n"
+               "\t\t\t\t});\n")
+        new = ("\t\t\tif (ODRManager.Instance == null)\n"
+               "\t\t\t{\n"
+               "\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n"
+               "\t\t\t\t{\n"
+               "\t\t\t\t\tobj = resourceObj;\n"
+               "\t\t\t\t\tcheckedResources = true;\n"
+               "\t\t\t\t});\n"
+               "\t\t\t}\n"
+               "\t\t\tif (obj == null)\n"
+               "\t\t\t{\n"
+               "\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(T val2)\n"
+               "\t\t\t\t{\n"
+               "\t\t\t\t\tobj = val2;\n"
+               "\t\t\t\t});\n")
+        if old in source:
+            source = source.replace(old, new, 1)
+            fallback = ("\t\t\t\tif (obj == null && !checkedResources)\n"
+                        "\t\t\t\t{\n"
+                        "\t\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n"
+                        "\t\t\t\t\t{\n"
+                        "\t\t\t\t\t\tval = resourceObj;\n"
+                        "\t\t\t\t\t});\n"
+                        "\t\t\t\t}")
+            fallback_repaired = fallback.replace("val = resourceObj;", "obj = resourceObj;")
+            if source.count(fallback) != 1:
+                raise ValueError(f"Assets.DoLoadAsync resource fallback anchor changed: {path}")
+            source = source.replace(fallback, fallback_repaired, 1)
+            changes.append("restore EB.Assets.DoLoadAsync iterator captures from original IL")
+        elif "T val;" in source and "AssetBundleManager.Instance.LoadAsync" in source:
+            raise ValueError(f"Assets.DoLoadAsync IL repair anchor changed: {path}")
+    if path.as_posix().endswith("EB/AssetManager.cs"):
+        # The original LoadInternal iterator captures path, assetType, the two
+        # size estimates, and hold. ILSpy emitted unrelated default locals
+        # instead of those closure fields, so every asset load callback used
+        # null/zero values and could not complete the registry load. The
+        # iterator field list and callback IL in Assembly-CSharp.il provide
+        # the exact replacements below.
+        replacements = (
+            ("\t\tstring path2 = default(string);\n", ""),
+            ("\t\t\tloadingInfo = _AssetLoads.Find((LoadingInfo info) => info.Path.Equals(path2));",
+             "\t\t\tloadingInfo = _AssetLoads.Find((LoadingInfo info) => info.Path.Equals(path));"),
+            ("\t\tint assetType2 = default(int);\n"
+             "\t\tfloat estimatedSize2 = default(float);\n"
+             "\t\tfloat estimatedInstantiatedSize2 = default(float);\n"
+             "\t\tbool hold2 = default(bool);\n"
+             "\t\tAssets.LoadAsync(path, delegate(UnityEngine.Object obj)\n"
+             "\t\t{\n"
+             "\t\t\tfuseTimer.Stop();\n"
+             "\t\t\tif (obj == null)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tDebug.LogError(\"[AssetManager.Load] ERROR - The requested object ({0}) does not exist with the specified path ({1}s)\", path2, Time.realtimeSinceStartup);\n"
+             "\t\t\t}\n"
+             "\t\t\telse\n"
+             "\t\t\t{\n"
+             "\t\t\t\tloadedObject = new LoadedObject(path2, obj, assetType2, priority, estimatedSize2, estimatedInstantiatedSize2);\n"
+             "\t\t\t\tAddToAssetRegistry(loadedObject);\n"
+             "\t\t\t}\n"
+             "\t\t\tloadingInfo.OnLoaded(obj);\n"
+             "\t\t\tif (hold2)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tHold(path2, assetType2, hold: true);\n"
+             "\t\t\t}\n"
+             "\t\t\tif (_UnloadUnusedAssetsDelayed)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tUnloadUnusedAssetsInternal();\n"
+             "\t\t\t}\n"
+             "\t\t\t_AssetLoads.Remove(loadingInfo);\n"
+             "\t\t\t_CanAttemptToUnloadUnusedAssets = true;\n"
+             "\t\t});\n",
+             "\t\tAssets.LoadAsync(path, delegate(UnityEngine.Object obj)\n"
+             "\t\t{\n"
+             "\t\t\tfuseTimer.Stop();\n"
+             "\t\t\tif (obj == null)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tDebug.LogError(\"[AssetManager.Load] ERROR - The requested object ({0}) does not exist with the specified path ({1}s)\", path, Time.realtimeSinceStartup);\n"
+             "\t\t\t}\n"
+             "\t\t\telse\n"
+             "\t\t\t{\n"
+             "\t\t\t\tloadedObject = new LoadedObject(path, obj, assetType, priority, estimatedSize, estimatedInstantiatedSize);\n"
+             "\t\t\t\tAddToAssetRegistry(loadedObject);\n"
+             "\t\t\t}\n"
+             "\t\t\tloadingInfo.OnLoaded(obj);\n"
+             "\t\t\tif (hold)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tHold(path, assetType, hold: true);\n"
+             "\t\t\t}\n"
+             "\t\t\tif (_UnloadUnusedAssetsDelayed)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tUnloadUnusedAssetsInternal();\n"
+             "\t\t\t}\n"
+             "\t\t\t_AssetLoads.Remove(loadingInfo);\n"
+             "\t\t\t_CanAttemptToUnloadUnusedAssets = true;\n"
+             "\t\t});\n"),
+        )
+        stale_anchors = [old for old, _ in replacements if old in source]
+        if stale_anchors:
+            if len(stale_anchors) != len(replacements):
+                raise ValueError(f"AssetManager.LoadInternal IL repair anchors partially changed: {path}")
+            for old, new in replacements:
+                if source.count(old) != 1:
+                    raise ValueError(f"AssetManager.LoadInternal IL repair anchor changed: {path}: {old[:80]}")
+                source = source.replace(old, new, 1)
+            changes.append("restore EB.AssetManager.LoadInternal closure captures from original IL")
+    if disable_push and path.as_posix().endswith("EB.Sparx/Hub.cs"):
+        old = "if (Config.UsePush)"
+        new = "if (false && Config.UsePush)"
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("disable optional PushManager registration for the offline snapshot; "
+                           "the revival server has no push websocket contract")
+    if runtime_diagnostics:
+        if path.as_posix().endswith("TransformersLoginListener.cs"):
+            probes = [
+                ('public override void OnLoggedIn()\n\t{\n\t\tbase.OnLoggedIn();',
+                 'public override void OnLoggedIn()\n\t{\n\t\tbase.OnLoggedIn();\n'
+                 '\t\tUnityEngine.Debug.Log("MONO login listener OnLoggedIn");'),
+                ('Action onComplete = delegate\n\t\t{',
+                 'Action onComplete = delegate\n\t\t{\n'
+                 '\t\t\tUnityEngine.Debug.Log("MONO login flow callback");'),
+                ('FlowManager.Instance.StartFlow(new HomeFlow(), delegate',
+                 'UnityEngine.Debug.Log("MONO starting HomeFlow");\n\t\t\t\tFlowManager.Instance.StartFlow(new HomeFlow(), delegate'),
+                ('Coroutines.Run(FlowManager.Instance, FlowManager.Instance.StartFTEFlow(new FTEFlow(), delegate',
+                 'UnityEngine.Debug.Log("MONO starting FTEFlow");\n\t\t\t\tCoroutines.Run(FlowManager.Instance, FlowManager.Instance.StartFTEFlow(new FTEFlow(), delegate'),
+            ]
+            for old, new in probes:
+                count = source.count(old)
+                if count != (2 if "StartFTEFlow" in old else 1):
+                    raise ValueError(f"Runtime diagnostic anchor changed: {path}: {old}")
+                source = source.replace(old, new, count)
+                changes.append("add bounded Mono login-flow diagnostic at " + old.splitlines()[0] +
+                               (f" ({count} sites)" if count > 1 else ""))
+        if path.as_posix().endswith("Quests.Presentation/GameboardManager.cs"):
+            probes = [
+                ('TFormAssetManager.Instance.LoadAndUse("assets_base/BaseRoot",',
+                 'UnityEngine.Debug.Log("MONO request base asset");\n\t\t\tTFormAssetManager.Instance.LoadAndUse("assets_base/BaseRoot",'),
+                ('private void OnBaseBoardLoaded(GameObject go)\n\t{\n\t\tStartCoroutine',
+                 'private void OnBaseBoardLoaded(GameObject go)\n\t{\n'
+                 '\t\tUnityEngine.Debug.Log("MONO base asset callback " + ((go == null) ? "null" : "object"));\n'
+                 '\t\tStartCoroutine'),
+            ]
+            for old, new in probes:
+                if source.count(old) != 1:
+                    raise ValueError(f"Runtime diagnostic anchor changed: {path}: {old}")
+                source = source.replace(old, new, 1)
+                changes.append("add bounded Mono base-asset diagnostic at " + old.splitlines()[0])
+        if path.as_posix().endswith("HomeFlow.cs"):
+            old = 'private void OnBaseBoardLoaded(BaseBoard bb)\n\t{'
+            new = old + '\n\t\tUnityEngine.Debug.Log("MONO HomeFlow base callback");'
+            if source.count(old) != 1:
+                raise ValueError(f"Runtime diagnostic anchor changed: {path}: {old}")
+            source = source.replace(old, new, 1)
+            changes.append("add bounded Mono HomeFlow base callback diagnostic")
+        probes = {
+            "EB.Sparx/Hub.cs": [
+                ('case SubSystemState.Error:', 'case SubSystemState.Error:\n'
+                 '\t\t\t\tUnityEngine.Debug.LogError("MONO subsystem error: " + subsystem.Name);'),
+                ('public void FatalError(string error)\n\t{',
+                 'public void FatalError(string error)\n\t{\n'
+                 '\t\tUnityEngine.Debug.LogError("MONO fatal: " + error);'),
+                ('State = HubState.Connected;', 'State = HubState.Connected;\n'
+                 '\t\tUnityEngine.Debug.Log("MONO hub connected");'),
+                ('if (Config.LoginConfig.Listener != null)\n\t\t{\n\t\t\tConfig.LoginConfig.Listener.OnLoggedIn();',
+                 'if (Config.LoginConfig.Listener != null)\n\t\t{\n'
+                 '\t\t\tUnityEngine.Debug.Log("MONO invoking login listener");\n'
+                 '\t\t\tConfig.LoginConfig.Listener.OnLoggedIn();'),
+            ],
+            "EB.Sparx/PushManager.cs": [
+                ('base.State = SubSystemState.Error;', 'base.State = SubSystemState.Error;\n'
+                 '\t\t\tUnityEngine.Debug.LogError("MONO push token missing websocket");'),
+            ],
+        }
+        for old, new in probes.get(path.as_posix(), []):
+            if source.count(old) != 1:
+                raise ValueError(f"Runtime diagnostic anchor changed: {path}: {old}")
+            source = source.replace(old, new, 1)
+            changes.append("add bounded Mono runtime diagnostic at " + old.splitlines()[0])
     if disable_google_play_games and path.as_posix().endswith("EB.Sparx/Hub.cs"):
         old = "if (Config.UseGooglePlayGames && !flag)"
         new = "if (false && Config.UseGooglePlayGames && !flag)"
@@ -1185,7 +1384,8 @@ def dependency_order(workspace, names):
 
 def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                   repair_accessors=False, repair_contracts=False, server_endpoint=None,
-                  disable_google_play_games=False):
+                  disable_google_play_games=False, runtime_diagnostics=False,
+                  disable_push=False):
     """Compile recovered game code against the APK's own framework, without NuGet."""
     manifest = json.loads((workspace / "manifest.json").read_text())
     # Verify input provenance before using assemblies as compiler references.
@@ -1219,6 +1419,14 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
         report["server_endpoint"] = server_endpoint
     if disable_google_play_games:
         report["disable_google_play_games"] = True
+    if runtime_diagnostics:
+        if not repair_contracts:
+            raise ValueError("runtime diagnostics require --repair-contracts")
+        report["runtime_diagnostics"] = True
+    if disable_push:
+        if not repair_contracts:
+            raise ValueError("disabling push requires --repair-contracts")
+        report["disable_push"] = True
     compiled_refs = {}
     for name in names:
         sources = sorted((workspace / "source" / name).rglob("*.cs"))
@@ -1239,7 +1447,8 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                     changes.append({"path": relative.as_posix(), "explicit_getters": count})
             if repair_contracts:
                 text, contract_changes = normalize_source_contracts(
-                    relative, text, server_endpoint, disable_google_play_games)
+                    relative, text, server_endpoint, disable_google_play_games, runtime_diagnostics,
+                    disable_push)
                 if contract_changes:
                     changes.append({"path": relative.as_posix(), "contracts": contract_changes})
             target.write_text(text)
@@ -1336,6 +1545,10 @@ def main():
                        help="Route Setup.ApiEndPoint to this revival HTTP(S) endpoint in the isolated snapshot")
     audit.add_argument("--disable-google-play-games", action="store_true",
                        help="Disable GooglePlayGamesManager registration in the isolated offline snapshot")
+    audit.add_argument("--runtime-diagnostics", action="store_true",
+                       help="Log Mono subsystem/fatal transitions in the isolated snapshot")
+    audit.add_argument("--disable-push", action="store_true",
+                       help="Disable optional PushManager registration in the isolated offline snapshot")
     args = parser.parse_args()
     try:
         if args.command == "export":
@@ -1355,7 +1568,8 @@ def main():
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
                              args.reference_dir, args.assembly, args.repair_accessors,
                              args.repair_contracts, args.server_endpoint,
-                             args.disable_google_play_games)
+                             args.disable_google_play_games, args.runtime_diagnostics,
+                             args.disable_push)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Error: {error}\n")
 
