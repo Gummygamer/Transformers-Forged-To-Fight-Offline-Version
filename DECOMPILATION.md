@@ -129,6 +129,13 @@ Those are now the next evidence-recovery targets; no values have been guessed an
 original export remains unchanged. The expanded report is under the ignored
 `build/decompilation/mono-2fviys29/compile-*/report.json` output.
 
+A follow-up audit of `UnityEngine`, `UnityEngine.Networking`, and `UnityEngine.UI` compiled
+the latter two after restoring the `Hash128` and `NetworkSceneId` inequality operators and
+removing six invalid `virtual` modifiers from explicit UI interface implementations in the
+isolated snapshot. `UnityEngine` itself remains blocked only by `UnityLogWriter` inheriting
+the abstract `TextWriter.Encoding` member that is absent from the original IL; its encoding
+cannot be recovered from that assembly and has therefore not been invented.
+
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against
 the offline server. The 2.0.2 protocol and assets

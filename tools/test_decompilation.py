@@ -74,6 +74,32 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(normalize_source_contracts(Path("MethodCall.cs"), repaired),
                          (repaired, []))
 
+    def test_unity_contract_repairs_restore_operators_and_interface_methods(self):
+        hash_source = ("namespace UnityEngine;\npublic struct Hash128\n{\n"
+                       "\tpublic static bool operator ==(Hash128 hash1, Hash128 hash2)\n"
+                       "\t{\n\t\treturn hash1.m == hash2.m;\n\t}\n}\n")
+        repaired, changes = normalize_source_contracts(Path("Hash128.cs"), hash_source)
+        self.assertIn("operator !=(Hash128 left, Hash128 right)", repaired)
+        self.assertIn("return !(left == right);", repaired)
+        self.assertEqual(len(changes), 1)
+
+        network_source = ("namespace UnityEngine.Networking;\npublic struct NetworkSceneId\n{\n"
+                          "\tpublic static bool operator ==(NetworkSceneId c1, NetworkSceneId c2)\n"
+                          "\t{\n\t\treturn c1.m == c2.m;\n\t}\n}\n")
+        repaired, changes = normalize_source_contracts(Path("NetworkSceneId.cs"), network_source)
+        self.assertIn("operator !=(NetworkSceneId left, NetworkSceneId right)", repaired)
+        self.assertEqual(len(changes), 1)
+
+        ui_source = ("namespace UnityEngine.UI;\npublic class Graphic\n{\n"
+                     "\tvirtual bool ICanvasElement.IsDestroyed()\n\t{\n"
+                     "\t\treturn IsDestroyed();\n\t}\n"
+                     "\tvirtual Transform ICanvasElement.get_transform()\n\t{\n"
+                     "\t\treturn base.transform;\n\t}\n}\n")
+        repaired, changes = normalize_source_contracts(Path("Graphic.cs"), ui_source)
+        self.assertNotIn("virtual bool ICanvasElement", repaired)
+        self.assertNotIn("virtual Transform ICanvasElement", repaired)
+        self.assertEqual(len(changes), 1)
+
     def test_recovered_switch_contracts_restore_explicit_cases(self):
         fixtures = [
             (Path("BattleArbiter.cs"),

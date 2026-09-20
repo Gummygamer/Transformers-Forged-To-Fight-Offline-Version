@@ -147,6 +147,27 @@ def normalize_source_contracts(path, source):
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
+    if path.name in {"Hash128.cs", "NetworkSceneId.cs"} and "operator ==" in source:
+        type_name = "Hash128" if path.name == "Hash128.cs" else "NetworkSceneId"
+        if f"operator !=({type_name}" not in source:
+            equality = re.search(
+                rf"(?ms)(\tpublic static bool operator ==\({type_name} [^{{]+\{{.*?\n\t\}})\n",
+                source)
+            if equality:
+                source = source[:equality.end()] + (
+                    f"\n\tpublic static bool operator !=({type_name} left, {type_name} right)\n"
+                    "\t{\n"
+                    "\t\treturn !(left == right);\n"
+                    "\t}\n"
+                ) + source[equality.end():]
+                changes.append(f"restore {type_name} inequality operator for C# contract")
+    if (path.name in {"InputField.cs", "ScrollRect.cs", "Graphic.cs", "Slider.cs",
+                      "Toggle.cs", "Scrollbar.cs"}
+            and "namespace UnityEngine.UI;" in source):
+        source, count = re.subn(r"(?m)^\tvirtual (bool ICanvasElement\.|Transform ICanvasElement\.)",
+                                r"\t\1", source)
+        if count:
+            changes.append(f"remove {count} invalid virtual explicit interface modifiers")
     if path.name == "MethodCall.cs" and "namespace Facebook.Unity;" in source:
         # Original MethodCall<T> metadata retains these private fields and
         # setter-only properties (setters at RVAs 0x65b8 / 0x65c4). ILSpy
