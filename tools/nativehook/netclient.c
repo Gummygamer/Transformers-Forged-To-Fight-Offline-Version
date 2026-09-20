@@ -213,6 +213,12 @@ static void *net_thread(void *unused) {
             socklen_t flen = sizeof from;
             ssize_t got = recvfrom(g_sock, buf, sizeof buf - 1, 0, (struct sockaddr *)&from, &flen);
             if (got >= 0) {
+                /* Only the resolved relay may inject combat state. */
+                if (from.sin_family != AF_INET || from.sin_addr.s_addr != g_server.sin_addr.s_addr ||
+                    from.sin_port != g_server.sin_port) {
+                    logmsg("net: ignored datagram from an unexpected sender");
+                    continue;
+                }
                 buf[got] = 0;
                 while (got && (buf[got - 1] == '\n' || buf[got - 1] == '\r')) buf[--got] = 0;
                 handle_line(buf);
@@ -297,7 +303,6 @@ int tftf_net_start(const char *host, int port, const char *room, const char *pee
         pthread_mutex_unlock(&g_lock);
         return -7;
     }
-    pthread_detach(g_thread);
     logmsg("net: started, relaying room=%s peer=%s to %s:%d", g_room, g_peer, host, port);
     return 0;
 }
@@ -377,7 +382,9 @@ void tftf_net_stop(void) {
      * waiting out the TTL. Best effort: the socket may already be closed. */
     snprintf(bye, sizeof bye, "BYE|%s|%s", g_room, g_peer);
     send_line(bye);
-    usleep(20000);
+    /* Wake poll and join the thread instead of racing it with a fixed sleep. */
+    if (g_sock >= 0) shutdown(g_sock, SHUT_RDWR);
+    pthread_join(g_thread, NULL);
     if (g_sock >= 0) { close(g_sock); g_sock = -1; }
     pthread_mutex_lock(&g_lock);
     g_peer_count = 0;

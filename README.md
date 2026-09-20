@@ -386,6 +386,35 @@ bundled in-apk server remains loopback-only at `127.0.0.1:8080`; do not run it o
 device and port as the phone host. If 8080 is occupied, select another host port and pass
 that port to the client build.
 
+#### Internet tunnel in the PvP Host app
+
+For players on different networks, run the authenticated TLS relay from `tools/internetrelay`
+on a public server with a DNS certificate. The relay needs only its chosen TCP port exposed;
+it does not accept client-supplied destinations and it does not require either phone to accept
+inbound connections:
+
+```sh
+python3 -m tools.internetrelay --host 0.0.0.0 --port 4433 \
+  --cert /etc/tftf-relay/fullchain.pem --key /etc/tftf-relay/privkey.pem
+```
+
+Build and install the current `TFTF PvP Host` app. Enable **Use a relay**, enter the relay DNS
+name and port, leave the role as **Host**, generate an invitation, and start the service. Share
+the invitation text with exactly one other player through a private channel. On the other phone,
+enable the same relay settings, choose **Join**, paste the invitation, and start the service.
+Both apps show **Tunnel ready** before the game should be launched. Configure both game APKs to
+use the loopback endpoint shown by the app (normally `--server-host 127.0.0.1 --server-port
+8080`); the host app forwards its local server and the join app exposes the remote server on the
+same loopback address. The combat bridge likewise exposes loopback UDP `8777` for the optional
+live-fight hook.
+
+For the optional real-time Arena path, build each modified game APK with a distinct peer label:
+`Server/build_arena_hook.sh --internet --peer player-one` and `--peer player-two`. The hook is
+arm64-only; ordinary async matchmaking does not need it. Stopping the app, leaving a match, or
+losing the relay closes both channels. Start the service again to create a fresh connection;
+the invitation remains valid until the relay session expires. LAN hosting remains the default
+when **Use a relay** is off, and the relay is not bundled into the APK or Android app.
+
 Two limits are worth understanding before trying this.
 
 First, retail TFTF Arena is asynchronous by design: an unmodified client fights a local AI copy

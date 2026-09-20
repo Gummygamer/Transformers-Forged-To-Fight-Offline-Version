@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build the arm64 runtime hook with the optional LAN Arena fight relay enabled.
+# Build the arm64 runtime hook with the optional Arena fight relay enabled.
 #
 # Build one hook per device, changing --peer for each APK.  The resulting hook is
 # picked up by build_phone_apk.lbl, so build the hook immediately before building
-# that device's separated-server APK.  The relay must be reachable directly over
-# UDP from both devices; adb reverse only carries TCP and is not suitable here.
+# that device's separated-server APK. Legacy LAN mode uses a UDP relay address;
+# Internet mode targets the companion app's loopback combat bridge.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,14 +13,17 @@ OUTPUT="$NATIVEHOOK/libdothook.so"
 RELAY_HOST=""
 RELAY_PORT="8777"
 PEER=""
+INTERNET_MODE=0
 
 usage() {
   cat <<'EOF'
-usage: Server/build_arena_hook.sh --relay-host HOST --peer NAME [--relay-port PORT] [--output FILE]
+usage: Server/build_arena_hook.sh (--relay-host HOST | --internet) --peer NAME [--relay-port PORT] [--output FILE]
 
-Builds the arm64 libdothook.so used by a separated-LAN Arena APK. HOST must be
-the LAN/tunnel address at which tools/netrelay/netrelay is listening. Build a
-separate hook/APK for each device with a distinct peer NAME.
+Builds the arm64 libdothook.so used by a separated-server Arena APK. HOST must
+be the LAN/tunnel address at which tools/netrelay/netrelay is listening. With
+--internet, the hook targets 127.0.0.1:8777, owned by the companion app's
+authenticated TLS tunnel. Build a separate hook/APK for each device with a
+distinct peer NAME.
 EOF
 }
 
@@ -29,6 +32,7 @@ while (($#)); do
     --relay-host) RELAY_HOST="${2:-}"; shift 2 ;;
     --relay-port) RELAY_PORT="${2:-}"; shift 2 ;;
     --peer) PEER="${2:-}"; shift 2 ;;
+    --internet) INTERNET_MODE=1; shift ;;
     --output) OUTPUT="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
@@ -37,7 +41,12 @@ done
 
 # These values become C string literals. Restrict them rather than making a shell
 # quoting mistake turn a build argument into a compiler directive.
-[[ "$RELAY_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "--relay-host must be an IPv4 address or hostname." >&2; exit 2; }
+if (( INTERNET_MODE )); then
+  [[ -z "$RELAY_HOST" ]] || { echo "--internet cannot be combined with --relay-host." >&2; exit 2; }
+  RELAY_HOST="127.0.0.1"
+else
+  [[ "$RELAY_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "--relay-host or --internet is required." >&2; exit 2; }
+fi
 [[ "$PEER" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "--peer must contain only letters, digits, dot, underscore, or dash." >&2; exit 2; }
 [[ "$RELAY_PORT" =~ ^[0-9]+$ ]] && (( RELAY_PORT >= 1 && RELAY_PORT <= 65535 )) || { echo "--relay-port must be between 1 and 65535." >&2; exit 2; }
 

@@ -10,6 +10,8 @@ import com.gummygamer.tftfpvphost.server.HostConfig
 import com.gummygamer.tftfpvphost.server.HostMessages
 import com.gummygamer.tftfpvphost.server.HostRuntime
 import com.gummygamer.tftfpvphost.server.StartResult
+import com.gummygamer.tftfpvphost.tunnel.TunnelConfig
+import com.gummygamer.tftfpvphost.tunnel.TunnelRuntime
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -34,7 +36,8 @@ class HostService : Service() {
         if (intent?.action == ACTION_STOP) {
             stopHost()
         } else {
-            startHost(configFrom(intent))
+            val tunnel = tunnelFrom(intent)
+            startHost(configFrom(intent, tunnel), tunnel)
         }
         return START_NOT_STICKY
     }
@@ -42,34 +45,68 @@ class HostService : Service() {
     override fun onDestroy() {
         destroyed = true
         lifecycle.shutdownNow()
+        TunnelRuntime.stop()
         HostRuntime.stop()
         releaseWakeLock()
         super.onDestroy()
     }
 
-    private fun configFrom(intent: Intent?): HostConfig = HostConfig(
+    private fun configFrom(intent: Intent?, tunnel: TunnelConfig?): HostConfig = HostConfig(
         port = intent?.getIntExtra(EXTRA_PORT, HostConfig.DEFAULT_PORT) ?: HostConfig.DEFAULT_PORT,
         presenceTtlMs = intent?.getLongExtra(EXTRA_TTL_MS, HostConfig.DEFAULT_PRESENCE_TTL_MS)
             ?: HostConfig.DEFAULT_PRESENCE_TTL_MS,
-        advertisedHost = intent?.getStringExtra(EXTRA_HOST).orEmpty(),
-        rewriteCdn = intent?.getBooleanExtra(EXTRA_REWRITE_CDN, true) ?: true,
+        advertisedHost = if (tunnel != null) "127.0.0.1" else intent?.getStringExtra(EXTRA_HOST).orEmpty(),
+        rewriteCdn = tunnel == null && (intent?.getBooleanExtra(EXTRA_REWRITE_CDN, true) ?: true),
     )
 
-    private fun startHost(config: HostConfig) {
+    private fun tunnelFrom(intent: Intent?): TunnelConfig? {
+        if (intent?.getBooleanExtra(EXTRA_TUNNEL_ENABLED, false) != true) return null
+        val role = if (intent.getStringExtra(EXTRA_TUNNEL_ROLE) == ROLE_JOIN) {
+            TunnelConfig.Role.JOIN
+        } else {
+            TunnelConfig.Role.HOST
+        }
+        return TunnelConfig(
+            relayHost = intent.getStringExtra(EXTRA_RELAY_HOST).orEmpty(),
+            relayPort = intent.getIntExtra(EXTRA_RELAY_PORT, 0),
+            session = intent.getStringExtra(EXTRA_TUNNEL_SESSION).orEmpty(),
+            token = intent.getStringExtra(EXTRA_TUNNEL_TOKEN).orEmpty(),
+            role = role,
+            invite = intent.getStringExtra(EXTRA_TUNNEL_INVITE).orEmpty(),
+            httpPort = if (role == TunnelConfig.Role.HOST) {
+                intent.getIntExtra(EXTRA_PORT, HostConfig.DEFAULT_PORT)
+            } else HostConfig.DEFAULT_PORT,
+            combatPort = TunnelConfig.DEFAULT_COMBAT_PORT,
+        )
+    }
+
+    private fun startHost(config: HostConfig, tunnel: TunnelConfig?) {
         HostNotifications.ensureChannel(this)
         startForeground(
             HostNotifications.NOTIFICATION_ID,
             HostNotifications.build(this, config.advertisedHost, config.port, 0),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         acquireWakeLock()
-        lifecycle.execute { launchServer(config) }
+        lifecycle.execute { launchServer(config, tunnel) }
     }
 
     /** Runs on the lifecycle thread; a failure leaves the runtime stopped and ends the service. */
-    private fun launchServer(config: HostConfig) {
+    private fun launchServer(config: HostConfig, tunnel: TunnelConfig?) {
+        if (tunnel?.role == TunnelConfig.Role.JOIN) {
+            if (!TunnelRuntime.start(tunnel)) stopSelf()
+            return
+        }
         val result = loadPayload()?.let { HostRuntime.startServing(it, config, PvpHost.hookFactory(stateDir())) }
+        if (result is StartResult.Started && tunnel != null && !TunnelRuntime.start(tunnel)) {
+            HostRuntime.stop()
+            stopSelf()
+            return
+        }
         // onDestroy may have run while the start was in flight; never leave an orphan listener.
-        if (destroyed) HostRuntime.stop()
+        if (destroyed) {
+            TunnelRuntime.stop()
+            HostRuntime.stop()
+        }
         if (result is StartResult.Started) return
         stopSelf()
     }
@@ -87,7 +124,10 @@ class HostService : Service() {
     }
 
     private fun stopHost() {
-        lifecycle.execute { HostRuntime.stop() }
+        lifecycle.execute {
+            TunnelRuntime.stop()
+            HostRuntime.stop()
+        }
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -112,6 +152,14 @@ class HostService : Service() {
         const val EXTRA_TTL_MS = "ttl_ms"
         const val EXTRA_HOST = "advertised_host"
         const val EXTRA_REWRITE_CDN = "rewrite_cdn"
+        const val EXTRA_TUNNEL_ENABLED = "tunnel_enabled"
+        const val EXTRA_RELAY_HOST = "relay_host"
+        const val EXTRA_RELAY_PORT = "relay_port"
+        const val EXTRA_TUNNEL_ROLE = "tunnel_role"
+        const val EXTRA_TUNNEL_SESSION = "tunnel_session"
+        const val EXTRA_TUNNEL_TOKEN = "tunnel_token"
+        const val EXTRA_TUNNEL_INVITE = "tunnel_invite"
+        const val ROLE_JOIN = "join"
         const val PAYLOAD_ASSET = "tftf_payload.bin"
     }
 }

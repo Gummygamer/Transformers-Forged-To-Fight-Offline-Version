@@ -28,6 +28,9 @@ import com.gummygamer.tftfpvphost.ui.ParseError
 import com.gummygamer.tftfpvphost.ui.Parsed
 import com.gummygamer.tftfpvphost.server.HostRuntime
 import com.gummygamer.tftfpvphost.server.HostConfig
+import com.gummygamer.tftfpvphost.tunnel.InvitationCodec
+import com.gummygamer.tftfpvphost.tunnel.TunnelConfig
+import com.gummygamer.tftfpvphost.tunnel.TunnelState
 import kotlinx.coroutines.launch
 
 /** Host screen: start/stop, the address to hand players, live matchmaking state and the server log. */
@@ -41,12 +44,37 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         requestNotificationPermissionIfNeeded()
+        viewModel.ensureInvitation()
         binding.portInput.setText(viewModel.portText)
         binding.ttlInput.setText(viewModel.ttlMsText)
         binding.cdnSwitch.isChecked = viewModel.rewriteCdn
+        binding.internetSwitch.isChecked = viewModel.internetTunnel
+        binding.relayHostInput.setText(viewModel.relayHost)
+        binding.relayPortInput.setText(viewModel.relayPortText)
+        binding.invitationInput.setText(viewModel.invitation)
+        binding.roleGroup.check(if (viewModel.tunnelRole == TunnelConfig.Role.HOST) R.id.hostRole else R.id.joinRole)
         binding.portInput.doAfterTextChanged { onPortEdited(it?.toString().orEmpty()) }
         binding.ttlInput.doAfterTextChanged { onTtlEdited(it?.toString().orEmpty()) }
         binding.cdnSwitch.setOnCheckedChangeListener { _, checked -> viewModel.rewriteCdn = checked }
+        binding.internetSwitch.setOnCheckedChangeListener { _, checked ->
+            viewModel.internetTunnel = checked
+            renderTunnelInputs()
+        }
+        binding.relayHostInput.doAfterTextChanged { viewModel.relayHost = it?.toString().orEmpty() }
+        binding.relayPortInput.doAfterTextChanged { viewModel.relayPortText = it?.toString().orEmpty() }
+        binding.invitationInput.doAfterTextChanged { viewModel.invitation = it?.toString().orEmpty() }
+        binding.roleGroup.addOnButtonCheckedListener { _, checkedId, checked ->
+            if (checked) {
+                viewModel.tunnelRole = if (checkedId == R.id.joinRole) TunnelConfig.Role.JOIN else TunnelConfig.Role.HOST
+                renderTunnelInputs()
+            }
+        }
+        binding.newInviteButton.setOnClickListener {
+            val value = InvitationCodec.encode(TunnelConfig.newInvitation())
+            viewModel.invitation = value
+            binding.invitationInput.setText(value)
+        }
+        binding.copyInviteButton.setOnClickListener { copyInvitation() }
         binding.toggleButton.setOnClickListener { toggle() }
         binding.copyButton.setOnClickListener { copyBuildFlags() }
         binding.resetButton.setOnClickListener { confirmReset() }
@@ -57,6 +85,7 @@ class MainActivity : AppCompatActivity() {
                 viewModel.state.collect { render(it) }
             }
         }
+        renderTunnelInputs()
     }
 
     private fun onPortEdited(text: String) {
@@ -81,7 +110,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun toggle() {
         val intent = Intent(this, HostService::class.java)
-        if (latest.running) {
+        if (latest.running && !canReconnectTunnel(latest)) {
             intent.action = HostService.ACTION_STOP
             startService(intent)
             return
@@ -93,18 +122,54 @@ class MainActivity : AppCompatActivity() {
             onTtlEdited(binding.ttlInput.text.toString())
             return
         }
-        if (latest.addresses.isEmpty()) return
+        val tunnel = if (binding.internetSwitch.isChecked) tunnelConfig() else null
+        if (binding.internetSwitch.isChecked && tunnel == null) return
+        if (tunnel == null && latest.addresses.isEmpty()) return
         intent.putExtra(HostService.EXTRA_PORT, (port as Parsed.Ok).value)
         intent.putExtra(HostService.EXTRA_TTL_MS, (ttl as Parsed.Ok).value)
         intent.putExtra(HostService.EXTRA_HOST, latest.addresses.firstOrNull().orEmpty())
         intent.putExtra(HostService.EXTRA_REWRITE_CDN, binding.cdnSwitch.isChecked)
+        if (tunnel != null) {
+            intent.putExtra(HostService.EXTRA_TUNNEL_ENABLED, true)
+            intent.putExtra(HostService.EXTRA_RELAY_HOST, tunnel.relayHost)
+            intent.putExtra(HostService.EXTRA_RELAY_PORT, tunnel.relayPort)
+            intent.putExtra(HostService.EXTRA_TUNNEL_ROLE, if (tunnel.role == TunnelConfig.Role.JOIN) HostService.ROLE_JOIN else "host")
+            intent.putExtra(HostService.EXTRA_TUNNEL_SESSION, tunnel.session)
+            intent.putExtra(HostService.EXTRA_TUNNEL_TOKEN, tunnel.token)
+            intent.putExtra(HostService.EXTRA_TUNNEL_INVITE, tunnel.invite)
+        }
         ContextCompat.startForegroundService(this, intent)
     }
 
+    private fun tunnelConfig(): TunnelConfig? {
+        val port = binding.relayPortInput.text.toString().trim().toIntOrNull()
+        if (port == null) {
+            binding.tunnelErrorText.text = getString(R.string.error_relay_port_number)
+            return null
+        }
+        val invitation = InvitationCodec.decode(binding.invitationInput.text.toString())
+        if (invitation == null) {
+            binding.tunnelErrorText.text = getString(R.string.error_invitation)
+            return null
+        }
+        val role = if (binding.joinRole.isChecked) TunnelConfig.Role.JOIN else TunnelConfig.Role.HOST
+        val config = if (role == TunnelConfig.Role.HOST) {
+            TunnelConfig(binding.relayHostInput.text.toString(), port, invitation.session, invitation.hostToken, role, invitation.joinToken)
+        } else {
+            TunnelConfig(binding.relayHostInput.text.toString(), port, invitation.session, invitation.joinToken, role)
+        }
+        val error = config.validationError()
+        if (error != null) {
+            binding.tunnelErrorText.text = error
+            return null
+        }
+        binding.tunnelErrorText.text = ""
+        return config
+    }
+
     private fun copyBuildFlags() {
-        val address = latest.addresses.firstOrNull() ?: return
-        val port = (HostInput.port(binding.portInput.text.toString()) as? Parsed.Ok)?.value
-            ?: HostConfig.DEFAULT_PORT
+        val address = if (binding.internetSwitch.isChecked) "127.0.0.1" else latest.addresses.firstOrNull() ?: return
+        val port = endpointPort()
         val flags = getString(R.string.address_flags, address, port)
         getSystemService(ClipboardManager::class.java)
             .setPrimaryClip(ClipData.newPlainText(getString(R.string.card_address), flags))
@@ -124,6 +189,17 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.log_copied, Toast.LENGTH_SHORT).show()
     }
 
+    private fun copyInvitation() {
+        val invitation = binding.invitationInput.text?.toString().orEmpty()
+        if (InvitationCodec.decode(invitation) == null) {
+            binding.tunnelErrorText.text = getString(R.string.error_invitation)
+            return
+        }
+        getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText(getString(R.string.tunnel_invitation), invitation))
+        Toast.makeText(this, R.string.invitation_copied, Toast.LENGTH_SHORT).show()
+    }
+
     private fun confirmReset() {
         AlertDialog.Builder(this)
             .setTitle(R.string.reset_title)
@@ -140,30 +216,60 @@ class MainActivity : AppCompatActivity() {
 
     private fun render(state: HostUiState) {
         latest = state
-        binding.toggleButton.setText(if (state.running) R.string.action_stop else R.string.action_start)
-        binding.statusText.text =
-            if (state.running) getString(
-                R.string.status_running, state.addresses.firstOrNull() ?: "0.0.0.0", state.port)
-            else getString(R.string.status_stopped)
+        binding.toggleButton.setText(if (state.running && !canReconnectTunnel(state)) R.string.action_stop else R.string.action_start)
+        binding.statusText.text = if (binding.internetSwitch.isChecked) {
+            when (state.tunnel.state) {
+                TunnelState.CONNECTING -> getString(R.string.status_tunnel_connecting)
+                TunnelState.READY -> getString(R.string.status_tunnel_ready)
+                TunnelState.FAILED -> getString(R.string.status_tunnel_failed)
+                TunnelState.DISCONNECTED -> getString(R.string.status_tunnel_disconnected)
+                TunnelState.IDLE -> getString(R.string.status_stopped)
+            }
+        } else if (state.hostRunning) {
+            getString(R.string.status_running, state.addresses.firstOrNull() ?: "0.0.0.0", state.port)
+        } else getString(R.string.status_stopped)
         binding.errorText.text = state.error
-        binding.errorText.visibility = if (state.error != null && !state.running) android.view.View.VISIBLE else android.view.View.GONE
+        binding.errorText.visibility = if (state.error != null && !state.hostRunning) android.view.View.VISIBLE else android.view.View.GONE
         binding.portInput.isEnabled = !state.running
         binding.cdnSwitch.isEnabled = !state.running
-        binding.toggleButton.isEnabled = state.running || state.addresses.isNotEmpty()
+        binding.toggleButton.isEnabled = state.running || binding.internetSwitch.isChecked || state.addresses.isNotEmpty()
         renderAddress(state)
-        binding.resetButton.isEnabled = state.running
+        binding.resetButton.isEnabled = state.hostRunning
         binding.peersText.text = MatchmakingText.peers(this, state.status)
         binding.matchesText.text = MatchmakingText.matches(this, state.status)
         binding.resultsText.text = MatchmakingText.results(this, state.status)
+        binding.tunnelStatusText.text = state.tunnel.message.orEmpty()
         renderLog(state.log)
+        renderTunnelInputs()
+    }
+
+    private fun canReconnectTunnel(state: HostUiState): Boolean =
+        binding.internetSwitch.isChecked && state.hostRunning &&
+            state.tunnel.state in setOf(TunnelState.FAILED, TunnelState.DISCONNECTED)
+
+    private fun renderTunnelInputs() {
+        val enabled = binding.internetSwitch.isChecked && !latest.running
+        binding.relayHostInput.isEnabled = enabled
+        binding.relayPortInput.isEnabled = enabled
+        binding.roleGroup.isEnabled = enabled
+        binding.hostRole.isEnabled = enabled
+        binding.joinRole.isEnabled = enabled
+        binding.invitationInput.isEnabled = enabled
+        binding.newInviteButton.isEnabled = enabled && binding.hostRole.isChecked
+        binding.copyInviteButton.isEnabled = binding.internetSwitch.isChecked && binding.hostRole.isChecked
+        binding.cdnSwitch.isEnabled = !latest.running &&
+            (!binding.internetSwitch.isChecked || binding.hostRole.isChecked)
     }
 
     private fun renderAddress(state: HostUiState) {
         val first = state.addresses.firstOrNull()
-        binding.copyButton.isEnabled = first != null
-        binding.addressText.text = first ?: getString(R.string.address_none)
-        val port = if (state.running) state.port else HostInput.port(binding.portInput.text.toString()).let { (it as? Parsed.Ok)?.value }
-        val help = if (first == null) getString(R.string.address_help_none)
+        val tunnelAddress = binding.internetSwitch.isChecked
+        val endpoint = if (tunnelAddress) "127.0.0.1" else first
+        binding.copyButton.isEnabled = endpoint != null
+        binding.addressText.text = endpoint ?: getString(R.string.address_none)
+        val port = endpointPort(state)
+        val help = if (tunnelAddress) getString(R.string.address_help_tunnel)
+        else if (first == null) getString(R.string.address_help_none)
         else getString(R.string.address_help_ready)
         binding.addressHelp.text = help
         binding.addressList.removeAllViews()
@@ -183,16 +289,23 @@ class MainActivity : AppCompatActivity() {
             })
             binding.addressList.addView(row)
         }
-        val commandPort = port ?: HostConfig.DEFAULT_PORT
-        if (first != null) {
-            binding.commandText.text = getString(R.string.address_flags, first, commandPort)
-            binding.fullCommandText.text = getString(R.string.address_command, first, commandPort)
-            binding.patcherHelp.text = getString(R.string.address_patcher, first, commandPort)
+        val commandPort = port
+        if (endpoint != null) {
+            binding.commandText.text = getString(R.string.address_flags, endpoint, commandPort)
+            binding.fullCommandText.text = getString(R.string.address_command, endpoint, commandPort)
+            binding.patcherHelp.text = getString(R.string.address_patcher, endpoint, commandPort)
         } else {
             binding.commandText.text = ""
             binding.fullCommandText.text = ""
             binding.patcherHelp.text = ""
         }
+    }
+
+    private fun endpointPort(state: HostUiState = latest): Int {
+        if (binding.internetSwitch.isChecked && binding.joinRole.isChecked) return TunnelConfig.DEFAULT_HTTP_PORT
+        return if (state.hostRunning) state.port else HostInput.port(binding.portInput.text.toString()).let {
+            (it as? Parsed.Ok)?.value
+        } ?: HostConfig.DEFAULT_PORT
     }
 
     private fun renderLog(lines: List<String>) {
