@@ -272,6 +272,152 @@ def metadata_api_surface(metadata):
             "types": types}
 
 
+def _named_items(items, key="name"):
+    return {item[key]: item for item in items}
+
+
+def _value_difference(original, compiled):
+    if original == compiled:
+        return None
+    return {"original": original, "compiled": compiled}
+
+
+def metadata_contract_diff(original, compiled):
+    """Compare two helper models without loading either managed assembly.
+
+    This is a contract diff, not a semantic or runtime comparison. It reports
+    added/removed/changed metadata so an isolated compiler output can be reviewed
+    before anyone considers it for substitution.
+    """
+    differences = {}
+    for key in ("identity", "metadata_version", "machine", "cor_flags", "module_name",
+                "assembly_attributes", "module_attributes"):
+        change = _value_difference(original.get(key), compiled.get(key))
+        if change is not None:
+            differences[key] = change
+
+    original_references = _named_items(original["references"])
+    compiled_references = _named_items(compiled["references"])
+    reference_diff = {
+        "added": sorted(set(compiled_references) - set(original_references)),
+        "removed": sorted(set(original_references) - set(compiled_references)),
+        "changed": {name: _value_difference(original_references[name], compiled_references[name])
+                    for name in sorted(set(original_references) & set(compiled_references))
+                    if original_references[name] != compiled_references[name]},
+    }
+    if any(reference_diff.values()):
+        differences["references"] = reference_diff
+
+    original_resources = _named_items(original["resources"])
+    compiled_resources = _named_items(compiled["resources"])
+    resource_diff = {
+        "added": sorted(set(compiled_resources) - set(original_resources)),
+        "removed": sorted(set(original_resources) - set(compiled_resources)),
+        "changed": {name: _value_difference(original_resources[name], compiled_resources[name])
+                    for name in sorted(set(original_resources) & set(compiled_resources))
+                    if original_resources[name] != compiled_resources[name]},
+    }
+    if any(resource_diff.values()):
+        differences["resources"] = resource_diff
+
+    original_types = original["types"]
+    compiled_types = compiled["types"]
+    type_diff = {
+        "added": sorted(set(compiled_types) - set(original_types)),
+        "removed": sorted(set(original_types) - set(compiled_types)),
+        "changed": {},
+    }
+    for name in sorted(set(original_types) & set(compiled_types)):
+        old = original_types[name]
+        new = compiled_types[name]
+        change = {}
+        for key in ("flags", "base_type", "layout", "generics", "attributes",
+                    "interfaces", "method_impls", "field_order", "properties", "events"):
+            value = _value_difference(old.get(key), new.get(key))
+            if value is not None:
+                change[key] = value
+
+        old_fields = old["fields"]
+        new_fields = new["fields"]
+        field_diff = {
+            "added": sorted(set(new_fields) - set(old_fields)),
+            "removed": sorted(set(old_fields) - set(new_fields)),
+            "changed": {field: _value_difference(old_fields[field], new_fields[field])
+                        for field in sorted(set(old_fields) & set(new_fields))
+                        if old_fields[field] != new_fields[field]},
+        }
+        if any(field_diff.values()):
+            change["fields"] = field_diff
+
+        old_methods = old["methods"]
+        new_methods = new["methods"]
+        method_diff = {
+            "added": sorted(set(new_methods) - set(old_methods)),
+            "removed": sorted(set(old_methods) - set(new_methods)),
+            "changed": {method: _value_difference(old_methods[method], new_methods[method])
+                        for method in sorted(set(old_methods) & set(new_methods))
+                        if old_methods[method] != new_methods[method]},
+        }
+        if any(method_diff.values()):
+            change["methods"] = method_diff
+        if change:
+            type_diff["changed"][name] = change
+    if any(type_diff.values()):
+        differences["types"] = type_diff
+
+    changed_types = len(type_diff["changed"])
+    changed_fields = sum(len(value.get("fields", {}).get("changed", {}))
+                         for value in type_diff["changed"].values())
+    changed_methods = sum(len(value.get("methods", {}).get("changed", {}))
+                          for value in type_diff["changed"].values())
+    return {"equal": not differences,
+            "summary": {"original_type_count": len(original_types),
+                        "compiled_type_count": len(compiled_types),
+                        "added_type_count": len(type_diff["added"]),
+                        "removed_type_count": len(type_diff["removed"]),
+                        "changed_type_count": changed_types,
+                        "changed_field_count": changed_fields,
+                        "changed_method_count": changed_methods},
+            "differences": differences}
+
+
+def metadata_compare(workspace, dotnet, metadata_tool, compiled_dir, assemblies=None):
+    """Compare isolated compiled DLLs with the original managed inputs."""
+    manifest = json.loads((workspace / "manifest.json").read_text())
+    rows = {Path(row["name"]).stem: row for row in manifest["assemblies"]}
+    names = assemblies or sorted(rows)
+    if any(name not in rows for name in names):
+        raise ValueError("Select assembly names present in the export manifest")
+    compiled_dir = compiled_dir.resolve()
+    report_dir = Path(tempfile.mkdtemp(prefix="metadata-compare-", dir=workspace))
+    report = {"schema": 1,
+              "scope": "original PE metadata compared with isolated compiled PE metadata",
+              "evidence": "System.Reflection.Metadata; neither assembly is loaded",
+              "manifest_input": manifest.get("input"),
+              "manifest_sha256": hashlib.sha256((workspace / "manifest.json").read_bytes()).hexdigest(),
+              "compiled_directory": str(compiled_dir), "runtime_verified": False,
+              "assemblies": []}
+    for name in names:
+        row = rows[name]
+        original_path = workspace / "managed" / row["name"]
+        compiled_path = compiled_dir / row["name"]
+        if digest(original_path) != row["sha256"]:
+            raise ValueError(f"Assembly changed since export: {row['name']}")
+        if not compiled_path.is_file():
+            raise ValueError(f"Compiled assembly not found: {compiled_path}")
+        original = json.loads(subprocess.check_output(
+            [dotnet, str(metadata_tool), str(original_path)], text=True))
+        compiled = json.loads(subprocess.check_output(
+            [dotnet, str(metadata_tool), str(compiled_path)], text=True))
+        report["assemblies"].append({"name": name,
+                                     "original_sha256": row["sha256"],
+                                     "compiled_sha256": digest(compiled_path),
+                                     "comparison": metadata_contract_diff(original, compiled)})
+    save(report_dir / "report.json", report)
+    print(f"Report: {report_dir / 'report.json'}")
+    return 0
+
+
 def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
     """Compare a source declaration inventory with facts read from PE metadata.
 
@@ -786,6 +932,15 @@ def main():
     metadata.add_argument("--metadata-tool", required=True, type=Path,
                           help="Built MonoMetadata .NET tool assembly")
     metadata.add_argument("--assembly", action="append", help="Assembly name without .dll (repeatable)")
+    compare = commands.add_parser("metadata-compare",
+                                  help="Compare isolated compiled metadata with original PE metadata")
+    compare.add_argument("workspace", type=Path)
+    compare.add_argument("--dotnet", default="dotnet")
+    compare.add_argument("--metadata-tool", required=True, type=Path,
+                         help="Built MonoMetadata .NET tool assembly")
+    compare.add_argument("--compiled-dir", required=True, type=Path,
+                         help="Directory containing isolated compiled DLLs")
+    compare.add_argument("--assembly", action="append", help="Assembly name without .dll (repeatable)")
     plan = commands.add_parser("replacement-plan", help="Report the managed dependency closure for replacement roots")
     plan.add_argument("workspace", type=Path)
     plan.add_argument("--dotnet", default="dotnet")
@@ -813,6 +968,10 @@ def main():
         if args.command == "metadata-audit":
             return metadata_audit(args.workspace.resolve(), args.dotnet,
                                   args.metadata_tool.resolve(), args.assembly)
+        if args.command == "metadata-compare":
+            return metadata_compare(args.workspace.resolve(), args.dotnet,
+                                    args.metadata_tool.resolve(), args.compiled_dir,
+                                    args.assembly)
         if args.command == "replacement-plan":
             return replacement_plan(args.workspace.resolve(), args.dotnet,
                                     args.metadata_tool.resolve(), args.root)

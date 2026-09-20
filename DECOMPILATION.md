@@ -184,6 +184,27 @@ against that observation; neither section claims behavioral equivalence or Unity
 compatibility. The managed-input SHA-256 is checked against `manifest.json` before each
 report is produced.
 
+To compare an isolated compiler output with its original APK assembly, use the
+metadata-only diff. It reads both PE files through the helper, records both hashes, and
+does not load or install either assembly:
+
+```bash
+python3 tools/decompilation.py metadata-compare build/decompilation/mono-XXXX \
+  --dotnet /home/darabat/.dotnet/dotnet \
+  --metadata-tool tools/mono_metadata/bin/Debug/net8.0/MonoMetadata.dll \
+  --compiled-dir build/decompilation/mono-XXXX/compile-XXXX/bin \
+  --assembly Assembly-CSharp-firstpass --assembly Assembly-CSharp
+```
+
+The diff reports assembly identity, references, resources, type inheritance and flags,
+attributes, overload signatures, fields, methods, properties, events, and field layout
+changes. On the current isolated audit outputs, all four compiled identities match their
+original identities, but the game roots are not metadata-equivalent: compiler-generated
+closure types use different names, the .NET 2.0/3.5 reference inputs emit different
+framework versions/public-key tokens than the APK's `2.0.5.0` framework references, and
+the compiled firstpass output carries an additional `Assembly-CSharp` reference. These
+are compatibility work items, not evidence that the DLLs can replace the APK originals.
+
 For the playable-client boundary, `replacement-plan` computes the transitive closure of
 explicit replacement roots using both PE assembly references and ILSpy project references:
 

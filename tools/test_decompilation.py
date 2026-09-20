@@ -9,8 +9,8 @@ from unittest.mock import patch
 import zipfile
 
 from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
-                           export_il, normalize_accessors, normalize_source_contracts,
-                           metadata_api_surface, replacement_closure,
+                           export_il, metadata_api_surface, metadata_contract_diff,
+                           normalize_accessors, normalize_source_contracts, replacement_closure,
                            source_declaration_inventory)
 
 
@@ -58,6 +58,30 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(bot["fields"][0]["visibility"], "assembly")
         self.assertEqual(bot["methods"][0]["signature"], "I4:0:0(System.String)")
         self.assertEqual(bot["methods"][0]["visibility"], "public")
+
+    def test_metadata_contract_diff_reports_api_and_layout_changes(self):
+        original = {
+            "identity": {"name": "Example"}, "metadata_version": "v2", "machine": "I386",
+            "cor_flags": "ILOnly", "module_name": "Example.dll", "assembly_attributes": [],
+            "module_attributes": [], "references": [{"name": "mscorlib", "version": "2.0.0.0"}],
+            "resources": [], "types": {
+                "Demo.Bot": {"flags": 1, "base_type": "Object", "layout": {"size": -1},
+                              "generics": [], "attributes": [], "interfaces": [],
+                              "method_impls": [], "field_order": ["health"],
+                              "fields": {"health": {"signature": "I4", "flags": 3}},
+                              "methods": {"Attack:I4": {"flags": 6}},
+                              "properties": [], "events": []}
+            }
+        }
+        compiled = json.loads(json.dumps(original))
+        compiled["references"][0]["version"] = "3.5.0.0"
+        compiled["types"]["Demo.Bot"]["fields"]["health"]["flags"] = 6
+        compiled["types"]["Demo.Bot"]["methods"]["Attack:I4"]["flags"] = 38
+        diff = metadata_contract_diff(original, compiled)
+        self.assertFalse(diff["equal"])
+        self.assertIn("references", diff["differences"])
+        self.assertEqual(diff["summary"]["changed_field_count"], 1)
+        self.assertEqual(diff["summary"]["changed_method_count"], 1)
 
     def test_zip_rejects_traversal_and_case_collisions(self):
         for extra in ("../escape.dll", "ASSEMBLY-CSHARP.dll"):
