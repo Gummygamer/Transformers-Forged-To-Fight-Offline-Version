@@ -117,6 +117,69 @@ def recover(apk, ilspy):
     return 0 if manifest["status"] == "exported" else 1
 
 
+def export_il(workspace, ilspy):
+    """Disassemble every original managed input, with provenance and no repairs.
+
+    IL represents retained metadata and instructions, including contracts that
+    C# cannot express. Export success does not certify semantic equivalence or
+    recover code stripped before the supplied APK was built.
+    """
+    manifest_path = workspace / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    rows = manifest["assemblies"]
+    if manifest.get("backend") != "mono" or not rows:
+        raise ValueError("Expected a nonempty Mono export manifest")
+    names = set()
+    for row in rows:
+        name = row["name"]
+        if (not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*\.dll", name)
+                or name.casefold() in names):
+            raise ValueError(f"Invalid or duplicate managed assembly name: {name}")
+        names.add(name.casefold())
+        if digest(workspace / "managed" / name) != row["sha256"]:
+            raise ValueError(f"Assembly changed since export: {name}")
+    tool = shutil.which(ilspy)
+    if tool is None:
+        raise ValueError(f"ILSpy executable not found: {ilspy}")
+    version = subprocess.check_output([tool, "--version"], text=True).strip()
+    out = Path(tempfile.mkdtemp(prefix="il-", dir=workspace))
+    report = {"schema": 1, "scope": "original managed IL; no source repairs",
+              "manifest_sha256": digest(manifest_path), "input": manifest.get("input"),
+              "tool": version, "status": "running", "runtime_verified": False,
+              "assemblies": []}
+    save(out / "report.json", report)
+    print(f"IL workspace: {out}", flush=True)
+    for row in rows:
+        name = row["name"]
+        original = workspace / "managed" / name
+        # Freeze and recheck the actual decompiler input before invoking ILSpy.
+        frozen = out / "managed" / name
+        frozen.parent.mkdir(exist_ok=True)
+        shutil.copyfile(original, frozen)
+        if digest(frozen) != row["sha256"]:
+            raise ValueError(f"Assembly changed during snapshot: {name}")
+        il = out / (Path(name).stem + ".il")
+        log = out / (Path(name).stem + ".log")
+        with il.open("w") as output, log.open("w") as errors:
+            result = subprocess.run([tool, "--disable-updatecheck", "-il", str(frozen)],
+                                    stdout=output, stderr=errors)
+        unchanged = digest(frozen) == row["sha256"] and digest(original) == row["sha256"]
+        success = result.returncode == 0 and il.stat().st_size > 0 and unchanged
+        report["assemblies"].append({"name": name, "input_sha256": row["sha256"],
+                                     "status": "exported" if success else "failed",
+                                     "exit_code": result.returncode,
+                                     "inputs_unchanged": unchanged,
+                                     "il_path": il.name, "il_sha256": digest(il),
+                                     "log_path": log.name})
+        save(out / "report.json", report)
+        print(f"{name}: {report['assemblies'][-1]['status']}", flush=True)
+    success = all(row["status"] == "exported" for row in report["assemblies"])
+    report["status"] = "exported" if success else "partial"
+    save(out / "report.json", report)
+    print(f"Report: {out / 'report.json'}", flush=True)
+    return 0 if success else 1
+
+
 def normalize_accessors(source):
     """Repair only standalone explicit getter methods with one simple return.
 
@@ -147,20 +210,6 @@ def normalize_source_contracts(path, source):
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
-    if path.name in {"Hash128.cs", "NetworkSceneId.cs"} and "operator ==" in source:
-        type_name = "Hash128" if path.name == "Hash128.cs" else "NetworkSceneId"
-        if f"operator !=({type_name}" not in source:
-            equality = re.search(
-                rf"(?ms)(\tpublic static bool operator ==\({type_name} [^{{]+\{{.*?\n\t\}})\n",
-                source)
-            if equality:
-                source = source[:equality.end()] + (
-                    f"\n\tpublic static bool operator !=({type_name} left, {type_name} right)\n"
-                    "\t{\n"
-                    "\t\treturn !(left == right);\n"
-                    "\t}\n"
-                ) + source[equality.end():]
-                changes.append(f"restore {type_name} inequality operator for C# contract")
     if (path.name in {"InputField.cs", "ScrollRect.cs", "Graphic.cs", "Slider.cs",
                       "Toggle.cs", "Scrollbar.cs"}
             and "namespace UnityEngine.UI;" in source):
@@ -512,6 +561,9 @@ def main():
     export = commands.add_parser("export", help="Recover every managed DLL into an isolated workspace")
     export.add_argument("apk", type=Path)
     export.add_argument("--ilspy", default=os.environ.get("ILSPYCMD", "ilspycmd"))
+    il_export = commands.add_parser("export-il", help="Export original IL without C# repairs")
+    il_export.add_argument("workspace", type=Path)
+    il_export.add_argument("--ilspy", default=os.environ.get("ILSPYCMD", "ilspycmd"))
     audit = commands.add_parser("compile-audit", help="Measure game-source compiler blockers")
     audit.add_argument("workspace", type=Path)
     audit.add_argument("--dotnet", default="dotnet")
@@ -527,6 +579,8 @@ def main():
     try:
         if args.command == "export":
             return recover(args.apk.resolve(), args.ilspy)
+        if args.command == "export-il":
+            return export_il(args.workspace.resolve(), args.ilspy)
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
                              args.reference_dir, args.assembly, args.repair_accessors,
                              args.repair_contracts)

@@ -130,11 +130,27 @@ original export remains unchanged. The expanded report is under the ignored
 `build/decompilation/mono-2fviys29/compile-*/report.json` output.
 
 A follow-up audit of `UnityEngine`, `UnityEngine.Networking`, and `UnityEngine.UI` compiled
-the latter two after restoring the `Hash128` and `NetworkSceneId` inequality operators and
-removing six invalid `virtual` modifiers from explicit UI interface implementations in the
-isolated snapshot. `UnityEngine` itself remains blocked only by `UnityLogWriter` inheriting
-the abstract `TextWriter.Encoding` member that is absent from the original IL; its encoding
-cannot be recovered from that assembly and has therefore not been invented.
+`UnityEngine.UI` after removing six invalid `virtual` modifiers from explicit UI interface
+implementations in the isolated snapshot. The original IL confirms that `Hash128` and
+`NetworkSceneId` define equality only; no inequality operators were added, so
+`UnityEngine.Networking` remains blocked by the modern C# requirement for a matching `!=`.
+`UnityEngine` remains blocked by the same equality-only `Hash128` declaration and by
+`UnityLogWriter` inheriting the abstract `TextWriter.Encoding` member that is absent from
+the original IL; neither missing contract has been invented.
+
+The `export-il` command now snapshots every managed DLL, verifies its exported SHA-256
+before and after disassembly, and writes one original-IL file plus a provenance report for
+each assembly. It performs no source repairs and does not alter the managed inputs:
+
+```bash
+DOTNET_ROOT=/home/darabat/.dotnet \
+  python3 tools/decompilation.py export-il build/decompilation/mono-XXXX \
+  --ilspy build/tooling/ilspycmd
+```
+
+On this APK, all 17 managed assemblies exported successfully with ILSpy 9.1.0.7988.
+This is metadata and instruction coverage; it does not imply C# compilation, packaging,
+runtime verification, or Unity/IL2CPP equivalence.
 
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against

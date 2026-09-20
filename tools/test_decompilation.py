@@ -9,7 +9,7 @@ from unittest.mock import patch
 import zipfile
 
 from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
-                           normalize_accessors, normalize_source_contracts)
+                           export_il, normalize_accessors, normalize_source_contracts)
 
 
 class RecoveryTests(unittest.TestCase):
@@ -74,21 +74,18 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(normalize_source_contracts(Path("MethodCall.cs"), repaired),
                          (repaired, []))
 
-    def test_unity_contract_repairs_restore_operators_and_interface_methods(self):
+    def test_unity_repairs_preserve_absent_operators_and_interface_bodies(self):
         hash_source = ("namespace UnityEngine;\npublic struct Hash128\n{\n"
                        "\tpublic static bool operator ==(Hash128 hash1, Hash128 hash2)\n"
                        "\t{\n\t\treturn hash1.m == hash2.m;\n\t}\n}\n")
         repaired, changes = normalize_source_contracts(Path("Hash128.cs"), hash_source)
-        self.assertIn("operator !=(Hash128 left, Hash128 right)", repaired)
-        self.assertIn("return !(left == right);", repaired)
-        self.assertEqual(len(changes), 1)
+        self.assertEqual((repaired, changes), (hash_source, []))
 
         network_source = ("namespace UnityEngine.Networking;\npublic struct NetworkSceneId\n{\n"
                           "\tpublic static bool operator ==(NetworkSceneId c1, NetworkSceneId c2)\n"
                           "\t{\n\t\treturn c1.m == c2.m;\n\t}\n}\n")
         repaired, changes = normalize_source_contracts(Path("NetworkSceneId.cs"), network_source)
-        self.assertIn("operator !=(NetworkSceneId left, NetworkSceneId right)", repaired)
-        self.assertEqual(len(changes), 1)
+        self.assertEqual((repaired, changes), (network_source, []))
 
         ui_source = ("namespace UnityEngine.UI;\npublic class Graphic\n{\n"
                      "\tvirtual bool ICanvasElement.IsDestroyed()\n\t{\n"
@@ -297,6 +294,19 @@ class RecoveryTests(unittest.TestCase):
             (root / "managed/Example.dll").write_bytes(b"changed")
             with self.assertRaisesRegex(ValueError, "Assembly changed"):
                 compile_audit(root, "dotnet", csc, [refs], ["Example"])
+
+    def test_il_export_rejects_changed_input_before_tool_invocation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "managed").mkdir()
+            assembly = root / "managed/Example.dll"
+            assembly.write_bytes(b"changed")
+            (root / "manifest.json").write_text(json.dumps({
+                "backend": "mono",
+                "assemblies": [{"name": "Example.dll", "sha256": "0" * 64}],
+            }))
+            with self.assertRaisesRegex(ValueError, "Assembly changed"):
+                export_il(root, "missing-ilspy")
 
 
 if __name__ == "__main__":
