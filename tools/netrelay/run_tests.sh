@@ -45,6 +45,22 @@ $CC $CFLAGS \
   -o test_arena_defaults test_arena.c ../nativehook/arena.c ../nativehook/netclient.c -lpthread \
   || { echo "[!] test_arena_defaults build failed"; exit 1; }
 
+# Third arena binary: the shipped APK path. The patcher rewrites the zeroed session block in the
+# hook (ArenaConfigPatch.kt); no -D defaults and no peer, so the peer must be generated at
+# runtime. Patch the plain binary the same way the patcher does.
+echo "=== build arena bridge tests with a patcher-written session ==="
+cp test_arena test_arena_patched
+python3 - <<'PY' || { echo "[!] could not patch the session block"; exit 1; }
+data = bytearray(open("test_arena_patched", "rb").read())
+marker = b"TFTF-ARENA-CFG-1"
+at = data.find(marker)
+assert at >= 0 and data.find(marker, at + 1) < 0, "marker must occur exactly once"
+body = b"host=127.0.0.1\nport=8777\nroom=arena_versus\n"
+start = at + len(marker)
+data[start:start + 192] = body.ljust(192, b"\0")
+open("test_arena_patched", "wb").write(data)
+PY
+
 NDK_ROOT=${ANDROID_NDK_HOME:-$HOME/Android/Sdk/ndk}
 NDK_BIN=$(ls -d "$NDK_ROOT"/*/toolchains/llvm/prebuilt/*/bin 2>/dev/null | head -1)
 if [ -n "$NDK_BIN" ]; then
@@ -113,6 +129,10 @@ echo "=== arena bridge suite (no compile-time session) ==="
 echo
 echo "=== arena bridge suite (compile-time session) ==="
 ./test_arena_defaults || FAIL=1
+
+echo
+echo "=== arena bridge suite (patcher-written session) ==="
+./test_arena_patched || FAIL=1
 
 echo
 if [ "$FAIL" -ne 0 ]; then

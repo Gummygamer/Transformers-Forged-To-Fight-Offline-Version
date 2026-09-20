@@ -48,7 +48,16 @@ data class PatchRequest(
     val keyAlias: String,
 
     /** Whether to offer the output APK for installation via PackageInstaller after patching. */
-    val offerInstall: Boolean
+    val offerInstall: Boolean,
+
+    /**
+     * Relay for the live (real-time) Arena netcode, or blank to keep the retail asynchronous
+     * Arena. arm64 only. `127.0.0.1` targets the PvP Host app's loopback combat bridge.
+     */
+    val arenaRelayHost: String = "",
+
+    /** UDP port of the live Arena relay. */
+    val arenaRelayPort: Int = ArenaConfigPatch.DEFAULT_PORT
 ) {
     /** Validate the request returns a list of user-facing error/warning messages. */
     fun validate(): ValidationResult {
@@ -82,6 +91,14 @@ data class PatchRequest(
 
         if (serverPort !in 1..65535) {
             errors += "Server port must be between 1 and 65535."
+        }
+
+        if (arenaRelayHost.isNotBlank()) {
+            if (abi != ARM64) errors += "The live Arena netcode is arm64-only; use the 64-bit build or clear the relay host."
+            if (!arenaRelayHost.matches(Regex("^[A-Za-z0-9.-]{1,96}$"))) {
+                errors += "Arena relay host may only contain letters, digits, dots and dashes."
+            }
+            if (arenaRelayPort !in 1..65535) errors += "Arena relay port must be between 1 and 65535."
         }
 
         if (abi == ARMV7 && patchedIl2cppUri.isBlank() && !autoPatchIl2cpp) {

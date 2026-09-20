@@ -47,3 +47,4 @@
 /tools/netrelay/test_netclient
 /tools/netrelay/test_arena
 /tools/netrelay/test_arena_defaults
+/tools/netrelay/test_arena_patched

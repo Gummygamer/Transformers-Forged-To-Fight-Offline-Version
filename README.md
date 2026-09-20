@@ -408,9 +408,13 @@ use the loopback endpoint shown by the app (normally `--server-host 127.0.0.1 --
 same loopback address. The combat bridge likewise exposes loopback UDP `8777` for the optional
 live-fight hook.
 
-For the optional real-time Arena path, build each modified game APK with a distinct peer label:
-`Server/build_arena_hook.sh --internet --peer player-one` and `--peer player-two`. The hook is
-arm64-only; ordinary async matchmaking does not need it. Stopping the app, leaving a match, or
+For the optional real-time Arena path, fill in **Arena relay host** in the patcher app's Separate
+server card (arm64 only) with `127.0.0.1` and UDP port `8777`: the shipped arm64 hook carries the
+live netcode and the patcher writes that session into it, so no per-device hook build is needed and
+each install names itself at runtime. Leave the field blank and the APK stays on the retail
+asynchronous Arena, where the client fights a local AI copy of the opponent's team. (The desktop
+route `Server/build_arena_hook.sh --internet --peer player-one` still works and bakes the session
+in at compile time.) Stopping the app, leaving a match, or
 losing the relay closes both channels. Start the service again to create a fresh connection;
 the invitation remains valid until the relay session expires. LAN hosting remains the default
 when **Use a relay** is off, and the relay is not bundled into the APK or Android app.

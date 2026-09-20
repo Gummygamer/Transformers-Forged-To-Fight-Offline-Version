@@ -35,6 +35,8 @@ data class UiState(
     val serverPort: Int = 8080,
     val scheme: String = "http",
     val keepOtherAbi: Boolean = false,
+    val arenaRelayHost: String = "",
+    val arenaRelayPort: Int = ArenaConfigPatch.DEFAULT_PORT,
     val patchedIl2cppUri: String = "",
     val patchedIl2cppName: String = "",
     val autoPatchIl2cpp: Boolean = true,
@@ -165,6 +167,16 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         revalidate()
     }
 
+    fun setArenaRelayHost(host: String) {
+        _uiState.update { it.copy(arenaRelayHost = host.trim()) }
+        revalidate()
+    }
+
+    fun setArenaRelayPort(port: Int) {
+        _uiState.update { it.copy(arenaRelayPort = port) }
+        revalidate()
+    }
+
     fun setKeepOtherAbi(keep: Boolean) {
         _uiState.update { it.copy(keepOtherAbi = keep) }
         revalidate()
@@ -225,7 +237,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         val steps = listOf(
             "1. read source APK",
             "2. validate source APK contents (${s.abi})",
-            "3. load hook library (${if (s.serverMode == PatchRequest.BUNDLED) "bundled 127.0.0.1:${s.serverPort}" else "separate ${s.scheme}://${s.serverHost}:${s.serverPort}"})",
+            "3. load hook library (${if (s.serverMode == PatchRequest.BUNDLED) "bundled 127.0.0.1:${s.serverPort}" else "separate ${s.scheme}://${s.serverHost}:${s.serverPort}"}${if (s.arenaRelayHost.isNotBlank()) ", live Arena relay ${s.arenaRelayHost}:${s.arenaRelayPort}" else ""})",
             "4. prepare patched libil2cpp (${if (s.autoPatchIl2cpp) "auto-patch" else if (s.patchedIl2cppUri.isNotBlank()) "user-supplied" else "none"})",
             "5. build patched APK (drop signatures${if (!s.keepOtherAbi) ", drop other ABI" else ""})",
             "6. sign APK (v2 scheme, ${if (s.keystoreUri.isNotBlank()) "user keystore" else "generated PKCS12"})",
@@ -258,7 +270,9 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         keystorePassword = s.keystorePassword.toCharArray(),
         keyPassword = s.keyPassword.ifBlank { s.keystorePassword }.toCharArray(),
         keyAlias = s.keyAlias,
-        offerInstall = s.offerInstall
+        offerInstall = s.offerInstall,
+        arenaRelayHost = s.arenaRelayHost,
+        arenaRelayPort = s.arenaRelayPort
     )
 
     // ---- Execute ----

@@ -101,7 +101,8 @@ class PatcherEngine(context: Context) {
                 // Step 3: Load hook library
                 checkCancelled()
                 reportStep(onStep, onLog, 3, steps.size, "loading hook library")
-                val hookData = loadHookAsset(request.abi, request.serverMode == PatchRequest.BUNDLED)
+                val hookData = withArenaSession(
+                    loadHookAsset(request.abi, request.serverMode == PatchRequest.BUNDLED), request, onLog)
 
                 // Step 4: Extract and/or patch libil2cpp
                 checkCancelled()
@@ -271,6 +272,15 @@ class PatcherEngine(context: Context) {
             if (elfAbi != abi) throw IOException("Runtime hook asset $assetName is not a valid $abi ELF library")
             if (bundleServer && it.size < 4096) throw IOException("Runtime hook asset $assetName is incomplete")
         }
+    }
+
+    /** Writes the live-Arena relay into the hook, or returns it untouched for async-only builds. */
+    private fun withArenaSession(hook: ByteArray, request: PatchRequest, onLog: (LogLine) -> Unit): ByteArray {
+        if (request.arenaRelayHost.isBlank()) return hook
+        val result = ArenaConfigPatch.patch(hook, request.arenaRelayHost.trim(), request.arenaRelayPort)
+        if (!result.isSuccess) throw IOException(result.error)
+        onLog(LogLine("Live Arena netcode enabled: UDP ${request.arenaRelayHost.trim()}:${request.arenaRelayPort}"))
+        return result.data!!
     }
 
     // ---- libil2cpp handling ----

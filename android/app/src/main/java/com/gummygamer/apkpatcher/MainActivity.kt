@@ -49,6 +49,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tilPort: TextInputLayout
     private lateinit var edtPort: TextInputEditText
     private lateinit var dropScheme: android.widget.AutoCompleteTextView
+    private lateinit var edtArenaHost: TextInputEditText
+    private lateinit var edtArenaPort: TextInputEditText
 
     // libil2cpp
     private lateinit var chkAutoPatch: MaterialCheckBox
@@ -167,6 +169,8 @@ class MainActivity : AppCompatActivity() {
         tilPort = findViewById(R.id.tilPort)
         edtPort = findViewById(R.id.edtPort)
         dropScheme = findViewById(R.id.dropScheme)
+        edtArenaHost = findViewById(R.id.edtArenaHost)
+        edtArenaPort = findViewById(R.id.edtArenaPort)
         chkAutoPatch = findViewById(R.id.chkAutoPatch)
         btnSelectIl2cpp = findViewById(R.id.btnSelectIl2cpp)
         txtIl2cppName = findViewById(R.id.txtIl2cppName)
@@ -222,6 +226,8 @@ class MainActivity : AppCompatActivity() {
         edtHost.setOnFocusChangeListener { _, _ -> syncHost() }
         edtPort.setOnFocusChangeListener { _, _ -> syncPort() }
         dropScheme.setOnItemClickListener { _, _, _, _ -> syncScheme() }
+        edtArenaHost.setOnFocusChangeListener { _, _ -> syncArena() }
+        edtArenaPort.setOnFocusChangeListener { _, _ -> syncArena() }
 
         chkAutoPatch.setOnCheckedChangeListener { _, checked ->
             viewModel.setAutoPatchIl2cpp(checked)
@@ -294,6 +300,8 @@ class MainActivity : AppCompatActivity() {
         dropScheme.isEnabled = !isBundled
         if (edtHost.text.toString() != s.serverHost) edtHost.setText(s.serverHost)
         if (edtPort.text.toString() != s.serverPort.toString()) edtPort.setText(s.serverPort.toString())
+        if (edtArenaHost.text.toString() != s.arenaRelayHost) edtArenaHost.setText(s.arenaRelayHost)
+        if (edtArenaPort.text.toString() != s.arenaRelayPort.toString()) edtArenaPort.setText(s.arenaRelayPort.toString())
         if (dropScheme.text.toString() != s.scheme) dropScheme.setText(s.scheme, false)
 
         // libil2cpp
@@ -417,6 +425,11 @@ class MainActivity : AppCompatActivity() {
         viewModel.setServerPort(port)
     }
 
+    private fun syncArena() {
+        viewModel.setArenaRelayHost(edtArenaHost.text?.toString() ?: "")
+        viewModel.setArenaRelayPort(edtArenaPort.text?.toString()?.toIntOrNull() ?: ArenaConfigPatch.DEFAULT_PORT)
+    }
+
     private fun syncScheme() {
         viewModel.setScheme(dropScheme.text.toString())
     }
@@ -429,6 +442,7 @@ class MainActivity : AppCompatActivity() {
     private fun syncAllFields() {
         syncHost()
         syncPort()
+        syncArena()
         syncScheme()
         syncPasswords()
     }

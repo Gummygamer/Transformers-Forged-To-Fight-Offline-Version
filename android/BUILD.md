@@ -216,6 +216,7 @@ The Android patcher performs the complete patch-and-install workflow on-device:
 | Auto-patch il2cpp | On by default; engine patches 16 sites + DT_NEEDED |
 | Keystore + passwords | Generated PKCS12 or SAF-imported PKCS12/JKS |
 | Command preview | Step list preview |
+| Live Arena relay (arm64) | Optional host + UDP port written into the hook's session block; blank keeps the async Arena |
 | Install (adb) | PackageInstaller session handoff |
 
 The patch result is first written atomically into persistent app-private storage at

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 static arena_log_fn g_log;
 static ArenaOps g_ops;
@@ -105,20 +106,17 @@ static void trim(char *s) {
     while (n && (s[n - 1] == ' ' || s[n - 1] == '\t' || s[n - 1] == '\r' || s[n - 1] == '\n')) s[--n] = 0;
 }
 
-int arena_config_load(const char *path, ArenaConfig *out) {
+/* Parse "key=value" lines held in memory. Shared by the config file and the patcher block so
+ * the two can never disagree about a key. Returns 1 when host, room and peer are all set. */
+static int parse_config_text(char *text, ArenaConfig *out, const char *label) {
     enum { LINE_CAP = 256 };
-    char line[LINE_CAP];
-    FILE *f;
-    if (!path || !out) return 0;
     int ok = 1;
-    memset(out, 0, sizeof *out);
-    out->port = 8777;
-    out->state_interval_ms = 100;
-    f = fopen(path, "r");
-    if (!f) return 0;
-    while (fgets(line, sizeof line, f)) {
+    char *save = NULL;
+    char *line;
+    for (line = strtok_r(text, "\n", &save); line; line = strtok_r(NULL, "\n", &save)) {
         char *eq;
         char key[LINE_CAP], value[LINE_CAP];
+        if (strlen(line) >= LINE_CAP) continue;
         trim(line);
         if (!line[0] || line[0] == '#') continue;
         eq = strchr(line, '=');
@@ -128,14 +126,29 @@ int arena_config_load(const char *path, ArenaConfig *out) {
         snprintf(value, sizeof value, "%s", eq + 1);
         trim(key);
         trim(value);
-        if (!strcmp(key, "host")) ok &= copy_field(out->host, sizeof out->host, value, key, path);
+        if (!strcmp(key, "host")) ok &= copy_field(out->host, sizeof out->host, value, key, label);
         else if (!strcmp(key, "port")) out->port = atoi(value);
-        else if (!strcmp(key, "room")) ok &= copy_field(out->room, sizeof out->room, value, key, path);
-        else if (!strcmp(key, "peer")) ok &= copy_field(out->peer, sizeof out->peer, value, key, path);
+        else if (!strcmp(key, "room")) ok &= copy_field(out->room, sizeof out->room, value, key, label);
+        else if (!strcmp(key, "peer")) ok &= copy_field(out->peer, sizeof out->peer, value, key, label);
         else if (!strcmp(key, "state_interval_ms")) out->state_interval_ms = atoi(value);
     }
-    fclose(f);
     return ok && out->host[0] && out->room[0] && out->peer[0];
+}
+
+int arena_config_load(const char *path, ArenaConfig *out) {
+    char text[1024];
+    size_t n;
+    FILE *f;
+    if (!path || !out) return 0;
+    memset(out, 0, sizeof *out);
+    out->port = 8777;
+    out->state_interval_ms = 100;
+    f = fopen(path, "r");
+    if (!f) return 0;
+    n = fread(text, 1, sizeof text - 1, f);
+    fclose(f);
+    text[n] = 0;
+    return parse_config_text(text, out, path);
 }
 
 int arena_is_started(void) { return g_started; }
@@ -172,8 +185,33 @@ int arena_start(const ArenaConfig *cfg) {
     return 0;
 }
 
+/* Session block the APK patcher rewrites in the shipped libdothook.so. The marker is only ever
+ * an initializer, never compared against, so the byte string occurs exactly once in the ELF and
+ * the patcher can find it by scanning. Keep ARENA_PATCH_MARKER in sync with ArenaConfigPatch.kt.
+ * Left untouched the body is all zeros, so an unpatched build carries no session. */
+#define ARENA_PATCH_MARKER "TFTF-ARENA-CFG-1"
+#define ARENA_PATCH_MARKER_LEN 16
+#define ARENA_PATCH_BODY_LEN 192
+static volatile char g_arena_patch[ARENA_PATCH_MARKER_LEN + ARENA_PATCH_BODY_LEN] = ARENA_PATCH_MARKER;
+
+/* A readable, per-install label. The relay disambiguates peers by UDP endpoint, so this only
+ * needs to make logs legible; the patcher cannot know it because every install shares one APK. */
+static void generate_peer(char *out, size_t cap) {
+    unsigned int v = (unsigned int)now_ms() ^ ((unsigned int)getpid() << 16);
+    FILE *f = fopen("/proc/sys/kernel/random/uuid", "r");
+    char uuid[40] = "";
+    if (f) {
+        if (fgets(uuid, sizeof uuid, f)) uuid[8] = 0;
+        fclose(f);
+    }
+    if (uuid[0]) snprintf(out, cap, "dev-%s", uuid);
+    else snprintf(out, cap, "dev-%08x", v);
+}
+
 int arena_config_defaults(ArenaConfig *out) {
+    char body[ARENA_PATCH_BODY_LEN + 1];
     int ok;
+    size_t i;
     if (!out) return 0;
     memset(out, 0, sizeof *out);
     snprintf(out->host, sizeof out->host, "%s", TFTF_ARENA_DEFAULT_HOST);
@@ -181,8 +219,19 @@ int arena_config_defaults(ArenaConfig *out) {
     snprintf(out->room, sizeof out->room, "%s", TFTF_ARENA_DEFAULT_ROOM);
     snprintf(out->peer, sizeof out->peer, "%s", TFTF_ARENA_DEFAULT_PEER);
     out->state_interval_ms = TFTF_ARENA_DEFAULT_STATE_INTERVAL_MS;
+    for (i = 0; i < ARENA_PATCH_BODY_LEN; i++) body[i] = g_arena_patch[ARENA_PATCH_MARKER_LEN + i];
+    body[ARENA_PATCH_BODY_LEN] = 0;
+    if (body[0]) {
+        ArenaConfig patched = *out;
+        parse_config_text(body, &patched, "patcher block");
+        if (patched.host[0] && patched.room[0]) {
+            *out = patched;
+            logmsg("arena: session taken from the patcher block");
+        }
+    }
+    if (out->host[0] && out->room[0] && !out->peer[0]) generate_peer(out->peer, sizeof out->peer);
     ok = out->host[0] && out->room[0] && out->peer[0];
-    if (!ok) logmsg("arena: this build has no compile-time arena session baked in");
+    if (!ok) logmsg("arena: this build has no compile-time or patched arena session");
     return ok;
 }
 
