@@ -73,6 +73,52 @@ Output at `app/build/outputs/apk/debug/app-debug.apk`.
 The device test exercises RSA certificate generation, X.509 parsing, PKCS12
 serialization, and keystore reload using Android's actual security providers.
 
+## PvP host app
+
+`:pvphost` is a separate Android application (`com.gummygamer.tftfpvphost`) for
+hosting Arena/PvP sessions and pairing players on a trusted LAN or tunnel. It
+serves plain HTTP on all interfaces, stores sessions/rosters/matches in its
+private app storage, and keeps serving while the foreground service is running.
+The patcher and host install side by side.
+
+Prepare the shared payload, then build and test the host:
+
+```bash
+./tools/prepare-assets.sh 8080
+./gradlew :pvphost:assembleDebug :pvphost:testDebugUnitTest
+./gradlew :pvphost:assembleRelease
+```
+
+The preparation script copies `tftf_payload.bin` into the host's ignored
+`pvphost/src/main/assets/` directory. Do not add that generated file, native
+`.bin` files, APKs, or signing keys to Git. Release uses R8; archive
+`pvphost/build/outputs/mapping/release/mapping.txt` with any published release.
+Without a valid machine-local `keystore.properties` configuration, the release
+APK is intentionally unsigned and can still be built for local testing.
+
+On the phone, open `TFTF PvP Host`, join Wi-Fi or a configured tunnel, choose a
+port (8080 by default), and tap Start. Give each player the displayed address
+and build their client with exactly:
+
+```text
+--scheme http --server-host <IP> --server-port 8080
+```
+
+The app also shows a complete `legible run Server/build_phone_apk.lbl` command
+and the equivalent patcher-app Separate server fields. Allow TCP 8080 (or the
+selected port) through the host firewall. The host has no endpoint
+authentication, so anyone who can reach the port can register as a peer; use a
+trusted network. The CDN rewrite switch should stay enabled when clients need
+host-local CDN URLs.
+
+Known limitations: HTTPS/8443 is not implemented, so clients must explicitly
+use HTTP and port 8080 (or the chosen host port). Story board play is not served
+by this app; use the bundled in-apk server or PC server for Story. The bundled
+in-apk server remains loopback-only at `127.0.0.1:8080`; do not run it on the
+same device and port as the host app. If the port is occupied, choose another
+port in the host UI. The payload's internal port is informational here, so a
+port mismatch is logged rather than preventing startup.
+
 ## Release signing
 
 Distribution builds are signed with a long-lived, machine-local identity. Nothing

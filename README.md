@@ -366,6 +366,26 @@ Store, Arenas, Special Missions, Alliance Missions, and Daily Missions immediate
    to use a different positive timeout; a player idle past it is no longer eligible for a new
    live pairing until the client next touches the Arena service.
 
+#### Hosting PvP from an Android phone
+
+The separate `TFTF PvP Host` app in `android/pvphost` can host Arena matchmaking without a
+PC. Build it with `./gradlew :pvphost:assembleDebug` after running
+`./tools/prepare-assets.sh 8080`, install it alongside the patcher, join the phone and
+players to the same trusted Wi-Fi or tunnel, and start the foreground host. Allow TCP 8080
+through the phone's network path/firewall. Use the app's exact client flags:
+
+```text
+--scheme http --server-host <IP> --server-port 8080
+```
+
+The app displays a complete `legible run Server/build_phone_apk.lbl` command and the
+equivalent patcher-app `Separate server` values. The host is intentionally HTTP-only and
+has no endpoint authentication, so anyone who can reach the port can register as a peer;
+use a trusted network. HTTPS/8443 and STORY board play are outside this app's scope. The
+bundled in-apk server remains loopback-only at `127.0.0.1:8080`; do not run it on the same
+device and port as the phone host. If 8080 is occupied, select another host port and pass
+that port to the client build.
+
 Two limits are worth understanding before trying this.
 
 First, retail TFTF Arena is asynchronous by design: an unmodified client fights a local AI copy

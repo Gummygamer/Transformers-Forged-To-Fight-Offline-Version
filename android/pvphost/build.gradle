@@ -1,0 +1,106 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+// Release signing material is machine-local and never committed. See BUILD.md
+// "Release signing". Without keystore.properties the release variant simply
+// stays unsigned, so a fresh clone still configures successfully.
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+def keystoreProperties = new Properties()
+def hasReleaseKey = keystorePropertiesFile.exists()
+if (hasReleaseKey) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+    // A stale properties file must not make every release build fail when the
+    // machine-local keystore was moved or is unavailable. Keep the documented
+    // unsigned-release fallback for fresh clones and CI as well as for a
+    // maintainer with missing signing material.
+    def configuredStore = keystoreProperties.getProperty("storeFile")
+    hasReleaseKey = configuredStore != null && rootProject.file(configuredStore).isFile()
+}
+
+android {
+    namespace = "com.gummygamer.tftfpvphost"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.gummygamer.tftfpvphost"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = (project.findProperty("hermesPvpHostVersionCode") ?: "1").toInteger()
+        versionName = project.findProperty("hermesPvpHostVersionName") ?: "1.0"
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(keystoreProperties.getProperty("storeFile"))
+                storeType keystoreProperties.getProperty("storeType", "PKCS12")
+                storePassword keystoreProperties.getProperty("storePassword")
+                keyAlias keystoreProperties.getProperty("keyAlias")
+                keyPassword keystoreProperties.getProperty(
+                    "keyPassword", keystoreProperties.getProperty("storePassword"))
+                // Distributable identity: v2 for all supported devices, v3 so
+                // Android 9+ can rotate the key later without breaking upgrades.
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseKey) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            minifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        viewBinding = true
+    }
+}
+
+// The host serves the same generated TFTFPAY blob as the patcher. It is
+// git-ignored, so a release build regenerates it (prepare-assets.sh copies it
+// into pvphost/src/main/assets/). Debug builds expect the developer to have run
+// ./tools/prepare-assets.sh 8080 once, as for :app.
+def preparePvpHostAssets = tasks.register("preparePvpHostAssets", Exec) {
+    workingDir(rootProject.projectDir)
+    environment("TFTF_FORCE_ASSETS", "1")
+    commandLine("bash", rootProject.file("tools/prepare-assets.sh").absolutePath, "8080")
+}
+
+// AGP creates the variant lifecycle task lazily, after this script is
+// evaluated, so attach the dependency when that task appears.
+tasks.whenTaskAdded { task ->
+    if (task.name == "preReleaseBuild") task.dependsOn(preparePvpHostAssets)
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+}

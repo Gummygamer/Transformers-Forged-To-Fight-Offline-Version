@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$ANDROID_DIR/.." && pwd)"
 PORT="${1:-8080}"
 FORCE_ASSETS="${TFTF_FORCE_ASSETS:-0}"
 ASSET_DIR="$ANDROID_DIR/app/src/main/assets"
+PVPHOST_ASSET_DIR="$ANDROID_DIR/pvphost/src/main/assets"
 
 find_toolchain_binary() {
   local name="$1"
@@ -67,4 +68,11 @@ cp "$ROOT_DIR/tools/nativehook/libdothook.so" "$ASSET_DIR/libdothook-arm64.bin"
 cp "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" "$ASSET_DIR/libdothook-armv7.bin"
 legible run "$ROOT_DIR/Server/export_payload.lbl" --out "$ASSET_DIR/tftf_payload.bin" --listen-port "$PORT"
 
-echo "prepared native hook assets and a port-$PORT offline payload in app/src/main/assets/"
+# The PvP host app serves the same blob (export_payload ignores the port when
+# building bodies), so copy it rather than generating a second one.
+if [ -d "$ANDROID_DIR/pvphost" ]; then
+  mkdir -p "$PVPHOST_ASSET_DIR"
+  cp "$ASSET_DIR/tftf_payload.bin" "$PVPHOST_ASSET_DIR/tftf_payload.bin"
+fi
+
+echo "prepared native hook assets and a port-$PORT offline payload in app/src/main/assets/ (payload also copied to pvphost/src/main/assets/)"

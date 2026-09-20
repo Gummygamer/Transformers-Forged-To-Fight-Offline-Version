@@ -2,6 +2,8 @@
 build/
 app/build/
 app/src/main/assets/*.bin
+pvphost/src/main/assets/*.bin
+pvphost/build/
 /.scratch/
 *.keystore
 *.jks
