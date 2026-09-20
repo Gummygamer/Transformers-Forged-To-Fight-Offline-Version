@@ -538,6 +538,12 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // already live and their original trampolines must continue to point at payouts.
     { 0x1173FA4, "PCGETSPTIER", 2, 0 }, // 164 PlayerController.GetAvailableSpecialTier -> gesture-selected tier
     { 0xFF05C8,  "HUDSPBTN",    2, 0 }, // 165 HudSpecialMeter.OnSpecialButtonPressed -> confirm control ownership
+    // PVPPLDIAG (Arena diagnostic): accepting an Arena team throws NullReferenceException at
+    // PVPPlayerContestantItem.Init (managed stack confirmed live, no native FAULT because the
+    // null check is an il2cpp NullCheck call). The host app's wire output is byte-identical to
+    // Server/fakeserver.lbl in the same paired state, so the null is client-side state, not a
+    // response field. Dump every Parameters field Init touches before the original runs.
+    { 0xF19D60, "PVPPLDIAG", 2, 0 }, // 166 PVPPlayerContestantItem.Init -> dump Parameters before the NRE
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -4241,6 +4247,29 @@ void* hook_165(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     }
     return H[165].orig(self, a1, a2, a3, a4, a5, a6, a7);
 }
+// PVPPLDIAG (slot 166): dump PVPPlayerContestantItem.Init's inputs before the original runs.
+// Parameters: User@0x10, Match@0x18, Team@0x20, DetailItemSelected@0x28, HeroOrderChanged@0x30.
+// TeamData.mHeroes@0x30 (List<HeroData>, _size@0x18); PVPMatchData.Opponents@0x20, State@0x18.
+// The item's own serialized refs: _heroPortraitPrefab@0x28, _playerHeroDetailWidgetPrefab@0x30,
+// _playerNameAligner@0x38, _teamInfoAligner@0x40, _playerTagLabel@0x48, _playerTotalRatingLabel@0x50,
+// _playerNameLabel@0x58, _grid@0x60, _heroDetailGrid@0x68, _fightWinsContainer@0x70, _transition@0x78.
+void* hook_166(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        void* user = fld_p(a1, 0x10);
+        void* match = fld_p(a1, 0x18);
+        void* team = fld_p(a1, 0x20);
+        void* heroes = fld_p(team, 0x30);
+        int32_t nheroes = obj_ok(heroes) ? *(int32_t*)((uintptr_t)heroes+0x18) : -1;
+        void* opponents = fld_p(match, 0x20);
+        int32_t nopp = obj_ok(opponents) ? *(int32_t*)((uintptr_t)opponents+0x18) : -1;
+        flog("PVPPLDIAG this=%p p=%p user=%p match=%p team=%p heroes=%p n=%d opponents=%p n=%d",
+             a0, a1, user, match, team, heroes, nheroes, opponents, nopp);
+        flog("PVPPLDIAG refs heroPortraitPrefab=%p detailPrefab=%p nameAligner=%p teamAligner=%p tag=%p rating=%p name=%p grid=%p detailGrid=%p wins=%p transition=%p",
+             fld_p(a0,0x28), fld_p(a0,0x30), fld_p(a0,0x38), fld_p(a0,0x40), fld_p(a0,0x48),
+             fld_p(a0,0x50), fld_p(a0,0x58), fld_p(a0,0x60), fld_p(a0,0x68), fld_p(a0,0x70), fld_p(a0,0x78));
+    });
+    return H[166].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -4258,7 +4287,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
     hook_145,hook_146,hook_147,hook_148,hook_149,hook_150,
     hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158,
-    hook_159,hook_160,hook_161,hook_162,hook_163,hook_164,hook_165 };
+    hook_159,hook_160,hook_161,hook_162,hook_163,hook_164,hook_165,hook_166 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
