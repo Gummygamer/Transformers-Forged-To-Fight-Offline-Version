@@ -10,7 +10,8 @@ import zipfile
 
 from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
                            export_il, normalize_accessors, normalize_source_contracts,
-                           replacement_closure, source_declaration_inventory)
+                           metadata_api_surface, replacement_closure,
+                           source_declaration_inventory)
 
 
 class RecoveryTests(unittest.TestCase):
@@ -29,6 +30,34 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result["types"], ["Bot"])
         self.assertEqual(result["methods"], ["Attack"])
         self.assertEqual(result["fields"], ["health"])
+
+    def test_metadata_api_surface_keeps_exact_contracts_separate(self):
+        metadata = {
+            "identity": {"name": "Example"}, "references": [], "resources": [],
+            "metadata_version": "v2.0.50727", "machine": "I386", "cor_flags": "ILOnly",
+            "module_name": "Example.dll", "assembly_attributes": [], "module_attributes": [],
+            "types": {
+                "Demo.Bot": {
+                    "flags": 1, "base_type": "[mscorlib]System.Object", "attributes": [],
+                    "interfaces": [], "layout": {"size": -1, "packing": 0},
+                    "field_order": ["health"], "method_impls": [],
+                    "fields": {"health": {"signature": "I4", "flags": 3, "offset": 4,
+                                            "attributes": []}},
+                    "methods": {"Attack:I4:0:0(System.String)": {
+                        "flags": 6, "attributes": [], "parameters": []}},
+                    "properties": [], "events": [],
+                }
+            }
+        }
+        surface = metadata_api_surface(metadata)
+        self.assertEqual(surface["assembly"]["resources"], [])
+        bot = surface["types"][0]
+        self.assertEqual(bot["base_type"], "[mscorlib]System.Object")
+        self.assertEqual(bot["visibility"], "public")
+        self.assertEqual(bot["serialization_layout"]["field_order"], ["health"])
+        self.assertEqual(bot["fields"][0]["visibility"], "assembly")
+        self.assertEqual(bot["methods"][0]["signature"], "I4:0:0(System.String)")
+        self.assertEqual(bot["methods"][0]["visibility"], "public")
 
     def test_zip_rejects_traversal_and_case_collisions(self):
         for extra in ("../escape.dll", "ASSEMBLY-CSHARP.dll"):

@@ -209,6 +209,69 @@ def source_declaration_inventory(source_root):
     return {"types": sorted(types), "methods": sorted(methods), "fields": sorted(fields)}
 
 
+def _metadata_visibility(flags, kind):
+    """Decode only the ECMA-335 visibility bits; retain raw flags elsewhere."""
+    masks = {
+        "type": (0x7, {
+            0: "not-public", 1: "public", 2: "nested-public", 3: "nested-private",
+            4: "nested-family", 5: "nested-assembly", 6: "nested-fam-and-assem",
+            7: "nested-fam-or-assem"}),
+        "member": (0x7, {
+            0: "compiler-controlled", 1: "private", 2: "fam-and-assem",
+            3: "assembly", 4: "family", 5: "fam-or-assem", 6: "public"}),
+    }
+    mask, names = masks[kind]
+    return names.get(flags & mask, f"unknown-{flags & mask}")
+
+
+def metadata_api_surface(metadata):
+    """Summarize exact PE contracts without treating C# output as authoritative.
+
+    The full helper output remains under ``metadata_contracts`` in the report. This
+    smaller view makes visibility, inheritance, overload signatures, attributes,
+    and serialization-relevant field layout easy to inspect while retaining each
+    raw metadata flag for independent checking.
+    """
+    types = []
+    for name, info in metadata["types"].items():
+        fields = []
+        for field_name, field in info["fields"].items():
+            flags = field["flags"]
+            fields.append({"name": field_name, "signature": field["signature"],
+                           "flags": flags, "visibility": _metadata_visibility(flags, "member"),
+                           "static": bool(flags & 0x10), "readonly": bool(flags & 0x20),
+                           "literal": bool(flags & 0x40), "offset": field["offset"],
+                           "attributes": field["attributes"]})
+        methods = []
+        for key, method in info["methods"].items():
+            method_name, signature = key.split(":", 1)
+            flags = method["flags"]
+            methods.append({"name": method_name, "signature": signature, "flags": flags,
+                            "visibility": _metadata_visibility(flags, "member"),
+                            "static": bool(flags & 0x10), "virtual": bool(flags & 0x40),
+                            "abstract": bool(flags & 0x400), "special_name": bool(flags & 0x800),
+                            "attributes": method["attributes"], "parameters": method["parameters"]})
+        types.append({"name": name, "flags": info["flags"],
+                      "visibility": _metadata_visibility(info["flags"], "type"),
+                      "base_type": info["base_type"], "attributes": info["attributes"],
+                      "interfaces": info["interfaces"], "layout": info["layout"],
+                      "serialization_layout": {"field_order": info["field_order"],
+                                                "fields": fields},
+                      "fields": fields, "methods": methods,
+                      "properties": info["properties"], "events": info["events"],
+                      "method_impls": info["method_impls"]})
+    return {"assembly": {"identity": metadata["identity"],
+                          "references": metadata["references"],
+                          "resources": metadata["resources"],
+                          "metadata_version": metadata["metadata_version"],
+                          "machine": metadata["machine"],
+                          "cor_flags": metadata["cor_flags"],
+                          "module_name": metadata["module_name"],
+                          "assembly_attributes": metadata["assembly_attributes"],
+                          "module_attributes": metadata["module_attributes"]},
+            "types": types}
+
+
 def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
     """Compare a source declaration inventory with facts read from PE metadata.
 
@@ -222,7 +285,7 @@ def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
     if any(name not in rows for name in names):
         raise ValueError("Select assembly names present in the export manifest")
     report_dir = Path(tempfile.mkdtemp(prefix="metadata-", dir=workspace))
-    report = {"schema": 1, "scope": "metadata facts compared with shallow C# declaration inventory",
+    report = {"schema": 2, "scope": "exact PE metadata contracts compared with shallow C# declaration inventory",
               "metadata_evidence": "System.Reflection.Metadata over original managed PE; assembly is not loaded",
               "decompiler_evidence": "ILSpy-exported C# source; names only, no behavioral or layout claim",
               "runtime_verified": False, "assemblies": []}
@@ -245,8 +308,15 @@ def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
         report["assemblies"].append({"name": name, "input_sha256": row["sha256"],
                                      "metadata": {"identity": metadata["identity"],
                                                    "references": metadata["references"],
+                                                   "resources": metadata["resources"],
                                                    "type_count": len(metadata_types),
                                                    "types": metadata_types},
+                                     # This is the exact metadata evidence. Keep it
+                                     # separate from the source observation below;
+                                     # decompiler names cannot establish signatures
+                                     # or Unity serialization layout.
+                                     "metadata_contracts": metadata["types"],
+                                     "metadata_api_surface": metadata_api_surface(metadata),
                                      "decompiler": {"source_files": len(list((workspace / "source" / name).rglob("*.cs"))),
                                                      "declarations": source},
                                      "comparison": {"metadata_type_names_missing_from_source": sorted(set(metadata_names) - set(source_types)),

@@ -173,11 +173,16 @@ python3 tools/decompilation.py metadata-audit build/decompilation/mono-XXXX \
   --assembly Assembly-CSharp --assembly Assembly-CSharp-firstpass
 ```
 
-The ignored report keeps two clearly separated sections: exact PE metadata facts and a
-shallow name inventory from ILSpy C# output. The comparison is a triage report for missing
-or extra type names; it is not a claim that decompiler declarations preserve signatures,
-serialized layout, method behavior, or Unity runtime contracts. The managed-input SHA-256
-is checked against `manifest.json` before each report is produced.
+The ignored report keeps exact PE metadata separate from the decompiler observation. Its
+`metadata_contracts` section preserves the helper's per-type fields, methods, properties,
+events, attributes, generic constraints, marshalling/default metadata, method implementations,
+and raw flags. `metadata_api_surface` adds a readable view of visibility, inheritance,
+overload signatures, assembly references, resources, and serialization-relevant field order
+and offsets while retaining those raw flags. The `decompiler` section remains a shallow
+name inventory from ILSpy C# output, and `comparison` is still only a name-based triage
+against that observation; neither section claims behavioral equivalence or Unity runtime
+compatibility. The managed-input SHA-256 is checked against `manifest.json` before each
+report is produced.
 
 For the playable-client boundary, `replacement-plan` computes the transitive closure of
 explicit replacement roots using both PE assembly references and ILSpy project references:
