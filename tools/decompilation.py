@@ -147,6 +147,25 @@ def normalize_source_contracts(path, source):
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
+    if path.name == "MethodCall.cs" and "namespace Facebook.Unity;" in source:
+        # Original MethodCall<T> metadata retains these private fields and
+        # setter-only properties (setters at RVAs 0x65b8 / 0x65c4). ILSpy
+        # suppresses the fields as if it had emitted complete auto-properties.
+        # Keep the setters intact; adding getters would invent an API.
+        for property_name, field_type in (("FacebookImpl", "FacebookBase"),
+                                          ("Parameters", "MethodArguments")):
+            field = f"_003C{property_name}_003Ek__BackingField"
+            declaration = f"private {field_type} {field};"
+            setter = (f"\tprotected {field_type} {property_name}\n\t{{\n"
+                      f"\t\t[CompilerGenerated]\n\t\tset\n\t\t{{\n"
+                      f"\t\t\t{field} = value;\n\t\t}}\n\t}}")
+            if source.count(setter) == 1 and declaration not in source:
+                source = source.replace(
+                    setter, "\t[CompilerGenerated]\n"
+                    "\t[System.Diagnostics.DebuggerBrowsable("
+                    "System.Diagnostics.DebuggerBrowsableState.Never)]\n"
+                    f"\t{declaration}\n\n" + setter, 1)
+                changes.append(f"restore private {property_name} backing field from IL")
     if path.as_posix().endswith("EB/DownloadExtractor.cs"):
         old = "using EB.Net;"
         new = old + "\nusing WebRequest = EB.Net.WebRequest;"

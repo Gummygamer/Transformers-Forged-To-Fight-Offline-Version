@@ -117,6 +117,18 @@ managed assembly's IL; the report records each recovered branch map and repair. 
 DLL has been installed or runtime-verified. This Mono milestone does not reconstruct the
 9.2 IL2CPP client.
 
+The next audit widened the selected set to include all Facebook.Unity assemblies,
+`ICSharpCode.SharpZipLib`, and `crypto`. Facebook.Unity now also compiles: its two
+setter-only `MethodCall<T>` properties refer to private backing fields that are present in
+the original IL but omitted from the ILSpy C# declaration. The audit restores those fields
+only in the isolated snapshot and records both repairs. The remaining blockers are confined
+to the two third-party libraries: `crypto` has three decompiled derived constructors whose
+base calls omit required parameters, and SharpZipLib has three `ICryptoTransform`
+implementations missing the `CanReuseTransform` property required by the .NET 8 contract.
+Those are now the next evidence-recovery targets; no values have been guessed and the
+original export remains unchanged. The expanded report is under the ignored
+`build/decompilation/mono-2fviys29/compile-*/report.json` output.
+
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against
 the offline server. The 2.0.2 protocol and assets

@@ -54,6 +54,26 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn('[Header("Right")]', repaired)
         self.assertEqual(len(changes), 5)
 
+    def test_facebook_method_call_restores_il_backing_fields(self):
+        source = ("using System.Runtime.CompilerServices;\n\n"
+                  "namespace Facebook.Unity;\n\n"
+                  "internal abstract class MethodCall<T> where T : IResult\n"
+                  "{\n"
+                  "\tprotected FacebookBase FacebookImpl\n\t{\n"
+                  "\t\t[CompilerGenerated]\n\t\tset\n\t\t{\n"
+                  "\t\t\t_003CFacebookImpl_003Ek__BackingField = value;\n"
+                  "\t\t}\n\t}\n\n"
+                  "\tprotected MethodArguments Parameters\n\t{\n"
+                  "\t\t[CompilerGenerated]\n\t\tset\n\t\t{\n"
+                  "\t\t\t_003CParameters_003Ek__BackingField = value;\n"
+                  "\t\t}\n\t}\n}\n")
+        repaired, changes = normalize_source_contracts(Path("MethodCall.cs"), source)
+        self.assertEqual(len(changes), 2)
+        self.assertIn("private FacebookBase _003CFacebookImpl_003Ek__BackingField;", repaired)
+        self.assertIn("private MethodArguments _003CParameters_003Ek__BackingField;", repaired)
+        self.assertEqual(normalize_source_contracts(Path("MethodCall.cs"), repaired),
+                         (repaired, []))
+
     def test_recovered_switch_contracts_restore_explicit_cases(self):
         fixtures = [
             (Path("BattleArbiter.cs"),
