@@ -119,9 +119,12 @@ class RecoveryTests(unittest.TestCase):
                     "generics": [], "attributes": [], "interfaces": [], "method_impls": [],
                     "field_order": ["health"],
                     "fields": {"health": {"signature": "I4", "flags": 6}},
-                    "methods": {"Attack:I4": {"flags": 6}},
-                    "properties": [{"name": "Health", "signature": "I4", "flags": 6}],
-                    "events": [{"name": "Hit", "type": "Demo.HitEvent", "flags": 6}],
+                    "methods": {"Attack:I4": {"flags": 6}, "get_Health:I4": {"flags": 6},
+                                "add_Hit:void": {"flags": 6}, "add_Died:void": {"flags": 3}},
+                    "properties": [{"name": "Health", "signature": "I4", "flags": 0,
+                                    "getter": "Demo.PublicBot::get_Health:I4"}],
+                    "events": [{"name": "Hit", "type": "Demo.HitEvent", "flags": 0,
+                                "adder": "Demo.PublicBot::add_Hit:void"}],
                 },
                 "Demo.InternalBot": {
                     "flags": 0, "base_type": "Object", "layout": {"size": -1},
@@ -135,9 +138,10 @@ class RecoveryTests(unittest.TestCase):
             "signature": "I4", "flags": 3
         }
         compiled["types"]["Demo.PublicBot"]["methods"]["Defend:I4"] = {"flags": 6}
-        compiled["types"]["Demo.PublicBot"]["properties"][0]["flags"] = 1
+        compiled["types"]["Demo.PublicBot"]["methods"]["get_Health:I4"]["flags"] = 1
         compiled["types"]["Demo.PublicBot"]["events"].append(
-            {"name": "Died", "type": "Demo.DeathEvent", "flags": 3})
+            {"name": "Died", "type": "Demo.DeathEvent", "flags": 0,
+             "adder": "Demo.PublicBot::add_Died:void"})
         compiled["types"].pop("Demo.InternalBot")
         compiled["types"]["Demo.AddedBot"] = {
             "flags": 1, "base_type": "Object", "layout": {"size": -1},
@@ -154,8 +158,46 @@ class RecoveryTests(unittest.TestCase):
                          ["Demo.PublicBot::events:Died:Demo.DeathEvent",
                           "Demo.PublicBot::fields:newHealth"])
         self.assertEqual(visibility["visibility_changed"], [{
+            "kind": "methods", "name": "Demo.PublicBot::get_Health:I4",
+            "original": "public", "compiled": "non-public"}, {
             "kind": "properties", "name": "Demo.PublicBot::Health:I4",
             "original": "public", "compiled": "non-public"}])
+
+    def test_property_event_visibility_comes_from_accessors(self):
+        type_info = {"flags": 1, "fields": {}, "methods": {
+            "get_Value:I4": {"flags": 1}, "set_Value:void": {"flags": 6},
+            "add_Hit:void": {"flags": 4}, "remove_Hit:void": {"flags": 1}},
+            "properties": [], "events": []}
+        original = {"references": [], "resources": [], "types": {"Demo.Bot": type_info}}
+        compiled = json.loads(json.dumps(original))
+        bot = compiled["types"]["Demo.Bot"]
+        bot["properties"] = [
+            {"name": "Value", "signature": "I4", "flags": 0x200,
+             "getter": "Demo.Bot::get_Value:I4", "setter": "Demo.Bot::set_Value:void"},
+            {"name": "Missing", "signature": "I4", "flags": 0,
+             "getter": "Demo.Bot::get_Missing:I4"},
+            {"name": "NoAccessors", "signature": "I4", "flags": 0}]
+        bot["events"] = [{"name": "Hit", "type": "Demo.HitEvent", "flags": 0,
+                          "adder": "Demo.Bot::add_Hit:void",
+                          "remover": "Demo.Bot::remove_Hit:void"}]
+        diff = metadata_contract_diff(original, compiled)
+        added = diff["classification"]["api_visibility_differences"]["members"]["added"]
+        self.assertEqual(added["public"], ["Demo.Bot::events:Hit:Demo.HitEvent",
+                                           "Demo.Bot::properties:Value:I4"])
+        self.assertEqual(added["unknown"], ["Demo.Bot::properties:Missing:I4",
+                                            "Demo.Bot::properties:NoAccessors:I4"])
+        self.assertEqual(added["non-public"], [])
+        self.assertEqual(diff["differences"]["types"]["changed"]["Demo.Bot"]["properties"]["compiled"],
+                         bot["properties"])
+        # Accessor-only changes leave the property/event rows identical.
+        original = json.loads(json.dumps(compiled))
+        bot["methods"]["set_Value:void"]["flags"] = 1
+        bot["methods"]["add_Hit:void"]["flags"] = 1
+        changes = metadata_contract_diff(original, compiled)["classification"]["api_visibility_differences"]
+        self.assertIn({"kind": "events", "name": "Demo.Bot::Hit:Demo.HitEvent",
+                       "original": "public", "compiled": "non-public"}, changes["visibility_changed"])
+        self.assertIn({"kind": "properties", "name": "Demo.Bot::Value:I4",
+                       "original": "public", "compiled": "non-public"}, changes["visibility_changed"])
 
     def test_zip_rejects_traversal_and_case_collisions(self):
         for extra in ("../escape.dll", "ASSEMBLY-CSHARP.dll"):

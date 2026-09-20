@@ -207,8 +207,10 @@ are compatibility work items, not evidence that the DLLs can replace the APK ori
 The comparison report now retains those exact differences while classifying
 compiler-generated type churn, framework-reference identity drift, and public versus
 non-public type/member changes separately. Properties and events are included in the
-visibility classification. This lets reviewers prioritize externally visible API shape
-without treating non-public or compiler-generated changes as harmless, and without
+visibility classification through their accessor methods; property and event flag bits do
+not carry accessibility. An unresolved accessor is kept in an `unknown` bucket rather
+than guessed public or non-public. This lets reviewers prioritize externally visible API
+shape without treating non-public or compiler-generated changes as harmless, and without
 discarding the exact metadata evidence.
 
 For the playable-client boundary, `replacement-plan` computes the transitive closure of

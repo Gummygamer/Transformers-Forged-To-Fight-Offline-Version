@@ -332,13 +332,29 @@ def _member_visibility_diff(original, compiled, type_diff):
     verdict.  Private, internal, and nested non-public declarations share the
     ``non-public`` review bucket; their raw ECMA-335 flags remain in ``differences``.
     """
+    def member_visibility(type_name, type_info, kind, member):
+        if kind in ("fields", "methods"):
+            return _api_visibility(member["flags"], "member")
+        # PropertyAttributes/EventAttributes contain no accessibility bits.
+        # Resolve the MethodSemantics accessors emitted by the metadata helper.
+        roles = ("getter", "setter") if kind == "properties" else ("adder", "remover", "raiser")
+        accessors = [member.get(role, "") for role in roles] + member.get("others", [])
+        buckets = []
+        prefix = type_name + "::"
+        for accessor in filter(None, accessors):
+            method = (type_info["methods"].get(accessor[len(prefix):])
+                      if accessor.startswith(prefix) else None)
+            buckets.append(_api_visibility(method["flags"], "member") if method else "unknown")
+        if "public" in buckets:
+            return "public"
+        return "unknown" if not buckets or "unknown" in buckets else "non-public"
+
     result = {
         "types": {"added": {"public": [], "non-public": []},
                   "removed": {"public": [], "non-public": []},
                   "changed": {"public": [], "non-public": []}},
-        "members": {"added": {"public": [], "non-public": []},
-                    "removed": {"public": [], "non-public": []},
-                    "changed": {"public": [], "non-public": []}},
+        "members": {action: {bucket: [] for bucket in ("public", "non-public", "unknown")}
+                    for action in ("added", "removed", "changed")},
         "visibility_changed": [],
     }
     original_types = original["types"]
@@ -370,17 +386,22 @@ def _member_visibility_diff(original, compiled, type_diff):
             new_members = member_map(compiled_types[name], member_kind)
             added = set(new_members) - set(old_members)
             removed = set(old_members) - set(new_members)
+            old_visibility = {key: member_visibility(name, original_types[name], member_kind, value)
+                              for key, value in old_members.items()}
+            new_visibility = {key: member_visibility(name, compiled_types[name], member_kind, value)
+                              for key, value in new_members.items()}
             changed = {member for member in set(old_members) & set(new_members)
-                       if old_members[member] != new_members[member]}
-            for action, members, source in (("added", added, new_members),
-                                            ("removed", removed, old_members),
-                                            ("changed", changed, old_members)):
+                       if old_members[member] != new_members[member]
+                       or old_visibility[member] != new_visibility[member]}
+            for action, members, visibility in (("added", added, new_visibility),
+                                                ("removed", removed, old_visibility),
+                                                ("changed", changed, old_visibility)):
                 for member in sorted(members):
-                    bucket = _api_visibility(source[member]["flags"], "member")
+                    bucket = visibility[member]
                     result["members"][action][bucket].append(f"{name}::{member_kind}:{member}")
                     if action == "changed":
-                        old_bucket = _api_visibility(old_members[member]["flags"], "member")
-                        new_bucket = _api_visibility(new_members[member]["flags"], "member")
+                        old_bucket = old_visibility[member]
+                        new_bucket = new_visibility[member]
                         if old_bucket != new_bucket:
                             result["visibility_changed"].append(
                                 {"kind": member_kind, "name": f"{name}::{member}",
