@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import uuid
 import zipfile
+import xml.etree.ElementTree as ET
 
 REPO = Path(__file__).resolve().parents[1]
 MANAGED = "assets/bin/Data/Managed/"
@@ -137,8 +138,239 @@ def normalize_accessors(source):
     return pattern.subn(replace, source)
 
 
+def normalize_source_contracts(path, source):
+    """Apply narrow, IL-backed repairs to declarations rejected by Roslyn.
+
+    ILSpy exposes a few metadata contracts that C# cannot spell directly: a
+    type-local ``BindingFlags`` constant, a stripped Unity attribute getter,
+    and optional flags on parameters without default constants.  These edits
+    are made only in the isolated audit snapshot and are recorded by path.
+    """
+    changes = []
+    if path.as_posix().endswith("EB/DownloadExtractor.cs"):
+        old = "using EB.Net;"
+        new = old + "\nusing WebRequest = EB.Net.WebRequest;"
+        if old in source and "using WebRequest = EB.Net.WebRequest;" not in source:
+            source = source.replace(old, new, 1)
+            changes.append("alias EB.Net.WebRequest")
+    if path.name == "ProcessMemberBinding.cs" and "private const BindingFlags BindingFlags" in source:
+        source = source.replace(
+            "private const BindingFlags BindingFlags = BindingFlags.Static | BindingFlags.Public;",
+            "private const System.Reflection.BindingFlags BindingFlags = "
+            "System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public;")
+        changes.append("qualify BindingFlags constant")
+
+    if "using EB.Sequence.Runtime;" in source and "using SequenceRuntimeTrigger = EB.Sequence.Runtime.Trigger;" not in source:
+        source = source.replace("using EB.Sequence.Runtime;",
+                                "using EB.Sequence.Runtime;\nusing SequenceRuntimeTrigger = EB.Sequence.Runtime.Trigger;", 1)
+        source = re.sub(r"(?<![\[.])\bTrigger\b", "SequenceRuntimeTrigger", source)
+        if path.as_posix().endswith("EB.Sequence/Utils.cs"):
+            source = re.sub(r"(enum LinkType\s*\{[^}]*)\bSequenceRuntimeTrigger\b",
+                            r"\1Trigger", source, count=1, flags=re.S)
+        changes.append("qualify EB.Sequence.Runtime.Trigger")
+    if (path.as_posix().startswith("EB.Base/") and "using EB.Sparx;" in source
+            and "using SparxBuff = EB.Sparx.Buff;" not in source):
+        source = source.replace("using EB.Sparx;",
+                                "using EB.Sparx;\nusing SparxBuff = EB.Sparx.Buff;", 1)
+        source = re.sub(r"(?<![\[.])\bBuff\b", "SparxBuff", source)
+        changes.append("qualify EB.Sparx.Buff")
+    if path.name in {"PropertyReference.cs", "NGUIMath.cs", "NGUITools.cs"}:
+        source, count = re.subn(r"(?<![.\w])Debug\.", "UnityEngine.Debug.", source)
+        if count:
+            changes.append(f"qualify {count} UnityEngine.Debug calls")
+    if path.name == "BuffValidationLogger.cs":
+        source, count = re.subn(r"(?<![.\w])Debug\.", "EB.Debug.", source)
+        if count:
+            changes.append(f"qualify {count} EB.Debug calls")
+    if path.name in {"UIPlayAnimation.cs", "UIPlayTween.cs"} and "using AnimationOrTween;" in source:
+        source = source.replace("using AnimationOrTween;",
+                                "using AnimationOrTween;\nusing NGUITrigger = AnimationOrTween.Trigger;", 1)
+        source = re.sub(r"\bTrigger\b", "NGUITrigger", source)
+        source = source.replace("AnimationOrTween.NGUITrigger", "AnimationOrTween.Trigger")
+        changes.append("qualify AnimationOrTween.Trigger")
+    if path.name == "TcpClientMono.cs":
+        source, count = source.replace("leaveStreamOpen: true", "true"), source.count("leaveStreamOpen: true")
+        if count:
+            changes.append("use positional SslStream leave-open argument")
+    if path.name == "GachaManager.cs" and "int num;" in source:
+        old = '''\t\t\tdefault:\n\t\t\t{\n\t\t\t\tint num;\n\t\t\t\tif (num == 1)\n\t\t\t\t{\n\t\t\t\t\tresult = GetBox(data);\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tDebug.LogError("Unknown Gacha CallToAction Type {0}", type);\n\t\t\t\tbreak;\n\t\t\t}\n\t\t\tcase "token":\n\t\t\t\tresult = GetBoxForToken(data);\n\t\t\t\tbreak;'''
+        new = '''\t\t\tcase "token":\n\t\t\t\tresult = GetBoxForToken(data);\n\t\t\t\tbreak;\n\t\t\tcase "box":\n\t\t\t\tresult = GetBox(data);\n\t\t\t\tbreak;\n\t\t\tdefault:\n\t\t\t\tEB.Debug.LogError("Unknown Gacha CallToAction Type {0}", type);\n\t\t\t\tbreak;'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore IL switch cases in GachaManager")
+    if path.name == "AvxQuestExpirationManager.cs":
+        old = '''\t\tswitch (category)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num;\n\t\t\tif (num == 1)\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVESELECTION_QUEST_EXPIRED_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVESELECTION_QUEST_EXPIRED_SPECTATE_ONLY";\n\t\t\t\tbreak;\n\t\t\t}\n\t\t\tonClose.SafeInvoke();\n\t\t\treturn;\n\t\t}\n\t\tcase "AvA":\n\t\t{\n\t\t\tActiveQuest activeQuest = ((!QuestsManager.Instance.avaPlacementQuests.IsNullOrEmpty()) ? QuestsManager.Instance.avaPlacementQuests[0] : null);\n\t\t\tif (activeQuest != null)\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_PLACEMENT_EXPIRING_SOON_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_PLACEMENT_EXPIRES_SOON";\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_QUEST_EXPIRED_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_QUEST_EXPIRED_SPECTATE_ONLY";\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\t}'''
+        new = '''\t\tswitch (category)\n\t\t{\n\t\tcase "AvA":\n\t\t{\n\t\t\tActiveQuest activeQuest = ((!QuestsManager.Instance.avaPlacementQuests.IsNullOrEmpty()) ? QuestsManager.Instance.avaPlacementQuests[0] : null);\n\t\t\tif (activeQuest != null)\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_PLACEMENT_EXPIRING_SOON_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_PLACEMENT_EXPIRES_SOON";\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_QUEST_EXPIRED_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_QUEST_EXPIRED_SPECTATE_ONLY";\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "AvE":\n\t\t\tempty = "ID_UI_AVESELECTION_QUEST_EXPIRED_HEADER";\n\t\t\tempty2 = "ID_UI_AVESELECTION_QUEST_EXPIRED_SPECTATE_ONLY";\n\t\t\tbreak;\n\t\tdefault:\n\t\t\tonClose.SafeInvoke();\n\t\t\treturn;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore AvA/AvE expiry switch cases")
+        old = '''\t\tswitch (category)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num;\n\t\t\tif (num != 1)\n\t\t\t{\n\t\t\t}\n\t\t\tempty = "ID_UI_AVESELECTION_QUEST_EXPIRING_SOON_HEADER";\n\t\t\tempty2 = "ID_UI_AVESELECTION_QUEST_EXPIRES_SOON";\n\t\t\tbreak;\n\t\t}\n\t\tcase "AvA":\n\t\t{\n\t\t\tActiveQuest activeQuest = ((!QuestsManager.Instance.avaPlacementQuests.IsNullOrEmpty()) ? QuestsManager.Instance.avaPlacementQuests[0] : null);\n\t\t\tif (activeQuest != null)\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_PLACEMENT_EXPIRING_SOON_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_PLACEMENT_EXPIRES_SOON";\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_QUEST_EXPIRING_SOON_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_QUEST_EXPIRES_SOON";\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\t}'''
+        new = '''\t\tswitch (category)\n\t\t{\n\t\tcase "AvA":\n\t\t{\n\t\t\tActiveQuest activeQuest = ((!QuestsManager.Instance.avaPlacementQuests.IsNullOrEmpty()) ? QuestsManager.Instance.avaPlacementQuests[0] : null);\n\t\t\tif (activeQuest != null)\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_PLACEMENT_EXPIRING_SOON_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_PLACEMENT_EXPIRES_SOON";\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tempty = "ID_UI_AVA_QUEST_EXPIRING_SOON_HEADER";\n\t\t\t\tempty2 = "ID_UI_AVA_QUEST_EXPIRES_SOON";\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "AvE":\n\t\tdefault:\n\t\t\tempty = "ID_UI_AVESELECTION_QUEST_EXPIRING_SOON_HEADER";\n\t\t\tempty2 = "ID_UI_AVESELECTION_QUEST_EXPIRES_SOON";\n\t\t\tbreak;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore AvA/AvE expiring switch cases")
+    if path.name == "AllianceMembersState.cs":
+        old = '''switch (err)\n\t\t\t\t{\n\t\t\t\tdefault:\n\t\t\t\t{\n\t\t\t\t\tint num;\n\t\t\t\t\tif (num == 1)\n\t\t\t\t\t{\n\t\t\t\t\t\tAllianceUtil.GoToAlliance();\n\t\t\t\t\t}\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tcase "privateAlliance":\n\t\t\t\tcase "nonJoinableAlliance":\n\t\t\t\tcase "full":\n\t\t\t\t\tbreak;\n\t\t\t\t}'''
+        new = '''switch (err)\n\t\t\t\t{\n\t\t\t\tcase "privateAlliance":\n\t\t\t\tcase "nonJoinableAlliance":\n\t\t\t\tcase "full":\n\t\t\t\t\tbreak;\n\t\t\t\tcase "notFound":\n\t\t\t\t\tAllianceUtil.GoToAlliance();\n\t\t\t\t\tbreak;\n\t\t\t\tdefault:\n\t\t\t\t\tbreak;\n\t\t\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore AllianceMembersState error switch cases")
+        elif "notFound" not in source and "switch (err)" in source:
+            match = re.search(r"(?ms)(?P<indent>\t+)switch \(err\)\n.*?(?=\n\t+\}\)\);)", source)
+            if match:
+                indent = match.group("indent")
+                body_indent = indent + "\t"
+                source = source[:match.start()] + (
+                    f'{indent}switch (err)\n'
+                    f'{body_indent}{{\n'
+                    f'{body_indent}case "privateAlliance":\n'
+                    f'{body_indent}case "nonJoinableAlliance":\n'
+                    f'{body_indent}case "full":\n'
+                    f'{body_indent}\tbreak;\n'
+                    f'{body_indent}case "notFound":\n'
+                    f'{body_indent}\tAllianceUtil.GoToAlliance();\n'
+                    f'{body_indent}\tbreak;\n'
+                    f'{body_indent}default:\n'
+                    f'{body_indent}\tbreak;\n'
+                    f'{body_indent}}}'
+                ) + source[match.end():]
+                changes.append("restore AllianceMembersState error switch cases")
+    if path.name == "BattleArbiter.cs":
+        old = '''\t\tswitch (base.CurrentStateName)\n\t\t{\n\t\tcase "Init":\n\t\t\treturn;\n\t\t}\n\t\tint num;\n\t\tif (num != 1)\n\t\t{\n\t\t\tExit();\n\t\t}'''
+        new = '''\t\tswitch (base.CurrentStateName)\n\t\t{\n\t\tcase "Init":\n\t\t\treturn;\n\t\tcase "Exit":\n\t\t\treturn;\n\t\tdefault:\n\t\t\tExit();\n\t\t\treturn;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore BattleArbiter Disconnect switch cases")
+    if path.name == "BuffConditionFactory.cs":
+        old = '''\t\tswitch (key)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num;\n\t\t\tif (num == 1)\n\t\t\t{\n\t\t\t\tbuffCondition = new ActiveId_BuffCondition(target, rhs, op);\n\t\t\t\tbreak;\n\t\t\t}\n\t\t\tfor (int i = 0; i < _customFactories.Count; i++)\n\t\t\t{\n\t\t\t\tbuffCondition = _customFactories[i].CreateCondition(target, key, op, rhs);\n\t\t\t\tif (buffCondition != null)\n\t\t\t\t{\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t}\n\t\t\tif (buffCondition == null)\n\t\t\t{\n\t\t\t\tbuffCondition = new BuffFloatCondition(BuffValueFactory.Instance.CreateFloatValue(lhs), BuffValueFactory.Instance.CreateFloatValue(rhs), op);\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "status":\n\t\t\tbuffCondition = new ContainsBuff_BuffCondition(target, rhs, op);\n\t\t\tbreak;\n\t\t}'''
+        new = '''\t\tswitch (key)\n\t\t{\n\t\tcase "status":\n\t\t\tbuffCondition = new ContainsBuff_BuffCondition(target, rhs, op);\n\t\t\tbreak;\n\t\tcase "activeId":\n\t\t\tbuffCondition = new ActiveId_BuffCondition(target, rhs, op);\n\t\t\tbreak;\n\t\tdefault:\n\t\t\tfor (int i = 0; i < _customFactories.Count; i++)\n\t\t\t{\n\t\t\t\tbuffCondition = _customFactories[i].CreateCondition(target, key, op, rhs);\n\t\t\t\tif (buffCondition != null)\n\t\t\t\t{\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t}\n\t\t\tif (buffCondition == null)\n\t\t\t{\n\t\t\t\tbuffCondition = new BuffFloatCondition(BuffValueFactory.Instance.CreateFloatValue(lhs), BuffValueFactory.Instance.CreateFloatValue(rhs), op);\n\t\t\t}\n\t\t\tbreak;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore BuffConditionFactory switch cases")
+    if path.name == "CustomStoreScreenPresentation.cs":
+        old = '''\t\tswitch (_currentTabId)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num;\n\t\t\tif (num == 1)\n\t\t\t{\n\t\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab("Raidchips");\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab(string.Empty);\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "loyalty":\n\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab("Loyalty");\n\t\t\tbreak;\n\t\t}'''
+        new = '''\t\tswitch (_currentTabId)\n\t\t{\n\t\tcase "loyalty":\n\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab("Loyalty");\n\t\t\tbreak;\n\t\tcase "vs":\n\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab("Raidchips");\n\t\t\tbreak;\n\t\tdefault:\n\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab(string.Empty);\n\t\t\tbreak;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore CustomStoreScreenPresentation switch cases")
+    if path.as_posix().endswith("CustomRedeemerMappings/ResourceRedeemerMapping.cs"):
+        old = '''\t\tGameObject gameObject = null;\n\t\tint num;\n\t\tgameObject = resourceType switch\n\t\t{\n\t\t\t"sc" => Resources.Load("UI/Misc/SoftCurrencyResourceTrail") as GameObject, \n\t\t\t_ => (num != 1) ? (Resources.Load("UI/Misc/GenericResourceTrail") as GameObject) : (Resources.Load("UI/Misc/HardCurrencyResourceTrail") as GameObject), \n\t\t};'''
+        new = '''\t\tGameObject gameObject = null;\n\t\tif (resourceType == "sc")\n\t\t{\n\t\t\tgameObject = Resources.Load("UI/Misc/SoftCurrencyResourceTrail") as GameObject;\n\t\t}\n\t\telse if (resourceType == "hc")\n\t\t{\n\t\t\tgameObject = Resources.Load("UI/Misc/HardCurrencyResourceTrail") as GameObject;\n\t\t}\n\t\telse\n\t\t{\n\t\t\tgameObject = Resources.Load("UI/Misc/GenericResourceTrail") as GameObject;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore ResourceRedeemerMapping resource switch cases")
+    if path.name == "FlashSaleItem.cs":
+        old = '''\t\tswitch (offer.Type)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num3;\n\t\t\tif (num3 == 1)\n\t\t\t{\n\t\t\t\tBCGEvoBlueprintBase evoBlueprint = BCGHelper.GetEvoBlueprint(offer.Data);\n\t\t\t\tif (evoBlueprint != null && BCGHelper.IsCatalyst(evoBlueprint))\n\t\t\t\t{\n\t\t\t\t\tnum = BCGHelper.GetNumBlueprints(evoBlueprint.EvoBlueprint);\n\t\t\t\t\tif (BCGHelper.IsConnected())\n\t\t\t\t\t{\n\t\t\t\t\t\tnum2 = BCGManager.Instance.UserData.GetInventoryMax(evoBlueprint.EvoBlueprint);\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tGameStoreItem item = Hub.Instance.GameStoreManager.GetItem(offer.Data);\n\t\t\t\tif (item != null)\n\t\t\t\t{\n\t\t\t\t\tnum = Hub.Instance.InventoryManager.GetCount(item.Name);\n\t\t\t\t\tnum2 = item.InventoryMax;\n\t\t\t\t}\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "skl":\n\t\tcase "hero":\n\t\tcase "bp":\n\t\tcase "rhero":\n\t\t\tbreak;\n\t\t}'''
+        new = '''\t\tswitch (offer.Type)\n\t\t{\n\t\tcase "skl":\n\t\tcase "hero":\n\t\tcase "bp":\n\t\tcase "rhero":\n\t\t\tbreak;\n\t\tcase "ebp":\n\t\tcase "ebpf":\n\t\tcase "autoconvert_ebp":\n\t\tcase "overflow_ebp":\n\t\t{\n\t\t\tBCGEvoBlueprintBase evoBlueprint = BCGHelper.GetEvoBlueprint(offer.Data);\n\t\t\tif (evoBlueprint != null && BCGHelper.IsCatalyst(evoBlueprint))\n\t\t\t{\n\t\t\t\tnum = BCGHelper.GetNumBlueprints(evoBlueprint.EvoBlueprint);\n\t\t\t\tif (BCGHelper.IsConnected())\n\t\t\t\t{\n\t\t\t\t\tnum2 = BCGManager.Instance.UserData.GetInventoryMax(evoBlueprint.EvoBlueprint);\n\t\t\t\t}\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tdefault:\n\t\t{\n\t\t\tGameStoreItem item = Hub.Instance.GameStoreManager.GetItem(offer.Data);\n\t\t\tif (item != null)\n\t\t\t{\n\t\t\t\tnum = Hub.Instance.InventoryManager.GetCount(item.Name);\n\t\t\t\tnum2 = item.InventoryMax;\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore FlashSaleItem offer switch cases")
+    if path.name == "HeroConsumablesPopupPresentation.cs":
+        old = '''\t\t\t\tswitch (_mode)\n\t\t\t\t{\n\t\t\t\tdefault:\n\t\t\t\t{\n\t\t\t\t\tint num;\n\t\t\t\t\tif (num != 1)\n\t\t\t\t\t{\n\t\t\t\t\t}\n\t\t\t\t\tif (activeTeam != null && _config.dataProvder.GetCurrentHero() != null)\n\t\t\t\t\t{\n\t\t\t\t\t\tfloat currentHeroHealth = _config.dataProvder.GetCurrentHeroHealth();\n\t\t\t\t\t\tflag = currentHeroHealth > 0f && currentHeroHealth < 1f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsHeal();\n\t\t\t\t\t\tflag2 = currentHeroHealth == 0f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsRevive();\n\t\t\t\t\t}\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tcase "kTeam":\n\t\t\t\t{\n\t\t\t\t\tfor (int i = 0; i < activeTeam.size; i++)\n\t\t\t\t\t{\n\t\t\t\t\t\tfloat hP = activeTeam.GetHP(i);\n\t\t\t\t\t\tflag |= hP > 0f && hP < 1f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsHeal();\n\t\t\t\t\t\tflag2 |= hP == 0f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsRevive();\n\t\t\t\t\t}\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\t}'''
+        new = '''\t\t\t\tswitch (_mode)\n\t\t\t\t{\n\t\t\t\tcase "kTeam":\n\t\t\t\t{\n\t\t\t\t\tfor (int i = 0; i < activeTeam.size; i++)\n\t\t\t\t\t{\n\t\t\t\t\t\tfloat hP = activeTeam.GetHP(i);\n\t\t\t\t\t\tflag |= hP > 0f && hP < 1f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsHeal();\n\t\t\t\t\t\tflag2 |= hP == 0f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsRevive();\n\t\t\t\t\t}\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t\tcase "kSingle":\n\t\t\t\tdefault:\n\t\t\t\t\tif (activeTeam != null && _config.dataProvder.GetCurrentHero() != null)\n\t\t\t\t\t{\n\t\t\t\t\t\tfloat currentHeroHealth = _config.dataProvder.GetCurrentHeroHealth();\n\t\t\t\t\t\tflag = currentHeroHealth > 0f && currentHeroHealth < 1f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsHeal();\n\t\t\t\t\t\tflag2 = currentHeroHealth == 0f && gameStoreInventoryItem != null && gameStoreInventoryItem.GetGameStoreItem().IsRevive();\n\t\t\t\t\t}\n\t\t\t\t\tbreak;\n\t\t\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore HeroConsumablesPopupPresentation mode switch cases")
+    if path.as_posix().endswith("Legacy/ActiveQuest.cs"):
+        old = '''\t\tswitch (text3)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num12;\n\t\t\tif (num12 == 1)\n\t\t\t{\n\t\t\t\tphase = Phase.Defend;\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\tphase = Phase.Attack;\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "placement":\n\t\t\tphase = Phase.Placement;\n\t\t\tbreak;\n\t\t}'''
+        new = '''\t\tswitch (text3)\n\t\t{\n\t\tcase "placement":\n\t\t\tphase = Phase.Placement;\n\t\t\tbreak;\n\t\tcase "defend":\n\t\t\tphase = Phase.Defend;\n\t\t\tbreak;\n\t\tdefault:\n\t\t\tphase = Phase.Attack;\n\t\t\tbreak;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore ActiveQuest phase switch cases")
+    if path.as_posix().endswith("EB.UI.Gacha/GachaPurchasePresentation.cs"):
+        old = '''\t\tswitch (tabId)\n\t\t{\n\t\tdefault:\n\t\t{\n\t\t\tint num;\n\t\t\tif (num == 1)\n\t\t\t{\n\t\t\t\t_currentTab = GachaTab.SPECIAL;\n\t\t\t}\n\t\t\telse\n\t\t\t{\n\t\t\t\t_currentTab = GachaTab.CRYSTAL;\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t\tcase "shards":\n\t\t\t_currentTab = GachaTab.SHARDS;\n\t\t\tbreak;\n\t\t}'''
+        new = '''\t\tswitch (tabId)\n\t\t{\n\t\tcase "shards":\n\t\t\t_currentTab = GachaTab.SHARDS;\n\t\t\tbreak;\n\t\tcase "special":\n\t\t\t_currentTab = GachaTab.SPECIAL;\n\t\t\tbreak;\n\t\tdefault:\n\t\t\t_currentTab = GachaTab.CRYSTAL;\n\t\t\tbreak;\n\t\t}'''
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("restore GachaPurchasePresentation tab switch cases")
+    if path.name == "StateMachine.cs" and "AddState(new T" in source:
+        source = source.replace(
+            "AddState(new T\n\t\t{\n\t\t\tStateName = stateName\n\t\t});",
+            "State state = System.Activator.CreateInstance<T>();\n"
+            "\t\tstate.StateName = stateName;\n\t\tAddState(state);", 1)
+        changes.append("restore Activator.CreateInstance from IL")
+    if path.name == "MOTDWidget.cs" and "new EB.Action<TransformersMOTDItem, MOTDTemplate>(HandleMOTDClick)" in source:
+        source = source.replace(
+            "new EB.Action<TransformersMOTDItem, MOTDTemplate>(HandleMOTDClick)",
+            "new EB.Action<TransformersMOTDItem, MOTDTemplate>((item, data) => "
+            "HandleMOTDClick(item, data, null))", 1)
+        changes.append("adapt optional MOTD callback to two-argument delegate")
+    if path.name == "HeroesScreen.cs" and "delegate(Building building)" in source:
+        source = source.replace("delegate(Building building)", "delegate(Building callbackBuilding)", 1)
+        source = source.replace("\t\t\tif (building != null)", "\t\t\tif (callbackBuilding != null)", 1)
+        source = source.replace("BuildingDetailsScreen.Show(building, list);", "BuildingDetailsScreen.Show(callbackBuilding, list);", 1)
+        changes.append("rename shadowed HeroesScreen callback parameter")
+
+    # The original methods mark the later value as Optional in metadata.  The
+    # decompiler prints that flag without a C# default, which makes all prior
+    # defaults illegal and makes callers that omit the value fail.  A default
+    # value is a source-only spelling of the same metadata contract.
+    optional_value = re.compile(
+        r"\[Optional\]\s+(?P<type>[^,\s]+(?:<[^>]+>)?(?:\[\])?)\s+(?P<name>\w+)"
+        r"(?=\s*[,\)])")
+    source, count = optional_value.subn(
+        lambda m: f"{m.group('type')} {m.group('name')} = default", source)
+    if count:
+        changes.append(f"add {count} defaults for metadata-optional parameters")
+
+    # Unity's stripped reference exposes setter-only attribute properties. A
+    # named attribute argument is therefore not a legal C# declaration even
+    # though the setter is present in the IL. Keep the attribute itself while
+    # omitting only the unverifiable named argument in the compile snapshot.
+    source, count = re.subn(r"\[CreateAssetMenu\(menuName\s*=\s*\"[^\"]*\"\)\]",
+                            "[CreateAssetMenu]", source)
+    if count:
+        changes.append(f"remove {count} stripped CreateAssetMenu named arguments")
+    source, count = re.subn(r"\[Header\((\"[^\"]*\"),\s*order\s*=\s*\d+\)\]",
+                            r"[Header(\1)]", source)
+    if count:
+        changes.append(f"remove {count} stripped Header named arguments")
+    return source, changes
+
+
+def project_references(workspace, name):
+    """Return assembly names referenced by an exported project file."""
+    project = workspace / "source" / name / f"{name}.csproj"
+    if not project.is_file():
+        return set()
+    try:
+        root = ET.fromstring(project.read_text())
+    except ET.ParseError:
+        return set()
+    refs = set()
+    for item in root.findall(".//Reference"):
+        include = item.attrib.get("Include", "").split(",", 1)[0]
+        if include:
+            refs.add(include)
+    return refs
+
+
+def dependency_order(workspace, names):
+    """Topologically order selected projects using ILSpy project references."""
+    selected = set(names)
+    visiting = set()
+    visited = set()
+    ordered = []
+
+    def visit(name):
+        if name in visited:
+            return
+        if name in visiting:
+            raise ValueError(f"Circular selected assembly dependency involving {name}")
+        visiting.add(name)
+        for dependency in sorted(project_references(workspace, name) & selected):
+            visit(dependency)
+        visiting.remove(name)
+        visited.add(name)
+        ordered.append(name)
+
+    for name in names:
+        visit(name)
+    return ordered
+
+
 def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
-                  repair_accessors=False):
+                  repair_accessors=False, repair_contracts=False):
     """Compile recovered game code against the APK's own framework, without NuGet."""
     manifest = json.loads((workspace / "manifest.json").read_text())
     # Verify input provenance before using assemblies as compiler references.
@@ -149,6 +381,7 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
     available = {Path(row["name"]).stem for row in manifest["assemblies"]}
     if not names or any(name not in available for name in names):
         raise ValueError("Select assembly names present in the export manifest")
+    names = dependency_order(workspace, names)
     references = {p.name: p for p in (workspace / "managed").glob("*.dll")}
     overrides = {}
     for directory in reference_dirs:
@@ -160,9 +393,12 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                 references[path.name] = path
                 overrides[path.name] = {"path": str(path), "sha256": digest(path)}
     audit = Path(tempfile.mkdtemp(prefix="compile-", dir=workspace))
+    output_dir = audit / "bin"
+    output_dir.mkdir()
     report = {"scope": "game assemblies against original APK references; not a Unity build",
               "compiler": str(csc), "compiler_sha256": digest(csc),
               "reference_overrides": overrides, "runtime_verified": False, "assemblies": []}
+    compiled_refs = {}
     for name in names:
         sources = sorted((workspace / "source" / name).rglob("*.cs"))
         if not sources:
@@ -180,14 +416,24 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                 text, count = normalize_accessors(text)
                 if count:
                     changes.append({"path": relative.as_posix(), "explicit_getters": count})
+            if repair_contracts:
+                text, contract_changes = normalize_source_contracts(relative, text)
+                if contract_changes:
+                    changes.append({"path": relative.as_posix(), "contracts": contract_changes})
             target.write_text(text)
         sources = sorted(snapshot.rglob("*.cs"))
         flags = ["-nologo", "-target:library", "-unsafe", "-nostdlib+", "-langversion:12",
                  "-deterministic+", f'-pathmap:"{audit}=/_/reconstruction"',
                  f'-out:"{audit / (name + ".dll")}"']
-        flags += [f'-reference:"{p}"' for p in sorted(references.values())
-                  if p.stem != name]
+        reference_paths = []
+        for p in sorted(references.values()):
+            if p.stem == name:
+                continue
+            reference_paths.append(compiled_refs.get(p.stem, p))
+        flags += [f'-reference:"{p}"' for p in reference_paths]
         flags += [f'"{p}"' for p in sources]
+        output_path = output_dir / f"{name}.dll"
+        flags[7] = f'-out:"{output_path}"'
         rsp = audit / f"{name}.rsp"
         rsp.write_text("\n".join(flags) + "\n")
         log = audit / f"{name}.log"
@@ -202,8 +448,12 @@ def compile_audit(workspace, dotnet, csc, reference_dirs=(), assemblies=None,
                                      "compiled_source_hashes": {
                                          p.relative_to(audit).as_posix(): digest(p) for p in sources},
                                      "repairs": changes,
-                                     "output_sha256": digest(audit / (name + ".dll"))
-                                     if result.returncode == 0 else None})
+                                     "reference_paths": [str(p) for p in reference_paths],
+                                     "output_sha256": digest(output_path)
+                                     if result.returncode == 0 else None,
+                                     "output_path": output_path.relative_to(audit).as_posix()})
+        if result.returncode == 0:
+            compiled_refs[name] = output_path
     save(audit / "report.json", report)
     success = all(r["status"] == "compiled" for r in report["assemblies"])
     manifest["compilation"] = "selected-assemblies-compiled" if success else "failed"
@@ -231,12 +481,15 @@ def main():
     audit.add_argument("--assembly", action="append", help="Assembly name without .dll (repeatable)")
     audit.add_argument("--repair-accessors", action="store_true",
                        help="Normalize simple explicit getters in a local source snapshot")
+    audit.add_argument("--repair-contracts", action="store_true",
+                       help="Apply IL-backed compiler-contract repairs in a local source snapshot")
     args = parser.parse_args()
     try:
         if args.command == "export":
             return recover(args.apk.resolve(), args.ilspy)
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
-                             args.reference_dir, args.assembly, args.repair_accessors)
+                             args.reference_dir, args.assembly, args.repair_accessors,
+                             args.repair_contracts)
     except (OSError, ValueError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Error: {error}\n")
 

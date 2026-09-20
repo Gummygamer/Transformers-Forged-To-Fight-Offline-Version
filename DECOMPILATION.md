@@ -93,30 +93,33 @@ python3 tools/decompilation.py compile-audit build/decompilation/mono-XXXX \
   --reference-dir build/tooling/net20/build/.NETFramework/v2.0 \
   --reference-dir build/tooling/net35/build/.NETFramework/v3.5 \
   --assembly Assembly-CSharp-firstpass --assembly Assembly-CSharp \
-  --assembly Fabric.Core --assembly NBidi --repair-accessors
+  --assembly Fabric.Core --assembly NBidi --repair-accessors --repair-contracts
 ```
 
 Each audit compiles an isolated source snapshot and records input and compiled source
 hashes. Compiler output uses deterministic mode and maps temporary paths to a stable
 prefix. The audit compiles C# only; it does not reconstruct embedded-resource packaging,
-signing, or the Unity project. `--repair-accessors` rewrites only simple explicit-interface getter methods into
-property getters, recording each changed file. It does not modify the original export.
-Each assembly is tested independently against original dependencies; a successful audit
-does not establish that all dependencies can be rebuilt together.
+signing, or the Unity project. `--repair-accessors` rewrites only simple explicit-interface
+getter methods into property getters. `--repair-contracts` applies narrow IL-backed repairs
+to decompiler declarations in the isolated snapshot: stripped Unity attribute setters,
+metadata-only optional parameters, namespace collisions, recovered string-switch bodies, and
+the `Activator.CreateInstance` generic call. Every repair is listed in the report; the
+original export is never modified. Selected projects are topologically ordered from their
+ILSpy project references, and a successfully compiled dependency is used as the reference
+for later selected projects. The report records those reference paths and compiled hashes.
 
 On the local 2.0.2 APK with SHA-256
 `61c1860df9d5bb64ab28934b0fd6954c71c5410887f66260917351820b08aca4`,
-`Fabric.Core` and `NBidi` compile successfully with Roslyn 8.0.422. The first compiler
-pass for the two game assemblies falls from 879 errors to 25 with reference overrides,
-then to 11 after seven getter repairs. The remaining reported errors are ambiguous type
-names, one self-referencing constant, four invalid optional-parameter declarations, and
-four Unity attribute member mismatches. Later compilation phases may reveal more errors.
-No rebuilt DLL has been installed or runtime-verified. This Mono milestone does not
-reconstruct the 9.2 IL2CPP client.
+`Fabric.Core`, `NBidi`, `Assembly-CSharp-firstpass`, and `Assembly-CSharp` compile
+successfully with Roslyn 8.0.422 when the isolated contract repairs are enabled. The
+eleven `CS0165` diagnostics for string-switch locals were resolved from the original
+managed assembly's IL; the report records each recovered branch map and repair. No rebuilt
+DLL has been installed or runtime-verified. This Mono milestone does not reconstruct the
+9.2 IL2CPP client.
 
-Next milestones: resolve those declarations with IL evidence, compile game assemblies
-against rebuilt dependencies, compare assembly APIs and serialized field layouts, then
-test a locally packaged Mono APK against the offline server. The 2.0.2 protocol and assets
+Next milestones: compile additional game assemblies against rebuilt dependencies, compare
+assembly APIs and serialized field layouts, then test a locally packaged Mono APK against
+the offline server. The 2.0.2 protocol and assets
 must be verified independently before claiming parity with patched 9.2.
 
 Run synthetic tooling tests with `python3 -m unittest discover -s tools -p test_decompilation.py`.

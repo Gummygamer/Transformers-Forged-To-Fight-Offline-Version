@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from decompilation import assembly_entries, compile_audit, digest, normalize_accessors
+from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
+                           normalize_accessors, normalize_source_contracts)
 
 
 class RecoveryTests(unittest.TestCase):
@@ -36,6 +37,183 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(normalize_accessors(repaired), (repaired, 0))
         complex_body = original.replace("return items.Count;", "Touch();\n\t\treturn items.Count;")
         self.assertEqual(normalize_accessors(complex_body), (complex_body, 0))
+
+    def test_contract_repairs_follow_metadata_contracts(self):
+        source = ("using EB.Net;\n"
+                  "private const BindingFlags BindingFlags = BindingFlags.Static | BindingFlags.Public;\n"
+                  "void F(int alignment = 1, [Optional] Vector2 offset) {}\n"
+                  "[CreateAssetMenu(menuName = \"AI\")]\n"
+                  "[Header(\"Right\", order = 105)]\n")
+        repaired, changes = normalize_source_contracts(Path("ProcessMemberBinding.cs"), source)
+        repaired, alias_changes = normalize_source_contracts(Path("EB/DownloadExtractor.cs"), repaired)
+        changes += alias_changes
+        self.assertIn("using WebRequest = EB.Net.WebRequest;", repaired)
+        self.assertIn("System.Reflection.BindingFlags", repaired)
+        self.assertIn("int alignment = 1, Vector2 offset = default", repaired)
+        self.assertIn("[CreateAssetMenu]", repaired)
+        self.assertIn('[Header("Right")]', repaired)
+        self.assertEqual(len(changes), 5)
+
+    def test_recovered_switch_contracts_restore_explicit_cases(self):
+        fixtures = [
+            (Path("BattleArbiter.cs"),
+             "\t\tswitch (base.CurrentStateName)\n"
+             "\t\t{\n"
+             "\t\tcase \"Init\":\n"
+             "\t\t\treturn;\n"
+             "\t\t}\n"
+             "\t\tint num;\n"
+             "\t\tif (num != 1)\n"
+             "\t\t{\n"
+             "\t\t\tExit();\n"
+             "\t\t}\n",
+             ["case \"Exit\":", "Exit();"]),
+            (Path("BuffConditionFactory.cs"),
+             "\t\tswitch (key)\n"
+             "\t\t{\n"
+             "\t\tdefault:\n"
+             "\t\t{\n"
+             "\t\t\tint num;\n"
+             "\t\t\tif (num == 1)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tbuffCondition = new ActiveId_BuffCondition(target, rhs, op);\n"
+             "\t\t\t\tbreak;\n"
+             "\t\t\t}\n"
+             "\t\t\tfor (int i = 0; i < _customFactories.Count; i++)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tbuffCondition = _customFactories[i].CreateCondition(target, key, op, rhs);\n"
+             "\t\t\t\tif (buffCondition != null)\n"
+             "\t\t\t\t{\n"
+             "\t\t\t\t\tbreak;\n"
+             "\t\t\t\t}\n"
+             "\t\t\t}\n"
+             "\t\t\tif (buffCondition == null)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tbuffCondition = new BuffFloatCondition(BuffValueFactory.Instance.CreateFloatValue(lhs), BuffValueFactory.Instance.CreateFloatValue(rhs), op);\n"
+             "\t\t\t}\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n"
+             "\t\tcase \"status\":\n"
+             "\t\t\tbuffCondition = new ContainsBuff_BuffCondition(target, rhs, op);\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n",
+             ["case \"activeId\":", "case \"status\":", "BuffFloatCondition"]),
+            (Path("CustomStoreScreenPresentation.cs"),
+             "\t\tswitch (_currentTabId)\n"
+             "\t\t{\n"
+             "\t\tdefault:\n"
+             "\t\t{\n"
+             "\t\t\tint num;\n"
+             "\t\t\tif (num == 1)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab(\"Raidchips\");\n"
+             "\t\t\t}\n"
+             "\t\t\telse\n"
+             "\t\t\t{\n"
+             "\t\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab(string.Empty);\n"
+             "\t\t\t}\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n"
+             "\t\tcase \"loyalty\":\n"
+             "\t\t\tTransformersMenuBar.Instance.SetSoftCurrencyTab(\"Loyalty\");\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n",
+             ["case \"vs\":", "string.Empty"]),
+            (Path("CustomRedeemerMappings/ResourceRedeemerMapping.cs"),
+             "\t\tGameObject gameObject = null;\n"
+             "\t\tint num;\n"
+             "\t\tgameObject = resourceType switch\n"
+             "\t\t{\n"
+             "\t\t\t\"sc\" => Resources.Load(\"UI/Misc/SoftCurrencyResourceTrail\") as GameObject, \n"
+             "\t\t\t_ => (num != 1) ? (Resources.Load(\"UI/Misc/GenericResourceTrail\") as GameObject) : (Resources.Load(\"UI/Misc/HardCurrencyResourceTrail\") as GameObject), \n"
+             "\t\t};\n",
+             ["resourceType == \"hc\"", "GenericResourceTrail"]),
+            (Path("Legacy/ActiveQuest.cs"),
+             "\t\tswitch (text3)\n"
+             "\t\t{\n"
+             "\t\tdefault:\n"
+             "\t\t{\n"
+             "\t\t\tint num12;\n"
+             "\t\t\tif (num12 == 1)\n"
+             "\t\t\t{\n"
+             "\t\t\t\tphase = Phase.Defend;\n"
+             "\t\t\t}\n"
+             "\t\t\telse\n"
+             "\t\t\t{\n"
+             "\t\t\t\tphase = Phase.Attack;\n"
+             "\t\t\t}\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n"
+             "\t\tcase \"placement\":\n"
+             "\t\t\tphase = Phase.Placement;\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n",
+             ["case \"defend\":", "Phase.Attack"]),
+            (Path("EB.UI.Gacha/GachaPurchasePresentation.cs"),
+             "\t\tswitch (tabId)\n"
+             "\t\t{\n"
+             "\t\tdefault:\n"
+             "\t\t{\n"
+             "\t\t\tint num;\n"
+             "\t\t\tif (num == 1)\n"
+             "\t\t\t{\n"
+             "\t\t\t\t_currentTab = GachaTab.SPECIAL;\n"
+             "\t\t\t}\n"
+             "\t\t\telse\n"
+             "\t\t\t{\n"
+             "\t\t\t\t_currentTab = GachaTab.CRYSTAL;\n"
+             "\t\t\t}\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n"
+             "\t\tcase \"shards\":\n"
+             "\t\t\t_currentTab = GachaTab.SHARDS;\n"
+             "\t\t\tbreak;\n"
+             "\t\t}\n",
+             ["case \"special\":", "GachaTab.CRYSTAL"]),
+        ]
+        for path, source, markers in fixtures:
+            repaired, changes = normalize_source_contracts(path, source)
+            self.assertTrue(changes, path)
+            for marker in markers:
+                self.assertIn(marker, repaired, path)
+            self.assertEqual(normalize_source_contracts(path, repaired), (repaired, []), path)
+
+        alliance = (
+            "\t\t\t\t\t\t\t\t\tswitch (err)\n"
+            "\t\t\t\t\t\t\t\t\t{\n"
+            "\t\t\t\t\t\t\t\t\tdefault:\n"
+            "\t\t\t\t\t\t\t\t\t{\n"
+            "\t\t\t\t\t\t\t\t\t\tint num;\n"
+            "\t\t\t\t\t\t\t\t\t\tif (num == 1)\n"
+            "\t\t\t\t\t\t\t\t\t\t{\n"
+            "\t\t\t\t\t\t\t\t\t\t\tAllianceUtil.GoToAlliance();\n"
+            "\t\t\t\t\t\t\t\t\t\t}\n"
+            "\t\t\t\t\t\t\t\t\t\tbreak;\n"
+            "\t\t\t\t\t\t\t\t\t}\n"
+            "\t\t\t\t\t\t\t\t\tcase \"privateAlliance\":\n"
+            "\t\t\t\t\t\t\t\t\tcase \"nonJoinableAlliance\":\n"
+            "\t\t\t\t\t\t\t\t\tcase \"full\":\n"
+            "\t\t\t\t\t\t\t\t\t\tbreak;\n"
+            "\t\t\t\t\t\t\t\t\t}\n"
+            "\t\t\t\t\t\t\t}));\n"
+        )
+        repaired, changes = normalize_source_contracts(Path("AllianceMembersState.cs"), alliance)
+        self.assertIn('case "notFound":', repaired)
+        self.assertNotIn("int num;", repaired)
+        self.assertTrue(changes)
+
+    def test_dependency_order_uses_project_references(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name, reference in (("Game", "Firstpass"), ("Firstpass", "Fabric"),
+                                    ("Fabric", "")):
+                project_dir = root / "source" / name
+                project_dir.mkdir(parents=True)
+                (project_dir / f"{name}.csproj").write_text(
+                    "<Project>" + (f'<ItemGroup><Reference Include="{reference}" /></ItemGroup>'
+                                   if reference else "") + "</Project>")
+            self.assertEqual(dependency_order(root, ["Game", "Firstpass", "Fabric"]),
+                             ["Fabric", "Firstpass", "Game"])
 
     def test_audit_uses_reference_override_and_preserves_input(self):
         with tempfile.TemporaryDirectory() as folder:
