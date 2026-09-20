@@ -125,7 +125,8 @@ def export_il(workspace, ilspy):
     recover code stripped before the supplied APK was built.
     """
     manifest_path = workspace / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest_bytes = manifest_path.read_bytes()
+    manifest = json.loads(manifest_bytes)
     rows = manifest["assemblies"]
     if manifest.get("backend") != "mono" or not rows:
         raise ValueError("Expected a nonempty Mono export manifest")
@@ -144,10 +145,14 @@ def export_il(workspace, ilspy):
     version = subprocess.check_output([tool, "--version"], text=True).strip()
     out = Path(tempfile.mkdtemp(prefix="il-", dir=workspace))
     report = {"schema": 1, "scope": "original managed IL; no source repairs",
-              "manifest_sha256": digest(manifest_path), "input": manifest.get("input"),
+              "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+              "input": manifest.get("input"),
               "tool": version, "status": "running", "runtime_verified": False,
               "assemblies": []}
     save(out / "report.json", report)
+    # Retain exactly the manifest bytes used for validation, even if another
+    # local audit updates the workspace manifest while ILSpy is running.
+    (out / "manifest.json").write_bytes(manifest_bytes)
     print(f"IL workspace: {out}", flush=True)
     for row in rows:
         name = row["name"]

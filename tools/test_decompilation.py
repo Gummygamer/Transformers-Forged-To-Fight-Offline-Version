@@ -308,6 +308,54 @@ class RecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Assembly changed"):
                 export_il(root, "missing-ilspy")
 
+    def test_il_export_snapshot_and_failure_provenance(self):
+        for scenario in ("success", "empty", "failure", "frozen-change", "original-change"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                (root / "managed").mkdir()
+                original = root / "managed/Example.dll"
+                original.write_bytes(b"synthetic assembly")
+                manifest_path = root / "manifest.json"
+                manifest_path.write_text(json.dumps({
+                    "backend": "mono", "input": {"sha256": "synthetic APK hash"},
+                    "assemblies": [{"name": original.name, "sha256": digest(original)}],
+                }))
+                manifest_bytes = manifest_path.read_bytes()
+                manifest_hash = digest(manifest_path)
+
+                def version(*args, **kwargs):
+                    # A concurrent compile audit may update this mutable file.
+                    manifest_path.write_text('{"compilation": "updated"}')
+                    return "synthetic ILSpy version"
+
+                def disassemble(command, **kwargs):
+                    frozen = Path(command[-1])
+                    self.assertNotEqual(frozen, original)
+                    self.assertEqual(frozen.read_bytes(), original.read_bytes())
+                    self.assertEqual(command[1:3], ["--disable-updatecheck", "-il"])
+                    if scenario != "empty":
+                        kwargs["stdout"].write("// synthetic IL fixture\n")
+                    if scenario == "frozen-change":
+                        frozen.write_bytes(b"modified snapshot")
+                    if scenario == "original-change":
+                        original.write_bytes(b"modified input")
+                    return type("Result", (), {"returncode": int(scenario == "failure")})()
+
+                with patch("decompilation.shutil.which", return_value="synthetic-ilspy"), \
+                        patch("decompilation.subprocess.check_output", side_effect=version), \
+                        patch("decompilation.subprocess.run", side_effect=disassemble), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(export_il(root, "ilspy"), int(scenario != "success"))
+                report_path = next(root.glob("il-*/report.json"))
+                report = json.loads(report_path.read_text())
+                self.assertEqual(report["manifest_sha256"], manifest_hash)
+                self.assertEqual((report_path.parent / "manifest.json").read_bytes(), manifest_bytes)
+                self.assertEqual(report["status"], "exported" if scenario == "success" else "partial")
+                self.assertFalse(report["runtime_verified"])
+                row = report["assemblies"][0]
+                self.assertEqual(row["inputs_unchanged"], not scenario.endswith("-change"))
+                self.assertEqual(row["il_sha256"], digest(report_path.parent / row["il_path"]))
+
 
 if __name__ == "__main__":
     unittest.main()
