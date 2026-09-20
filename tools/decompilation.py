@@ -237,6 +237,11 @@ def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
         source = source_declaration_inventory(workspace / "source" / name)
         source_types = source["types"]
         metadata_names = [x.rsplit("+", 1)[-1] for x in metadata_types if x != "<Module>"]
+        metadata_fields = set()
+        metadata_methods = set()
+        for type_info in metadata["types"].values():
+            metadata_fields.update(type_info["fields"])
+            metadata_methods.update(key.split(":", 1)[0] for key in type_info["methods"])
         report["assemblies"].append({"name": name, "input_sha256": row["sha256"],
                                      "metadata": {"identity": metadata["identity"],
                                                    "references": metadata["references"],
@@ -245,7 +250,11 @@ def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
                                      "decompiler": {"source_files": len(list((workspace / "source" / name).rglob("*.cs"))),
                                                      "declarations": source},
                                      "comparison": {"metadata_type_names_missing_from_source": sorted(set(metadata_names) - set(source_types)),
-                                                    "source_type_names_missing_from_metadata": sorted(set(source_types) - set(metadata_names))}})
+                                                    "source_type_names_missing_from_metadata": sorted(set(source_types) - set(metadata_names)),
+                                                    "metadata_field_names_missing_from_source": sorted(metadata_fields - set(source["fields"])),
+                                                    "source_field_names_missing_from_metadata": sorted(set(source["fields"]) - metadata_fields),
+                                                    "metadata_method_names_missing_from_source": sorted(metadata_methods - set(source["methods"])),
+                                                    "source_method_names_missing_from_metadata": sorted(set(source["methods"]) - metadata_methods)}})
     save(report_dir / "report.json", report)
     print(f"Report: {report_dir / 'report.json'}")
     return 0
