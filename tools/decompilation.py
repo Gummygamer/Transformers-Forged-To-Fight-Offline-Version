@@ -417,6 +417,50 @@ def _member_visibility_diff(original, compiled, type_diff):
     return result
 
 
+def _loader_risk_summary(original, compiled, differences, type_diff, reference_diff,
+                         resource_diff):
+    """Classify metadata differences that can affect managed loading.
+
+    These are review signals over exact metadata differences.  They do not decide
+    whether a Unity/Mono loader accepts the output.
+    """
+    identity_change = differences.get("identity")
+    identity_fields = [] if identity_change is None else sorted(
+        key for key in set(identity_change["original"]) | set(identity_change["compiled"])
+        if identity_change["original"].get(key) != identity_change["compiled"].get(key))
+    result = {
+        "assembly_identity": identity_fields,
+        "metadata_profile": sorted(key for key in ("metadata_version", "machine", "cor_flags", "module_name")
+                                    if key in differences),
+        "references": {
+            "added": reference_diff["added"], "removed": reference_diff["removed"],
+            "changed": sorted(reference_diff["changed"]),
+            "framework_changed": sorted(_framework_reference_changes(reference_diff)),
+        },
+        "resources": {
+            "added": resource_diff["added"], "removed": resource_diff["removed"],
+            "changed": sorted(resource_diff["changed"]),
+        },
+        "inheritance_or_interfaces": [],
+        "serialization_layout": [],
+        "native_imports": [],
+    }
+    for name, change in type_diff["changed"].items():
+        if any(key in change for key in ("base_type", "interfaces")):
+            result["inheritance_or_interfaces"].append(name)
+        if any(key in change for key in ("layout", "field_order", "fields")):
+            result["serialization_layout"].append(name)
+        for member, entry in change.get("methods", {}).get("changed", {}).items():
+            old = entry.get("original", {})
+            new = entry.get("compiled", {})
+            if old.get("import") != new.get("import") and (
+                    old.get("import") is not None or new.get("import") is not None):
+                result["native_imports"].append(f"{name}::{member}")
+    for key in ("inheritance_or_interfaces", "serialization_layout", "native_imports"):
+        result[key].sort()
+    return result
+
+
 def metadata_contract_diff(original, compiled):
     """Compare two helper models without loading either managed assembly.
 
@@ -506,6 +550,8 @@ def metadata_contract_diff(original, compiled):
     changed_methods = sum(len(value.get("methods", {}).get("changed", {}))
                          for value in type_diff["changed"].values())
     api_visibility = _member_visibility_diff(original, compiled, type_diff)
+    loader_risks = _loader_risk_summary(original, compiled, differences, type_diff,
+                                         reference_diff, resource_diff)
     return {"equal": not differences,
             "summary": {"original_type_count": len(original_types),
                         "compiled_type_count": len(compiled_types),
@@ -524,6 +570,7 @@ def metadata_contract_diff(original, compiled):
                 "compiler_generated_type_differences": _generated_type_summary(type_diff),
                 "framework_reference_differences": _framework_reference_changes(reference_diff),
                 "api_visibility_differences": api_visibility,
+                "loader_risk_differences": loader_risks,
                 "evidence_note": "Classifications do not remove exact metadata differences or establish runtime compatibility."
             },
             "differences": differences}

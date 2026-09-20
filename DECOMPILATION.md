@@ -213,6 +213,16 @@ than guessed public or non-public. This lets reviewers prioritize externally vis
 shape without treating non-public or compiler-generated changes as harmless, and without
 discarding the exact metadata evidence.
 
+The comparison also emits `loader_risk_differences` for assembly identity and metadata
+profile changes, reference and resource changes, inheritance/interface changes,
+serialization-relevant field/layout changes, and changed native imports. On the current
+two-root isolated outputs, identity, metadata profile, resources, inheritance/interfaces,
+and changed native imports are unchanged; both outputs still have three changed framework
+references, and `Assembly-CSharp-firstpass` adds a reference to `Assembly-CSharp`. The
+serialization-layout bucket contains 345 firstpass types and 502 game-root types because
+it reports exact type/field differences for review. These categories are loader-risk
+signals, not a Mono acceptance verdict.
+
 For the playable-client boundary, `replacement-plan` computes the transitive closure of
 explicit replacement roots using both PE assembly references and ILSpy project references:
 

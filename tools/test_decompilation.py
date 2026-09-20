@@ -61,7 +61,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_metadata_contract_diff_reports_api_and_layout_changes(self):
         original = {
-            "identity": {"name": "Example"}, "metadata_version": "v2", "machine": "I386",
+            "identity": {"name": "Example", "version": "1.0.0.0"}, "metadata_version": "v2", "machine": "I386",
             "cor_flags": "ILOnly", "module_name": "Example.dll", "assembly_attributes": [],
             "module_attributes": [], "references": [{"name": "mscorlib", "version": "2.0.0.0"}],
             "resources": [], "types": {
@@ -69,19 +69,36 @@ class RecoveryTests(unittest.TestCase):
                               "generics": [], "attributes": [], "interfaces": [],
                               "method_impls": [], "field_order": ["health"],
                               "fields": {"health": {"signature": "I4", "flags": 3}},
-                              "methods": {"Attack:I4": {"flags": 6}},
+                              "methods": {"Attack:I4": {"flags": 6,
+                                                          "import": {"module": "old.so"}}},
                               "properties": [], "events": []}
             }
         }
         compiled = json.loads(json.dumps(original))
         compiled["references"][0]["version"] = "3.5.0.0"
+        compiled["identity"]["version"] = "2.0.0.0"
+        compiled["metadata_version"] = "v4.0.30319"
+        compiled["machine"] = "AMD64"
+        compiled["resources"] = [{"name": "config", "flags": 1, "embedded": True}]
         compiled["types"]["Demo.Bot"]["fields"]["health"]["flags"] = 6
+        compiled["types"]["Demo.Bot"]["layout"]["size"] = 8
+        compiled["types"]["Demo.Bot"]["field_order"] = ["health", "extra"]
+        compiled["types"]["Demo.Bot"]["base_type"] = "Other.Base"
+        compiled["types"]["Demo.Bot"]["methods"]["Attack:I4"]["import"] = {"module": "new.so"}
         compiled["types"]["Demo.Bot"]["methods"]["Attack:I4"]["flags"] = 38
         diff = metadata_contract_diff(original, compiled)
         self.assertFalse(diff["equal"])
         self.assertIn("references", diff["differences"])
         self.assertEqual(diff["summary"]["changed_field_count"], 1)
         self.assertEqual(diff["summary"]["changed_method_count"], 1)
+        risks = diff["classification"]["loader_risk_differences"]
+        self.assertEqual(risks["assembly_identity"], ["version"])
+        self.assertEqual(risks["metadata_profile"], ["machine", "metadata_version"])
+        self.assertEqual(risks["references"]["framework_changed"], ["mscorlib"])
+        self.assertEqual(risks["resources"]["added"], ["config"])
+        self.assertEqual(risks["inheritance_or_interfaces"], ["Demo.Bot"])
+        self.assertEqual(risks["serialization_layout"], ["Demo.Bot"])
+        self.assertEqual(risks["native_imports"], ["Demo.Bot::Attack:I4"])
 
     def test_metadata_diff_classifies_generated_and_framework_changes(self):
         original = {
