@@ -10,10 +10,16 @@ import zipfile
 
 from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
                            export_il, normalize_accessors, normalize_source_contracts,
-                           source_declaration_inventory)
+                           replacement_closure, source_declaration_inventory)
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_replacement_closure_follows_only_retained_references(self):
+        refs = {"Game": ["FirstPass", "UnityEngine"], "FirstPass": ["crypto"],
+                "UnityEngine": ["System"], "crypto": ["mscorlib"], "System": ["mscorlib"]}
+        self.assertEqual(replacement_closure(["Game"], refs),
+                         {"Game", "FirstPass", "UnityEngine", "crypto", "System", "mscorlib"})
+
     def test_source_inventory_is_explicitly_shallow(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

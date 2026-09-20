@@ -179,6 +179,23 @@ or extra type names; it is not a claim that decompiler declarations preserve sig
 serialized layout, method behavior, or Unity runtime contracts. The managed-input SHA-256
 is checked against `manifest.json` before each report is produced.
 
+For the playable-client boundary, `replacement-plan` computes the transitive closure of
+explicit replacement roots using both PE assembly references and ILSpy project references:
+
+```bash
+python3 tools/decompilation.py replacement-plan build/decompilation/mono-XXXX \
+  --dotnet /home/darabat/.dotnet/dotnet \
+  --metadata-tool tools/mono_metadata/bin/Debug/net8.0/MonoMetadata.dll \
+  --root Assembly-CSharp --root Assembly-CSharp-firstpass
+```
+
+The report labels roots, dependencies in their managed closure, and assemblies outside the
+closure. It preserves assembly identities and input hashes, but does not decide that every
+dependency should be rebuilt: existing framework, Unity, and plugin DLLs may be retained
+only after identity, API, resources, native bindings, Android packaging, and runtime load
+order are separately verified. This is the replacement boundary evidence for the 2.0.2
+client, not a packaging or playability result.
+
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against
 the offline server. The 2.0.2 protocol and assets

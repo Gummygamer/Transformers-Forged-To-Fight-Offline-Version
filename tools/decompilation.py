@@ -251,6 +251,72 @@ def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
     return 0
 
 
+def replacement_closure(roots, references):
+    """Return the managed reference closure for explicitly chosen replacement roots."""
+    closure = set()
+    pending = list(roots)
+    while pending:
+        name = pending.pop()
+        if name in closure:
+            continue
+        closure.add(name)
+        pending.extend(references.get(name, ()))
+    return closure
+
+
+def replacement_plan(workspace, dotnet, metadata_tool, roots):
+    """Write an evidence report for the proposed managed replacement boundary.
+
+    Roots are an explicit engineering choice.  The report computes only the
+    transitive managed dependency closure and labels framework/plugin assemblies
+    as dependencies to inspect, not as assemblies that may safely be replaced.
+    """
+    manifest = json.loads((workspace / "manifest.json").read_text())
+    rows = {Path(row["name"]).stem: row for row in manifest["assemblies"]}
+    if not roots or any(root not in rows for root in roots):
+        raise ValueError("Replacement roots must name assemblies present in the export manifest")
+    metadata = {}
+    references = {}
+    for name, row in rows.items():
+        managed = workspace / "managed" / row["name"]
+        if digest(managed) != row["sha256"]:
+            raise ValueError(f"Assembly changed since export: {row['name']}")
+        value = json.loads(subprocess.check_output([dotnet, str(metadata_tool), str(managed)], text=True))
+        metadata[name] = value
+        references[name] = sorted({r["name"] for r in value["references"] if r["name"] in rows})
+    closure = replacement_closure(roots, references)
+    assemblies = []
+    for name in sorted(rows):
+        project_refs = sorted(project_references(workspace, name) & set(rows))
+        source_root = workspace / "source" / name
+        assemblies.append({"name": name, "input_sha256": rows[name]["sha256"],
+                           "identity": metadata[name]["identity"],
+                           "metadata_references": references[name],
+                           "project_references": project_refs,
+                           "source_files": len(list(source_root.rglob("*.cs"))),
+                           "role": "replacement-root" if name in roots else
+                                   "dependency-in-closure" if name in closure else "outside-root-closure",
+                           "runtime_replacement_decision": "requires separate compatibility evidence"})
+    report = {"schema": 1,
+              "scope": "managed replacement-boundary evidence; no packaging or runtime claim",
+              "evidence": {"metadata": "System.Reflection.Metadata over original managed PE",
+                           "project_graph": "ILSpy-generated project references",
+                           "input_manifest": manifest.get("input")},
+              "runtime_verified": False,
+              "roots": sorted(roots), "transitive_managed_closure": sorted(closure),
+              "assemblies": assemblies,
+              "interpretation": [
+                  "Roots are explicit replacement candidates, not a claim that they can load in Unity.",
+                  "Closure members are references needed to compile or resolve the roots; existing binaries may be preserved if identities and contracts remain compatible.",
+                  "Assemblies outside the closure are not needed by these roots according to retained metadata references, but may still be loaded by other client code.",
+                  "Assembly identity, resources, native bindings, Android packaging, and runtime load order remain unverified."
+              ]}
+    report_dir = Path(tempfile.mkdtemp(prefix="replacement-", dir=workspace))
+    save(report_dir / "report.json", report)
+    print(f"Report: {report_dir / 'report.json'}")
+    return 0
+
+
 def normalize_accessors(source):
     """Repair only standalone explicit getter methods with one simple return.
 
@@ -641,6 +707,13 @@ def main():
     metadata.add_argument("--metadata-tool", required=True, type=Path,
                           help="Built MonoMetadata .NET tool assembly")
     metadata.add_argument("--assembly", action="append", help="Assembly name without .dll (repeatable)")
+    plan = commands.add_parser("replacement-plan", help="Report the managed dependency closure for replacement roots")
+    plan.add_argument("workspace", type=Path)
+    plan.add_argument("--dotnet", default="dotnet")
+    plan.add_argument("--metadata-tool", required=True, type=Path,
+                      help="Built MonoMetadata .NET tool assembly")
+    plan.add_argument("--root", action="append", required=True,
+                      help="Managed replacement root without .dll (repeatable)")
     audit = commands.add_parser("compile-audit", help="Measure game-source compiler blockers")
     audit.add_argument("workspace", type=Path)
     audit.add_argument("--dotnet", default="dotnet")
@@ -661,6 +734,9 @@ def main():
         if args.command == "metadata-audit":
             return metadata_audit(args.workspace.resolve(), args.dotnet,
                                   args.metadata_tool.resolve(), args.assembly)
+        if args.command == "replacement-plan":
+            return replacement_plan(args.workspace.resolve(), args.dotnet,
+                                    args.metadata_tool.resolve(), args.root)
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
                              args.reference_dir, args.assembly, args.repair_accessors,
                              args.repair_contracts)
