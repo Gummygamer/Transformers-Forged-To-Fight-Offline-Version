@@ -185,6 +185,72 @@ def export_il(workspace, ilspy):
     return 0 if success else 1
 
 
+def source_declaration_inventory(source_root):
+    """Collect a deliberately shallow C# declaration inventory for comparison.
+
+    This is a decompiler-output observation only.  It does not infer visibility,
+    overload signatures, or serialized layout; those facts come from metadata.
+    """
+    types = set()
+    methods = set()
+    fields = set()
+    type_pattern = re.compile(r"\b(?:class|struct|interface|enum|delegate)\s+([A-Za-z_]\w*)")
+    method_pattern = re.compile(
+        r"\b(?:public|private|protected|internal|static|virtual|override|sealed|abstract|unsafe|new|extern|async|readonly|partial|\s)+"
+        r"[A-Za-z_][\w<>,.?\[\]]*\s+([A-Za-z_]\w*)\s*\(")
+    field_pattern = re.compile(
+        r"(?:^|[;{}])\s*(?:public|private|protected|internal|static|readonly|const|volatile|unsafe|new|serialized|\s)+"
+        r"[A-Za-z_][\w<>,.?\[\]]*\s+([A-Za-z_]\w*)\s*(?:[=;])", re.MULTILINE)
+    for path in sorted(source_root.rglob("*.cs")):
+        text = re.sub(r"//[^\n]*|/\*.*?\*/", "", path.read_text(), flags=re.S)
+        types.update(type_pattern.findall(text))
+        methods.update(method_pattern.findall(text))
+        fields.update(field_pattern.findall(text))
+    return {"types": sorted(types), "methods": sorted(methods), "fields": sorted(fields)}
+
+
+def metadata_audit(workspace, dotnet, metadata_tool, assemblies=None):
+    """Compare a source declaration inventory with facts read from PE metadata.
+
+    The metadata helper is intentionally a separate .NET program so the inspected
+    DLL is never loaded into the audit process.  Reports retain both evidence
+    classes instead of presenting decompiler output as recovered metadata.
+    """
+    manifest = json.loads((workspace / "manifest.json").read_text())
+    rows = {Path(row["name"]).stem: row for row in manifest["assemblies"]}
+    names = assemblies or sorted(rows)
+    if any(name not in rows for name in names):
+        raise ValueError("Select assembly names present in the export manifest")
+    report_dir = Path(tempfile.mkdtemp(prefix="metadata-", dir=workspace))
+    report = {"schema": 1, "scope": "metadata facts compared with shallow C# declaration inventory",
+              "metadata_evidence": "System.Reflection.Metadata over original managed PE; assembly is not loaded",
+              "decompiler_evidence": "ILSpy-exported C# source; names only, no behavioral or layout claim",
+              "runtime_verified": False, "assemblies": []}
+    for name in names:
+        row = rows[name]
+        managed = workspace / "managed" / row["name"]
+        if digest(managed) != row["sha256"]:
+            raise ValueError(f"Assembly changed since export: {row['name']}")
+        raw = subprocess.check_output([dotnet, str(metadata_tool), str(managed)], text=True)
+        metadata = json.loads(raw)
+        metadata_types = sorted(metadata["types"])
+        source = source_declaration_inventory(workspace / "source" / name)
+        source_types = source["types"]
+        metadata_names = [x.rsplit("+", 1)[-1] for x in metadata_types if x != "<Module>"]
+        report["assemblies"].append({"name": name, "input_sha256": row["sha256"],
+                                     "metadata": {"identity": metadata["identity"],
+                                                   "references": metadata["references"],
+                                                   "type_count": len(metadata_types),
+                                                   "types": metadata_types},
+                                     "decompiler": {"source_files": len(list((workspace / "source" / name).rglob("*.cs"))),
+                                                     "declarations": source},
+                                     "comparison": {"metadata_type_names_missing_from_source": sorted(set(metadata_names) - set(source_types)),
+                                                    "source_type_names_missing_from_metadata": sorted(set(source_types) - set(metadata_names))}})
+    save(report_dir / "report.json", report)
+    print(f"Report: {report_dir / 'report.json'}")
+    return 0
+
+
 def normalize_accessors(source):
     """Repair only standalone explicit getter methods with one simple return.
 
@@ -569,6 +635,12 @@ def main():
     il_export = commands.add_parser("export-il", help="Export original IL without C# repairs")
     il_export.add_argument("workspace", type=Path)
     il_export.add_argument("--ilspy", default=os.environ.get("ILSPYCMD", "ilspycmd"))
+    metadata = commands.add_parser("metadata-audit", help="Compare source declarations with original PE metadata")
+    metadata.add_argument("workspace", type=Path)
+    metadata.add_argument("--dotnet", default="dotnet")
+    metadata.add_argument("--metadata-tool", required=True, type=Path,
+                          help="Built MonoMetadata .NET tool assembly")
+    metadata.add_argument("--assembly", action="append", help="Assembly name without .dll (repeatable)")
     audit = commands.add_parser("compile-audit", help="Measure game-source compiler blockers")
     audit.add_argument("workspace", type=Path)
     audit.add_argument("--dotnet", default="dotnet")
@@ -586,6 +658,9 @@ def main():
             return recover(args.apk.resolve(), args.ilspy)
         if args.command == "export-il":
             return export_il(args.workspace.resolve(), args.ilspy)
+        if args.command == "metadata-audit":
+            return metadata_audit(args.workspace.resolve(), args.dotnet,
+                                  args.metadata_tool.resolve(), args.assembly)
         return compile_audit(args.workspace.resolve(), args.dotnet, args.csc.resolve(),
                              args.reference_dir, args.assembly, args.repair_accessors,
                              args.repair_contracts)

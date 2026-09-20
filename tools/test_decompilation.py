@@ -9,10 +9,21 @@ from unittest.mock import patch
 import zipfile
 
 from decompilation import (assembly_entries, compile_audit, dependency_order, digest,
-                           export_il, normalize_accessors, normalize_source_contracts)
+                           export_il, normalize_accessors, normalize_source_contracts,
+                           source_declaration_inventory)
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_source_inventory_is_explicitly_shallow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "Example.cs").write_text(
+                "namespace Demo; public class Bot { private int health; public void Attack() {} }\n")
+            result = source_declaration_inventory(root)
+        self.assertEqual(result["types"], ["Bot"])
+        self.assertEqual(result["methods"], ["Attack"])
+        self.assertEqual(result["fields"], ["health"])
+
     def test_zip_rejects_traversal_and_case_collisions(self):
         for extra in ("../escape.dll", "ASSEMBLY-CSHARP.dll"):
             stream = io.BytesIO()

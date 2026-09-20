@@ -152,6 +152,33 @@ On this APK, all 17 managed assemblies exported successfully with ILSpy 9.1.0.79
 This is metadata and instruction coverage; it does not imply C# compilation, packaging,
 runtime verification, or Unity/IL2CPP equivalence.
 
+### Metadata-backed declaration audit
+
+`tools/mono_metadata` is a small .NET 8 helper that reads ECMA-335 metadata through
+`System.Reflection.Metadata`; it never loads the inspected DLL. It records assembly
+identity, references, type inheritance, fields, methods, properties, events, attributes,
+generic constraints, marshalling/default metadata, resources, and layout facts. Method
+bodies, resource contents, Unity asset type trees, native binding resolution, and runtime
+behavior are explicitly outside its evidence.
+
+Build it locally, then compare the recovered C# declaration inventory with the original
+metadata:
+
+```bash
+/home/darabat/.dotnet/dotnet restore tools/mono_metadata/MonoMetadata.csproj --ignore-failed-sources
+/home/darabat/.dotnet/dotnet build tools/mono_metadata/MonoMetadata.csproj --no-restore
+python3 tools/decompilation.py metadata-audit build/decompilation/mono-XXXX \
+  --dotnet /home/darabat/.dotnet/dotnet \
+  --metadata-tool tools/mono_metadata/bin/Debug/net8.0/MonoMetadata.dll \
+  --assembly Assembly-CSharp --assembly Assembly-CSharp-firstpass
+```
+
+The ignored report keeps two clearly separated sections: exact PE metadata facts and a
+shallow name inventory from ILSpy C# output. The comparison is a triage report for missing
+or extra type names; it is not a claim that decompiler declarations preserve signatures,
+serialized layout, method behavior, or Unity runtime contracts. The managed-input SHA-256
+is checked against `manifest.json` before each report is produced.
+
 Next milestones: compile additional game assemblies against rebuilt dependencies, compare
 assembly APIs and serialized field layouts, then test a locally packaged Mono APK against
 the offline server. The 2.0.2 protocol and assets

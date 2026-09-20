@@ -35,6 +35,8 @@
 /Server/__pycache__/
 /patches/__pycache__/
 /tools/__pycache__/
+/tools/mono_metadata/bin/
+/tools/mono_metadata/obj/
 /Server/certs/
 /Server/logs/
 
