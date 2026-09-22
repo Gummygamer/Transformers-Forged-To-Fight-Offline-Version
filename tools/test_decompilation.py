@@ -478,6 +478,73 @@ class RecoveryTests(unittest.TestCase):
             normalize_source_contracts(Path("EB.Sparx/ODRManager.cs"), repaired),
             (repaired, []))
 
+    def test_odr_repair_opens_explicit_apk_backed_wad(self):
+        source = ("\t\t\tbool allowDownload2 = default(bool);\n"
+                  "\t\t\tWADManifest wadManifest2 = default(WADManifest);\n"
+                  "\t\t\tif (!allowDownload2 && !success && string.IsNullOrEmpty(err))\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tDebug.Log(\"did not download\");\n"
+                  "\t\t\t}\n"
+                  "\t\t\telse\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\twadManifest2.DownloadedFile = fileInfo.FullName;\n"
+                  "\t\t\t\t_wadFilenameHashMap[fileInfo.Name] = wadManifest2;\n"
+                  "\t\t\t}\n"
+                  "\t\tdecimal availableSpaceInBytes = DriveInfo.GetAvailableSpaceInBytes(odrExtractPath);\n"
+                  "\t\t_api = new ODRAPI(Hub.Instance.ApiEndPoint);\n"
+                  "\t\tint questCompleted = -1;\n"
+                  "\tprivate IEnumerator DownloadAndOpenWad(WADManifest wadManifest, OpenArchiveOptions openArchiveOptions, string[] requestedAssetBundles = null, bool iterativeYield = true)\n"
+                  "\t{\n"
+                  "\t\tif (string.IsNullOrEmpty(wadManifest.Url))\n"
+                  "\t\t{\n"
+                  "\t\t}\n"
+                  "\t\t_downloadingWad = true;\n"
+                  "\t\tyield return StartCoroutine(DownloadWad(wadManifest));\n"
+                  "\t\t_downloadingWad = false;\n")
+        repaired, changes = normalize_source_contracts(
+            Path("EB.Sparx/ODRManager.cs"), source, allow_offline_network=True)
+        self.assertEqual(changes, [
+            "restore ODRManager.DownloadUnzipUrl callback captures from original IL",
+            "bypass aggregate ODR space guard for offline local WADs",
+            "register the APK-backed offline ODR manifest in the managed runtime",
+            "open the explicit APK-backed offline ODR WAD",
+        ])
+        self.assertIn("mono_offline/quest_fte.wad", repaired)
+        self.assertIn("if (!offlineWadLoaded)", repaired)
+        self.assertIn("EB.Zip.Extract", repaired)
+        self.assertIn("wadManifest.Size = localWad.Length", repaired)
+        self.assertIn("wadManifest.ZipSize = localWad.Length", repaired)
+        self.assertEqual(
+            normalize_source_contracts(
+                Path("EB.Sparx/ODRManager.cs"), repaired,
+                allow_offline_network=True),
+            (repaired, []))
+
+    def test_modern_story_fight_contracts(self):
+        quest = ("using System.Collections;\n"
+                 "delegate(string err, Hashtable result);\n"
+                 "currentQuest = data; questActions = actions; currentTeam = team;")
+        repaired, changes = normalize_source_contracts(Path("QuestFlow.cs"), quest,
+                                                        modern_unity=True)
+        self.assertIn("delegate(string err, IDictionary result)", repaired)
+        self.assertIn("CurrentQuest = data", repaired)
+        self.assertIn("QuestActions = actions", repaired)
+        self.assertIn("CurrentTeam = team", repaired)
+        self.assertTrue(changes)
+
+        fight = ("using EB;\n"
+                 "\t\t\t_fightData = new FightData\n\t\t\t{\n"
+                 "\t\t\t\tFightType = _fightInitInfo.fightType,\n"
+                 "\t\t\t\tSceneName = _fightInitInfo.sceneName,\n"
+                 "\t\t\t};\n\t\t\tif (_fightInitInfo.activeQuest != null)\n"
+                 "\t\t\tfightResultsData.FightType = _fightInitInfo.fightType;\n"
+                 "\t\t\tTFormStatModsUtil.AddStatModifier(fighter.StatModifierController, \"pve_disable_ai_sp3\");\n")
+        repaired, changes = normalize_source_contracts(Path("FightFlow.cs"), fight,
+                                                        modern_unity=True)
+        self.assertIn("GetField(\"FightType\")", repaired)
+        self.assertNotIn("AddStatModifier", repaired)
+        self.assertTrue(changes)
+
     def test_battle_arbiter_repair_restores_init_character_callback_captures(self):
         source = ("\t\t\tint id2 = default(int);\n"
                   "\t\t\tFighterData data2 = default(FighterData);\n"
