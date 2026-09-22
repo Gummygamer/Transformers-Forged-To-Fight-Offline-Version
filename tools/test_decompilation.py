@@ -453,6 +453,161 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("obj = val2;", repaired)
         self.assertEqual(normalize_source_contracts(Path("EB/Assets.cs"), repaired), (repaired, []))
 
+    def test_odr_repair_restores_download_callback_captures(self):
+        source = ("\t\t\tbool allowDownload2 = default(bool);\n"
+                  "\t\t\tWADManifest wadManifest2 = default(WADManifest);\n"
+                  "\t\t\tif (!allowDownload2 && !success && string.IsNullOrEmpty(err))\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tDebug.Log(\"did not download\");\n"
+                  "\t\t\t}\n"
+                  "\t\t\telse\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\twadManifest2.DownloadedFile = fileInfo.FullName;\n"
+                  "\t\t\t\t_wadFilenameHashMap[fileInfo.Name] = wadManifest2;\n"
+                  "\t\t\t}\n")
+        repaired, changes = normalize_source_contracts(Path("EB.Sparx/ODRManager.cs"), source)
+        self.assertEqual(changes, [
+            "restore ODRManager.DownloadUnzipUrl callback captures from original IL"
+        ])
+        self.assertNotIn("allowDownload2", repaired)
+        self.assertNotIn("wadManifest2", repaired)
+        self.assertIn("if (!allowDownload && !success", repaired)
+        self.assertIn("wadManifest.DownloadedFile", repaired)
+        self.assertIn("_wadFilenameHashMap[fileInfo.Name] = wadManifest;", repaired)
+        self.assertEqual(
+            normalize_source_contracts(Path("EB.Sparx/ODRManager.cs"), repaired),
+            (repaired, []))
+
+    def test_battle_arbiter_repair_restores_init_character_callback_captures(self):
+        source = ("\t\t\tint id2 = default(int);\n"
+                  "\t\t\tFighterData data2 = default(FighterData);\n"
+                  "\t\t\tTowerData towerData2 = default(TowerData);\n"
+                  "\t\t\tCharacterDB.CharacterObject(data.Blueprint, base.StateMachine, SafeAction.Wrap(base.StateMachine, delegate(GameObject character)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tif (character != null || !_disconnected)\n"
+                  "\t\t\t\t{\n"
+                  "\t\t\t\t\tInitPlayer(id2, character, isPlayer, mirror, data2, opponentData, towerData2);\n"
+                  "\t\t\t\t}\n"
+                  "\t\t\t\tcharacterObjectExists = true;\n"
+                  "\t\t\t}), BattleArbiter.FighterStartPositions[id], Quaternion.Euler(BattleArbiter.FighterStartRotations[id]), lightWeight: false);\n")
+        repaired, changes = normalize_source_contracts(
+            Path("BattleArbiterInitState.cs"), source)
+        self.assertEqual(changes, [
+            "restore BattleArbiter.InitCharacter callback captures from original IL"
+        ])
+        self.assertNotIn("id2", repaired)
+        self.assertNotIn("data2", repaired)
+        self.assertNotIn("towerData2", repaired)
+        self.assertIn(
+            "InitPlayer(id, character, isPlayer, mirror, data, opponentData, towerData);",
+            repaired)
+        self.assertEqual(
+            normalize_source_contracts(Path("BattleArbiterInitState.cs"), repaired),
+            (repaired, []))
+
+    def test_download_repairs_apk_bundle_loading_for_offline_snapshot(self):
+        source = ("\t\t\tlong offset = Zip.GeUncompressedFileOffset(url, ref filename);\n"
+                  "\t\t\tif (offset >= 0)\n"
+                  "\t\t\t{\n"
+                  "\t\t\t\tAssetBundle assetbundle = AssetBundle.LoadFromFile(newUrl);\n"
+                  "\t\t\t}\n")
+        repaired, changes = normalize_source_contracts(
+            Path("EB/Download.cs"), source, allow_offline_network=True)
+        self.assertIn("if (false && offset >= 0)", repaired)
+        self.assertIn("extract offline APK asset bundles before Unity loading", changes)
+        self.assertEqual(
+            normalize_source_contracts(Path("EB/Download.cs"), repaired,
+                                       allow_offline_network=True),
+            (repaired, []))
+
+    def test_odr_repair_allows_offline_download_when_space_is_unmeasurable(self):
+        source = ("\t\tdecimal availableSpaceInBytes = DriveInfo.GetAvailableSpaceInBytes(odrExtractPath);\n"
+                  "\t\tif (availableSpaceInBytes > 0m)\n"
+                  "\t\t{\n"
+                  "\t\t\treturn;\n"
+                  "\t\t}\n")
+        repaired, changes = normalize_source_contracts(
+            Path("EB.Sparx/ODRManager.cs"), source, allow_offline_network=True)
+        self.assertEqual(changes, [
+            "bypass aggregate ODR space guard for offline local WADs"
+        ])
+        self.assertIn("bypassing aggregate WAD space guard for offline local WADs", repaired)
+        self.assertNotIn("availableSpaceInBytes <= 0m", repaired)
+        self.assertNotIn("Decimal.Compare(availableSpaceInBytes, Decimal.Zero)", repaired)
+        self.assertEqual(
+            normalize_source_contracts(
+                Path("EB.Sparx/ODRManager.cs"), repaired, allow_offline_network=True),
+            (repaired, []))
+
+    def test_odr_download_extractor_bypasses_per_wad_space_guard_offline(self):
+        source = ("\t\tdecimal diskSpace = DriveInfo.GetAvailableSpaceInBytes(_outPath);\n"
+                  "\t\tif (totalSpaceRequired > diskSpace)\n"
+                  "\t\t{\n"
+                  "\t\t\tCallFinishedCallbackAndFinishedValidation(err, DownloadError.InsufficientSpace, false, null, false);\n"
+                  "\t\t}\n"
+                  "\t\telse\n"
+                  "\t\t{\n"
+                  "\t\t\tyield return Coroutines.Run(SpawnDownloadThread());\n"
+                  "\t\t}\n")
+        repaired, changes = normalize_source_contracts(
+            Path("EB/DownloadExtractor.cs"), source, allow_offline_network=True)
+        self.assertEqual(changes, [
+            "bypass per-WAD DownloadExtractor space guard for offline local WADs"
+        ])
+        self.assertIn(
+            "DownloadExtractor: bypassing per-WAD space guard for offline local WADs",
+            repaired)
+        self.assertIn("\t\tif (false)", repaired)
+        self.assertEqual(
+            normalize_source_contracts(
+                Path("EB/DownloadExtractor.cs"), repaired, allow_offline_network=True),
+            (repaired, []))
+
+    def test_download_extractor_repair_restores_crc_callback_capture(self):
+        source = ("\t\t\tFileDescriptor fileDescriptor2 = default(FileDescriptor);\n"
+                  "\t\t\t\tif (fileDescriptor2.Crc == existingFileCrc)\n"
+                  "\t\t\t\t{\n"
+                  "\t\t\t\t\tfilesMatch = true;\n"
+                  "\t\t\t\t}\n"
+                  "\t\t\t\telse\n"
+                  "\t\t\t\t{\n"
+                  "\t\t\t\t\tSendCrcMismatchTelemetry(fileInfo.Name, existingFileCrc, fileDescriptor2.Crc);\n"
+                  "\t\t\t\t}\n")
+        repaired, changes = normalize_source_contracts(Path("EB/DownloadExtractor.cs"), source)
+        self.assertEqual(changes, [
+            "restore DownloadExtractor.CheckFileCrc descriptor capture from original IL"
+        ])
+        self.assertNotIn("fileDescriptor2", repaired)
+        self.assertIn("if (fileDescriptor.Crc == existingFileCrc)", repaired)
+        self.assertIn(
+            "SendCrcMismatchTelemetry(fileInfo.Name, existingFileCrc, fileDescriptor.Crc);",
+            repaired)
+        self.assertEqual(
+            normalize_source_contracts(Path("EB/DownloadExtractor.cs"), repaired),
+            (repaired, []))
+
+    def test_offline_login_routes_to_builtin_fte_fight(self):
+        source = (
+            'if (TutorialManagerHelper.IsTutorialComplete("FTE") || TutorialDB.SkipTutorials || TutorialDB.SkipFTE)\n'
+            '\t\t{\n'
+            '\t\t\tFlowManager.Instance.StartFlow(new HomeFlow(), delegate\n'
+            '\t\t\t{\n'
+            '\t\t\t});\n'
+            '\t\t}\n'
+        )
+        repaired, changes = normalize_source_contracts(
+            Path("TransformersLoginListener.cs"), source, allow_offline_network=True)
+        self.assertIn("OfflineFightBootstrap.Enabled", repaired)
+        self.assertIn("OfflineFightBootstrap.Start(delegate", repaired)
+        self.assertIn("class OfflineFightBootstrap", repaired)
+        self.assertIn("FightFlow.FIGHT_TYPE.FTE", repaired)
+        self.assertIn("HideLoadingWhenFightStarts", repaired)
+        self.assertIn('ShowLoadingScreen(show: false, "Fight Load Offline")', repaired)
+        self.assertTrue(any("built-in FTE FightFlow" in change for change in changes))
+        self.assertEqual(normalize_source_contracts(
+            Path("TransformersLoginListener.cs"), repaired, allow_offline_network=True),
+            (repaired, []))
+
     def test_explicit_offline_runtime_repairs_are_opt_in(self):
         setup = 'ApiEndPoint = EB.Version.GetApiEndPoint("Default.Prod");\n'
         repaired, changes = normalize_source_contracts(

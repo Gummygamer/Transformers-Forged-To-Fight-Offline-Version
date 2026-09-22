@@ -603,6 +603,10 @@ The arm64, armv7, and bundled outputs have been compared byte-for-byte with the 
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run
 `legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
 or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
+For the recompiled Mono FTE client, append `--mono-fte-assets` to either command to enable
+the temporary response alias that maps the FTE opponent's `skywarp_gs_leader2015` asset
+fields to the APK-present `starscream_gs` assets. The alias is opt-in and is not applied to
+normal server runs.
 The TLS listener uses `Server/certs/server.pem` through Legible's `http_start_https`.
 Each Legible process holds one listener and has no threads, so HTTP and HTTPS run as two
 processes rather than Python's two threads; this is a design difference, not a port limitation.

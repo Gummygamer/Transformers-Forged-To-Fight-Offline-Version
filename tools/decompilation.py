@@ -1031,6 +1031,102 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                     raise ValueError(f"AssetManager.LoadInternal IL repair anchor changed: {path}: {old[:80]}")
                 source = source.replace(old, new, 1)
             changes.append("restore EB.AssetManager.LoadInternal closure captures from original IL")
+    if path.as_posix().endswith("EB.Sparx/ODRManager.cs"):
+        # The original DownloadUnzipUrl iterator captures the method's
+        # wadManifest and allowDownload parameters in its callback. ILSpy
+        # emitted unrelated default locals instead; the null manifest makes
+        # every successful ODR extraction fail while the false guard changes
+        # the allowDownload=false diagnostic branch. Both defects stay in the
+        # isolated replacement snapshot and are anchored to the exact
+        # decompiler output observed in the Mono 2.0.2 assembly.
+        old = ("\t\t\tbool allowDownload2 = default(bool);\n"
+               "\t\t\tWADManifest wadManifest2 = default(WADManifest);\n")
+        new = ""
+        if source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("restore ODRManager.DownloadUnzipUrl callback captures from original IL")
+        elif "bool allowDownload2 = default(bool);" in source or "WADManifest wadManifest2 = default(WADManifest);" in source:
+            raise ValueError(f"ODRManager.DownloadUnzipUrl capture anchor changed: {path}")
+        replacements = (
+            ("if (!allowDownload2 && !success && string.IsNullOrEmpty(err))",
+             "if (!allowDownload && !success && string.IsNullOrEmpty(err))"),
+            ("wadManifest2.DownloadedFile = fileInfo.FullName;",
+             "wadManifest.DownloadedFile = fileInfo.FullName;"),
+            ("_wadFilenameHashMap[fileInfo.Name] = wadManifest2;",
+             "_wadFilenameHashMap[fileInfo.Name] = wadManifest;")
+        )
+        changed = 0
+        for old, new in replacements:
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changed += 1
+        if changed:
+            if changed != len(replacements):
+                raise ValueError(f"ODRManager.DownloadUnzipUrl callback anchor changed: {path}")
+            if not any("restore ODRManager.DownloadUnzipUrl" in item for item in changes):
+                changes.append("restore ODRManager.DownloadUnzipUrl callback captures from original IL")
+        if allow_offline_network:
+            # On the Android device, EB.DriveInfo cannot match the app's ODR
+            # path to a System.IO.DriveInfo root and returns zero. The
+            # original space guard then marks every WAD unavailable before
+            # DownloadExtractor can issue its local-server request. Keep the
+            # bypass limited to the opt-in offline replacement snapshot. The
+            # Android bridge can return a nonzero but unusable value here, so
+            # retaining the aggregate server-WAD check still raises the
+            # client-fatal low-space dialog before a local WAD can start.
+            old = "\t\tdecimal availableSpaceInBytes = DriveInfo.GetAvailableSpaceInBytes(odrExtractPath);\n"
+            new = (old +
+                   "\t\tDebug.LogWarning(\"ODRManager: bypassing aggregate WAD space guard for offline local WADs\");\n"
+                   "\t\treturn;\n")
+            marker = "unable to measure available space; continuing for offline local WADs"
+            offline_marker = "bypassing aggregate WAD space guard for offline local WADs"
+            if marker not in source and offline_marker not in source and source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changes.append("bypass aggregate ODR space guard for offline local WADs")
+            elif marker not in source and offline_marker not in source:
+                raise ValueError(f"ODRManager disk-space anchor changed: {path}")
+    if path.as_posix().endswith("BattleArbiterInitState.cs"):
+        # The original InitCharacter callback captures the method's id, data,
+        # and towerData parameters. ILSpy emitted unrelated default locals,
+        # which leaves PlayerController.Init with a null FighterData and
+        # crashes the first fighter during offline FightFlow startup.
+        old = ("\t\t\tint id2 = default(int);\n"
+               "\t\t\tFighterData data2 = default(FighterData);\n"
+               "\t\t\tTowerData towerData2 = default(TowerData);\n")
+        new = ""
+        if source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("restore BattleArbiter.InitCharacter callback captures from original IL")
+        elif any(anchor in source for anchor in (
+                "int id2 = default(int);",
+                "FighterData data2 = default(FighterData);",
+                "TowerData towerData2 = default(TowerData);")):
+            raise ValueError(f"BattleArbiter.InitCharacter capture anchor changed: {path}")
+        replacements = (
+            ("InitPlayer(id2, character, isPlayer, mirror, data2, opponentData, towerData2);",
+             "InitPlayer(id, character, isPlayer, mirror, data, opponentData, towerData);"),
+        )
+        for old, new in replacements:
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                if not any("restore BattleArbiter.InitCharacter" in item for item in changes):
+                    changes.append("restore BattleArbiter.InitCharacter callback captures from original IL")
+            elif old in source:
+                raise ValueError(f"BattleArbiter.InitCharacter callback anchor changed: {path}")
+    if allow_offline_network and path.as_posix().endswith("EB/DownloadExtractor.cs"):
+        # DownloadExtractor repeats the same free-space policy after the
+        # aggregate ODRManager check. On the offline device that second gate
+        # prevents the local WAD request from starting, so make only this
+        # opt-in replacement snapshot take the existing download branch.
+        old = "\t\tif (totalSpaceRequired > diskSpace)\n"
+        new = ("\t\tDebug.LogWarning(\"DownloadExtractor: bypassing per-WAD space guard for offline local WADs\");\n"
+               "\t\tif (false)\n")
+        marker = "bypassing per-WAD space guard for offline local WADs"
+        if marker not in source and source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("bypass per-WAD DownloadExtractor space guard for offline local WADs")
+        elif marker not in source:
+            raise ValueError(f"DownloadExtractor disk-space anchor changed: {path}")
     if disable_push and path.as_posix().endswith("EB.Sparx/Hub.cs"):
         old = "if (Config.UsePush)"
         new = "if (false && Config.UsePush)"
@@ -1104,6 +1200,162 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                 raise ValueError(f"Runtime diagnostic anchor changed: {path}: {old}")
             source = source.replace(old, new, 1)
             changes.append("add bounded Mono runtime diagnostic at " + old.splitlines()[0])
+    if allow_offline_network and path.name == "TransformersLoginListener.cs":
+        # The 2.0.2 client cannot load the later assets_base WAD, so its normal
+        # login path blocks in HomeFlow before the first fight. The original
+        # FTE fight already has a complete, local-compatible construction path
+        # (Tuning starting bots + BCG base attributes + FightFlow). Route the
+        # offline replacement directly through that path while preserving the
+        # production FTE FightData construction and BattleArbiter startup.
+        old = "if (TutorialManagerHelper.IsTutorialComplete(\"FTE\") || TutorialDB.SkipTutorials || TutorialDB.SkipFTE)"
+        new = "if (OfflineFightBootstrap.Enabled || TutorialManagerHelper.IsTutorialComplete(\"FTE\") || TutorialDB.SkipTutorials || TutorialDB.SkipFTE)"
+        if source.count(old) == 1 and "OfflineFightBootstrap.Enabled" not in source:
+            source = source.replace(old, new, 1)
+            old = "FlowManager.Instance.StartFlow(new HomeFlow(), delegate"
+            new = "OfflineFightBootstrap.Start(delegate"
+            if source.count(old) != 1:
+                raise ValueError(f"Offline fight bootstrap HomeFlow anchor changed: {path}")
+            source = source.replace(old, new, 1)
+            helper = r'''
+
+// Offline replacement-only bootstrap. This is deliberately kept beside the
+// login listener so the audit can replace only managed game assemblies.
+public static class OfflineFightBootstrap
+{
+	public static bool Enabled => true;
+
+	public static void Start(EB.Action onComplete)
+	{
+		GameObject gameObject = new GameObject("OfflineFightBootstrap");
+		Object.DontDestroyOnLoad(gameObject);
+		Runner runner = gameObject.AddComponent<Runner>();
+		runner.Begin(onComplete);
+	}
+
+	private sealed class Runner : MonoBehaviour
+	{
+		private EB.Action _onComplete;
+
+		public void Begin(EB.Action onComplete)
+		{
+			_onComplete = onComplete;
+			StartCoroutine(Boot());
+		}
+
+		private IEnumerator Boot()
+		{
+			while (Hub.Instance == null || Hub.Instance.State != HubState.Connected ||
+				Tuning.Instance == null || BCGManager.Instance == null ||
+				TuningAI.Instance == null)
+			{
+				yield return null;
+			}
+			string[] characterIds = new string[2]
+			{
+				Tuning.Instance.StartingPlayerBot,
+				Tuning.Instance.StartingOpponentBot
+			};
+			System.Collections.Generic.List<BCGHeroRankLevel> ranks = new System.Collections.Generic.List<BCGHeroRankLevel>();
+			BCGBlueprintBase[] blueprints = new BCGBlueprintBase[2];
+			for (int i = 0; i < characterIds.Length; i++)
+			{
+				blueprints[i] = BCGHelper.GetBlueprint(characterIds[i]);
+				if (blueprints[i] == null)
+				{
+					EB.Debug.LogError("OfflineFightBootstrap: missing starting blueprint " + characterIds[i]);
+					Complete();
+					yield break;
+				}
+				ranks.Add(new BCGHeroRankLevel(blueprints[i].Blueprint, 2, 1, 0));
+			}
+			WindowManager.Instance.ShowLoadingScreen(show: true, "Fight Load Offline");
+			BCGManager.Instance.GetHeroBaseAttributes(ranks, OnAttributesReady);
+		}
+
+		private void OnAttributesReady(string error, System.Collections.Generic.List<BCGHeroDetails> details)
+		{
+			if (!string.IsNullOrEmpty(error) || details == null || details.Count < 2)
+			{
+				EB.Debug.LogError("OfflineFightBootstrap: base attributes unavailable: " + error);
+				Complete();
+				return;
+			}
+			string[] characterIds = new string[2]
+			{
+				Tuning.Instance.StartingPlayerBot,
+				Tuning.Instance.StartingOpponentBot
+			};
+			FighterData[] fighters = new FighterData[2];
+			for (int i = 0; i < fighters.Length; i++)
+			{
+				BCGBlueprintBase blueprint = BCGHelper.GetBlueprint(characterIds[i]);
+				fighters[i] = new FighterData
+				{
+					Id = blueprint.Blueprint,
+					Blueprint = blueprint,
+					BaseAttributes = details[i].AttributeData,
+					Attributes = details[i].AttributeData,
+					SigLevel = details[i].SigLevel
+				};
+			}
+			fighters[1].AIProfile = TuningAI.Instance.Profiles[0];
+			if (TuningAI.Instance.Personalities.Length > 3)
+			{
+				fighters[1].OverrideAIPersonality = TuningAI.Instance.Personalities[3];
+			}
+			FightFlow.FightInitInfo initInfo = new FightFlow.FightInitInfo
+			{
+				playerFigher = fighters[0],
+				enemyFigher = fighters[1],
+				sceneName = Tuning.Instance.StartingArena,
+				timeOfDay = Tuning.Instance.StartingArenaTOD,
+				fightType = FightFlow.FIGHT_TYPE.FTE
+			};
+			EB.Debug.Log("OfflineFightBootstrap: starting FightFlow " + initInfo.sceneName);
+			FlowManager.Instance.StartFlow(new FightFlow(initInfo), _onComplete);
+			StartCoroutine(HideLoadingWhenFightStarts());
+		}
+
+		private IEnumerator HideLoadingWhenFightStarts()
+		{
+			while (BattleArbiter.Instance == null || BattleArbiter.Instance.IntroStage == null)
+			{
+				yield return null;
+			}
+			EB.Debug.Log("OfflineFightBootstrap: hiding loading screen after fight initialization");
+			WindowManager.Instance.ShowLoadingScreen(show: false, "Fight Load Offline");
+			Object.Destroy(base.gameObject);
+		}
+
+		private void Complete()
+		{
+			WindowManager.Instance.ShowLoadingScreen(show: false, "Fight Load Offline");
+			_onComplete.SafeInvoke();
+			Object.Destroy(base.gameObject);
+		}
+	}
+}
+'''
+            source += helper
+            changes.append("route offline login directly to the built-in FTE FightFlow")
+        elif "OfflineFightBootstrap.Enabled" not in source:
+            raise ValueError(f"Offline fight bootstrap repair already partially applied: {path}")
+    if allow_offline_network and path.as_posix().endswith("EB/Download.cs"):
+        # APK-backed bundles arrive from ZipDriver as jar:file:// URLs. The
+        # original branch computes an entry offset, but then calls the
+        # one-argument LoadFromFile overload on a synthetic "apk/path" string;
+        # on the Android Unity runtime that does not load the bundle. Force
+        # the existing Zip.Extract fallback for the offline replacement so the
+        # subsequent file:// load receives a real filesystem path.
+        old = "\t\t\tif (offset >= 0)\n"
+        new = ("\t\t\t// Offline APK bundles must be extracted before Unity loads them.\n"
+               "\t\t\tif (false && offset >= 0)\n")
+        marker = "Offline APK bundles must be extracted before Unity loads them."
+        if marker not in source and source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("extract offline APK asset bundles before Unity loading")
+        elif marker not in source:
+            raise ValueError(f"Download APK-bundle anchor changed: {path}")
     if disable_google_play_games and path.as_posix().endswith("EB.Sparx/Hub.cs"):
         old = "if (Config.UseGooglePlayGames && !flag)"
         new = "if (false && Config.UseGooglePlayGames && !flag)"
@@ -1175,6 +1427,33 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                     f"\t{declaration}\n\n" + setter, 1)
                 changes.append(f"restore private {property_name} backing field from IL")
     if path.as_posix().endswith("EB/DownloadExtractor.cs"):
+        # The original CheckFileCrc iterator captures its fileDescriptor
+        # parameter in the ComputeCrc callback. ILSpy emitted an unrelated
+        # default local instead, so cached WAD validation dereferences a null
+        # descriptor before the ODR download can begin.
+        old = "\t\t\tFileDescriptor fileDescriptor2 = default(FileDescriptor);\n"
+        new = ""
+        if source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("restore DownloadExtractor.CheckFileCrc descriptor capture from original IL")
+        elif "FileDescriptor fileDescriptor2 = default(FileDescriptor);" in source:
+            raise ValueError(f"DownloadExtractor.CheckFileCrc capture anchor changed: {path}")
+        replacements = (
+            ("if (fileDescriptor2.Crc == existingFileCrc)",
+             "if (fileDescriptor.Crc == existingFileCrc)"),
+            ("SendCrcMismatchTelemetry(fileInfo.Name, existingFileCrc, fileDescriptor2.Crc);",
+             "SendCrcMismatchTelemetry(fileInfo.Name, existingFileCrc, fileDescriptor.Crc);")
+        )
+        changed = 0
+        for old, new in replacements:
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changed += 1
+        if changed:
+            if changed != len(replacements):
+                raise ValueError(f"DownloadExtractor.CheckFileCrc callback anchor changed: {path}")
+            if not any("restore DownloadExtractor.CheckFileCrc" in item for item in changes):
+                changes.append("restore DownloadExtractor.CheckFileCrc descriptor capture from original IL")
         old = "using EB.Net;"
         new = old + "\nusing WebRequest = EB.Net.WebRequest;"
         if old in source and "using WebRequest = EB.Net.WebRequest;" not in source:
