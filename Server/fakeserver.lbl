@@ -1907,13 +1907,39 @@ function file_name(path: text): text
   last_segment(path)
 end
 
+function has_argument(argument: text): boolean
+  intent: check
+  for item in get_args() do
+    if item == argument then
+  return true
+end
+  end
+  false
+end
+
+function mono_fte_asset_alias_enabled(): boolean
+  intent: check
+  has_argument("--mono-fte-assets") or unwrap_or(env_get("TFTF_MONO_FTE_ASSETS"), "") == "1"
+end
+
 function advertised_canned_body(body: text): text
   intent: rewrite
   let host: text = unwrap_or(env_get("TFTF_SERVER_HOST"), "")
-  if host == "" then
+  let advertised: text = if host == "" then
   body
 else
   replace(body, "https://tform-0901-hzlhiniyfcwf.tf-cdn.net", gamedata.advertised_base_url())
+end
+  if mono_fte_asset_alias_enabled() then
+  replace(
+    replace(
+      advertised,
+      "\"m\":\"skywarp_gs_leader2015\",\"mdl\":\"skywarp_gs_leader2015\",\"i\":\"stars_gs\",\"img\":\"stars_gs\",\"ma\":\"skywarp_gs_leader2015\",\"map_asset\":\"skywarp_gs_leader2015\"",
+      "\"m\":\"starscream_gs\",\"mdl\":\"starscream_gs\",\"i\":\"stars_gs\",\"img\":\"stars_gs\",\"ma\":\"starscream_gs\",\"map_asset\":\"starscream_gs\""),
+    "\"i\":\"stars_gs\",\"img\":\"stars_gs\",\"m\":\"skywarp_gs_leader2015\",\"mdl\":\"skywarp_gs_leader2015\",\"ma\":\"skywarp_gs_leader2015\",\"map_asset\":\"skywarp_gs_leader2015\"",
+    "\"i\":\"stars_gs\",\"img\":\"stars_gs\",\"m\":\"starscream_gs\",\"mdl\":\"starscream_gs\",\"ma\":\"starscream_gs\",\"map_asset\":\"starscream_gs\"" )
+else
+  advertised
 end
 end
 

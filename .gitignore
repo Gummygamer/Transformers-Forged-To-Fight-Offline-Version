@@ -24,6 +24,7 @@
 # Generated IL2CPP metadata dump. Regenerate locally from an entitled copy of
 # the 9.2 APK; do not commit it.
 /re_notes/dump.cs
+/re_notes/decomp_out.c
 
 # Symlinks into /build/dumps, which is itself ignored; the dump they point at is
 # generated locally from an entitled copy of the APK.
@@ -34,6 +35,8 @@
 /Server/__pycache__/
 /patches/__pycache__/
 /tools/__pycache__/
+/tools/mono_metadata/bin/
+/tools/mono_metadata/obj/
 /Server/certs/
 /Server/logs/
 
