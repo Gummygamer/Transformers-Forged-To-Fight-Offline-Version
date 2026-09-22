@@ -586,7 +586,7 @@ class RecoveryTests(unittest.TestCase):
             normalize_source_contracts(Path("EB/DownloadExtractor.cs"), repaired),
             (repaired, []))
 
-    def test_offline_login_routes_to_builtin_fte_fight(self):
+    def test_offline_login_routes_to_real_fight_landing_screen(self):
         source = (
             'if (TutorialManagerHelper.IsTutorialComplete("FTE") || TutorialDB.SkipTutorials || TutorialDB.SkipFTE)\n'
             '\t\t{\n'
@@ -600,10 +600,12 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("OfflineFightBootstrap.Enabled", repaired)
         self.assertIn("OfflineFightBootstrap.Start(delegate", repaired)
         self.assertIn("class OfflineFightBootstrap", repaired)
-        self.assertIn("FightFlow.FIGHT_TYPE.FTE", repaired)
-        self.assertIn("HideLoadingWhenFightStarts", repaired)
+        self.assertIn("FightLandingScreen", repaired)
+        self.assertIn("opening FightLandingScreen directly", repaired)
+        self.assertIn("HideLoadingWhenFightMenuStarts", repaired)
+        self.assertNotIn("FightFlow.FIGHT_TYPE.FTE", repaired)
         self.assertIn('ShowLoadingScreen(show: false, "Fight Load Offline")', repaired)
-        self.assertTrue(any("built-in FTE FightFlow" in change for change in changes))
+        self.assertTrue(any("real FightLandingScreen" in change for change in changes))
         self.assertEqual(normalize_source_contracts(
             Path("TransformersLoginListener.cs"), repaired, allow_offline_network=True),
             (repaired, []))

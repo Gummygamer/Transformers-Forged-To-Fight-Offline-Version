@@ -1113,6 +1113,27 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                     changes.append("restore BattleArbiter.InitCharacter callback captures from original IL")
             elif old in source:
                 raise ValueError(f"BattleArbiter.InitCharacter callback anchor changed: {path}")
+    if path.name == "QuestModeButton.cs":
+        # Some offline quest snapshots do not carry every localized title or
+        # description.  The original UI assumes those strings are present,
+        # but Regex.Replace throws before the FightLandingScreen can finish
+        # initializing when one is null.  Keep the button usable with an
+        # empty fallback so Story can still be selected from the real menu.
+        replacements = (
+            ("text = regex.Replace(text, \"[\" + defaultTitleColorString + \"]\");",
+             "text = regex.Replace(text ?? string.Empty, \"[\" + defaultTitleColorString + \"]\");"),
+            ("text2 = regex2.Replace(text2, \"[\" + defaultDescColorString + \"]\");",
+             "text2 = regex2.Replace(text2 ?? string.Empty, \"[\" + defaultDescColorString + \"]\");"),
+        )
+        changed = 0
+        for old, new in replacements:
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changed += 1
+            elif old in source:
+                raise ValueError(f"QuestModeButton null-localization anchor changed: {path}")
+        if changed:
+            changes.append("allow FightLandingScreen buttons with missing offline localization")
     if allow_offline_network and path.as_posix().endswith("EB/DownloadExtractor.cs"):
         # DownloadExtractor repeats the same free-space policy after the
         # aggregate ODRManager check. On the offline device that second gate
@@ -1201,12 +1222,10 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
             source = source.replace(old, new, 1)
             changes.append("add bounded Mono runtime diagnostic at " + old.splitlines()[0])
     if allow_offline_network and path.name == "TransformersLoginListener.cs":
-        # The 2.0.2 client cannot load the later assets_base WAD, so its normal
-        # login path blocks in HomeFlow before the first fight. The original
-        # FTE fight already has a complete, local-compatible construction path
-        # (Tuning starting bots + BCG base attributes + FightFlow). Route the
-        # offline replacement directly through that path while preserving the
-        # production FTE FightData construction and BattleArbiter startup.
+        # The 2.0.2 client must enter the normal HomeFlow so the real Fight
+        # landing screen and Story button are usable. Keep the replacement
+        # snapshot's explicit offline gate, then open FightLandingScreen after
+        # HomeFlow has loaded the base board and its normal overlays.
         old = "if (TutorialManagerHelper.IsTutorialComplete(\"FTE\") || TutorialDB.SkipTutorials || TutorialDB.SkipFTE)"
         new = "if (OfflineFightBootstrap.Enabled || TutorialManagerHelper.IsTutorialComplete(\"FTE\") || TutorialDB.SkipTutorials || TutorialDB.SkipFTE)"
         if source.count(old) == 1 and "OfflineFightBootstrap.Enabled" not in source:
@@ -1280,52 +1299,27 @@ public static class OfflineFightBootstrap
 				Complete();
 				return;
 			}
-			string[] characterIds = new string[2]
-			{
-				Tuning.Instance.StartingPlayerBot,
-				Tuning.Instance.StartingOpponentBot
-			};
-			FighterData[] fighters = new FighterData[2];
-			for (int i = 0; i < fighters.Length; i++)
-			{
-				BCGBlueprintBase blueprint = BCGHelper.GetBlueprint(characterIds[i]);
-				fighters[i] = new FighterData
-				{
-					Id = blueprint.Blueprint,
-					Blueprint = blueprint,
-					BaseAttributes = details[i].AttributeData,
-					Attributes = details[i].AttributeData,
-					SigLevel = details[i].SigLevel
-				};
-			}
-			fighters[1].AIProfile = TuningAI.Instance.Profiles[0];
-			if (TuningAI.Instance.Personalities.Length > 3)
-			{
-				fighters[1].OverrideAIPersonality = TuningAI.Instance.Personalities[3];
-			}
-			FightFlow.FightInitInfo initInfo = new FightFlow.FightInitInfo
-			{
-				playerFigher = fighters[0],
-				enemyFigher = fighters[1],
-				sceneName = Tuning.Instance.StartingArena,
-				timeOfDay = Tuning.Instance.StartingArenaTOD,
-				fightType = FightFlow.FIGHT_TYPE.FTE
-			};
-			EB.Debug.Log("OfflineFightBootstrap: starting FightFlow " + initInfo.sceneName);
-			FlowManager.Instance.StartFlow(new FightFlow(initInfo), _onComplete);
-			StartCoroutine(HideLoadingWhenFightStarts());
-		}
+            // The original HomeFlow waits for the remote base-board bundle
+            // (assets_base/BaseRoot), which is not present in the recompiled
+            // APK and is not needed to render the fight-mode landing screen.
+            // Open the real menu directly after login instead of deadlocking
+            // on that unrelated home-board dependency.
+            EB.Debug.Log("OfflineStoryBootstrap: opening FightLandingScreen directly");
+            WindowManager.Instance.Open(RobotsWindowLayer.Screen, "FightLandingScreen");
+            _onComplete.SafeInvoke();
+            StartCoroutine(HideLoadingWhenFightMenuStarts());
+        }
 
-		private IEnumerator HideLoadingWhenFightStarts()
-		{
-			while (BattleArbiter.Instance == null || BattleArbiter.Instance.IntroStage == null)
-			{
-				yield return null;
-			}
-			EB.Debug.Log("OfflineFightBootstrap: hiding loading screen after fight initialization");
-			WindowManager.Instance.ShowLoadingScreen(show: false, "Fight Load Offline");
-			Object.Destroy(base.gameObject);
-		}
+        private IEnumerator HideLoadingWhenFightMenuStarts()
+        {
+            while (!WindowManager.Instance.IsInStack(RobotsWindowLayer.Screen, "FightLandingScreen"))
+            {
+                yield return null;
+            }
+            EB.Debug.Log("OfflineStoryBootstrap: hiding loading screen after FightLandingScreen initialization");
+            WindowManager.Instance.ShowLoadingScreen(show: false, "Fight Load Offline");
+            Object.Destroy(base.gameObject);
+        }
 
 		private void Complete()
 		{
@@ -1337,7 +1331,7 @@ public static class OfflineFightBootstrap
 }
 '''
             source += helper
-            changes.append("route offline login directly to the built-in FTE FightFlow")
+            changes.append("route offline login directly to the real FightLandingScreen")
         elif "OfflineFightBootstrap.Enabled" not in source:
             raise ValueError(f"Offline fight bootstrap repair already partially applied: {path}")
     if allow_offline_network and path.as_posix().endswith("EB/Download.cs"):
