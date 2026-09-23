@@ -1168,3 +1168,66 @@ or `PropDict` — they drive combat props and SP3 transform alt-forms.
 Next steps remain: close remaining runtime NREs in `TFormAssetManager`, wire the
 full bootstrap flow, and verify Story board → pre-fight → match activation →
 combat HUD on device.
+
+## 2026-09-23 — `unity/StoryPort` player-build SIGSEGV SOLVED (`Fabric.Core.dll`)
+
+`BuildPlayer` in the tracked project died with `Assertion failed on expression:
+'m_ArrayField != SCRIPTING_NULL'` and SIGSEGV, at 0 compile errors. Root cause and
+the bisect that found it:
+
+**Root cause.** `Fabric.Core.dll` (the 9.2 audio middleware, shipped as a binary
+plugin) contains `[Serializable]` generic classes whose serialized collection
+fields use their own type parameters — `Fabric.SerializableDictionary<TKey,TValue>`
+(`List<TKey> keys`, `List<TValue> values`) and `Fabric.FastList<Key,Data>`
+(`List<Key> _keys`, `List<Data> _data`). Unity 2020's
+`ScriptingManager::UpdateScriptHashes` → `MonoScript::GetPropertiesHash` →
+`ComputeTypeTreeHashForScriptClass` → `SerializationCache::BuildSerializationCacheFor`
+→ `LinearCollectionField::LinearCollectionField` asks Mono for the field's type on
+the OPEN generic definition, gets NULL, and dereferences it.
+
+**How it was found (worth reusing).**
+1. A 16-second desktop reproducer instead of the ~10-minute Android build: an
+   Editor method that calls `BuildPipeline.BuildPlayer` for `StandaloneLinux64`.
+   Both projects build the same serialization path; Gradle/NDK is skipped.
+2. `gdb -batch`, with `handle SIGPWR nostop noprint pass` (Unity raises SIGPWR
+   internally, so a plain `handle SIGSEGV stop` run stops on the wrong signal).
+   The backtrace named the exact frames. Registers at the crash site are useless
+   without symbols; break at FUNCTION ENTRY instead.
+3. Swap-bisect by directory, copying ONE directory at a time from the failing
+   project into a copy of the known-good one. **Assert the inputs of every run**
+   (stub counts, scene path) — an earlier `rsync --exclude Assets` silently
+   produced an empty-stub "pass" that invalidated several conclusions.
+
+**Fix (all in `tools/stubs92/`, never in generated files).**
+- `SOURCE_FRAMEWORK_DLLS`: such a DLL is decompiled to C# and emitted with an
+  asmdef **named exactly after the original DLL** (`Fabric.Core`), so MonoScript
+  references in 9.2 assets still resolve. A binary cannot be fixed by source rules.
+- The pipeline now scans every non-converted DummyDll for the same pattern and
+  reports hits, so the next offender is caught at generation time.
+- Do NOT swap in an older (2.0.2) `Fabric.Core.dll`: its field layouts are 2.0.2's
+  and 9.2 audio references would silently fail to bind.
+
+**Also unblocked in the same pass** (all needed to get the converted DLL to
+compile, and all in StripCG so they cover every DLL that becomes source):
+- MethodImpl/`.override` reconstruction for explicit interface implementations
+  (DummyDll has none), incl. IL2CPP `_002E`-escaped names and nested interfaces
+  (Cecil writes nested types with `/`).
+- Explicit `PropertyDefinition` creation + indexer-parameter restoration, since
+  DummyDll drops both.
+- Unity's real `4.7.1-api` reference assemblies passed to StripCG's resolver and
+  ilspycmd's `-r` AHEAD of DummyDll — its BCL copies have degraded signatures
+  (`IList.Item` with no index parameter), which rendered explicit indexers as
+  plain properties. This single change took 14 errors → 2.
+- `fix_interface_implementations`' hand-curated map went from 18 entries to ONE
+  (a member genuinely absent from the dump).
+
+**Status.** Generator: 0 errors. Desktop build: Succeeded. Android APK: built
+(101 MB) with the full transitive bundle closure including
+`characters_procedural_odr/character_mergecharacters_procedural.assetbundle`, which
+holds the external CAB with the real 9.2 shaders. The on-device Optimus Prime
+render check is still PENDING — the phone dropped out of ADB (MTP only).
+
+**Device-test note.** Once USB debugging is back: install, `adb logcat -c`, launch
+`com.tftf.sourceport/com.unity3d.player.UnityPlayerActivity`, then grep logcat for
+`[RENDER-PROOF]`. Success is real 9.2 shader names instead of
+`Hidden/InternalErrorShader` (which renders magenta).

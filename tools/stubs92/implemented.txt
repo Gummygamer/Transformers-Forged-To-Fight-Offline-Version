@@ -1,0 +1,14 @@
+# Types that have hand-written implementations in Assets/Game/.
+# gen_92_stubs.py will skip generating stubs for these types.
+# Format: one fully-qualified type name per line (Namespace.ClassName).
+# The hand-written version must keep the exact 9.2 class name, namespace,
+# and serialized fields, or prefab data stops binding.
+#
+# Add entries here BEFORE implementing a class that prefabs reference.
+EB.Rendering.EBShaderGlobalProperty
+EB.Rendering.EBRenderSettingsBase
+EB.Rendering.EBLight
+EB.Rendering.EBReflectionProbe
+EB.Rendering.RenderSettings
+EB.Time
+EB.Debug
