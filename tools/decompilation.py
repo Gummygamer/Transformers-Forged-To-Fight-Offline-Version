@@ -1512,6 +1512,18 @@ public static class OfflineFightBootstrap
             changes.append("start a real Story FightFlow when the incompatible quest gameboard cannot load")
         elif "OfflineStoryDirectFight" not in source:
             raise ValueError(f"Offline Story direct-fight repair anchor changed: {path}")
+        # The original 2.0.2 runtime does not ship the Questboard theme
+        # libraries used by the patched three-act data.  Keep the native
+        # QuestFlow and FightFlow, but start its real first fight before the
+        # board builder waits forever for those absent theme prefabs.  The
+        # board itself remains accessible from the normal QuestSelect screen.
+        old = '''\tprotected virtual void LoadGameBoard()\n\t{\n\t\tScreen.sleepTimeout = -1;'''
+        new = '''\tprotected virtual void LoadGameBoard()\n\t{\n\t\tif (OfflineStoryDirectFight.TryStart(_aq))\n\t\t{\n\t\t\treturn;\n\t\t}\n\t\tScreen.sleepTimeout = -1;'''
+        if old in source and "OfflineStoryDirectFight.TryStart(_aq)" not in source:
+            source = source.replace(old, new, 1)
+            changes.append("start the native Story FightFlow before missing Questboard theme assets block it")
+        elif "OfflineStoryDirectFight.TryStart(_aq)" not in source:
+            raise ValueError(f"Offline Story early-fight anchor changed: {path}")
     if allow_offline_network and path.name == "PrefightScreenCallbacks.cs":
         old = "\t\tFlowManager.Instance.PushFlow(flow);"
         new = "\t\tif (OfflineStoryDirectPrefight.TryStart(fightInitInfo2))\n\t\t{\n\t\t\treturn;\n\t\t}\n" + old
