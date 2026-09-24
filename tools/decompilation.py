@@ -893,6 +893,48 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
     are made only in the isolated audit snapshot and are recorded by path.
     """
     changes = []
+    if allow_offline_network and path.name == "TutorialManagerHelper.cs":
+        # Offline TutorialManager payloads can be absent during the first base
+        # initialization. The menu bar asks for building unlock badges before
+        # the normal tutorial/resource managers are fully populated; the
+        # original helper dereferences that partial state and marks BugReport
+        # as crashed, which makes Setup quit after the generic error dialog.
+        old = ("\tpublic static string GetPendingBuildingUnlockTutorial(BaseBuilding.BuildingTypes _buildingType)\n"
+               "\t{\n"
+               "\t\tstring text = string.Empty;")
+        new = ("\tpublic static string GetPendingBuildingUnlockTutorial(BaseBuilding.BuildingTypes _buildingType)\n"
+               "\t{\n"
+               "\t\tif (Hub.Instance == null || Hub.Instance.TutorialManager == null || Hub.Instance.TutorialManager.UserData == null || Hub.Instance.ResourcesManager == null || Tuning.Instance == null)\n"
+               "\t\t{\n"
+               "\t\t\treturn string.Empty;\n"
+               "\t\t}\n"
+               "\t\tstring text = string.Empty;")
+        marker = "Hub.Instance.TutorialManager.UserData == null || Hub.Instance.ResourcesManager == null"
+        if marker not in source and source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("skip building unlock badges until offline tutorial and resource data are ready")
+        elif marker not in source:
+            raise ValueError(f"TutorialManagerHelper offline badge guard anchor changed: {path}")
+        old = "if (Hub.Instance.ResourcesManager.GetResource(typeName).Amount > 0 && !IsTutorialComplete(text) && !IsTutorialStarted(text))"
+        new = "var unlockResource = Hub.Instance.ResourcesManager.GetResource(typeName);\n\t\tif (unlockResource != null && unlockResource.Amount > 0 && !IsTutorialComplete(text) && !IsTutorialStarted(text))"
+        if "var unlockResource = Hub.Instance.ResourcesManager.GetResource(typeName);" not in source:
+            if source.count(old) != 1:
+                raise ValueError(f"TutorialManagerHelper resource guard anchor changed: {path}")
+            source = source.replace(old, new, 1)
+            changes.append("ignore absent offline building resources when calculating unlock badges")
+    if allow_offline_network and path.name == "Setup.cs":
+        # BugReport.DidCrash is backed by a process-wide "report sent" flag,
+        # including the previous-session log that is deliberately submitted
+        # on startup. Its generic dialog quits the app after that upload, even
+        # when the current HomeFlow completed successfully. Keep the offline
+        # replacement running; new errors remain in Unity/device logs.
+        old = "if (BugReport.DidCrash && !DidShowCrash)"
+        new = "if (!OfflineFightBootstrap.Enabled && BugReport.DidCrash && !DidShowCrash)"
+        if "!OfflineFightBootstrap.Enabled && BugReport.DidCrash" not in source:
+            if source.count(old) != 1:
+                raise ValueError(f"Setup previous-session crash dialog anchor changed: {path}")
+            source = source.replace(old, new, 1)
+            changes.append("keep offline Story running after the previous-session bug report upload")
     if allow_offline_network and path.as_posix().endswith("EB.Sparx/EndPoint.cs"):
         # The reconstructed client is routed to the local revival server. The
         # original endpoint rejects every request when Unity reports no
@@ -1270,6 +1312,23 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
             source = source.replace(old, new, 1)
             changes.append("disable optional PushManager registration for the offline snapshot; "
                            "the revival server has no push websocket contract")
+    if path.as_posix().endswith("EB/AssetBundleManager.cs"):
+        # The 2.0.2 gameboard asks for assets_quest/*, but 9.2 moved the
+        # quest-board prefabs and effects into the assets_quest_fte bundle.
+        # Keep this content compatibility fix enabled in normal builds too;
+        # runtime diagnostics are optional and must not control asset routing.
+        old = "private IEnumerator _LoadAsync<T>(string path, Action<T> cb) where T : Object\n\t{"
+        new = (old + '\n'
+               '\t\tif (path.StartsWith("assets_quest/"))\n'
+               '\t\t{\n'
+               '\t\t\tpath = "assets_quest_fte/" + path.Substring("assets_quest/".Length);\n'
+               '\t\t}')
+        marker = 'path = "assets_quest_fte/" + path.Substring("assets_quest/".Length);'
+        if source.count(old) == 1:
+            source = source.replace(old, new, 1)
+            changes.append("alias 2.0.2 assets_quest paths to the 9.2 assets_quest_fte bundle")
+        elif marker not in source:
+            raise ValueError(f"Quest bundle alias anchor changed: {path}")
     if runtime_diagnostics:
         if path.as_posix().endswith("TransformersLoginListener.cs"):
             probes = [
@@ -1348,12 +1407,7 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                 changes.append("add Mono ODR diagnostic at " + old.splitlines()[0])
         if path.as_posix().endswith("EB/AssetBundleManager.cs"):
             old = "private IEnumerator _LoadAsync<T>(string path, Action<T> cb) where T : Object\n\t{"
-            new = (old + '\n'
-                   '\t\tif (path.StartsWith("assets_quest/"))\n'
-                   '\t\t{\n'
-                   '\t\t\tpath = "assets_quest_fte/" + path.Substring("assets_quest/".Length);\n'
-                   '\t\t}\n'
-                   '\t\tUnityEngine.Debug.Log("MONO bundle load " + path);')
+            new = old + '\n\t\tUnityEngine.Debug.Log("MONO bundle load " + path);'
             if source.count(old) != 1:
                 raise ValueError(f"Runtime bundle diagnostic anchor changed: {path}")
             source = source.replace(old, new, 1)
@@ -1375,7 +1429,6 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                     raise ValueError(f"Runtime bundle diagnostic anchor changed: {path}: {old_probe}")
                 source = source.replace(old_probe, new_probe, 1)
                 changes.append("add Mono AssetBundleManager load-stage diagnostic at " + old_probe.splitlines()[0])
-            changes.append("alias assets_quest paths to the donor assets_quest_fte bundle")
             changes.append("add Mono AssetBundleManager load diagnostic")
         if path.as_posix().endswith("EB.FileSystem/PackDriver.cs"):
             old = "public IEnumerator MountOdrCoroutine(string tocFileName, string tocContents, Action cb)\n\t{"
@@ -1456,19 +1509,17 @@ public static class OfflineFightBootstrap
 				yield return null;
 			}
 			WindowManager.Instance.ShowLoadingScreen(show: true, "Fight Load Offline");
-			// The landing screen does not consume these attributes; waiting for
-			// this optional request can deadlock the offline menu before the first
-			// Story quest. Load fight data later through the normal quest path.
-			OpenFightLanding();
+			// Keep HomeFlow's normal base-board load so its 3D environment and
+			// background are active under the FightLanding screen. The offline
+			// APK now carries the converted BaseRoot and base environment bundles.
+			FlowManager.Instance.StartFlow(new HomeFlow(), delegate
+			{
+				OpenFightLanding();
+			});
 		}
 
 		private void OpenFightLanding()
 		{
-            // The original HomeFlow waits for the remote base-board bundle
-            // (assets_base/BaseRoot), which is not present in the recompiled
-            // APK and is not needed to render the fight-mode landing screen.
-            // Open the real menu directly after login instead of deadlocking
-            // on that unrelated home-board dependency.
 			UnityEngine.Debug.Log("MONO OfflineStoryBootstrap: opening FightLandingScreen directly");
 			WindowManager.WindowInfo windowInfo = WindowManager.Instance.Open(RobotsWindowLayer.Screen, "FightLandingScreen");
 			UnityEngine.Debug.Log("MONO OfflineStoryBootstrap: FightLandingScreen open requested");

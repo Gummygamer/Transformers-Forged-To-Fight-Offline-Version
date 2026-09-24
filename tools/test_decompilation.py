@@ -708,6 +708,45 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("callback2 = callback;", repaired)
         self.assertEqual(len(changes), 1)
 
+    def test_offline_tutorial_badges_ignore_incomplete_base_state(self):
+        source = (
+            "\tpublic static string GetPendingBuildingUnlockTutorial(BaseBuilding.BuildingTypes _buildingType)\n"
+            "\t{\n"
+            "\t\tstring text = string.Empty;\n"
+            "\t\tstring typeName = string.Empty;\n"
+            "\t\tif (_buildingType != BaseBuilding.BuildingTypes.AllianceHelp)\n"
+            "\t\t{\n\t\t\treturn string.Empty;\n\t\t}\n"
+            "\t\tif (Hub.Instance.ResourcesManager.GetResource(typeName).Amount > 0 && !IsTutorialComplete(text) && !IsTutorialStarted(text))\n"
+            "\t\t{\n\t\t\treturn text;\n\t\t}\n"
+            "\t\treturn string.Empty;\n\t}\n")
+        repaired, changes = normalize_source_contracts(
+            Path("TutorialManagerHelper.cs"), source, allow_offline_network=True)
+        self.assertIn("Hub.Instance.TutorialManager.UserData == null", repaired)
+        self.assertIn("unlockResource != null && unlockResource.Amount > 0", repaired)
+        self.assertEqual(changes, [
+            "skip building unlock badges until offline tutorial and resource data are ready",
+            "ignore absent offline building resources when calculating unlock badges",
+        ])
+        self.assertEqual(
+            normalize_source_contracts(
+                Path("TutorialManagerHelper.cs"), repaired, allow_offline_network=True),
+            (repaired, []))
+
+    def test_offline_setup_does_not_quit_after_previous_session_report(self):
+        source = "if (BugReport.DidCrash && !DidShowCrash)\n{\n\tApplication.Quit();\n}\n"
+        repaired, changes = normalize_source_contracts(
+            Path("Setup.cs"), source, allow_offline_network=True)
+        self.assertIn(
+            "if (!OfflineFightBootstrap.Enabled && BugReport.DidCrash && !DidShowCrash)",
+            repaired)
+        self.assertEqual(changes, [
+            "keep offline Story running after the previous-session bug report upload",
+        ])
+        self.assertEqual(
+            normalize_source_contracts(
+                Path("Setup.cs"), repaired, allow_offline_network=True),
+            (repaired, []))
+
     def test_facebook_method_call_restores_il_backing_fields(self):
         source = ("using System.Runtime.CompilerServices;\n\n"
                   "namespace Facebook.Unity;\n\n"
