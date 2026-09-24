@@ -10,6 +10,7 @@ import com.gummygamer.tftfpvphost.server.HostConfig
 import com.gummygamer.tftfpvphost.server.HostMessages
 import com.gummygamer.tftfpvphost.server.HostRuntime
 import com.gummygamer.tftfpvphost.server.StartResult
+import com.gummygamer.tftfpvphost.tunnel.LanCombatRelay
 import com.gummygamer.tftfpvphost.tunnel.TunnelConfig
 import com.gummygamer.tftfpvphost.tunnel.TunnelRuntime
 import java.io.File
@@ -26,6 +27,9 @@ class HostService : Service() {
 
     @Volatile
     private var destroyed = false
+
+    @Volatile
+    private var lanRelay: LanCombatRelay? = null
     private val lifecycle = Executors.newSingleThreadExecutor { task ->
         Thread(task, "tftf-host-lifecycle").apply { isDaemon = true }
     }
@@ -45,6 +49,7 @@ class HostService : Service() {
     override fun onDestroy() {
         destroyed = true
         lifecycle.shutdownNow()
+        stopLanRelay()
         TunnelRuntime.stop()
         HostRuntime.stop()
         releaseWakeLock()
@@ -102,13 +107,34 @@ class HostService : Service() {
             stopSelf()
             return
         }
+        // In tunnel mode CombatTunnel owns loopback:8777, so only a plain LAN host runs the relay.
+        if (result is StartResult.Started && tunnel == null) startLanRelay()
         // onDestroy may have run while the start was in flight; never leave an orphan listener.
         if (destroyed) {
+            stopLanRelay()
             TunnelRuntime.stop()
             HostRuntime.stop()
         }
         if (result is StartResult.Started) return
         stopSelf()
+    }
+
+    /** A bind failure is logged and non-fatal: the HTTP server keeps serving without live fights. */
+    private fun startLanRelay() {
+        if (lanRelay != null) return
+        val relay = LanCombatRelay(log = { HostRuntime.log.append(it) })
+        try {
+            relay.start()
+            lanRelay = relay
+        } catch (e: IOException) {
+            relay.close()
+            HostRuntime.log.append("Arena relay could not bind UDP ${TunnelConfig.DEFAULT_COMBAT_PORT}: ${e.message}. Live fights are unavailable.")
+        }
+    }
+
+    private fun stopLanRelay() {
+        lanRelay?.close()
+        lanRelay = null
     }
 
     private fun stateDir(): File = File(filesDir, PvpHost.STATE_DIR_NAME)
@@ -125,6 +151,7 @@ class HostService : Service() {
 
     private fun stopHost() {
         lifecycle.execute {
+            stopLanRelay()
             TunnelRuntime.stop()
             HostRuntime.stop()
         }

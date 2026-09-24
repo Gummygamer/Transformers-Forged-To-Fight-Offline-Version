@@ -297,6 +297,13 @@
                         android:layout_marginTop="4dp"
                         android:textAppearance="?attr/textAppearanceBodySmall" />
 
+                    <TextView
+                        android:id="@+id/relayHelp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textAppearance="?attr/textAppearanceBodySmall" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/copyButton"
                         style="@style/Widget.Material3.Button.OutlinedButton"

@@ -40,6 +40,7 @@
     <string name="address_flags">--scheme http --server-host %1$s --server-port %2$d</string>
     <string name="address_command">legible run Server/build_phone_apk.lbl --scheme http --server-host %1$s --server-port %2$d &quot;Transformers 9.2 offline.apk&quot; build/phone-pvp-unsigned.apk</string>
     <string name="address_patcher">Patcher: Separate server — Host %1$s, Port %2$d, Scheme http</string>
+    <string name="address_relay">Arena relay: UDP %1$s:%2$d — enter these as the Patcher\'s Arena relay host and UDP port</string>
     <string name="address_copied">Copied %1$s</string>
     <string name="command_copied">Build command copied.</string>
     <string name="log_copied">Log copied.</string>

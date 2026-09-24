@@ -294,10 +294,12 @@ class MainActivity : AppCompatActivity() {
             binding.commandText.text = getString(R.string.address_flags, endpoint, commandPort)
             binding.fullCommandText.text = getString(R.string.address_command, endpoint, commandPort)
             binding.patcherHelp.text = getString(R.string.address_patcher, endpoint, commandPort)
+            binding.relayHelp.text = getString(R.string.address_relay, endpoint, TunnelConfig.DEFAULT_COMBAT_PORT)
         } else {
             binding.commandText.text = ""
             binding.fullCommandText.text = ""
             binding.patcherHelp.text = ""
+            binding.relayHelp.text = ""
         }
     }
 

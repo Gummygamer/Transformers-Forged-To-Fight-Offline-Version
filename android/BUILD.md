@@ -111,6 +111,14 @@ authentication, so anyone who can reach the port can register as a peer; use a
 trusted network. The CDN rewrite switch should stay enabled when clients need
 host-local CDN URLs.
 
+In LAN mode (no tunnel) the host also runs a UDP relay on port 8777 for the
+real-time Arena netcode (`tunnel/LanCombatRelay.kt`, a Kotlin port of
+`tools/netrelay/netrelay.c`) and displays `Arena relay: UDP <phone-ip>:8777`.
+Set each player's Patcher **Arena relay host** to the host phone's IP and **UDP
+port** to 8777 (arm64 only). A bind failure is logged and does not stop the
+HTTP server; in tunnel mode `CombatTunnel` owns loopback 8777 instead and the
+LAN relay is not started. Allow UDP 8777 as well as TCP 8080.
+
 Known limitations: HTTPS/8443 is not implemented, so clients must explicitly
 use HTTP and port 8080 (or the chosen host port). Story board play is not served
 by this app; use the bundled in-apk server or PC server for Story. The bundled

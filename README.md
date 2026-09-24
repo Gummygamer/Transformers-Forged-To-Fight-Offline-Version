@@ -391,6 +391,16 @@ bundled in-apk server remains loopback-only at `127.0.0.1:8080`; do not run it o
 device and port as the phone host. If 8080 is occupied, select another host port and pass
 that port to the client build.
 
+**Live Arena on the same Wi-Fi (no laptop).** While the host runs without a relay, it also
+runs a built-in UDP relay for the real-time Arena netcode on port `8777` (a Kotlin port of
+`tools/netrelay/netrelay.c`), and shows `Arena relay: UDP <phone-ip>:8777` next to the patcher
+hint. On every player's Patcher (arm64), set **Arena relay host** to the host phone's IP and
+**UDP port** to `8777` alongside the Separate-server values; leave the field blank to stay on
+the retail async Arena. Allow UDP 8777 through the phone's network path. If another app already
+holds UDP 8777 the host logs `Arena relay could not bind` and keeps serving HTTP, without live
+fights. With **Use a relay** on, the tunnel's combat bridge owns loopback `8777` instead and the
+LAN relay is not started.
+
 #### Internet tunnel in the PvP Host app
 
 For players on different networks, run the authenticated TLS relay from `tools/internetrelay`
@@ -448,19 +458,28 @@ remains available as a testing escape hatch.
 
 ### Optional live-fight relay for an arm64 separated-server APK
 
-The relay is intentionally built per device. Run `tools/netrelay/netrelay` on the host (UDP
-port 8777 by default), then build the hook immediately before each device's APK:
+The shipped arm64 hook carries the live netcode and stays inert until a session is written into
+it, which the Patcher does when **Arena relay host** is filled in (host + UDP port; each install
+names itself at runtime). The relay it talks to can be any of:
+
+- **The PvP Host app (LAN, no laptop):** it runs the relay itself on UDP 8777 whenever it is
+  serving without a tunnel. Use the host phone's IP and port `8777`.
+- **The PvP Host app over the internet tunnel:** the combat bridge exposes loopback UDP `8777`;
+  use `127.0.0.1` and `8777`.
+- **`tools/netrelay/netrelay` on a PC** (UDP 8777 by default), using the PC's LAN or tunnel address.
+
+Developers can still bake the session in at compile time, one hook per device:
 
 ```sh
 Server/build_arena_hook.sh --relay-host <host-lan-or-tunnel-address> --peer emulator-5554
 legible run Server/build_phone_apk.lbl <source.apk> build/emulator-arena-unsigned.apk --server-host <game-server-address> ...
 ```
 
-Repeat the two commands for the phone with its own distinct `--peer` value and output APK. The
-builder embeds the hook that is present at build time, so keep each resulting APK before building
-the next one. For a USB phone, the game API can still use its ordinary ADB-reverse setup, but the
-relay address must be a LAN or tunnel address reachable directly from both devices: ADB reverse
-forwards TCP only and cannot carry the UDP relay. The relay hook currently supports arm64 only.
+The builder embeds the hook that is present at build time, so keep each resulting APK before
+building the next one. For a USB phone, the game API can still use its ordinary ADB-reverse
+setup, but the relay address must be a LAN or tunnel address reachable directly from both
+devices: ADB reverse forwards TCP only and cannot carry the UDP relay. The relay hook currently
+supports arm64 only.
 
 ### Running on a non-rooted phone over USB
 
