@@ -45,6 +45,8 @@ namespace StoryPort
         string playerName = "Optimus Prime";
         string enemyName = "Bludgeon";
         string[] storyNodes;
+        readonly List<StoryMapNode> storyMapNodes = new List<StoryMapNode>();
+        int storyMapDimension;
         int actIndex;
         int mapX;
         int mapY;
@@ -94,6 +96,16 @@ namespace StoryPort
         Image enemyHpFill;
         Image specialFill;
         Image enemySpecialFill;
+
+        sealed class StoryMapNode
+        {
+            public int x;
+            public int y;
+            public string label;
+            public string boss;
+            public bool isFinal;
+            public readonly List<Vector2Int> links = new List<Vector2Int>();
+        }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void StartClient()
@@ -427,7 +439,8 @@ namespace StoryPort
 
         void MapScreen()
         {
-            ResetCamera();
+            var board = BuildStoryBoard();
+            FrameWorld(board, 1.3f);
             DrawHexMapField();
             SectionTitle("ACT " + Roman(actIndex + 1) + "  ·  " + ActTitles[actIndex], "Select an encounter to continue the campaign");
             DrawBoardNodes();
@@ -436,7 +449,7 @@ namespace StoryPort
 
         void DrawHexMapField()
         {
-            var backdrop = Panel(content, "Hex Campaign Map Backdrop", new Color(.008f, .018f, .043f, .97f), Vector2.zero, Vector2.one);
+            var backdrop = Panel(content, "Hex Campaign Map Backdrop", new Color(.008f, .018f, .043f, .18f), Vector2.zero, Vector2.one);
             backdrop.transform.SetAsFirstSibling();
             var fillSprite = Resources.Load<Sprite>("StoryPort/UI/hexagon_progress");
             var borderSprite = Resources.Load<Sprite>("StoryPort/UI/hexagon_border");
@@ -464,9 +477,10 @@ namespace StoryPort
                     fill.raycastTarget = false;
                     if (fillSprite != null) fill.sprite = fillSprite;
                     fill.type = Image.Type.Simple;
+                    fill.color = new Color(fill.color.r, fill.color.g, fill.color.b, .38f);
                     if (borderSprite != null)
                     {
-                        var border = MakeImage(content, "Map Hex Border " + row + "-" + column, new Color(.50f, .72f, .87f, .68f),
+                        var border = MakeImage(content, "Map Hex Border " + row + "-" + column, new Color(.50f, .72f, .87f, .3f),
                             new Vector2(x - .049f, y - .056f), new Vector2(x + .049f, y + .056f));
                         border.sprite = borderSprite;
                         border.type = Image.Type.Simple;
@@ -480,28 +494,24 @@ namespace StoryPort
         {
             var board = new GameObject("StoryPort World · Primordial Story Board");
             worldRoots.Add(board);
-            BuildPrimordialGroundGrid(board, actIndex == 2 ? 5 : 4);
-            var pieces = actIndex == 2
-                ? new[] { "landmass_3x3", "landmass_2x2", "landmass_3x3_alt", "landmass_3x5", "landmass_4x4" }
-                : new[] { "landmass_3x3", "landmass_1x1", "landmass_3x3_alt", "landmass_2x2", "landmass_3x5" };
-            var x = actIndex == 2
-                ? new[] { -30f, -15f, 0f, 0f, 15f }
-                : new[] { -30f, -15f, 0f, 15f, 30f };
-            var z = actIndex == 2
-                ? new[] { 0f, 0f, 10f, -10f, 0f }
-                : new[] { -1f, 2f, -2f, 2f, 0f };
-
-            for (int i = 0; i < pieces.Length; i++)
+            int dimension = Math.Max(2, storyMapDimension);
+            BuildPrimordialGroundGrid(board, dimension);
+            string[] pieces = { "landmass_3x3", "landmass_3x3_alt", "landmass_2x2", "landmass_3x5", "landmass_4x4", "landmass_1x1" };
+            for (int i = 0; i < storyMapNodes.Count; i++)
             {
-                var prefab = Resources.Load<GameObject>("StoryPort/StoryBoard/" + pieces[i]);
+                var node = storyMapNodes[i];
+                string pieceName = pieces[(node.x * 3 + node.y * 5 + (node.isFinal ? 1 : 0)) % pieces.Length];
+                var prefab = Resources.Load<GameObject>("StoryPort/StoryBoard/" + pieceName);
                 if (prefab == null)
                 {
-                    Debug.LogError("StoryPort missing converted 9.2 board module: " + pieces[i]);
+                    Debug.LogError("StoryPort missing converted 9.2 board module: " + pieceName);
                     SetNotice("Converted primordial board modules are missing");
                     continue;
                 }
-                var tile = Instantiate(prefab, new Vector3(x[i], 0, z[i]), Quaternion.Euler(0, (i % 2) * 180f, 0), board.transform);
-                tile.name = "Primordial Route Terrain " + (i + 1);
+                float half = (dimension - 1) * 10f;
+                var position = new Vector3(node.x * 20f - half, 0, half - node.y * 20f);
+                var tile = Instantiate(prefab, position, Quaternion.Euler(0, ((node.x + node.y) % 2) * 180f, 0), board.transform);
+                tile.name = "Primordial Route Terrain " + node.x + "-" + node.y + " " + pieceName;
                 var renderers = tile.GetComponentsInChildren<Renderer>(true);
                 Bounds bounds = default(Bounds);
                 bool found = false;
@@ -515,10 +525,10 @@ namespace StoryPort
                 {
                     float footprint = Mathf.Max(bounds.size.x, bounds.size.z);
                     if (footprint > .01f)
-                        tile.transform.localScale *= Mathf.Clamp(15f / footprint, .08f, 20f);
+                        tile.transform.localScale *= Mathf.Clamp(16f / footprint, .08f, 20f);
                 }
             }
-            Debug.Log("StoryPort built a route from converted Primordial landmass modules for act " + (actIndex + 1));
+            Debug.Log("StoryPort built a converted 9.2 Primordial board from " + storyMapNodes.Count + " server tiles for act " + (actIndex + 1));
             return board;
         }
 
@@ -578,68 +588,86 @@ namespace StoryPort
 
         void DrawBoardNodes()
         {
-            var labels = ActNodeLabels[actIndex].Split('|');
-            float[][] points = actIndex == 2
-                ? new[] { new[] { .14f, .48f }, new[] { .32f, .48f }, new[] { .5f, .598f }, new[] { .5f, .337f }, new[] { .68f, .48f } }
-                : new[] { new[] { .14f, .48f }, new[] { .32f, .48f }, new[] { .5f, .48f }, new[] { .68f, .48f }, new[] { .86f, .48f } };
-            int count = Math.Min(labels.Length, actIndex == 2 ? 4 : labels.Length);
-            if (actIndex == 2)
+            if (storyMapNodes.Count == 0) return;
+            var positions = new Dictionary<Vector2Int, Vector2>();
+            float centerY = actIndex == 2 ? 2f : 1f;
+            foreach (var node in storyMapNodes)
+                positions[new Vector2Int(node.x, node.y)] = new Vector2(
+                    .16f + node.x / (float)Math.Max(1, storyMapDimension - 1) * .68f,
+                    .48f + (centerY - node.y) * .12f);
+
+            var drawn = new HashSet<string>();
+            foreach (var node in storyMapNodes)
             {
-                DrawPathSegment(new Vector2(.14f, .48f), new Vector2(.32f, .48f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.32f, .48f), new Vector2(.5f, .598f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.32f, .48f), new Vector2(.5f, .337f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.5f, .598f), new Vector2(.68f, .48f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.5f, .337f), new Vector2(.68f, .48f), new Color(.19f, .69f, .84f, .9f));
-            }
-            else
-            {
-                var last = new Vector2(.14f, .48f);
-                for (int i = 0; i < count; i++)
+                var source = new Vector2Int(node.x, node.y);
+                foreach (var link in node.links)
                 {
-                    var next = new Vector2(points[i + 1][0], points[i + 1][1]);
-                    DrawPathSegment(last, next, new Color(.19f, .69f, .84f, .9f));
-                    last = next;
+                    var target = new Vector2Int(link.x, link.y);
+                    if (!positions.ContainsKey(target)) continue;
+                    string pair = source.x < target.x || (source.x == target.x && source.y < target.y)
+                        ? source + ":" + target : target + ":" + source;
+                    if (drawn.Add(pair)) DrawPathSegment(positions[source], positions[target], new Color(.19f, .69f, .84f, .9f));
                 }
             }
-            for (int i = 0; i < count; i++)
+
+            foreach (var node in storyMapNodes)
             {
-                int index = i;
-                int p = actIndex == 2 && i == 2 ? 3 : i + 1;
-                float x = points[p][0], y = points[p][1];
-                int targetX = actIndex == 2 ? (i == 0 ? 1 : i == 3 ? 3 : 2) : i + 1;
-                int targetY = actIndex == 2 ? (i == 0 ? 2 : i == 1 ? 1 : i == 2 ? 3 : 2) : mapY;
-                bool available = IsNextEncounter(targetX, targetY);
-                var panel = Panel(content, "Path Node " + i, Color.clear, new Vector2(x - .07f, y - .115f), new Vector2(x + .07f, y + .115f));
-                var portrait = SpriteImage(panel.transform, "Opponent Portrait", "Portraits/" + PortraitFor(EncounterKeyForIndex(i)), new Vector2(.08f, .16f), new Vector2(.92f, .94f), true);
-                if (portrait != null) portrait.preserveAspect = true;
-                var frame = SpriteImage(panel.transform, "Quest Card Frame", "UI/bosscard_frame0", Vector2.zero, Vector2.one, true);
-                if (frame != null) frame.raycastTarget = false;
-                if (portrait != null) portrait.raycastTarget = false;
-                var nodeLabel = LabelAt(panel.transform, "Node Label", labels[i].ToUpperInvariant(), 13, TextAnchor.MiddleCenter, Color.white, new Vector2(-.55f, -.35f), new Vector2(1.55f, .2f));
+                var coord = new Vector2Int(node.x, node.y);
+                Vector2 point = positions[coord];
+                bool encounter = !string.IsNullOrEmpty(node.boss);
+                bool available = encounter && IsNextEncounter(node.x, node.y);
+                float size = encounter ? .14f : .105f;
+                var panel = Panel(content, "Server Quest Node " + node.x + "-" + node.y, Color.clear,
+                    new Vector2(point.x - size * .5f, point.y - size * .63f),
+                    new Vector2(point.x + size * .5f, point.y + size * .63f));
+                if (encounter)
+                {
+                    var portrait = SpriteImage(panel.transform, "Server Boss Portrait", "Portraits/" + PortraitFor(node.boss), new Vector2(.08f, .16f), new Vector2(.92f, .94f), true);
+                    if (portrait != null) { portrait.preserveAspect = true; portrait.raycastTarget = false; }
+                }
+                var frame = SpriteImage(panel.transform, encounter ? "Quest Boss Card Frame" : "Quest Route Cell", encounter ? "UI/bosscard_frame0" : "UI/hexagon_progress", Vector2.zero, Vector2.one, true);
+                if (frame != null)
+                {
+                    frame.raycastTarget = false;
+                    frame.color = available ? new Color(.54f, .94f, 1f, 1f) : new Color(.62f, .68f, .75f, .8f);
+                }
+                string label = string.IsNullOrEmpty(node.label) ? (encounter ? DisplayName(node.boss) : "ROUTE") : node.label;
+                var nodeLabel = LabelAt(panel.transform, "Server Node Label", label.ToUpperInvariant(), encounter ? 12 : 10,
+                    TextAnchor.MiddleCenter, Color.white, new Vector2(-.48f, -.36f), new Vector2(1.48f, .16f));
                 nodeLabel.raycastTarget = false;
-                if (available && frame != null) frame.color = new Color(.54f, .94f, 1f, 1f);
-                else if (frame != null) frame.color = new Color(.62f, .68f, .75f, .8f);
                 var hit = panel.GetComponent<Image>();
-                // The game node is a floating portrait medallion over the
-                // board; retain a transparent hit target instead of a panel.
                 hit.color = Color.clear;
-                var button = panel.AddComponent<Button>();
-                button.targetGraphic = hit;
-                button.transition = Selectable.Transition.None;
-                button.interactable = available;
-                int nodeX = targetX, nodeY = targetY;
-                button.onClick.AddListener(() => MoveToEncounter(nodeX, nodeY));
+                if (encounter)
+                {
+                    var button = panel.AddComponent<Button>();
+                    button.targetGraphic = hit;
+                    button.transition = Selectable.Transition.None;
+                    button.interactable = available;
+                    int nodeX = node.x, nodeY = node.y;
+                    button.onClick.AddListener(() => MoveToEncounter(nodeX, nodeY));
+                }
             }
         }
 
         bool IsNextEncounter(int targetX, int targetY)
         {
             if (pendingEncounter && targetX == mapX && targetY == mapY) return true;
-            if (actIndex != 2) return targetX == mapX + 1 && targetY == mapY;
-            if (mapX == 0) return targetX == 1 && targetY == 2;
-            if (mapX == 1) return targetX == 2 && (targetY == 1 || targetY == 3);
-            if (mapX == 2) return targetX == 3 && targetY == 2;
+            var current = FindStoryMapNode(mapX, mapY);
+            if (current == null) return false;
+            foreach (var link in current.links)
+                if (link.x == targetX && link.y == targetY) return true;
             return false;
+        }
+
+        StoryMapNode FindStoryMapNode(int x, int y)
+        {
+            return storyMapNodes.Find(node => node.x == x && node.y == y);
+        }
+
+        bool CurrentNodeIsFinal()
+        {
+            var node = FindStoryMapNode(mapX, mapY);
+            return node != null && node.isFinal;
         }
 
         void MoveToEncounter(int targetX, int targetY)
@@ -1055,6 +1083,135 @@ namespace StoryPort
             return true;
         }
 
+        void ReadStoryMap(string response)
+        {
+            storyMapNodes.Clear();
+            storyMapDimension = 0;
+            string quest = ExtractJsonValue(response, currentQid);
+            string map = ExtractJsonValue(quest, "map");
+            if (string.IsNullOrEmpty(map))
+            {
+                Debug.LogWarning("StoryPort server response did not include map data for " + currentQid);
+                return;
+            }
+            var dimMatch = Regex.Match(map, "\\\"gridDimension\\\"\\s*:\\s*(\\d+)");
+            if (dimMatch.Success) int.TryParse(dimMatch.Groups[1].Value, out storyMapDimension);
+            var rows = SplitJsonArray(ExtractJsonValue(map, "grid"));
+            for (int x = 0; x < rows.Count; x++)
+            {
+                var cells = SplitJsonArray(rows[x]);
+                for (int y = 0; y < cells.Count; y++)
+                {
+                    string tile = cells[y];
+                    if (ExtractJsonValue(tile, "walkable") != "true" || ExtractJsonValue(tile, "hidden") == "true") continue;
+                    var node = new StoryMapNode
+                    {
+                        // The game's grid stores x in the outer (row) index and y in the inner index.
+                        x = x,
+                        y = y,
+                        label = ExtractJsonString(tile, "lab"),
+                        boss = ExtractJsonString(tile, "boss"),
+                        isFinal = ExtractJsonValue(tile, "final") == "true"
+                    };
+                    foreach (var link in SplitJsonArray(ExtractJsonValue(tile, "links")))
+                    {
+                        int linkX, linkY;
+                        if (int.TryParse(ExtractJsonValue(link, "x"), out linkX) && int.TryParse(ExtractJsonValue(link, "y"), out linkY))
+                            node.links.Add(new Vector2Int(linkX, linkY));
+                    }
+                    storyMapNodes.Add(node);
+                }
+            }
+            if (storyMapDimension <= 0) storyMapDimension = rows.Count;
+            Debug.Log("StoryPort loaded " + storyMapNodes.Count + " walkable server map nodes for " + currentQid + " (dimension " + storyMapDimension + ")");
+        }
+
+        string ExtractJsonValue(string json, string key)
+        {
+            if (string.IsNullOrEmpty(json)) return "";
+            var match = Regex.Match(json, "\\\"" + Regex.Escape(key) + "\\\"\\s*:");
+            if (!match.Success) return "";
+            int start = match.Index + match.Length;
+            while (start < json.Length && char.IsWhiteSpace(json[start])) start++;
+            if (start >= json.Length) return "";
+            char first = json[start];
+            if (first == '{' || first == '[')
+            {
+                char open = first, close = first == '{' ? '}' : ']';
+                int depth = 0;
+                bool inString = false, escaped = false;
+                for (int i = start; i < json.Length; i++)
+                {
+                    char c = json[i];
+                    if (inString)
+                    {
+                        if (escaped) escaped = false;
+                        else if (c == '\\') escaped = true;
+                        else if (c == '"') inString = false;
+                        continue;
+                    }
+                    if (c == '"') { inString = true; continue; }
+                    if (c == open) depth++;
+                    else if (c == close && --depth == 0) return json.Substring(start, i - start + 1);
+                }
+                return "";
+            }
+            if (first == '"')
+            {
+                bool escaped = false;
+                for (int i = start + 1; i < json.Length; i++)
+                {
+                    if (escaped) escaped = false;
+                    else if (json[i] == '\\') escaped = true;
+                    else if (json[i] == '"') return json.Substring(start, i - start + 1);
+                }
+                return "";
+            }
+            int end = start;
+            while (end < json.Length && json[end] != ',' && json[end] != '}' && json[end] != ']') end++;
+            return json.Substring(start, end - start).Trim();
+        }
+
+        List<string> SplitJsonArray(string jsonArray)
+        {
+            var items = new List<string>();
+            if (string.IsNullOrEmpty(jsonArray) || jsonArray[0] != '[') return items;
+            int start = -1, depth = 0;
+            bool inString = false, escaped = false;
+            for (int i = 1; i < jsonArray.Length; i++)
+            {
+                char c = jsonArray[i];
+                if (inString)
+                {
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                    continue;
+                }
+                if (c == '"') { if (start < 0) start = i; inString = true; continue; }
+                if (c == '{' || c == '[') { if (start < 0) start = i; depth++; continue; }
+                if (c == '}' || c == ']')
+                {
+                    depth--;
+                    if (depth == 0 && start >= 0)
+                    {
+                        items.Add(jsonArray.Substring(start, i - start + 1));
+                        start = -1;
+                    }
+                    if (c == ']' && depth < 0) break;
+                    continue;
+                }
+                if (c == ',' && depth == 0)
+                {
+                    if (start >= 0) items.Add(jsonArray.Substring(start, i - start).Trim());
+                    start = -1;
+                    continue;
+                }
+                if (!char.IsWhiteSpace(c) && start < 0) start = i;
+            }
+            return items;
+        }
+
         IEnumerator LoadFight()
         {
             yield return new WaitForSeconds(.75f);
@@ -1082,6 +1239,7 @@ namespace StoryPort
             StartCoroutine(Post("/quests/quest-begin/" + currentQid, "{" + string.Join(",", parts) + "}", response =>
             {
                 ReadCurrentPosition(response);
+                ReadStoryMap(response);
                 Show("loading");
                 StartCoroutine(LoadBoardAndMove());
             }));
@@ -1097,6 +1255,7 @@ namespace StoryPort
             StartCoroutine(Post("/quests/quest-begin/" + currentQid, body, response =>
             {
                 ReadCurrentPosition(response);
+                ReadStoryMap(response);
                 StartCoroutine(ProbeStoryPosition());
             }));
         }
@@ -1144,19 +1303,19 @@ namespace StoryPort
 
         void ContinueRoute()
         {
-            if (actIndex < 2 && mapX >= 3)
+            if (!CurrentNodeIsFinal())
+            {
+                Show("map");
+                return;
+            }
+            if (actIndex < 2)
             {
                 actIndex++;
                 Show("chapter");
                 return;
             }
-            if (actIndex == 2 && mapX >= 3)
-            {
-                SetNotice("ALL THREE ACTS COMPLETE");
-                Show("story");
-                return;
-            }
-            Show("map");
+            SetNotice("ALL THREE ACTS COMPLETE");
+            Show("story");
         }
 
         void RosterScreen()
