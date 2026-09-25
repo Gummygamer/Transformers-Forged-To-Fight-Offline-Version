@@ -43,6 +43,7 @@ namespace StoryPort.Editor
             CopyFirst("Bots/starscream_gs", "starscream_gs", "starscream_gs");
             AssetDatabase.Refresh();
             ConfigureGameTextures();
+            CreateStoryBoardGroundMaterial();
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var host = new GameObject("StoryPort");
             host.AddComponent<StoryPort.StoryPortBootstrap>();
@@ -111,6 +112,49 @@ namespace StoryPort.Editor
             if (texture == null) return;
             var path = AssetDatabase.GetAssetPath(texture);
             if (!string.IsNullOrEmpty(path)) paths.Add(path);
+        }
+
+        static void CreateStoryBoardGroundMaterial()
+        {
+            var textures = AssetDatabase.FindAssets("qb_primordial_ground_a t:Texture2D", new[] { "Assets/Art92/Texture2D" });
+            if (textures.Length == 0)
+            {
+                Debug.LogWarning("StoryPort: missing local 9.2 primordial ground texture");
+                return;
+            }
+            var albedoPath = AssetDatabase.GUIDToAssetPath(textures[0]);
+            var albedo = AssetDatabase.LoadAssetAtPath<Texture2D>(albedoPath);
+            if (albedo == null) return;
+            var importer = AssetImporter.GetAtPath(albedoPath) as TextureImporter;
+            if (importer != null && importer.wrapMode != TextureWrapMode.Repeat)
+            {
+                importer.wrapMode = TextureWrapMode.Repeat;
+                importer.SaveAndReimport();
+            }
+
+            var shader = Shader.Find("Standard");
+            if (shader == null) return;
+            var material = new Material(shader) { name = "PrimordialStoryBoardGround" };
+            material.SetTexture("_MainTex", albedo);
+            material.color = new Color(.37f, .39f, .32f, 1f);
+            material.SetFloat("_Metallic", .05f);
+            material.SetFloat("_Glossiness", .12f);
+            var normals = AssetDatabase.FindAssets("qb_primordial_ground_n t:Texture2D", new[] { "Assets/Art92/Texture2D" });
+            if (normals.Length > 0)
+            {
+                var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(AssetDatabase.GUIDToAssetPath(normals[0]));
+                if (normal != null)
+                {
+                    material.SetTexture("_BumpMap", normal);
+                    material.EnableKeyword("_NORMALMAP");
+                }
+            }
+
+            var path = ResourcesRoot + "/StoryBoard/PrimordialGround.mat";
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            if (AssetDatabase.LoadAssetAtPath<Material>(path) != null) AssetDatabase.DeleteAsset(path);
+            AssetDatabase.CreateAsset(material, path);
+            Debug.Log("StoryPort: created local story-board material from " + albedoPath);
         }
 
         public static void InspectLocalAssets()
@@ -208,6 +252,8 @@ namespace StoryPort.Editor
                 piece.transform.localPosition = Vector3.zero;
                 piece.transform.localRotation = Quaternion.identity;
                 piece.transform.localScale = Vector3.one;
+                foreach (var transform in piece.GetComponentsInChildren<Transform>(true))
+                    if (transform.name == "BlankTerrain") UnityEngine.Object.DestroyImmediate(transform.gameObject);
                 foreach (var transform in piece.GetComponentsInChildren<Transform>(true))
                     GameObjectUtility.RemoveMonoBehavioursWithMissingScript(transform.gameObject);
                 foreach (var renderer in piece.GetComponentsInChildren<Renderer>(true))

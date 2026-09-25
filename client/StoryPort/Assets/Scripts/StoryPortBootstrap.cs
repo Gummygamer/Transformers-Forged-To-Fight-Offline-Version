@@ -51,6 +51,7 @@ namespace StoryPort
         int playerHp = 100;
         int enemyHp = 100;
         int specialMeter;
+        int enemySpecialMeter;
         int selectedBot;
         bool requestBusy;
         bool guarding;
@@ -86,10 +87,13 @@ namespace StoryPort
         Text playerHpText;
         Text enemyHpText;
         Text specialText;
+        Text enemySpecialText;
+        Text specialButtonLabel;
         Text comboText;
         Image playerHpFill;
         Image enemyHpFill;
         Image specialFill;
+        Image enemySpecialFill;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void StartClient()
@@ -341,7 +345,16 @@ namespace StoryPort
 
         void MapScreen()
         {
-            FrameWorld(BuildStoryBoard());
+            FrameWorld(BuildStoryBoard(), 1.25f);
+            var camera = Camera.main;
+            if (camera != null)
+            {
+                float mapSize = (actIndex == 2 ? 5f : 4f) * 20f;
+                float distance = mapSize * 1.1f;
+                var target = new Vector3(0, .4f, 0);
+                camera.transform.position = target + new Vector3(0, distance * .84f, -distance * .54f);
+                camera.transform.LookAt(target);
+            }
             SectionTitle("ACT " + Roman(actIndex + 1) + "  ·  " + ActTitles[actIndex], "Select an encounter to continue the campaign");
             DrawBoardNodes();
             ActionButton("SQUAD", "Select the team for the next fight", () => { squadForStory = true; Show("squad"); }, .05f, .08f, .2f, .16f, false);
@@ -351,6 +364,7 @@ namespace StoryPort
         {
             var board = new GameObject("StoryPort World · Primordial Story Board");
             worldRoots.Add(board);
+            BuildPrimordialGroundGrid(board, actIndex == 2 ? 5 : 4);
             var pieces = actIndex == 2
                 ? new[] { "landmass_3x3", "landmass_2x2", "landmass_3x3_alt", "landmass_3x5", "landmass_4x4" }
                 : new[] { "landmass_3x3", "landmass_1x1", "landmass_3x3_alt", "landmass_2x2", "landmass_3x5" };
@@ -392,6 +406,60 @@ namespace StoryPort
             return board;
         }
 
+        void BuildPrimordialGroundGrid(GameObject board, int dimension)
+        {
+            var material = Resources.Load<Material>("StoryPort/StoryBoard/PrimordialGround");
+            if (material == null)
+            {
+                Debug.LogWarning("StoryPort missing converted primordial ground material");
+                return;
+            }
+            const float tileSize = 20f;
+            int side = dimension + 1;
+            var vertices = new Vector3[side * side];
+            var uv = new Vector2[vertices.Length];
+            var triangles = new int[dimension * dimension * 6];
+            float halfMap = dimension * tileSize * .5f;
+            for (int z = 0; z < side; z++)
+            {
+                for (int x = 0; x < side; x++)
+                {
+                    int index = z * side + x;
+                    // The backend's 4x4 and 5x5 maps use the game's 20 m
+                    // tile spacing, centered around the origin.
+                    vertices[index] = new Vector3(-halfMap + x * tileSize, -.35f, -halfMap + z * tileSize);
+                    uv[index] = new Vector2(x / (float)dimension, z / (float)dimension);
+                }
+            }
+            int triangle = 0;
+            for (int z = 0; z < dimension; z++)
+            {
+                for (int x = 0; x < dimension; x++)
+                {
+                    int lowerLeft = z * side + x;
+                    int upperLeft = lowerLeft + side;
+                    int lowerRight = lowerLeft + 1;
+                    int upperRight = upperLeft + 1;
+                    triangles[triangle++] = lowerLeft;
+                    triangles[triangle++] = upperLeft;
+                    triangles[triangle++] = upperRight;
+                    triangles[triangle++] = lowerLeft;
+                    triangles[triangle++] = upperRight;
+                    triangles[triangle++] = lowerRight;
+                }
+            }
+            var mesh = new Mesh { name = "StoryPort 20m stitched terrain grid" };
+            mesh.vertices = vertices;
+            mesh.uv = uv;
+            mesh.triangles = triangles;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            var surface = new GameObject("Primordial 20m terrain tiles", typeof(MeshFilter), typeof(MeshRenderer));
+            surface.transform.SetParent(board.transform, false);
+            surface.GetComponent<MeshFilter>().sharedMesh = mesh;
+            surface.GetComponent<MeshRenderer>().sharedMaterial = material;
+        }
+
         void DrawBoardNodes()
         {
             var labels = ActNodeLabels[actIndex].Split('|');
@@ -425,7 +493,7 @@ namespace StoryPort
                 int targetX = actIndex == 2 ? (i == 0 ? 1 : i == 3 ? 3 : 2) : i + 1;
                 int targetY = actIndex == 2 ? (i == 0 ? 2 : i == 1 ? 1 : i == 2 ? 3 : 2) : mapY;
                 bool available = IsNextEncounter(targetX, targetY);
-                var panel = Panel(content, "Path Node " + i, new Color(.015f, .045f, .075f, .96f), new Vector2(x - .07f, y - .115f), new Vector2(x + .07f, y + .115f));
+                var panel = Panel(content, "Path Node " + i, Color.clear, new Vector2(x - .07f, y - .115f), new Vector2(x + .07f, y + .115f));
                 var portrait = SpriteImage(panel.transform, "Opponent Portrait", "Portraits/" + PortraitFor(EncounterKeyForIndex(i)), new Vector2(.08f, .16f), new Vector2(.92f, .94f), true);
                 if (portrait != null) portrait.preserveAspect = true;
                 var frame = SpriteImage(panel.transform, "Quest Card Frame", "UI/bosscard_frame0", Vector2.zero, Vector2.one, true);
@@ -436,10 +504,9 @@ namespace StoryPort
                 if (available && frame != null) frame.color = new Color(.54f, .94f, 1f, 1f);
                 else if (frame != null) frame.color = new Color(.62f, .68f, .75f, .8f);
                 var hit = panel.GetComponent<Image>();
-                // Keep the encounter card opaque so the Chicago environment
-                // remains visible around the route without bleeding through
-                // the opponent portrait and its game-authored frame.
-                hit.color = new Color(.008f, .025f, .043f, .94f);
+                // The game node is a floating portrait medallion over the
+                // board; retain a transparent hit target instead of a panel.
+                hit.color = Color.clear;
                 var button = panel.AddComponent<Button>();
                 button.targetGraphic = hit;
                 button.transition = Selectable.Transition.None;
@@ -520,6 +587,7 @@ namespace StoryPort
             enemyBusy = false;
             playerBusy = false;
             queuedAttack = false;
+            enemySpecialMeter = 0;
             lightCombo = 0;
             comboHits = 0;
             lastPlayerHit = 0;
@@ -540,6 +608,8 @@ namespace StoryPort
             enemyHpText = LabelAt(hud.transform, "Enemy Health", enemyHp + "%", 11, TextAnchor.MiddleRight, Color.white, new Vector2(.84f, .81f), new Vector2(.92f, .89f));
             playerHpFill = HealthBar(hud.transform, "Player Health Bar", new Vector2(.16f, .825f), new Vector2(.4f, .89f), playerHp / 100f, new Color(.15f, .78f, .52f));
             enemyHpFill = HealthBar(hud.transform, "Enemy Health Bar", new Vector2(.6f, .825f), new Vector2(.84f, .89f), enemyHp / 100f, new Color(.9f, .29f, .23f));
+            enemySpecialFill = HealthBar(hud.transform, "Enemy Special Meter", new Vector2(.6f, .785f), new Vector2(.84f, .8f), enemySpecialMeter / 3f, new Color(1f, .48f, .13f));
+            enemySpecialText = LabelAt(hud.transform, "Enemy Special Charges", "SPECIAL  " + enemySpecialMeter + " / 3", 10, TextAnchor.MiddleRight, new Color(1f, .77f, .53f), new Vector2(.6f, .755f), new Vector2(.84f, .785f));
             var pause = Button(hud.transform, "PAUSE", TogglePause, new Vector2(.482f, .9f), new Vector2(.518f, .99f));
             SetButtonSkin(pause, "button_tab");
             pause.GetComponentInChildren<Text>().text = "Ⅱ";
@@ -556,7 +626,7 @@ namespace StoryPort
             SetButtonSkin(attack, "button_main_glowing");
             var specialButton = Button(content, "SPECIAL", SpecialAttack, new Vector2(.425f, .025f), new Vector2(.575f, .17f));
             SetButtonSkin(specialButton, "button_tab_active");
-            var specialButtonLabel = specialButton.GetComponentInChildren<Text>();
+            specialButtonLabel = specialButton.GetComponentInChildren<Text>();
             specialButtonLabel.text = "SPECIAL";
             specialButtonLabel.fontSize = 16;
             specialFill = HealthBar(content, "Special Meter", new Vector2(.425f, .18f), new Vector2(.575f, .195f), specialMeter / 3f, new Color(.28f, .72f, 1f));
@@ -649,9 +719,9 @@ namespace StoryPort
             playerBusy = true;
             guarding = false;
             PlayState(playerAnimator, state);
-            yield return new WaitForSeconds(state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
+            yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
-            if (enemyAnimator != null) PlayState(enemyAnimator, "HitReactionLightLeftHigh");
+            if (enemyAnimator != null) PlayState(enemyAnimator, state == "SpecialAttack03" ? "SpecialAttack03HitReaction" : "HitReactionLightLeftHigh");
             enemyHp = Mathf.Max(0, enemyHp - damage);
             specialMeter = Mathf.Min(3, specialMeter + 1);
             if (Time.time - lastPlayerHit > 1.4f) comboHits = 0;
@@ -736,6 +806,7 @@ namespace StoryPort
             lightCombo = 0;
             comboHits = 0;
             specialMeter = 0;
+            enemySpecialMeter = 0;
             playerHp = 100;
             enemyHp = 100;
             nextEnemyTurn = Time.time + 2.8f;
@@ -751,7 +822,7 @@ namespace StoryPort
                 return;
             }
             specialMeter = 0;
-            PlayerAttack("SpecialAttack01", 32, 8);
+            PlayerAttack("SpecialAttack03", 45, 8);
             specialMeter = 0;
             UpdateFightHud();
         }
@@ -765,17 +836,20 @@ namespace StoryPort
         IEnumerator EnemyAttack()
         {
             enemyBusy = true;
-            PlayState(enemyAnimator, "LightAttack01");
-            SetNotice("INCOMING ATTACK · BLOCK OR DODGE");
-            yield return new WaitForSeconds(.58f);
+            bool special = enemySpecialMeter >= 3;
+            PlayState(enemyAnimator, special ? "SpecialAttack03" : "LightAttack01");
+            SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "INCOMING ATTACK · BLOCK OR DODGE");
+            yield return new WaitForSeconds(special ? 1f : .58f);
             if (playerHp > 0 && enemyHp > 0)
             {
-                int damage = guarding ? 1 : Time.time < evadeUntil ? 0 : 4;
+                int damage = Time.time < evadeUntil ? 0 : guarding ? (special ? 7 : 1) : (special ? 24 : 4);
                 playerHp = Mathf.Max(0, playerHp - damage);
                 comboHits = 0;
                 if (comboText != null) comboText.text = "";
+                if (special) enemySpecialMeter = 0;
+                else enemySpecialMeter = Mathf.Min(3, enemySpecialMeter + 1);
                 specialMeter = guarding ? Mathf.Min(3, specialMeter + 1) : specialMeter;
-                PlayState(playerAnimator, guarding ? "BlockReact" : damage == 0 ? "Dash" : "HitReactionLightRightHigh");
+                PlayState(playerAnimator, guarding ? "BlockReact" : damage == 0 ? "Dash" : special ? "SpecialAttack03HitReaction" : "HitReactionLightRightHigh");
                 CameraShake(guarding || damage == 0 ? .05f : .12f);
                 if (damage == 0) SetNotice("DODGED");
                 UpdateFightHud();
@@ -816,6 +890,9 @@ namespace StoryPort
             if (enemyHpFill != null) enemyHpFill.fillAmount = enemyHp / 100f;
             if (specialFill != null) specialFill.fillAmount = specialMeter / 3f;
             if (specialText != null) specialText.text = "SPECIAL  " + specialMeter + " / 3";
+            if (enemySpecialFill != null) enemySpecialFill.fillAmount = enemySpecialMeter / 3f;
+            if (enemySpecialText != null) enemySpecialText.text = "SPECIAL  " + enemySpecialMeter + " / 3";
+            if (specialButtonLabel != null) specialButtonLabel.text = specialMeter >= 3 ? "SPECIAL 3" : "SPECIAL";
         }
 
         void MoveStory(int dx, int dy)
@@ -1146,6 +1223,10 @@ namespace StoryPort
         {
             float width = content.rect.width;
             float height = content.rect.height;
+            var direction = (b - a).normalized;
+            float inset = Mathf.Min(.065f, Vector2.Distance(a, b) * .3f);
+            a += direction * inset;
+            b -= direction * inset;
             var delta = Vector2.Scale(b - a, new Vector2(width, height));
             var segment = Panel(content, "Story Route", color, Vector2.zero, Vector2.zero);
             var rect = segment.GetComponent<RectTransform>();
