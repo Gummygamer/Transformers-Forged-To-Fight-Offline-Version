@@ -457,25 +457,21 @@ namespace StoryPort
         GameObject BuildStoryBoard()
         {
             storyNodeWorldPositions.Clear();
-            var board = new GameObject("StoryPort World · 9.2 Story Hex Board");
+            var board = new GameObject("StoryPort World · 9.2 Story Terrain Board");
             worldRoots.Add(board);
-            var tilePrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/QuestHexTile");
-            if (tilePrefab == null)
+            var terrainPrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex");
+            var routeNodePrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/QuestHexTile");
+            if (terrainPrefab == null || routeNodePrefab == null)
             {
-                Debug.LogError("StoryPort missing the extracted 9.2 qb_node_01 tile mesh");
-                SetNotice("Converted 9.2 quest-board tile is missing");
+                Debug.LogError("StoryPort missing extracted 9.2 terrain or quest-node art");
+                SetNotice("Converted 9.2 story-board terrain is missing");
                 return board;
             }
 
             int[] rowWidths = { 6, 8, 9, 9, 8, 6 };
             const float horizontalStep = 8.25f;
             const float verticalStep = 7.25f;
-            Color[] terrainPalette =
-            {
-                new Color(.34f, .37f, .4f), new Color(.47f, .39f, .55f),
-                new Color(.42f, .3f, .32f), new Color(.34f, .48f, .5f),
-                new Color(.39f, .49f, .35f), new Color(.55f, .48f, .3f)
-            };
+            var cellTops = new Dictionary<Vector2Int, Vector3>();
             for (int row = 0; row < rowWidths.Length; row++)
             {
                 int count = rowWidths[row];
@@ -484,18 +480,21 @@ namespace StoryPort
                     float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
                     var position = new Vector3((column - (count - 1) * .5f) * horizontalStep + stagger,
                         0f, (2.5f - row) * verticalStep);
-                    var tile = Instantiate(tilePrefab, position, Quaternion.identity, board.transform);
-                    tile.name = "9.2 Quest Hex " + row + "-" + column;
-                    foreach (var collider in tile.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
-                    foreach (var light in tile.GetComponentsInChildren<Light>(true)) light.enabled = false;
-                    Color tileColor = terrainPalette[(row * 3 + column * 5) % terrainPalette.Length];
-                    foreach (var renderer in tile.GetComponentsInChildren<Renderer>(true))
+                    var terrain = Instantiate(terrainPrefab, position, Quaternion.identity, board.transform);
+                    terrain.name = "9.2 Primordial Terrain Hex " + row + "-" + column;
+                    foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                    foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;
+                    Bounds terrainSurfaceBounds = new Bounds(position, Vector3.zero);
+                    bool foundTerrainSurface = false;
+                    foreach (var renderer in terrain.GetComponentsInChildren<Renderer>(true))
                     {
-                        if (!renderer.enabled) continue;
-                        var material = renderer.material;
-                        if (material.HasProperty("_base_col")) material.SetColor("_base_col", tileColor);
-                        else if (material.HasProperty("_Color")) material.SetColor("_Color", tileColor);
+                        if (!renderer.enabled || renderer.name != "BlankTerrain") continue;
+                        if (!foundTerrainSurface) { terrainSurfaceBounds = renderer.bounds; foundTerrainSurface = true; }
+                        else terrainSurfaceBounds.Encapsulate(renderer.bounds);
                     }
+                    var cell = new Vector2Int(row, column);
+                    cellTops[cell] = new Vector3(position.x, foundTerrainSurface ? terrainSurfaceBounds.max.y + .025f : position.y + .35f,
+                        position.z);
                 }
             }
 
@@ -512,24 +511,27 @@ namespace StoryPort
                 int column = Mathf.Clamp(Mathf.RoundToInt(centerColumn + routeOffset * routeWidth),
                     0, rowWidths[row] - 1);
                 float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
-                var position = new Vector3((column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger,
-                    .55f, (2.5f - row) * verticalStep);
+                var cell = new Vector2Int(row, column);
+                Vector3 position;
+                if (!cellTops.TryGetValue(cell, out position)) continue;
+                position.x = (column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger;
+                position.z = (2.5f - row) * verticalStep;
                 storyNodeWorldPositions[new Vector2Int(node.x, node.y)] = position;
-                var tile = board.transform.Find("9.2 Quest Hex " + row + "-" + column);
-                if (tile != null)
+                var routeMarker = Instantiate(routeNodePrefab, position, Quaternion.identity, board.transform);
+                routeMarker.name = "9.2 Server Quest Node " + node.x + "-" + node.y;
+                foreach (var collider in routeMarker.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                foreach (var light in routeMarker.GetComponentsInChildren<Light>(true)) light.enabled = false;
+                Color marker = node.isFinal ? new Color(.96f, .52f, .46f) :
+                    node.boss.Length > 0 ? new Color(.64f, .92f, .94f) : Color.white;
+                foreach (var renderer in routeMarker.GetComponentsInChildren<Renderer>(true))
                 {
-                    Color marker = node.isFinal ? new Color(.9f, .34f, .28f) :
-                        node.boss.Length > 0 ? new Color(.22f, .76f, .77f) : new Color(.72f, .75f, .78f);
-                    foreach (var renderer in tile.GetComponentsInChildren<Renderer>(true))
-                    {
-                        if (!renderer.enabled) continue;
-                        var material = renderer.material;
-                        if (material.HasProperty("_base_col")) material.SetColor("_base_col", marker);
-                        else if (material.HasProperty("_Color")) material.SetColor("_Color", marker);
-                    }
+                    if (!renderer.enabled) continue;
+                    var material = renderer.material;
+                    if (material.HasProperty("_base_col")) material.SetColor("_base_col", marker);
+                    else if (material.HasProperty("_Color")) material.SetColor("_Color", marker);
                 }
             }
-            Debug.Log("StoryPort built the raised 9.2 hex board with " + storyMapNodes.Count + " server-authored route nodes for act " + (actIndex + 1));
+            Debug.Log("StoryPort built the 9.2 Primordial terrain board with " + storyMapNodes.Count + " server-authored route nodes for act " + (actIndex + 1));
             return board;
         }
 

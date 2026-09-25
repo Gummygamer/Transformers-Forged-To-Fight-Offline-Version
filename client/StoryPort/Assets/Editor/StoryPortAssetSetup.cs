@@ -29,9 +29,10 @@ namespace StoryPort.Editor
             CopyBuilding("Buildings/alliance_help", "z_bldg_alliance_help_01");
             CopyBuilding("Buildings/crystal_free", "z_bldg_gacha_free_01");
             CopyBuilding("Buildings/crystal_daily", "z_bldg_gacha_daily_01");
+            CopyLibraryPiece("StoryBoard/TerrainHex", "library_primordial", "qb_landmass_1x1_01", true);
             CopyBoardPiece("StoryBoard/QuestHexTile", "library_common", "qb_node_01");
             CopyFirst("PrimordialTerrain", "primordial_timeofday_0_forward", "primordial_timeofday_0_forward");
-            CopyFirst("ChicagoFightStage", "chicago_merged", "chicago_merged");
+            // prepare_project.py links ChicagoFightStage from the converted scene bundle.
             CopyFirst("Bots/optimusprime_cin_tf", "optimusprime_cin_tf", "optimusprime_cin_tf");
             CopyFirst("Bots/bludgeon_gs_rd20", "bludgeon_gs_rd20", "bludgeon_gs_rd20");
             CopyFirst("Bots/bumblebee_gs_kabam", "bumblebee_gs_kabam", "bumblebee_gs_kabam");
