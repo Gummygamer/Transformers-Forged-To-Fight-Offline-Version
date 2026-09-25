@@ -470,7 +470,6 @@ namespace StoryPort
             int[] rowWidths = { 6, 8, 9, 9, 8, 6 };
             const float horizontalStep = 8.25f;
             const float verticalStep = 7.25f;
-            float centerY = actIndex == 2 ? 2f : 1f;
             Color[] terrainPalette =
             {
                 new Color(.34f, .37f, .4f), new Color(.47f, .39f, .55f),
@@ -502,8 +501,16 @@ namespace StoryPort
 
             foreach (var node in storyMapNodes)
             {
-                int row = Mathf.Clamp(Mathf.RoundToInt(2f + node.y - centerY), 0, rowWidths.Length - 1);
-                int column = Mathf.Clamp(2 + node.x, 0, rowWidths[row] - 1);
+                // The server stores progression on the outer grid axis (x),
+                // and branches across the inner axis (y). Preserve that
+                // orientation when placing the route on the world board.
+                int row = Mathf.Clamp(1 + Mathf.RoundToInt(node.x * 3f / Mathf.Max(1, storyMapDimension - 1)),
+                    0, rowWidths.Length - 1);
+                float routeWidth = rowWidths[row] / (float)Mathf.Max(1, storyMapDimension - 1);
+                float centerColumn = (rowWidths[row] - 1) * .5f;
+                float routeOffset = node.y - (storyMapDimension - 1) * .5f;
+                int column = Mathf.Clamp(Mathf.RoundToInt(centerColumn + routeOffset * routeWidth),
+                    0, rowWidths[row] - 1);
                 float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
                 var position = new Vector3((column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger,
                     .55f, (2.5f - row) * verticalStep);
