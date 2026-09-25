@@ -220,12 +220,17 @@ namespace StoryPort
             var stripe = Panel(bar.transform, "Cyan Keyline", new Color(.18f, .72f, .85f, .9f), new Vector2(0, 0), new Vector2(1, .025f));
             var logo = SpriteImage(bar.transform, "Logo", "UI/tff_logo_en", new Vector2(.012f, .22f), new Vector2(.12f, .82f), true);
             if (logo != null) logo.preserveAspect = true;
-            LabelAt(bar.transform, "Commander", "COMMANDER  ·  LV 2", 16, TextAnchor.MiddleLeft, new Color(.77f, .87f, .92f), new Vector2(.13f, .48f), new Vector2(.27f, .88f));
-            LabelAt(bar.transform, "Resources", "⚡ 100/100      ◈ 7,800      ✦ 99", 18, TextAnchor.MiddleRight, new Color(.89f, .91f, .94f), new Vector2(.7f, .48f), new Vector2(.985f, .88f));
+            LabelAt(bar.transform, "Commander", "COMMANDER  ·  LV 2", 14, TextAnchor.MiddleLeft, new Color(.77f, .87f, .92f), new Vector2(.13f, .62f), new Vector2(.33f, .92f));
+            var xpTrack = MakeImage(bar.transform, "Commander XP Track", new Color(.08f, .13f, .18f, .95f), new Vector2(.13f, .53f), new Vector2(.33f, .59f));
+            var xpFill = MakeImage(xpTrack.transform, "Commander XP", new Color(.92f, .67f, .12f, 1f), Vector2.zero, new Vector2(.67f, 1f));
+            xpFill.raycastTarget = xpTrack.raycastTarget = false;
+            HeaderResource(bar.transform, "PvE Energy", "UI/energy_pve", "100/100", .62f, .12f);
+            HeaderResource(bar.transform, "Energon", "UI/soft_currency", "7,800", .75f, .09f);
+            HeaderResource(bar.transform, "Premium Currency", "UI/hard_currency", "99", .89f, .085f);
             string[] tabs = { "BASE", "BOTS", "INVENTORY", "FIGHT", "ALLIANCE", "CRYSTALS", "STORE" };
             Action[] actions = { () => Show("base"), () => Show("roster"), () => Show("inventory"), () => Show("story"), () => Show("story"), () => Show("roster"), () => Show("roster") };
             var navNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_button");
-            var navActive = Resources.Load<Sprite>("StoryPort/UI/global_nav_button_active");
+            var centerNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_center");
             float left = .12f;
             float width = .083f;
             for (int i = 0; i < tabs.Length; i++)
@@ -234,9 +239,36 @@ namespace StoryPort
                 float x = left + i * width;
                 var button = Button(bar.transform, tabs[i], actions[i], new Vector2(x, .06f), new Vector2(x + width - .006f, .49f));
                 var image = button.GetComponent<Image>();
-                image.sprite = index == 0 || index == 3 ? (navActive != null ? navActive : navNormal) : navNormal;
+                image.sprite = index == 3 ? (centerNormal != null ? centerNormal : navNormal) : navNormal;
                 image.type = Image.Type.Simple;
                 image.color = Color.white;
+                button.GetComponentInChildren<Text>().fontSize = 13;
+            }
+        }
+
+        void HeaderResource(Transform parent, string name, string spriteName, string value, float x, float width)
+        {
+            var icon = SpriteImage(parent, name + " Icon", spriteName, new Vector2(x, .57f), new Vector2(x + .04f, .94f), true);
+            if (icon != null) icon.preserveAspect = true;
+            LabelAt(parent, name + " Value", value, 15, TextAnchor.MiddleLeft, new Color(.91f, .94f, .97f),
+                new Vector2(x + .04f, .56f), new Vector2(x + width, .94f));
+        }
+
+        void UpdateHeaderState(string next)
+        {
+            if (headerRoot == null) return;
+            int selected = next == "base" ? 0 : next == "roster" || next == "squad" ? 1 : next == "inventory" ? 2 :
+                next == "story" || next == "chapter" || next == "map" || next == "fight" || next == "victory" || next == "defeat" ? 3 : -1;
+            string[] tabs = { "BASE", "BOTS", "INVENTORY", "FIGHT", "ALLIANCE", "CRYSTALS", "STORE" };
+            for (int i = 0; i < tabs.Length; i++)
+            {
+                var button = headerRoot.Find(tabs[i]);
+                if (button == null) continue;
+                string resource = i == 3
+                    ? (selected == i ? "global_nav_center_active" : "global_nav_center")
+                    : (selected == i ? "global_nav_button_active" : "global_nav_button");
+                var sprite = Resources.Load<Sprite>("StoryPort/UI/" + resource);
+                if (sprite != null) button.GetComponent<Image>().sprite = sprite;
             }
         }
 
@@ -266,6 +298,7 @@ namespace StoryPort
             else if (next == "defeat") ResultScreen(false);
             else if (next == "roster") RosterScreen();
             else if (next == "inventory") InventoryScreen();
+            UpdateHeaderState(next);
         }
 
         void TitleScreen()
@@ -417,24 +450,24 @@ namespace StoryPort
             // A compact campaign cluster, like the game's hex route board. The
             // server coordinates are still applied to the encounter markers;
             // these extra cells are only the surrounding map surface.
-            int[] rowWidths = { 5, 6, 7, 7, 6, 5 };
+            int[] rowWidths = { 6, 8, 9, 9, 8, 6 };
             for (int row = 0; row < rowWidths.Length; row++)
             {
                 int count = rowWidths[row];
-                float startX = .5f - (count - 1) * .052f;
-                float y = .18f + row * .105f;
+                float startX = .5f - (count - 1) * .045f;
+                float y = .25f + row * .087f;
                 for (int column = 0; column < count; column++)
                 {
-                    float x = startX + column * .104f + (row % 2 == 0 ? .026f : 0f);
+                    float x = startX + column * .09f + (row % 2 == 0 ? .045f : 0f);
                     var fill = MakeImage(content, "Map Hex " + row + "-" + column, fillSprite != null ? palette[(row * 3 + column * 5) % palette.Length] : new Color(.08f, .17f, .25f, .9f),
-                        new Vector2(x - .055f, y - .058f), new Vector2(x + .055f, y + .058f));
+                        new Vector2(x - .049f, y - .056f), new Vector2(x + .049f, y + .056f));
                     fill.raycastTarget = false;
                     if (fillSprite != null) fill.sprite = fillSprite;
                     fill.type = Image.Type.Simple;
                     if (borderSprite != null)
                     {
                         var border = MakeImage(content, "Map Hex Border " + row + "-" + column, new Color(.50f, .72f, .87f, .68f),
-                            new Vector2(x - .055f, y - .058f), new Vector2(x + .055f, y + .058f));
+                            new Vector2(x - .049f, y - .056f), new Vector2(x + .049f, y + .056f));
                         border.sprite = borderSprite;
                         border.type = Image.Type.Simple;
                         border.raycastTarget = false;
@@ -547,20 +580,20 @@ namespace StoryPort
         {
             var labels = ActNodeLabels[actIndex].Split('|');
             float[][] points = actIndex == 2
-                ? new[] { new[] { .14f, .48f }, new[] { .34f, .48f }, new[] { .54f, .66f }, new[] { .54f, .3f }, new[] { .78f, .48f } }
-                : new[] { new[] { .12f, .48f }, new[] { .32f, .48f }, new[] { .52f, .48f }, new[] { .72f, .48f }, new[] { .9f, .48f } };
+                ? new[] { new[] { .14f, .48f }, new[] { .32f, .48f }, new[] { .5f, .598f }, new[] { .5f, .337f }, new[] { .68f, .48f } }
+                : new[] { new[] { .14f, .48f }, new[] { .32f, .48f }, new[] { .5f, .48f }, new[] { .68f, .48f }, new[] { .86f, .48f } };
             int count = Math.Min(labels.Length, actIndex == 2 ? 4 : labels.Length);
             if (actIndex == 2)
             {
-                DrawPathSegment(new Vector2(.14f, .48f), new Vector2(.34f, .48f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.34f, .48f), new Vector2(.54f, .66f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.34f, .48f), new Vector2(.54f, .3f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.54f, .66f), new Vector2(.78f, .48f), new Color(.19f, .69f, .84f, .9f));
-                DrawPathSegment(new Vector2(.54f, .3f), new Vector2(.78f, .48f), new Color(.19f, .69f, .84f, .9f));
+                DrawPathSegment(new Vector2(.14f, .48f), new Vector2(.32f, .48f), new Color(.19f, .69f, .84f, .9f));
+                DrawPathSegment(new Vector2(.32f, .48f), new Vector2(.5f, .598f), new Color(.19f, .69f, .84f, .9f));
+                DrawPathSegment(new Vector2(.32f, .48f), new Vector2(.5f, .337f), new Color(.19f, .69f, .84f, .9f));
+                DrawPathSegment(new Vector2(.5f, .598f), new Vector2(.68f, .48f), new Color(.19f, .69f, .84f, .9f));
+                DrawPathSegment(new Vector2(.5f, .337f), new Vector2(.68f, .48f), new Color(.19f, .69f, .84f, .9f));
             }
             else
             {
-                var last = new Vector2(.12f, .48f);
+                var last = new Vector2(.14f, .48f);
                 for (int i = 0; i < count; i++)
                 {
                     var next = new Vector2(points[i + 1][0], points[i + 1][1]);
@@ -1317,7 +1350,6 @@ namespace StoryPort
             rect.sizeDelta = new Vector2(delta.magnitude, 7f);
             rect.anchoredPosition = Vector2.Scale((a + b) * .5f, new Vector2(width, height));
             rect.localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-            segment.transform.SetAsFirstSibling();
         }
 
         void HandleFightTouch()
