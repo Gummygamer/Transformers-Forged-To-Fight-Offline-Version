@@ -29,12 +29,7 @@ namespace StoryPort.Editor
             CopyBuilding("Buildings/alliance_help", "z_bldg_alliance_help_01");
             CopyBuilding("Buildings/crystal_free", "z_bldg_gacha_free_01");
             CopyBuilding("Buildings/crystal_daily", "z_bldg_gacha_daily_01");
-            CopyBoardPiece("StoryBoard/landmass_1x1", "library_primordial", "qb_landmass_1x1_01");
-            CopyBoardPiece("StoryBoard/landmass_2x2", "library_primordial", "qb_landmass_2x2_01");
-            CopyBoardPiece("StoryBoard/landmass_3x3", "library_primordial", "qb_landmass_3x3_01");
-            CopyBoardPiece("StoryBoard/landmass_3x3_alt", "library_primordial", "qb_landmass_3x3_02");
-            CopyBoardPiece("StoryBoard/landmass_3x5", "library_primordial", "qb_landmass_3x5_01");
-            CopyBoardPiece("StoryBoard/landmass_4x4", "library_primordial", "qb_landmass_4x4_01");
+            CopyBoardPiece("StoryBoard/QuestHexTile", "library_common", "qb_node_01");
             CopyFirst("PrimordialTerrain", "primordial_timeofday_0_forward", "primordial_timeofday_0_forward");
             CopyFirst("ChicagoFightStage", "chicago_merged", "chicago_merged");
             CopyFirst("Bots/optimusprime_cin_tf", "optimusprime_cin_tf", "optimusprime_cin_tf");
@@ -48,7 +43,6 @@ namespace StoryPort.Editor
             CopyFirst("Bots/starscream_gs", "starscream_gs", "starscream_gs");
             AssetDatabase.Refresh();
             ConfigureGameTextures();
-            CreateStoryBoardGroundMaterial();
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var host = new GameObject("StoryPort");
             host.AddComponent<StoryPort.StoryPortBootstrap>();

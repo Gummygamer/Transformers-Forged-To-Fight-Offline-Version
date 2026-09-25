@@ -46,6 +46,7 @@ namespace StoryPort
         string enemyName = "Bludgeon";
         string[] storyNodes;
         readonly List<StoryMapNode> storyMapNodes = new List<StoryMapNode>();
+        readonly Dictionary<Vector2Int, Vector3> storyNodeWorldPositions = new Dictionary<Vector2Int, Vector3>();
         int storyMapDimension;
         int actIndex;
         int mapX;
@@ -440,7 +441,7 @@ namespace StoryPort
         void MapScreen()
         {
             var board = BuildStoryBoard();
-            FrameWorld(board, 1.3f);
+            FrameStoryBoard(board);
             DrawHexMapField();
             SectionTitle("ACT " + Roman(actIndex + 1) + "  ·  " + ActTitles[actIndex], "Select an encounter to continue the campaign");
             DrawBoardNodes();
@@ -449,87 +450,113 @@ namespace StoryPort
 
         void DrawHexMapField()
         {
-            var backdrop = Panel(content, "Hex Campaign Map Backdrop", new Color(.008f, .018f, .043f, .18f), Vector2.zero, Vector2.one);
+            var backdrop = Panel(content, "Story Board Dimming", new Color(.008f, .018f, .043f, .08f), Vector2.zero, Vector2.one);
             backdrop.transform.SetAsFirstSibling();
-            var fillSprite = Resources.Load<Sprite>("StoryPort/UI/hexagon_progress");
-            var borderSprite = Resources.Load<Sprite>("StoryPort/UI/hexagon_border");
-            var palette = new[]
-            {
-                new Color(.10f, .20f, .31f, .88f), new Color(.11f, .28f, .35f, .88f),
-                new Color(.25f, .24f, .34f, .88f), new Color(.34f, .21f, .23f, .88f),
-                new Color(.12f, .31f, .30f, .88f), new Color(.30f, .29f, .19f, .88f)
-            };
-
-            // A compact campaign cluster, like the game's hex route board. The
-            // server coordinates are still applied to the encounter markers;
-            // these extra cells are only the surrounding map surface.
-            int[] rowWidths = { 6, 8, 9, 9, 8, 6 };
-            for (int row = 0; row < rowWidths.Length; row++)
-            {
-                int count = rowWidths[row];
-                float startX = .5f - (count - 1) * .045f;
-                float y = .25f + row * .087f;
-                for (int column = 0; column < count; column++)
-                {
-                    float x = startX + column * .09f + (row % 2 == 0 ? .045f : 0f);
-                    var fill = MakeImage(content, "Map Hex " + row + "-" + column, fillSprite != null ? palette[(row * 3 + column * 5) % palette.Length] : new Color(.08f, .17f, .25f, .9f),
-                        new Vector2(x - .049f, y - .056f), new Vector2(x + .049f, y + .056f));
-                    fill.raycastTarget = false;
-                    if (fillSprite != null) fill.sprite = fillSprite;
-                    fill.type = Image.Type.Simple;
-                    fill.color = new Color(fill.color.r, fill.color.g, fill.color.b, .38f);
-                    if (borderSprite != null)
-                    {
-                        var border = MakeImage(content, "Map Hex Border " + row + "-" + column, new Color(.50f, .72f, .87f, .3f),
-                            new Vector2(x - .049f, y - .056f), new Vector2(x + .049f, y + .056f));
-                        border.sprite = borderSprite;
-                        border.type = Image.Type.Simple;
-                        border.raycastTarget = false;
-                    }
-                }
-            }
         }
 
         GameObject BuildStoryBoard()
         {
-            var board = new GameObject("StoryPort World · Primordial Story Board");
+            storyNodeWorldPositions.Clear();
+            var board = new GameObject("StoryPort World · 9.2 Story Hex Board");
             worldRoots.Add(board);
-            int dimension = Math.Max(2, storyMapDimension);
-            BuildPrimordialGroundGrid(board, dimension);
-            string[] pieces = { "landmass_3x3", "landmass_3x3_alt", "landmass_2x2", "landmass_3x5", "landmass_4x4", "landmass_1x1" };
-            for (int i = 0; i < storyMapNodes.Count; i++)
+            var tilePrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/QuestHexTile");
+            if (tilePrefab == null)
             {
-                var node = storyMapNodes[i];
-                string pieceName = pieces[(node.x * 3 + node.y * 5 + (node.isFinal ? 1 : 0)) % pieces.Length];
-                var prefab = Resources.Load<GameObject>("StoryPort/StoryBoard/" + pieceName);
-                if (prefab == null)
+                Debug.LogError("StoryPort missing the extracted 9.2 qb_node_01 tile mesh");
+                SetNotice("Converted 9.2 quest-board tile is missing");
+                return board;
+            }
+
+            int[] rowWidths = { 6, 8, 9, 9, 8, 6 };
+            const float horizontalStep = 8.25f;
+            const float verticalStep = 7.25f;
+            float centerY = actIndex == 2 ? 2f : 1f;
+            Color[] terrainPalette =
+            {
+                new Color(.34f, .37f, .4f), new Color(.47f, .39f, .55f),
+                new Color(.42f, .3f, .32f), new Color(.34f, .48f, .5f),
+                new Color(.39f, .49f, .35f), new Color(.55f, .48f, .3f)
+            };
+            for (int row = 0; row < rowWidths.Length; row++)
+            {
+                int count = rowWidths[row];
+                for (int column = 0; column < count; column++)
                 {
-                    Debug.LogError("StoryPort missing converted 9.2 board module: " + pieceName);
-                    SetNotice("Converted primordial board modules are missing");
-                    continue;
-                }
-                float half = (dimension - 1) * 10f;
-                var position = new Vector3(node.x * 20f - half, 0, half - node.y * 20f);
-                var tile = Instantiate(prefab, position, Quaternion.Euler(0, ((node.x + node.y) % 2) * 180f, 0), board.transform);
-                tile.name = "Primordial Route Terrain " + node.x + "-" + node.y + " " + pieceName;
-                var renderers = tile.GetComponentsInChildren<Renderer>(true);
-                Bounds bounds = default(Bounds);
-                bool found = false;
-                foreach (var renderer in renderers)
-                {
-                    if (!renderer.enabled) continue;
-                    if (!found) { bounds = renderer.bounds; found = true; }
-                    else bounds.Encapsulate(renderer.bounds);
-                }
-                if (found)
-                {
-                    float footprint = Mathf.Max(bounds.size.x, bounds.size.z);
-                    if (footprint > .01f)
-                        tile.transform.localScale *= Mathf.Clamp(16f / footprint, .08f, 20f);
+                    float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
+                    var position = new Vector3((column - (count - 1) * .5f) * horizontalStep + stagger,
+                        0f, (2.5f - row) * verticalStep);
+                    var tile = Instantiate(tilePrefab, position, Quaternion.identity, board.transform);
+                    tile.name = "9.2 Quest Hex " + row + "-" + column;
+                    foreach (var collider in tile.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                    foreach (var light in tile.GetComponentsInChildren<Light>(true)) light.enabled = false;
+                    Color tileColor = terrainPalette[(row * 3 + column * 5) % terrainPalette.Length];
+                    foreach (var renderer in tile.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (!renderer.enabled) continue;
+                        var material = renderer.material;
+                        if (material.HasProperty("_base_col")) material.SetColor("_base_col", tileColor);
+                        else if (material.HasProperty("_Color")) material.SetColor("_Color", tileColor);
+                    }
                 }
             }
-            Debug.Log("StoryPort built a converted 9.2 Primordial board from " + storyMapNodes.Count + " server tiles for act " + (actIndex + 1));
+
+            foreach (var node in storyMapNodes)
+            {
+                int row = Mathf.Clamp(Mathf.RoundToInt(2f + node.y - centerY), 0, rowWidths.Length - 1);
+                int column = Mathf.Clamp(2 + node.x, 0, rowWidths[row] - 1);
+                float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
+                var position = new Vector3((column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger,
+                    .55f, (2.5f - row) * verticalStep);
+                storyNodeWorldPositions[new Vector2Int(node.x, node.y)] = position;
+                var tile = board.transform.Find("9.2 Quest Hex " + row + "-" + column);
+                if (tile != null)
+                {
+                    Color marker = node.isFinal ? new Color(.9f, .34f, .28f) :
+                        node.boss.Length > 0 ? new Color(.22f, .76f, .77f) : new Color(.72f, .75f, .78f);
+                    foreach (var renderer in tile.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (!renderer.enabled) continue;
+                        var material = renderer.material;
+                        if (material.HasProperty("_base_col")) material.SetColor("_base_col", marker);
+                        else if (material.HasProperty("_Color")) material.SetColor("_Color", marker);
+                    }
+                }
+            }
+            Debug.Log("StoryPort built the raised 9.2 hex board with " + storyMapNodes.Count + " server-authored route nodes for act " + (actIndex + 1));
             return board;
+        }
+
+        void FrameStoryBoard(GameObject board)
+        {
+            if (board == null) return;
+            Bounds bounds = new Bounds(board.transform.position, Vector3.zero);
+            bool found = false;
+            foreach (var renderer in board.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!renderer.enabled) continue;
+                if (!found) { bounds = renderer.bounds; found = true; }
+                else bounds.Encapsulate(renderer.bounds);
+            }
+            var camera = Camera.main;
+            if (!found || camera == null) return;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(.018f, .025f, .052f);
+            camera.fieldOfView = 36f;
+            float aspect = Mathf.Max(.5f, (float)Screen.width / Screen.height);
+            float viewHeight = Mathf.Max(bounds.size.z, bounds.size.x / aspect) * 1.3f;
+            float distance = viewHeight / (2f * Mathf.Tan(camera.fieldOfView * .5f * Mathf.Deg2Rad));
+            var target = new Vector3(bounds.center.x, bounds.center.y, bounds.center.z);
+            camera.transform.position = target + new Vector3(0, distance * .78f, -distance);
+            camera.transform.LookAt(target);
+            camera.farClipPlane = Mathf.Max(4000f, distance + bounds.size.magnitude * 2f);
+        }
+
+        Vector2 StoryBoardContentPoint(Vector3 world)
+        {
+            var camera = Camera.main;
+            if (camera == null) return new Vector2(.5f, .5f);
+            var viewport = camera.WorldToViewportPoint(world);
+            return new Vector2((viewport.x - .025f) / .95f, (viewport.y - .075f) / .805f);
         }
 
         void BuildPrimordialGroundGrid(GameObject board, int dimension)
@@ -590,11 +617,13 @@ namespace StoryPort
         {
             if (storyMapNodes.Count == 0) return;
             var positions = new Dictionary<Vector2Int, Vector2>();
-            float centerY = actIndex == 2 ? 2f : 1f;
             foreach (var node in storyMapNodes)
-                positions[new Vector2Int(node.x, node.y)] = new Vector2(
-                    .16f + node.x / (float)Math.Max(1, storyMapDimension - 1) * .68f,
-                    .48f + (centerY - node.y) * .12f);
+            {
+                var key = new Vector2Int(node.x, node.y);
+                Vector3 world;
+                if (!storyNodeWorldPositions.TryGetValue(key, out world)) continue;
+                positions[key] = StoryBoardContentPoint(world);
+            }
 
             var drawn = new HashSet<string>();
             foreach (var node in storyMapNodes)
@@ -613,10 +642,11 @@ namespace StoryPort
             foreach (var node in storyMapNodes)
             {
                 var coord = new Vector2Int(node.x, node.y);
+                if (!positions.ContainsKey(coord)) continue;
                 Vector2 point = positions[coord];
                 bool encounter = !string.IsNullOrEmpty(node.boss);
                 bool available = encounter && IsNextEncounter(node.x, node.y);
-                float size = encounter ? .14f : .105f;
+                float size = encounter ? .09f : .07f;
                 var panel = Panel(content, "Server Quest Node " + node.x + "-" + node.y, Color.clear,
                     new Vector2(point.x - size * .5f, point.y - size * .63f),
                     new Vector2(point.x + size * .5f, point.y + size * .63f));
