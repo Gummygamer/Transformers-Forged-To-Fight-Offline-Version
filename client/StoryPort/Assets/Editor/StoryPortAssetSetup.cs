@@ -24,6 +24,11 @@ namespace StoryPort.Editor
             Directory.CreateDirectory(ResourcesRoot + "/Materials");
             ImportLocalUiArt();
             CopyFirst("PrimordialBase", "library_primordial_base", "library_primordial_base");
+            CopyBuilding("Buildings/battle_centre", "z_bldg_battle_centre_01");
+            CopyBuilding("Buildings/away_team", "z_bldg_away_team_01");
+            CopyBuilding("Buildings/alliance_help", "z_bldg_alliance_help_01");
+            CopyBuilding("Buildings/crystal_free", "z_bldg_gacha_free_01");
+            CopyBuilding("Buildings/crystal_daily", "z_bldg_gacha_daily_01");
             CopyBoardPiece("StoryBoard/landmass_1x1", "library_primordial", "qb_landmass_1x1_01");
             CopyBoardPiece("StoryBoard/landmass_2x2", "library_primordial", "qb_landmass_2x2_01");
             CopyBoardPiece("StoryBoard/landmass_3x3", "library_primordial", "qb_landmass_3x3_01");
@@ -222,6 +227,16 @@ namespace StoryPort.Editor
 
         static void CopyBoardPiece(string target, string libraryQuery, string childName)
         {
+            CopyLibraryPiece(target, libraryQuery, childName, false);
+        }
+
+        static void CopyBuilding(string target, string childName)
+        {
+            CopyLibraryPiece(target, "library_buildings", childName, true);
+        }
+
+        static void CopyLibraryPiece(string target, string libraryQuery, string childName, bool retainBlankTerrain)
+        {
             foreach (var guid in AssetDatabase.FindAssets(libraryQuery + " t:Prefab"))
             {
                 var sourcePath = AssetDatabase.GUIDToAssetPath(guid);
@@ -252,8 +267,9 @@ namespace StoryPort.Editor
                 piece.transform.localPosition = Vector3.zero;
                 piece.transform.localRotation = Quaternion.identity;
                 piece.transform.localScale = Vector3.one;
-                foreach (var transform in piece.GetComponentsInChildren<Transform>(true))
-                    if (transform.name == "BlankTerrain") UnityEngine.Object.DestroyImmediate(transform.gameObject);
+                if (!retainBlankTerrain)
+                    foreach (var transform in piece.GetComponentsInChildren<Transform>(true))
+                        if (transform.name == "BlankTerrain") UnityEngine.Object.DestroyImmediate(transform.gameObject);
                 foreach (var transform in piece.GetComponentsInChildren<Transform>(true))
                     GameObjectUtility.RemoveMonoBehavioursWithMissingScript(transform.gameObject);
                 foreach (var renderer in piece.GetComponentsInChildren<Renderer>(true))

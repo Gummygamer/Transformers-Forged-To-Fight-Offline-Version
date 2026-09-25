@@ -301,11 +301,60 @@ namespace StoryPort
 
         void BaseScreen()
         {
-            FrameWorld(SpawnWorld("Base", "PrimordialBase", Vector3.zero, Vector3.zero, .012f));
+            var baseWorld = SpawnWorld("Base", "PrimordialBase", Vector3.zero, Vector3.zero, .012f);
+            FrameWorld(baseWorld, 1.3f);
+            if (baseWorld != null) StartCoroutine(LoadBaseBuildings(baseWorld.transform));
             SectionTitle("COMMAND CENTER", "Your base is operational. Select a mission and deploy.");
             ActionButton("STORY MISSIONS", "Follow the three-act campaign", () => Show("story"), .68f, .56f, .27f, .19f, true);
             ActionButton("BOT ROSTER", "View and select your squad", () => Show("roster"), .68f, .32f, .27f, .18f, false);
             LabelAt(content, "Welcome", "WELCOME, COMMANDER", 19, TextAnchor.MiddleLeft, new Color(.83f, .9f, .92f), new Vector2(.065f, .18f), new Vector2(.48f, .25f));
+        }
+
+        IEnumerator LoadBaseBuildings(Transform baseRoot)
+        {
+            string response = "";
+            yield return StartCoroutine(Get("/base/active", json => response = json));
+            if (baseRoot == null || string.IsNullOrEmpty(response)) yield break;
+
+            var buildings = Regex.Matches(response,
+                "\\\"id\\\"\\s*:\\s*\\\"(bldg_[^\\\"]+)\\\"\\s*,\\s*\\\"key\\\"\\s*:\\s*\\\"sock_(\\d+)_(\\d+)\\\"");
+            foreach (Match building in buildings)
+            {
+                string buildingId = building.Groups[1].Value;
+                string resource = BuildingResource(buildingId);
+                if (string.IsNullOrEmpty(resource)) continue;
+                var prefab = Resources.Load<GameObject>("StoryPort/Buildings/" + resource);
+                if (prefab == null)
+                {
+                    Debug.LogWarning("StoryPort missing placed base building: " + resource);
+                    continue;
+                }
+
+                int x = int.Parse(building.Groups[2].Value);
+                int y = int.Parse(building.Groups[3].Value);
+                var instance = Instantiate(prefab, baseRoot, false);
+                instance.name = buildingId + " at sock_" + x + "_" + y;
+                // The server exposes a five by five base socket grid. Its live
+                // buildings occupy a compact cross around the command centre.
+                // The source prefab and base use the same world scale.
+                instance.transform.localPosition = new Vector3((x - 2) * 92f, 0f, (2 - y) * 92f);
+                instance.transform.localRotation = Quaternion.identity;
+                instance.transform.localScale = Vector3.one;
+            }
+            FrameWorld(baseRoot.gameObject, 1.3f);
+        }
+
+        string BuildingResource(string id)
+        {
+            switch (id)
+            {
+                case "bldg_battle_centre": return "battle_centre";
+                case "bldg_away_team": return "away_team";
+                case "bldg_alliance_help": return "alliance_help";
+                case "bldg_crystal_free": return "crystal_free";
+                case "bldg_crystal_daily": return "crystal_daily";
+                default: return "";
+            }
         }
 
         void StoryScreen()
@@ -345,19 +394,53 @@ namespace StoryPort
 
         void MapScreen()
         {
-            FrameWorld(BuildStoryBoard(), 1.25f);
-            var camera = Camera.main;
-            if (camera != null)
-            {
-                float mapSize = (actIndex == 2 ? 5f : 4f) * 20f;
-                float distance = mapSize * 1.1f;
-                var target = new Vector3(0, .4f, 0);
-                camera.transform.position = target + new Vector3(0, distance * .84f, -distance * .54f);
-                camera.transform.LookAt(target);
-            }
+            ResetCamera();
+            DrawHexMapField();
             SectionTitle("ACT " + Roman(actIndex + 1) + "  ·  " + ActTitles[actIndex], "Select an encounter to continue the campaign");
             DrawBoardNodes();
             ActionButton("SQUAD", "Select the team for the next fight", () => { squadForStory = true; Show("squad"); }, .05f, .08f, .2f, .16f, false);
+        }
+
+        void DrawHexMapField()
+        {
+            var backdrop = Panel(content, "Hex Campaign Map Backdrop", new Color(.008f, .018f, .043f, .97f), Vector2.zero, Vector2.one);
+            backdrop.transform.SetAsFirstSibling();
+            var fillSprite = Resources.Load<Sprite>("StoryPort/UI/hexagon_progress");
+            var borderSprite = Resources.Load<Sprite>("StoryPort/UI/hexagon_border");
+            var palette = new[]
+            {
+                new Color(.10f, .20f, .31f, .88f), new Color(.11f, .28f, .35f, .88f),
+                new Color(.25f, .24f, .34f, .88f), new Color(.34f, .21f, .23f, .88f),
+                new Color(.12f, .31f, .30f, .88f), new Color(.30f, .29f, .19f, .88f)
+            };
+
+            // A compact campaign cluster, like the game's hex route board. The
+            // server coordinates are still applied to the encounter markers;
+            // these extra cells are only the surrounding map surface.
+            int[] rowWidths = { 5, 6, 7, 7, 6, 5 };
+            for (int row = 0; row < rowWidths.Length; row++)
+            {
+                int count = rowWidths[row];
+                float startX = .5f - (count - 1) * .052f;
+                float y = .18f + row * .105f;
+                for (int column = 0; column < count; column++)
+                {
+                    float x = startX + column * .104f + (row % 2 == 0 ? .026f : 0f);
+                    var fill = MakeImage(content, "Map Hex " + row + "-" + column, fillSprite != null ? palette[(row * 3 + column * 5) % palette.Length] : new Color(.08f, .17f, .25f, .9f),
+                        new Vector2(x - .055f, y - .058f), new Vector2(x + .055f, y + .058f));
+                    fill.raycastTarget = false;
+                    if (fillSprite != null) fill.sprite = fillSprite;
+                    fill.type = Image.Type.Simple;
+                    if (borderSprite != null)
+                    {
+                        var border = MakeImage(content, "Map Hex Border " + row + "-" + column, new Color(.50f, .72f, .87f, .68f),
+                            new Vector2(x - .055f, y - .058f), new Vector2(x + .055f, y + .058f));
+                        border.sprite = borderSprite;
+                        border.type = Image.Type.Simple;
+                        border.raycastTarget = false;
+                    }
+                }
+            }
         }
 
         GameObject BuildStoryBoard()
