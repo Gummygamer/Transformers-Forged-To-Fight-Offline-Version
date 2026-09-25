@@ -460,6 +460,8 @@ namespace StoryPort
             var board = new GameObject("StoryPort World · 9.2 Story Terrain Board");
             worldRoots.Add(board);
             var terrainPrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex");
+            var terrainPrefab02 = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex02") ?? terrainPrefab;
+            var terrainPrefab03 = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex03") ?? terrainPrefab;
             var routeNodePrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/QuestHexTile");
             if (terrainPrefab == null || routeNodePrefab == null)
             {
@@ -480,7 +482,12 @@ namespace StoryPort
                     float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
                     var position = new Vector3((column - (count - 1) * .5f) * horizontalStep + stagger,
                         0f, (2.5f - row) * verticalStep);
-                    var terrain = Instantiate(terrainPrefab, position, Quaternion.identity, board.transform);
+                    // Use the three authored 9.2 landmass variants across the
+                    // map so the board keeps its hex topology without cloning
+                    // the same rubble silhouette into every cell.
+                    int variant = (row * 7 + column * 3) % 3;
+                    var selectedTerrain = variant == 1 ? terrainPrefab02 : variant == 2 ? terrainPrefab03 : terrainPrefab;
+                    var terrain = Instantiate(selectedTerrain, position, Quaternion.identity, board.transform);
                     terrain.name = "9.2 Primordial Terrain Hex " + row + "-" + column;
                     foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
                     foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;

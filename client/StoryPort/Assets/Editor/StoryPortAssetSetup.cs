@@ -30,6 +30,8 @@ namespace StoryPort.Editor
             CopyBuilding("Buildings/crystal_free", "z_bldg_gacha_free_01");
             CopyBuilding("Buildings/crystal_daily", "z_bldg_gacha_daily_01");
             CopyLibraryPiece("StoryBoard/TerrainHex", "library_primordial", "qb_landmass_1x1_01", true);
+            CopyLibraryPiece("StoryBoard/TerrainHex02", "library_primordial", "qb_landmass_1x1_02", true);
+            CopyLibraryPiece("StoryBoard/TerrainHex03", "library_primordial", "qb_landmass_1x1_03", true);
             CopyBoardPiece("StoryBoard/QuestHexTile", "library_common", "qb_node_01");
             CopyFirst("PrimordialTerrain", "primordial_timeofday_0_forward", "primordial_timeofday_0_forward");
             // prepare_project.py links ChicagoFightStage from the converted scene bundle.
