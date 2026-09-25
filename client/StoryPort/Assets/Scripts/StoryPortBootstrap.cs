@@ -477,8 +477,11 @@ namespace StoryPort
             // primordial landmass, so use that asset as the story map instead
             // of stamping dozens of overlapping rubble modules.
             GameObject terrainRun = null;
-            var cellTops = new Dictionary<Vector2Int, Vector3>();
-            if (terrainRunPrefab != null)
+            float stitchedGroundY = -.35f;
+            // The converted 3x9 landmass is a real 180m board strip. Keep it
+            // for maps large enough to use that footprint; small server maps
+            // should use the original 1x1 modules at their actual tile cells.
+            if (terrainRunPrefab != null && storyMapDimension >= 9)
             {
                 terrainRun = Instantiate(terrainRunPrefab, Vector3.zero, Quaternion.Euler(0f, 90f, 0f), board.transform);
                 terrainRun.name = "9.2 Primordial 3x9 Story Landmass";
@@ -515,73 +518,47 @@ namespace StoryPort
                     else groundBounds.Encapsulate(renderer.bounds);
                 }
                 if (foundGround)
+                {
                     board.transform.position -= new Vector3(groundBounds.center.x, 0f, groundBounds.center.z);
+                    stitchedGroundY = groundBounds.min.y - .25f;
+                }
                 Physics.SyncTransforms();
                 Debug.Log("StoryPort placed the converted 9.2 3x9 primordial landmass and terrain wings as the story-board terrain");
             }
 
-            int minNodeX = storyMapNodes.Count == 0 ? 0 : storyMapNodes[0].x;
-            int maxNodeX = minNodeX;
-            int minNodeY = storyMapNodes.Count == 0 ? 0 : storyMapNodes[0].y;
-            int maxNodeY = minNodeY;
-            foreach (var node in storyMapNodes)
-            {
-                minNodeX = Mathf.Min(minNodeX, node.x);
-                maxNodeX = Mathf.Max(maxNodeX, node.x);
-                minNodeY = Mathf.Min(minNodeY, node.y);
-                maxNodeY = Mathf.Max(maxNodeY, node.y);
-            }
+            // The original builder uses one 20m square for each server grid
+            // cell. Keep the grid's coordinates intact so routes preserve the
+            // authored branches instead of stretching to fit the landmass.
+            int dimension = Mathf.Max(1, storyMapDimension);
+            BuildPrimordialGroundGrid(board, dimension, stitchedGroundY);
 
             foreach (var node in storyMapNodes)
             {
-                Vector3 position;
-                if (terrainRun != null)
+                Vector3 localTileCenter = StoryMapTileCenter(node.x, node.y, dimension);
+                if (storyMapDimension < 9 && terrainPrefab != null)
                 {
-                    float progress = maxNodeX == minNodeX ? .5f : (node.x - minNodeX) / (float)(maxNodeX - minNodeX);
-                    float branch = maxNodeY == minNodeY ? .5f : (node.y - minNodeY) / (float)(maxNodeY - minNodeY);
-                    // The source landmass spans 60m across by 180m along its
-                    // length. Spread the server's route across that authored
-                    // ground; the y dimension represents only active lanes,
-                    // since the other cells in the server grid are hidden.
-                    Vector3 local = new Vector3(maxNodeY == minNodeY ? 30f : Mathf.Lerp(-45f, 105f, branch),
-                        100f, Mathf.Lerp(-10f, -170f, progress));
-                    position = terrainRun.transform.TransformPoint(local);
-                    RaycastHit terrainHit;
-                    if (Physics.Raycast(position, Vector3.down, out terrainHit, 200f))
-                        position = terrainHit.point + Vector3.up * .65f;
-                    else
-                        position.y = terrainRun.GetComponentInChildren<Renderer>().bounds.max.y + .65f;
-                }
-                else
-                {
-                    // Keep a reduced modular-board fallback when the local
-                    // converted landmass catalog has not been generated.
-                    const float horizontalStep = 20f;
-                    const float verticalStep = 17.32f;
-                    float progress = maxNodeX == minNodeX ? .5f : (node.x - minNodeX) / (float)(maxNodeX - minNodeX);
-                    float branch = maxNodeY == minNodeY ? .5f : (node.y - minNodeY) / (float)(maxNodeY - minNodeY);
-                    int row = Mathf.Clamp(Mathf.RoundToInt(progress * 5f), 0, 5);
-                    int[] rowWidths = { 4, 5, 6, 6, 5, 4 };
-                    int column = Mathf.Clamp(Mathf.RoundToInt(branch * (rowWidths[row] - 1)), 0, rowWidths[row] - 1);
-                    int variant = (row * 7 + column * 3) % 3;
+                    int variant = (node.x * 7 + node.y * 3) % 3;
                     var selectedTerrain = variant == 1 ? terrainPrefab02 : variant == 2 ? terrainPrefab03 : terrainPrefab;
-                    float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
-                    var tilePosition = new Vector3((column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger,
-                        0f, (2.5f - row) * verticalStep);
+                    var tilePosition = board.transform.TransformPoint(new Vector3(localTileCenter.x, stitchedGroundY, localTileCenter.z));
                     var terrain = Instantiate(selectedTerrain, tilePosition, Quaternion.identity, board.transform);
-                    terrain.name = "9.2 Primordial Terrain Hex " + row + "-" + column;
+                    terrain.name = "9.2 Primordial 1x1 Story Tile " + node.x + "-" + node.y;
                     foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
                     foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;
-                    Bounds surface = new Bounds(tilePosition, Vector3.zero);
-                    bool foundSurface = false;
-                    foreach (var renderer in terrain.GetComponentsInChildren<Renderer>(true))
-                        if (renderer.enabled && renderer.name == "BlankTerrain")
-                        {
-                            if (!foundSurface) { surface = renderer.bounds; foundSurface = true; }
-                            else surface.Encapsulate(renderer.bounds);
-                        }
-                    position = new Vector3(tilePosition.x, foundSurface ? surface.max.y + .65f : .65f, tilePosition.z);
+                    foreach (var filter in terrain.GetComponentsInChildren<MeshFilter>(true))
+                    {
+                        if (filter.sharedMesh == null || filter.name != "BlankTerrain") continue;
+                        var meshCollider = filter.GetComponent<MeshCollider>();
+                        if (meshCollider == null) meshCollider = filter.gameObject.AddComponent<MeshCollider>();
+                        meshCollider.sharedMesh = filter.sharedMesh;
+                        meshCollider.enabled = true;
+                    }
                 }
+                Vector3 position = board.transform.TransformPoint(localTileCenter);
+                RaycastHit terrainHit;
+                if (Physics.Raycast(position + Vector3.up * 1000f, Vector3.down, out terrainHit, 2000f))
+                    position = terrainHit.point + Vector3.up * .65f;
+                else
+                    position = board.transform.TransformPoint(new Vector3(localTileCenter.x, stitchedGroundY + .65f, localTileCenter.z));
                 storyNodeWorldPositions[new Vector2Int(node.x, node.y)] = position;
                 var routeMarker = Instantiate(routeNodePrefab, position, Quaternion.identity, board.transform);
                 routeMarker.name = "9.2 Server Quest Node " + node.x + "-" + node.y;
@@ -597,6 +574,7 @@ namespace StoryPort
                     else if (material.HasProperty("_Color")) material.SetColor("_Color", marker);
                 }
             }
+            BuildStoryRouteRibbons(board);
             Debug.Log("StoryPort built the 9.2 Primordial terrain board with " + storyMapNodes.Count + " server-authored route nodes for act " + (actIndex + 1));
             return board;
         }
@@ -636,7 +614,15 @@ namespace StoryPort
             return new Vector2((viewport.x - .025f) / .95f, (viewport.y - .075f) / .805f);
         }
 
-        void BuildPrimordialGroundGrid(GameObject board, int dimension)
+        static Vector3 StoryMapTileCenter(int x, int y, int dimension)
+        {
+            const float tileSize = 20f;
+            float mapOrigin = -dimension * tileSize * .5f;
+            return new Vector3(mapOrigin + x * tileSize + tileSize * .5f, 0f,
+                mapOrigin + (dimension - 1 - y) * tileSize + tileSize * .5f);
+        }
+
+        void BuildPrimordialGroundGrid(GameObject board, int dimension, float groundY)
         {
             var material = Resources.Load<Material>("StoryPort/StoryBoard/PrimordialGround");
             if (material == null)
@@ -655,9 +641,9 @@ namespace StoryPort
                 for (int x = 0; x < side; x++)
                 {
                     int index = z * side + x;
-                    // The backend's 4x4 and 5x5 maps use the game's 20 m
-                    // tile spacing, centered around the origin.
-                    vertices[index] = new Vector3(-halfMap + x * tileSize, -.35f, -halfMap + z * tileSize);
+                    // The server grid uses the game's 20m tile spacing,
+                    // centered around the origin.
+                    vertices[index] = new Vector3(-halfMap + x * tileSize, groundY, -halfMap + z * tileSize);
                     uv[index] = new Vector2(x / (float)dimension, z / (float)dimension);
                 }
             }
@@ -684,10 +670,50 @@ namespace StoryPort
             mesh.triangles = triangles;
             mesh.RecalculateNormals();
             mesh.RecalculateBounds();
-            var surface = new GameObject("Primordial 20m terrain tiles", typeof(MeshFilter), typeof(MeshRenderer));
+            var surface = new GameObject("Primordial 20m terrain tiles", typeof(MeshFilter), typeof(MeshRenderer), typeof(MeshCollider));
             surface.transform.SetParent(board.transform, false);
             surface.GetComponent<MeshFilter>().sharedMesh = mesh;
             surface.GetComponent<MeshRenderer>().sharedMaterial = material;
+            surface.GetComponent<MeshCollider>().sharedMesh = mesh;
+        }
+
+        void BuildStoryRouteRibbons(GameObject board)
+        {
+            var routeShader = Shader.Find("Unlit/Color");
+            if (routeShader == null) routeShader = Shader.Find("Sprites/Default");
+            if (routeShader == null) return;
+            var material = new Material(routeShader);
+            material.color = new Color(.25f, .76f, .92f, .9f);
+            var drawn = new HashSet<string>();
+            foreach (var node in storyMapNodes)
+            {
+                var from = new Vector2Int(node.x, node.y);
+                Vector3 fromWorld;
+                if (!storyNodeWorldPositions.TryGetValue(from, out fromWorld)) continue;
+                foreach (var link in node.links)
+                {
+                    var to = new Vector2Int(link.x, link.y);
+                    Vector3 toWorld;
+                    if (!storyNodeWorldPositions.TryGetValue(to, out toWorld)) continue;
+                    string key = from.x < to.x || (from.x == to.x && from.y < to.y)
+                        ? from + ":" + to : to + ":" + from;
+                    if (!drawn.Add(key)) continue;
+                    Vector3 a = board.transform.InverseTransformPoint(fromWorld);
+                    Vector3 b = board.transform.InverseTransformPoint(toWorld);
+                    Vector3 direction = (b - a).normalized;
+                    Vector3 side = Vector3.Cross(direction, Vector3.up).normalized * .75f;
+                    a.y += .18f;
+                    b.y += .18f;
+                    var mesh = new Mesh { name = "Story path " + key };
+                    mesh.vertices = new[] { a - side, a + side, b + side, b - side };
+                    mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+                    mesh.RecalculateNormals();
+                    var segment = new GameObject("3D Story Route " + key, typeof(MeshFilter), typeof(MeshRenderer));
+                    segment.transform.SetParent(board.transform, false);
+                    segment.GetComponent<MeshFilter>().sharedMesh = mesh;
+                    segment.GetComponent<MeshRenderer>().sharedMaterial = material;
+                }
+            }
         }
 
         void DrawBoardNodes()
@@ -700,20 +726,6 @@ namespace StoryPort
                 Vector3 world;
                 if (!storyNodeWorldPositions.TryGetValue(key, out world)) continue;
                 positions[key] = StoryBoardContentPoint(world);
-            }
-
-            var drawn = new HashSet<string>();
-            foreach (var node in storyMapNodes)
-            {
-                var source = new Vector2Int(node.x, node.y);
-                foreach (var link in node.links)
-                {
-                    var target = new Vector2Int(link.x, link.y);
-                    if (!positions.ContainsKey(target)) continue;
-                    string pair = source.x < target.x || (source.x == target.x && source.y < target.y)
-                        ? source + ":" + target : target + ":" + source;
-                    if (drawn.Add(pair)) DrawPathSegment(positions[source], positions[target], new Color(.19f, .69f, .84f, .9f));
-                }
             }
 
             foreach (var node in storyMapNodes)
