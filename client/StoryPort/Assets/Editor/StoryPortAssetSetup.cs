@@ -23,6 +23,7 @@ namespace StoryPort.Editor
             Directory.CreateDirectory(ResourcesRoot);
             Directory.CreateDirectory(ResourcesRoot + "/Materials");
             ImportLocalUiArt();
+            CreateStoryBoardGroundMaterial();
             CopyFirst("PrimordialBase", "library_primordial_base", "library_primordial_base");
             CopyBuilding("Buildings/battle_centre", "z_bldg_battle_centre_01");
             CopyBuilding("Buildings/away_team", "z_bldg_away_team_01");
@@ -32,6 +33,8 @@ namespace StoryPort.Editor
             CopyLibraryPiece("StoryBoard/TerrainHex", "library_primordial", "qb_landmass_1x1_01", true);
             CopyLibraryPiece("StoryBoard/TerrainHex02", "library_primordial", "qb_landmass_1x1_02", true);
             CopyLibraryPiece("StoryBoard/TerrainHex03", "library_primordial", "qb_landmass_1x1_03", true);
+            CopyLibraryPiece("StoryBoard/TerrainRun", "library_primordial", "qb_landmass_3x9_01", true);
+            CopyLibraryPiece("StoryBoard/TerrainWing", "library_primordial", "qb_landmass_3x9_02", true);
             CopyBoardPiece("StoryBoard/QuestHexTile", "library_common", "qb_node_01");
             CopyFirst("PrimordialTerrain", "primordial_timeofday_0_forward", "primordial_timeofday_0_forward");
             // prepare_project.py links ChicagoFightStage from the converted scene bundle.
@@ -138,6 +141,7 @@ namespace StoryPort.Editor
             if (shader == null) return;
             var material = new Material(shader) { name = "PrimordialStoryBoardGround" };
             material.SetTexture("_MainTex", albedo);
+            material.SetTextureScale("_MainTex", new Vector2(4f, 4f));
             material.color = new Color(.37f, .39f, .32f, 1f);
             material.SetFloat("_Metallic", .05f);
             material.SetFloat("_Glossiness", .12f);
@@ -148,6 +152,7 @@ namespace StoryPort.Editor
                 if (normal != null)
                 {
                     material.SetTexture("_BumpMap", normal);
+                    material.SetTextureScale("_BumpMap", new Vector2(4f, 4f));
                     material.EnableKeyword("_NORMALMAP");
                 }
             }
@@ -239,9 +244,9 @@ namespace StoryPort.Editor
                 var sourcePath = AssetDatabase.GUIDToAssetPath(guid);
                 if (!sourcePath.EndsWith("/" + libraryQuery + ".prefab", StringComparison.OrdinalIgnoreCase)) continue;
                 var contents = PrefabUtility.LoadPrefabContents(sourcePath);
-                Material primordialTerrain = null;
+                Material primordialTerrain = AssetDatabase.LoadAssetAtPath<Material>(ResourcesRoot + "/StoryBoard/PrimordialGround.mat");
                 foreach (var renderer in contents.GetComponentsInChildren<Renderer>(true))
-                    if (renderer.name == "qb_primordial_terrainblend_01" && renderer.sharedMaterial != null)
+                    if (primordialTerrain == null && renderer.name == "qb_primordial_terrainblend_01" && renderer.sharedMaterial != null)
                     {
                         primordialTerrain = ConvertMaterial(renderer.sharedMaterial);
                         break;

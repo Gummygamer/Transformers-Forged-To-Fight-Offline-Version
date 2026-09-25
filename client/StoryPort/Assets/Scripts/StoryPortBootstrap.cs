@@ -462,67 +462,126 @@ namespace StoryPort
             var terrainPrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex");
             var terrainPrefab02 = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex02") ?? terrainPrefab;
             var terrainPrefab03 = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainHex03") ?? terrainPrefab;
+            var terrainRunPrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainRun");
+            var terrainWingPrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/TerrainWing");
             var routeNodePrefab = Resources.Load<GameObject>("StoryPort/StoryBoard/QuestHexTile");
-            if (terrainPrefab == null || routeNodePrefab == null)
+            if ((terrainRunPrefab == null && terrainPrefab == null) || routeNodePrefab == null)
             {
                 Debug.LogError("StoryPort missing extracted 9.2 terrain or quest-node art");
                 SetNotice("Converted 9.2 story-board terrain is missing");
                 return board;
             }
 
-            int[] rowWidths = { 6, 8, 9, 9, 8, 6 };
-            const float horizontalStep = 8.25f;
-            const float verticalStep = 7.25f;
+            // The 9.2 one-cell pieces are 20m terrain modules. Their intended
+            // board-scale ground is already authored as a continuous 3x9
+            // primordial landmass, so use that asset as the story map instead
+            // of stamping dozens of overlapping rubble modules.
+            GameObject terrainRun = null;
             var cellTops = new Dictionary<Vector2Int, Vector3>();
-            for (int row = 0; row < rowWidths.Length; row++)
+            if (terrainRunPrefab != null)
             {
-                int count = rowWidths[row];
-                for (int column = 0; column < count; column++)
+                terrainRun = Instantiate(terrainRunPrefab, Vector3.zero, Quaternion.Euler(0f, 90f, 0f), board.transform);
+                terrainRun.name = "9.2 Primordial 3x9 Story Landmass";
+                if (terrainWingPrefab != null)
                 {
-                    float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
-                    var position = new Vector3((column - (count - 1) * .5f) * horizontalStep + stagger,
-                        0f, (2.5f - row) * verticalStep);
-                    // Use the three authored 9.2 landmass variants across the
-                    // map so the board keeps its hex topology without cloning
-                    // the same rubble silhouette into every cell.
-                    int variant = (row * 7 + column * 3) % 3;
-                    var selectedTerrain = variant == 1 ? terrainPrefab02 : variant == 2 ? terrainPrefab03 : terrainPrefab;
-                    var terrain = Instantiate(selectedTerrain, position, Quaternion.identity, board.transform);
-                    terrain.name = "9.2 Primordial Terrain Hex " + row + "-" + column;
-                    foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
-                    foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;
-                    Bounds terrainSurfaceBounds = new Bounds(position, Vector3.zero);
-                    bool foundTerrainSurface = false;
-                    foreach (var renderer in terrain.GetComponentsInChildren<Renderer>(true))
+                    foreach (var offset in new[] { -60f, 60f })
                     {
-                        if (!renderer.enabled || renderer.name != "BlankTerrain") continue;
-                        if (!foundTerrainSurface) { terrainSurfaceBounds = renderer.bounds; foundTerrainSurface = true; }
-                        else terrainSurfaceBounds.Encapsulate(renderer.bounds);
+                        var wing = Instantiate(terrainWingPrefab, Vector3.zero, Quaternion.Euler(0f, 90f, 0f), board.transform);
+                        wing.name = "9.2 Primordial 3x9 Story Terrain Wing " + (offset < 0f ? "Left" : "Right");
+                        wing.transform.localPosition = new Vector3(offset, 0f, 0f);
+                        // The 3x9_02 edge cliffs are encounter-stage scenery,
+                        // not walkable board surface. Keep its converted ground
+                        // mesh and texture as the side terrain, while the central
+                        // 3x9_01 piece supplies the route's smaller rock detail.
+                        foreach (var renderer in wing.GetComponentsInChildren<Renderer>(true))
+                            if (renderer.name != "BlankTerrain") renderer.enabled = false;
                     }
-                    var cell = new Vector2Int(row, column);
-                    cellTops[cell] = new Vector3(position.x, foundTerrainSurface ? terrainSurfaceBounds.max.y + .025f : position.y + .35f,
-                        position.z);
                 }
+                Bounds groundBounds = new Bounds(board.transform.position, Vector3.zero);
+                bool foundGround = false;
+                foreach (var collider in board.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                foreach (var filter in board.GetComponentsInChildren<MeshFilter>(true))
+                {
+                    if (filter.sharedMesh == null || filter.name != "BlankTerrain") continue;
+                    var meshCollider = filter.GetComponent<MeshCollider>();
+                    if (meshCollider == null) meshCollider = filter.gameObject.AddComponent<MeshCollider>();
+                    meshCollider.sharedMesh = filter.sharedMesh;
+                    meshCollider.enabled = true;
+                }
+                foreach (var renderer in board.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (!renderer.enabled || renderer.name != "BlankTerrain") continue;
+                    if (!foundGround) { groundBounds = renderer.bounds; foundGround = true; }
+                    else groundBounds.Encapsulate(renderer.bounds);
+                }
+                if (foundGround)
+                    board.transform.position -= new Vector3(groundBounds.center.x, 0f, groundBounds.center.z);
+                Physics.SyncTransforms();
+                Debug.Log("StoryPort placed the converted 9.2 3x9 primordial landmass and terrain wings as the story-board terrain");
+            }
+
+            int minNodeX = storyMapNodes.Count == 0 ? 0 : storyMapNodes[0].x;
+            int maxNodeX = minNodeX;
+            int minNodeY = storyMapNodes.Count == 0 ? 0 : storyMapNodes[0].y;
+            int maxNodeY = minNodeY;
+            foreach (var node in storyMapNodes)
+            {
+                minNodeX = Mathf.Min(minNodeX, node.x);
+                maxNodeX = Mathf.Max(maxNodeX, node.x);
+                minNodeY = Mathf.Min(minNodeY, node.y);
+                maxNodeY = Mathf.Max(maxNodeY, node.y);
             }
 
             foreach (var node in storyMapNodes)
             {
-                // The server stores progression on the outer grid axis (x),
-                // and branches across the inner axis (y). Preserve that
-                // orientation when placing the route on the world board.
-                int row = Mathf.Clamp(1 + Mathf.RoundToInt(node.x * 3f / Mathf.Max(1, storyMapDimension - 1)),
-                    0, rowWidths.Length - 1);
-                float routeWidth = rowWidths[row] / (float)Mathf.Max(1, storyMapDimension - 1);
-                float centerColumn = (rowWidths[row] - 1) * .5f;
-                float routeOffset = node.y - (storyMapDimension - 1) * .5f;
-                int column = Mathf.Clamp(Mathf.RoundToInt(centerColumn + routeOffset * routeWidth),
-                    0, rowWidths[row] - 1);
-                float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
-                var cell = new Vector2Int(row, column);
                 Vector3 position;
-                if (!cellTops.TryGetValue(cell, out position)) continue;
-                position.x = (column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger;
-                position.z = (2.5f - row) * verticalStep;
+                if (terrainRun != null)
+                {
+                    float progress = maxNodeX == minNodeX ? .5f : (node.x - minNodeX) / (float)(maxNodeX - minNodeX);
+                    float branch = maxNodeY == minNodeY ? .5f : (node.y - minNodeY) / (float)(maxNodeY - minNodeY);
+                    // The source landmass spans 60m across by 180m along its
+                    // length. Spread the server's route across that authored
+                    // ground; the y dimension represents only active lanes,
+                    // since the other cells in the server grid are hidden.
+                    Vector3 local = new Vector3(maxNodeY == minNodeY ? 30f : Mathf.Lerp(-45f, 105f, branch),
+                        100f, Mathf.Lerp(-10f, -170f, progress));
+                    position = terrainRun.transform.TransformPoint(local);
+                    RaycastHit terrainHit;
+                    if (Physics.Raycast(position, Vector3.down, out terrainHit, 200f))
+                        position = terrainHit.point + Vector3.up * .65f;
+                    else
+                        position.y = terrainRun.GetComponentInChildren<Renderer>().bounds.max.y + .65f;
+                }
+                else
+                {
+                    // Keep a reduced modular-board fallback when the local
+                    // converted landmass catalog has not been generated.
+                    const float horizontalStep = 20f;
+                    const float verticalStep = 17.32f;
+                    float progress = maxNodeX == minNodeX ? .5f : (node.x - minNodeX) / (float)(maxNodeX - minNodeX);
+                    float branch = maxNodeY == minNodeY ? .5f : (node.y - minNodeY) / (float)(maxNodeY - minNodeY);
+                    int row = Mathf.Clamp(Mathf.RoundToInt(progress * 5f), 0, 5);
+                    int[] rowWidths = { 4, 5, 6, 6, 5, 4 };
+                    int column = Mathf.Clamp(Mathf.RoundToInt(branch * (rowWidths[row] - 1)), 0, rowWidths[row] - 1);
+                    int variant = (row * 7 + column * 3) % 3;
+                    var selectedTerrain = variant == 1 ? terrainPrefab02 : variant == 2 ? terrainPrefab03 : terrainPrefab;
+                    float stagger = row % 2 == 0 ? -horizontalStep * .25f : horizontalStep * .25f;
+                    var tilePosition = new Vector3((column - (rowWidths[row] - 1) * .5f) * horizontalStep + stagger,
+                        0f, (2.5f - row) * verticalStep);
+                    var terrain = Instantiate(selectedTerrain, tilePosition, Quaternion.identity, board.transform);
+                    terrain.name = "9.2 Primordial Terrain Hex " + row + "-" + column;
+                    foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                    foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;
+                    Bounds surface = new Bounds(tilePosition, Vector3.zero);
+                    bool foundSurface = false;
+                    foreach (var renderer in terrain.GetComponentsInChildren<Renderer>(true))
+                        if (renderer.enabled && renderer.name == "BlankTerrain")
+                        {
+                            if (!foundSurface) { surface = renderer.bounds; foundSurface = true; }
+                            else surface.Encapsulate(renderer.bounds);
+                        }
+                    position = new Vector3(tilePosition.x, foundSurface ? surface.max.y + .65f : .65f, tilePosition.z);
+                }
                 storyNodeWorldPositions[new Vector2Int(node.x, node.y)] = position;
                 var routeMarker = Instantiate(routeNodePrefab, position, Quaternion.identity, board.transform);
                 routeMarker.name = "9.2 Server Quest Node " + node.x + "-" + node.y;
@@ -559,10 +618,12 @@ namespace StoryPort
             camera.backgroundColor = new Color(.018f, .025f, .052f);
             camera.fieldOfView = 36f;
             float aspect = Mathf.Max(.5f, (float)Screen.width / Screen.height);
-            float viewHeight = Mathf.Max(bounds.size.z, bounds.size.x / aspect) * 1.3f;
+            const float elevation = 55f * Mathf.Deg2Rad;
+            float projectedDepth = bounds.size.z * Mathf.Sin(elevation) + bounds.size.y * Mathf.Cos(elevation);
+            float viewHeight = Mathf.Max(projectedDepth, bounds.size.x / aspect) * 1.2f;
             float distance = viewHeight / (2f * Mathf.Tan(camera.fieldOfView * .5f * Mathf.Deg2Rad));
             var target = new Vector3(bounds.center.x, bounds.center.y, bounds.center.z);
-            camera.transform.position = target + new Vector3(0, distance * .78f, -distance);
+            camera.transform.position = target + new Vector3(0f, Mathf.Sin(elevation), -Mathf.Cos(elevation)) * distance;
             camera.transform.LookAt(target);
             camera.farClipPlane = Mathf.Max(4000f, distance + bounds.size.magnitude * 2f);
         }
