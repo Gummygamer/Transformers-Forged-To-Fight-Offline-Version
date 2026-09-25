@@ -821,7 +821,11 @@ namespace StoryPort
         {
             ResetCamera();
             var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, Vector3.zero, .01f);
-            if (stage != null) stage.transform.localPosition += new Vector3(-2.84f, 0, 0);
+            if (stage != null)
+            {
+                stage.transform.localPosition += new Vector3(-2.84f, 0, 0);
+                ApplyStoryPortMaterials(stage);
+            }
             playerActor = SpawnBot(playerKey, new Vector3(-2.55f, 0, -5.5f), 90f, .72f);
             enemyActor = SpawnBot(enemyKey, new Vector3(2.55f, 0, -5.5f), 270f, .72f);
             if (playerActor != null) worldRoots.Add(playerActor);
@@ -831,6 +835,34 @@ namespace StoryPort
             PlayState(playerAnimator, "Idle");
             PlayState(enemyAnimator, "Idle");
             nextEnemyTurn = Time.time + 2.8f;
+        }
+
+        void ApplyStoryPortMaterials(GameObject root)
+        {
+            var shader = Shader.Find("StoryPort/EBPBR");
+            if (shader == null)
+            {
+                Debug.LogWarning("StoryPort could not find its mobile PBR shader for the Chicago stage");
+                return;
+            }
+
+            int converted = 0;
+            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true))
+            {
+                foreach (var material in renderer.materials)
+                {
+                    if (material == null || !material.HasProperty("_base_tex")) continue;
+                    material.shader = shader;
+                    if (material.HasProperty("_use_pbr_composite"))
+                        material.SetFloat("_use_pbr_composite", material.GetTexture("_pbr_composite_tex") != null ? 1 : 0);
+                    if (material.HasProperty("_use_metallic_tex"))
+                        material.SetFloat("_use_metallic_tex", material.GetTexture("_metallic_tex") != null ? 1 : 0);
+                    if (material.HasProperty("_use_roughness_tex"))
+                        material.SetFloat("_use_roughness_tex", material.GetTexture("_roughness_tex") != null ? 1 : 0);
+                    converted++;
+                }
+            }
+            Debug.Log("StoryPort applied its mobile PBR shader to " + converted + " Chicago stage materials");
         }
 
         GameObject SpawnBot(string key, Vector3 position, float yaw, float scale)

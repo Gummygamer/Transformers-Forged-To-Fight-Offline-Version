@@ -47,11 +47,35 @@ def main() -> None:
         / "Assets/bundles/scenes/chicago_merged/chicago_merged.prefab"
     )
     if chicago_scene.is_file():
+        imported_guids = {
+            match.group(1)
+            for meta in imported.rglob("*.meta")
+            if (match := re.search(r"^guid: ([0-9a-f]{32})$", meta.read_text(errors="ignore"), re.M))
+        }
+        scene_text = chicago_scene.read_text(errors="ignore")
+        mesh_guids = set()
+        for component in re.split(r"(?m)(?=^--- !u!)", scene_text):
+            if not component.startswith("--- !u!33 "):
+                continue
+            match = re.search(r"^  m_Mesh: \{fileID: (\d+), guid: ([0-9a-f]{32}), type: \d+\}$", component, re.M)
+            if match and match.group(1) != "0":
+                mesh_guids.add(match.group(2))
+        missing_mesh_guids = sorted(mesh_guids - imported_guids)
+        if missing_mesh_guids:
+            raise RuntimeError(
+                "Chicago scene references mesh assets absent from the converted project: "
+                + ", ".join(missing_mesh_guids)
+                + ". Use a full conversion that includes the Chicago meshes."
+            )
         chicago_resource = (
             unity_assets / "Resources/StoryPort/ChicagoFightStage.prefab"
         )
         chicago_resource.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(chicago_scene, chicago_resource)
+    else:
+        stale_scene = unity_assets / "Resources/StoryPort/ChicagoFightStage.prefab"
+        stale_scene.unlink(missing_ok=True)
+        stale_scene.with_suffix(stale_scene.suffix + ".meta").unlink(missing_ok=True)
 
     # Small original menu, loading, story-card, and quest portrait images are
     # not stored in the Unity bundles. Keep them local in Resources so the clean
