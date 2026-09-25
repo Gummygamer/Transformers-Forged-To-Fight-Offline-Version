@@ -862,7 +862,13 @@ namespace StoryPort
         {
             playerBusy = true;
             guarding = false;
+            Vector3 playerHome = playerActor != null ? playerActor.transform.position : Vector3.zero;
             PlayState(playerAnimator, state);
+            if (playerActor != null && enemyActor != null)
+            {
+                Vector3 towardEnemy = (enemyActor.transform.position - playerActor.transform.position).normalized;
+                StartCoroutine(MoveActor(playerActor, playerHome + towardEnemy * .65f, .16f));
+            }
             yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
             if (enemyAnimator != null) PlayState(enemyAnimator, state == "SpecialAttack03" ? "SpecialAttack03HitReaction" : "HitReactionLightLeftHigh");
@@ -875,10 +881,11 @@ namespace StoryPort
             if (playerActor != null && enemyActor != null)
             {
                 var direction = (enemyActor.transform.position - playerActor.transform.position).normalized;
-                playerActor.transform.position += direction * .22f;
+                enemyActor.transform.position += direction * .22f;
                 CameraShake(.04f);
             }
             UpdateFightHud();
+            if (playerActor != null) yield return StartCoroutine(MoveActor(playerActor, playerHome, .16f));
             playerBusy = false;
             if (enemyHp == 0) { StartCoroutine(ResolveWinAfterImpact()); yield break; }
             nextEnemyTurn = Time.time + Mathf.Max(.8f, 2.4f - charge * .04f);
@@ -894,18 +901,35 @@ namespace StoryPort
 
         void Dash()
         {
-            if (screen != "fight" || playerActor == null) return;
+            Dash(true);
+        }
+
+        void Dash(bool towardEnemy)
+        {
+            if (screen != "fight" || playerActor == null || enemyActor == null) return;
             guarding = false;
             PlayState(playerAnimator, "Dash");
-            if (enemyActor != null)
-            {
-                var towardEnemy = (enemyActor.transform.position - playerActor.transform.position).normalized;
-                playerActor.transform.position += towardEnemy * .95f;
-            }
+            var direction = (enemyActor.transform.position - playerActor.transform.position).normalized;
+            playerActor.transform.position += direction * (towardEnemy ? .95f : -.7f);
             specialMeter = Mathf.Min(3, specialMeter + 1);
-            evadeUntil = Time.time + .65f;
+            evadeUntil = Time.time + (towardEnemy ? .38f : .72f);
             nextEnemyTurn = Time.time + .8f;
             UpdateFightHud();
+        }
+
+        IEnumerator MoveActor(GameObject actor, Vector3 target, float duration)
+        {
+            if (actor == null) yield break;
+            Vector3 start = actor.transform.position;
+            float elapsed = 0f;
+            while (elapsed < duration && actor != null)
+            {
+                elapsed += Time.deltaTime;
+                float amount = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+                actor.transform.position = Vector3.Lerp(start, target, amount);
+                yield return null;
+            }
+            if (actor != null) actor.transform.position = target;
         }
 
         void ToggleBlock()
@@ -981,7 +1005,13 @@ namespace StoryPort
         {
             enemyBusy = true;
             bool special = enemySpecialMeter >= 3;
+            Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
             PlayState(enemyAnimator, special ? "SpecialAttack03" : "LightAttack01");
+            if (enemyActor != null && playerActor != null)
+            {
+                Vector3 towardPlayer = (playerActor.transform.position - enemyActor.transform.position).normalized;
+                StartCoroutine(MoveActor(enemyActor, enemyHome + towardPlayer * .7f, .2f));
+            }
             SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "INCOMING ATTACK · BLOCK OR DODGE");
             yield return new WaitForSeconds(special ? 1f : .58f);
             if (playerHp > 0 && enemyHp > 0)
@@ -1005,6 +1035,7 @@ namespace StoryPort
                 }
             }
             enemyBusy = false;
+            if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome, .18f));
             if (guarding)
             {
                 guarding = false;
@@ -1541,14 +1572,16 @@ namespace StoryPort
                 if (touchStart.x < .3f)
                 {
                     guarding = false;
-                    if (Mathf.Abs(delta.x) > .09f || Mathf.Abs(delta.y) > .09f) Dash();
+                    if (Mathf.Abs(delta.x) > .09f || Mathf.Abs(delta.y) > .09f) Dash(delta.x >= 0f);
                     else PlayState(playerAnimator, "Idle");
                     UpdateFightHud();
                     return;
                 }
                 if (touchStart.x > .38f)
                 {
-                    if (Time.time - touchBeganAt >= .34f)
+                    if (Mathf.Abs(delta.x) > .12f)
+                        Dash(delta.x >= 0f);
+                    else if (Time.time - touchBeganAt >= .34f)
                         PlayerAttack("MediumAttack01", 27, 10);
                     else
                     {
