@@ -241,7 +241,7 @@ namespace StoryPort
             HeaderResource(bar.transform, "Energon", "UI/soft_currency", "7,800", .75f, .09f);
             HeaderResource(bar.transform, "Premium Currency", "UI/hard_currency", "99", .89f, .085f);
             string[] tabs = { "BASE", "BOTS", "INVENTORY", "FIGHT", "ALLIANCE", "CRYSTALS", "STORE" };
-            Action[] actions = { () => Show("base"), () => Show("roster"), () => Show("inventory"), () => Show("story"), () => Show("story"), () => Show("roster"), () => Show("roster") };
+            Action[] actions = { () => Show("base"), () => Show("roster"), () => Show("inventory"), () => Show("fightmode"), () => Show("story"), () => Show("roster"), () => Show("roster") };
             var navNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_button");
             var centerNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_center");
             float left = .12f;
@@ -271,7 +271,7 @@ namespace StoryPort
         {
             if (headerRoot == null) return;
             int selected = next == "base" ? 0 : next == "roster" || next == "squad" ? 1 : next == "inventory" ? 2 :
-                next == "story" || next == "chapter" || next == "map" || next == "fight" || next == "victory" || next == "defeat" ? 3 : -1;
+                next == "fightmode" || next == "story" || next == "chapter" || next == "map" || next == "fight" || next == "victory" || next == "defeat" ? 3 : -1;
             string[] tabs = { "BASE", "BOTS", "INVENTORY", "FIGHT", "ALLIANCE", "CRYSTALS", "STORE" };
             for (int i = 0; i < tabs.Length; i++)
             {
@@ -302,6 +302,7 @@ namespace StoryPort
             if (next == "title") TitleScreen();
             else if (next == "loading") LoadingScreen();
             else if (next == "base") BaseScreen();
+            else if (next == "fightmode") FightModeScreen();
             else if (next == "story") StoryScreen();
             else if (next == "chapter") ChapterScreen();
             else if (next == "map") MapScreen();
@@ -350,10 +351,6 @@ namespace StoryPort
             var baseWorld = SpawnWorld("Base", "PrimordialBase", Vector3.zero, Vector3.zero, .012f);
             FrameWorld(baseWorld, 1.3f);
             if (baseWorld != null) StartCoroutine(LoadBaseBuildings(baseWorld.transform));
-            SectionTitle("COMMAND CENTER", "Your base is operational. Select a mission and deploy.");
-            ActionButton("STORY MISSIONS", "Follow the three-act campaign", () => Show("story"), .68f, .56f, .27f, .19f, true);
-            ActionButton("BOT ROSTER", "View and select your squad", () => Show("roster"), .68f, .32f, .27f, .18f, false);
-            LabelAt(content, "Welcome", "WELCOME, COMMANDER", 19, TextAnchor.MiddleLeft, new Color(.83f, .9f, .92f), new Vector2(.065f, .18f), new Vector2(.48f, .25f));
         }
 
         IEnumerator LoadBaseBuildings(Transform baseRoot)
@@ -403,10 +400,64 @@ namespace StoryPort
             }
         }
 
+        void FightModeScreen()
+        {
+            LabelAt(content, "Fight Mode Header", "SELECT A FIGHT MODE", 27, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .9f), new Vector2(.8f, .99f));
+
+            string[] names = { "STORY", "RAIDS", "ALLIANCE MISSIONS", "SPECIAL", "DAILY CLASS", "ARENAS" };
+            string[] descriptions =
+            {
+                "ACT I · CHAPTER 1 · MISSION 1",
+                "Explore and attack rival bases",
+                "Fight alongside your alliance",
+                "Limited-time missions",
+                "Earn daily class rewards",
+                "Battle other commanders"
+            };
+            string[] artNames =
+            {
+                "fightstoryimglrg_hd", "fightraidsimg_hd", "fightallianceimg_hd",
+                "fighteventimglrg_hd", "fightl_dailymission_hd", "fightversusimg_hd"
+            };
+
+            for (int i = 0; i < names.Length; i++)
+            {
+                int mode = i;
+                int column = i % 3;
+                int row = i / 3;
+                float x = .035f + column * .315f;
+                float y = row == 0 ? .475f : .095f;
+                var card = Button(content, "Fight Mode " + names[i], () =>
+                {
+                    if (mode == 0) Show("story");
+                    else SetNotice("This mode is not connected to the local server campaign.");
+                }, new Vector2(x, y), new Vector2(x + .295f, y + .34f));
+
+                var art = SpriteImage(card.transform, "Mode Artwork", "UI/" + artNames[i], Vector2.zero, Vector2.one, false);
+                if (art != null)
+                {
+                    art.raycastTarget = false;
+                    art.transform.SetAsFirstSibling();
+                }
+
+                var shade = Panel(card.transform, "Mode Label Shade", new Color(.005f, .015f, .03f, .82f),
+                    new Vector2(0f, 0f), new Vector2(1f, .34f));
+                shade.GetComponent<Image>().raycastTarget = false;
+                shade.transform.SetSiblingIndex(art != null ? 1 : 0);
+
+                var label = card.GetComponentInChildren<Text>();
+                label.text = names[i] + "\n<size=12>" + descriptions[i] + "</size>";
+                label.fontSize = 17;
+                label.alignment = TextAnchor.MiddleLeft;
+                Anchor(label.rectTransform, new Vector2(.055f, .035f), new Vector2(.945f, .32f));
+                if (art != null) card.targetGraphic = art;
+            }
+        }
+
         void StoryScreen()
         {
-            LabelAt(content, "Story Missions Header", "STORY MISSIONS", 27, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .89f), new Vector2(.8f, .98f));
-            LabelAt(content, "Story Missions Subtitle", "Gain XP, Energon, and upgrade materials as you uncover the mysteries of New Quintessa.", 13, TextAnchor.MiddleCenter, new Color(.71f, .81f, .86f), new Vector2(.12f, .83f), new Vector2(.88f, .9f));
+            LabelAt(content, "Story Missions Header", "SELECT AN ACT", 27, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .89f), new Vector2(.8f, .98f));
+            LabelAt(content, "Story Missions Subtitle", "Choose an act to continue the campaign.", 13, TextAnchor.MiddleCenter, new Color(.71f, .81f, .86f), new Vector2(.12f, .83f), new Vector2(.88f, .9f));
             string[] artNames = { "UI/fightstoryimglrg_hd", "UI/fightstoryimglrg_sd", "UI/fightstoryimgsml_hd" };
             for (int i = 0; i < 3; i++)
             {
