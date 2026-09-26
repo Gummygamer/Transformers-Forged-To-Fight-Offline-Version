@@ -68,6 +68,7 @@ namespace StoryPort
         string lastQuestJson = "";
         int specialMeter;
         float playerMana, enemyMana;
+        int hitsLanded, hitsReceived, highestChain;
         int enemySpecialLevel;
         readonly StoryPortCombatRules rules = new StoryPortCombatRules();
         Text playerRatingText, enemyRatingText;
@@ -1215,6 +1216,7 @@ namespace StoryPort
             lastPlayerHit = 0;
             nextEnemyTurn = Time.time + 2.8f;
             if (audioPlayer != null) { audioPlayer.Preload(playerKey); audioPlayer.Preload(enemyKey); }
+            hitsLanded = hitsReceived = highestChain = 0;
             Cue("fight_start", .7f);
             var hud = Panel(content, "Fight HUD", new Color(0, 0, 0, 0), Vector2.zero, Vector2.one);
             hud.GetComponent<Image>().raycastTarget = false;
@@ -1533,6 +1535,8 @@ namespace StoryPort
             }
             if (Time.time - lastPlayerHit > 1.4f) comboHits = 0;
             comboHits++;
+            hitsLanded++;
+            highestChain = Mathf.Max(highestChain, comboHits);
             lastPlayerHit = Time.time;
             if (comboText != null) comboText.text = comboHits + " HITS!\n<size=16>GOOD!</size>";
             if (playerActor != null && enemyActor != null)
@@ -1659,6 +1663,9 @@ namespace StoryPort
             StartCoroutine(EnemyAttack());
         }
 
+        // Enemy turn: a special when a bar is charged, otherwise a combo of one to
+        // three light hits, then a short breather. The reference fights show the
+        // AI landing about one hit for every two the player lands.
         IEnumerator EnemyAttack()
         {
             enemyBusy = true;
@@ -1666,22 +1673,26 @@ namespace StoryPort
             bool special = enemyBars >= 1 && (enemyBars >= 3 || UnityEngine.Random.value < .3f);
             enemySpecialLevel = special ? Mathf.Min(3, enemyBars) : 0;
             if (special) enemyMana -= enemySpecialLevel * StoryPortCombatRules.ManaPerBar;
+            int hits = special ? 1 : UnityEngine.Random.Range(1, 4);
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
-            PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack01");
-            int enemyStep = special ? 6 : UnityEngine.Random.Range(1, 4);
-            Combat(enemyKey, "attack_" + enemyStep);
             if (enemyActor != null && playerActor != null)
             {
                 Vector3 towardPlayer = (playerActor.transform.position - enemyActor.transform.position).normalized;
                 StartCoroutine(MoveActor(enemyActor, enemyHome + towardPlayer * .7f, .2f));
             }
-            SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "INCOMING ATTACK · BLOCK OR DODGE");
-            yield return new WaitForSeconds(special ? 1f : .58f);
-            if (playerHp > 0 && enemyHp > 0)
+            SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "");
+            for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
-                var enemyMove = rules.MoveFor("LightAttack01");
+                PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack0" + hit);
+                int enemyStep = special ? 6 : hit;
+                Combat(enemyKey, "attack_" + enemyStep);
+                // The first swing telegraphs; follow-ups come faster.
+                yield return new WaitForSeconds(special ? 1f : hit == 1 ? .5f : .32f);
+                if (playerHp <= 0 || enemyHp <= 0) break;
+                var enemyMove = rules.MoveFor("LightAttack0" + hit);
                 float raw = enemyAttack * (special ? rules.SpecialRatio(enemyKey, enemySpecialLevel) : enemyMove.Share) * UnityEngine.Random.Range(.95f, 1.05f);
-                float taken = Time.time < evadeUntil ? 0f : guarding ? raw * .1f : raw;
+                bool evaded = Time.time < evadeUntil;
+                float taken = evaded ? 0f : guarding ? raw * .1f : raw;
                 int damage = Mathf.RoundToInt(taken);
                 playerHealth = Mathf.Max(0f, playerHealth - taken);
                 SyncHealthPercent();
@@ -1689,19 +1700,20 @@ namespace StoryPort
                 if (guarding) Combat(playerKey, "block_react");
                 else if (damage > 0)
                 {
+                    hitsReceived++;
                     Combat(enemyKey, "attack_hit_" + enemyStep);
                     Combat(playerKey, special ? "hit_react_heavy" : "hit_react_light", .6f);
+                    comboHits = 0;
+                    if (comboText != null) comboText.text = "";
                 }
-                comboHits = 0;
-                if (comboText != null) comboText.text = "";
                 if (!special && taken > 0f)
                 {
                     enemyMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, enemyMana + enemyMove.Mana);
                     playerMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, playerMana + enemyMove.Mana * .5f);
                 }
-                PlayState(playerAnimator, guarding ? "BlockReact" : damage == 0 ? "Dash" : special ? "SpecialAttack0" + enemySpecialLevel + "HitReaction" : "HitReactionLightRightHigh");
-                CameraShake(guarding || damage == 0 ? .05f : .12f);
-                if (damage == 0) SetNotice("DODGED");
+                PlayState(playerAnimator, guarding ? "BlockReact" : evaded ? "Dash" : special ? "SpecialAttack0" + enemySpecialLevel + "HitReaction" : "HitReactionLightRightHigh");
+                CameraShake(guarding || evaded ? .05f : .12f);
+                if (evaded) SetNotice("DODGED");
                 UpdateFightHud();
                 if (playerHp == 0)
                 {
@@ -1710,15 +1722,17 @@ namespace StoryPort
                     yield return new WaitForSeconds(.8f);
                     Show("defeat");
                 }
+                if (evaded) break;
             }
             enemyBusy = false;
             if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome, .18f));
-            if (guarding)
+            // Keep a held block; only drop a block the player has already released.
+            if (guarding && !touchTracking)
             {
                 guarding = false;
                 PlayState(playerAnimator, "Idle");
             }
-            nextEnemyTurn = Time.time + 4.2f;
+            nextEnemyTurn = Time.time + UnityEngine.Random.Range(1.4f, 2.6f);
             RunQueuedAttack();
         }
 
@@ -1969,15 +1983,55 @@ namespace StoryPort
             SetNotice("VICTORY SAVED TO THE STORY ROUTE");
         }
 
+        // Result screen after the reference: title, the fight's stats and the
+        // mission's explored share from the server route, tap anywhere to continue.
         void ResultScreen(bool won)
         {
             Cue(won ? "fight_won" : "fight_lost", .8f);
-            var panel = Panel(content, "Match Result", new Color(.02f, .065f, .105f, .92f), new Vector2(.28f, .29f), new Vector2(.72f, .83f));
-            LabelAt(panel.transform, "Result", won ? "VICTORY" : "DEFEAT", 42, TextAnchor.MiddleCenter, won ? new Color(.45f, .94f, .78f) : new Color(1f, .48f, .42f), new Vector2(.08f, .57f), new Vector2(.92f, .93f));
-            LabelAt(panel.transform, "Opponent", playerName + "   VS   " + enemyName, 20, TextAnchor.MiddleCenter, Color.white, new Vector2(.08f, .37f), new Vector2(.92f, .6f));
-            LabelAt(panel.transform, "Final Health", "" + playerHp + "%   ·   " + enemyHp + "%", 18, TextAnchor.MiddleCenter, new Color(.69f, .84f, .88f), new Vector2(.08f, .22f), new Vector2(.92f, .39f));
-            if (won) ActionButton("CONTINUE STORY", "Use the next node from the server route", () => ContinueRoute(), .39f, .1f, .22f, .15f, true);
-            else ActionButton("RETRY ENCOUNTER", "Reset this battle", RetryFight, .39f, .1f, .22f, .15f, true);
+            var shade = Panel(content, "Result Shade", new Color(.01f, .03f, .06f, .78f), new Vector2(-.03f, -.1f), new Vector2(1.03f, 1.15f));
+            shade.GetComponent<Image>().raycastTarget = false;
+            var title = LabelAt(content, "Result", won ? "VICTORY" : "DEFEAT", 54, TextAnchor.MiddleCenter, won ? new Color(.86f, .95f, 1f) : new Color(1f, .5f, .45f), new Vector2(.3f, .86f), new Vector2(.7f, 1.02f));
+            title.fontStyle = FontStyle.Bold;
+            title.gameObject.AddComponent<Outline>().effectColor = won ? new Color(.1f, .55f, .95f, .9f) : new Color(.6f, .1f, .1f, .9f);
+            var stats = Panel(content, "Result Stats", new Color(.08f, .1f, .13f, .92f), new Vector2(.2f, .34f), new Vector2(.8f, .78f));
+            stats.GetComponent<Image>().raycastTarget = false;
+            LabelAt(stats.transform, "Stats Title", "STATS", 18, TextAnchor.MiddleCenter, new Color(.8f, .85f, .9f), new Vector2(0, .8f), new Vector2(1, .98f));
+            Panel(stats.transform, "Stats Rule", new Color(.35f, .4f, .45f, 1f), new Vector2(.03f, .78f), new Vector2(.97f, .785f)).GetComponent<Image>().raycastTarget = false;
+            string[] names = { "SUCCESSFUL HITS", "HITS RECEIVED", "HIGHEST CHAIN" };
+            int[] values = { hitsLanded, hitsReceived, highestChain };
+            for (int i = 0; i < 3; i++)
+            {
+                float y = .56f - i * .22f;
+                LabelAt(stats.transform, names[i], names[i], 16, TextAnchor.MiddleLeft, new Color(.78f, .82f, .86f), new Vector2(.12f, y), new Vector2(.7f, y + .18f));
+                LabelAt(stats.transform, names[i] + " Value", values[i].ToString(), 16, TextAnchor.MiddleRight, Color.white, new Vector2(.7f, y), new Vector2(.88f, y + .18f));
+            }
+            var mission = Panel(content, "Result Mission", new Color(.08f, .1f, .13f, .92f), new Vector2(.2f, .2f), new Vector2(.8f, .3f));
+            mission.GetComponent<Image>().raycastTarget = false;
+            LabelAt(mission.transform, "Mission Label", "ACT " + Roman(actIndex + 1), 15, TextAnchor.MiddleLeft, Color.white, new Vector2(.05f, 0), new Vector2(.2f, 1));
+            var track = MakeImage(mission.transform, "Mission Track", new Color(.2f, .2f, .22f, 1f), new Vector2(.2f, .3f), new Vector2(.72f, .7f));
+            track.raycastTarget = false;
+            float explored = ExploredShare();
+            var fill = MakeImage(track.transform, "Mission Fill", new Color(.9f, .64f, .12f, 1f), Vector2.zero, new Vector2(explored, 1f));
+            fill.raycastTarget = false;
+            LabelAt(mission.transform, "Mission Explored", "Explored " + Mathf.RoundToInt(explored * 100f) + "%", 15, TextAnchor.MiddleRight, Color.white, new Vector2(.72f, 0), new Vector2(.96f, 1));
+            LabelAt(content, "Result Continue", "TAP ANYWHERE TO CONTINUE", 14, TextAnchor.MiddleCenter, new Color(.75f, .8f, .85f), new Vector2(.3f, .02f), new Vector2(.7f, .1f));
+            var tap = Button(content, "Result Tap", won ? (Action)ContinueRoute : RetryFight, new Vector2(-.03f, -.1f), new Vector2(1.03f, 1.15f));
+            tap.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+            tap.GetComponentInChildren<Text>().text = "";
+            tap.transform.SetAsLastSibling();
+        }
+
+        // Share of the act's encounters the server reports cleared (or reached).
+        float ExploredShare()
+        {
+            int total = 0, reached = 0;
+            foreach (var node in storyMapNodes)
+            {
+                if (string.IsNullOrEmpty(node.boss)) continue;
+                total++;
+                if (node.x <= mapX) reached++;
+            }
+            return total == 0 ? 1f : Mathf.Clamp01((float)reached / total);
         }
 
         void ContinueRoute()

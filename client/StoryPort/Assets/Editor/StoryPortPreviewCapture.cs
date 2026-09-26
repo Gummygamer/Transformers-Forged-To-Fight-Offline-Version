@@ -79,6 +79,11 @@ namespace StoryPort.Editor
             Capture("dialogue");
         }
 
+        public static void CaptureResult()
+        {
+            Capture("victory");
+        }
+
         public static void CaptureFight()
         {
             Capture("fight");
@@ -123,6 +128,17 @@ namespace StoryPort.Editor
                 Invoke(client, "SquadScreen");
             }
             else if (screen == "fight") Invoke(client, "FightScreen");
+            else if (screen == "victory")
+            {
+                Invoke(client, "FightScreen");
+                Set(client, "hitsLanded", 16);
+                Set(client, "hitsReceived", 9);
+                Set(client, "highestChain", 5);
+                foreach (Transform child in client.transform) { }
+                var content = (RectTransform)typeof(StoryPortBootstrap).GetField("content", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(client);
+                foreach (Transform child in content) UnityEngine.Object.DestroyImmediate(child.gameObject);
+                Invoke(client, "ResultScreen", true);
+            }
             else if (screen == "loading") Invoke(client, "LoadingScreen");
             else if (screen == "dialogue")
             {
@@ -159,7 +175,7 @@ namespace StoryPort.Editor
             var canvas = UnityEngine.Object.FindObjectOfType<Canvas>();
             if (camera == null || canvas == null) throw new Exception("Story preview did not create its camera and canvas");
             var statusBar = canvas.transform.Find("Root/Top Status Bar");
-            if (statusBar != null) statusBar.gameObject.SetActive(screen != "fight" && screen != "dialogue");
+            if (statusBar != null) statusBar.gameObject.SetActive(screen != "fight" && screen != "dialogue" && screen != "victory");
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = camera;
             canvas.planeDistance = .3f;
