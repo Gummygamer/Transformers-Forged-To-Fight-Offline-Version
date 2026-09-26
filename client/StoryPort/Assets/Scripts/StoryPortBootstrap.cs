@@ -473,74 +473,92 @@ namespace StoryPort
 
         void StoryScreen()
         {
-            Panel(content, "Story Mission Backdrop", new Color(.012f, .025f, .052f, .96f), Vector2.zero, Vector2.one);
-            LabelAt(content, "Story Missions Header", "STORY MISSIONS", 25, TextAnchor.MiddleCenter, Color.white,
-                new Vector2(.28f, .88f), new Vector2(.72f, .99f));
-            LabelAt(content, "Story Missions Subtitle", "Explore the campaign and continue your route", 12,
-                TextAnchor.MiddleCenter, new Color(.69f, .8f, .87f), new Vector2(.25f, .83f), new Vector2(.75f, .9f));
+            TechBackdrop();
+            var header = LabelAt(content, "Story Missions Header", "STORY MISSIONS", 25, TextAnchor.MiddleCenter, Color.white,
+                new Vector2(.28f, .9f), new Vector2(.72f, 1f));
+            header.fontStyle = FontStyle.Bold;
+            LabelAt(content, "Story Missions Subtitle", "Gain XP, Energon, and upgrade materials while unraveling the mysteries of New Quintessa!", 13,
+                TextAnchor.MiddleCenter, Color.white, new Vector2(.15f, .84f), new Vector2(.85f, .9f));
 
-            for (int i = 0; i < ActQids.Length; i++)
-            {
-                int selected = i;
-                float x = .26f + i * .16f;
-                var tab = Button(content, "Act " + Roman(i + 1), () => { actIndex = selected; Show("story"); },
-                    new Vector2(x, .77f), new Vector2(x + .15f, .84f));
-                SetButtonSkin(tab, i == actIndex ? "button_tab_active" : "button_tab");
-                var label = tab.GetComponentInChildren<Text>();
-                label.text = "ACT " + Roman(i + 1);
-                label.fontSize = 14;
-            }
+            // Selected act at the left, the other acts as narrow cards at the right, as in the footage.
+            StoryActBanner(actIndex, new Vector2(.004f, .04f), new Vector2(.155f, .8f), true);
+            var others = new List<int>();
+            for (int i = 0; i < ActQids.Length; i++) if (i != actIndex) others.Add(i);
+            for (int i = 0; i < others.Count; i++)
+                StoryActBanner(others[i], new Vector2(.7f + i * .152f, .04f), new Vector2(.848f + i * .152f, .8f), false);
 
-            StoryActBanner(actIndex, new Vector2(.018f, .08f), new Vector2(.235f, .77f), true);
-            StoryActBanner((actIndex + 1) % ActQids.Length, new Vector2(.795f, .08f), new Vector2(.982f, .77f), false);
-
-            var chapter = Button(content, "Chapter 1", OpenStoryMap, new Vector2(.26f, .24f), new Vector2(.445f, .74f));
-            chapter.GetComponent<Image>().color = new Color(.055f, .23f, .36f, 1f);
-            var chapterArt = SpriteImage(chapter.transform, "Chapter Art", "UI/button_tab_active", Vector2.zero, Vector2.one, false);
-            if (chapterArt != null) { chapterArt.raycastTarget = false; chapterArt.transform.SetAsFirstSibling(); }
-            var chapterShade = Panel(chapter.transform, "Chapter Text Shade", new Color(.008f, .022f, .045f, .88f),
-                new Vector2(.04f, .04f), new Vector2(.96f, .56f));
-            chapterShade.GetComponent<Image>().raycastTarget = false;
-            var bookmark = SpriteImage(chapter.transform, "Chapter Bookmark", "UI/story_bookmark",
-                new Vector2(-.06f, .77f), new Vector2(.18f, 1.08f), true);
-            if (bookmark != null) bookmark.raycastTarget = false;
-            LabelAt(chapter.transform, "Chapter Number", "CHAPTER 1", 15, TextAnchor.MiddleLeft, new Color(.39f, .84f, .98f),
-                new Vector2(.1f, .56f), new Vector2(.92f, .65f)).raycastTarget = false;
-            LabelAt(chapter.transform, "Chapter Name", ActTitles[actIndex], 20, TextAnchor.MiddleLeft, Color.white,
-                new Vector2(.1f, .31f), new Vector2(.92f, .58f)).raycastTarget = false;
-            LabelAt(chapter.transform, "Chapter Action", "ENTER STORY BOARD", 13, TextAnchor.MiddleLeft, new Color(.57f, .95f, 1f),
-                new Vector2(.1f, .09f), new Vector2(.92f, .25f)).raycastTarget = false;
+            var chapter = Button(content, "Chapter 1", OpenStoryMap, new Vector2(.165f, .42f), new Vector2(.285f, .8f));
+            chapter.GetComponent<Image>().sprite = null;
+            chapter.GetComponent<Image>().color = new Color(.1f, .48f, .82f, 1f);
             chapter.GetComponentInChildren<Text>().text = "";
+            LabelAt(chapter.transform, "Chapter Number", "Chapter 1", 12, TextAnchor.MiddleLeft, new Color(.85f, .95f, 1f),
+                new Vector2(.08f, .78f), new Vector2(.95f, .95f)).raycastTarget = false;
+            var chapterName = LabelAt(chapter.transform, "Chapter Name", ActTitles[actIndex], 14, TextAnchor.UpperLeft, Color.white,
+                new Vector2(.08f, .5f), new Vector2(.95f, .78f));
+            chapterName.fontStyle = FontStyle.Bold; chapterName.raycastTarget = false;
+            LabelAt(chapter.transform, "Chapter Action", "ENTER STORY BOARD", 10, TextAnchor.MiddleLeft, new Color(.85f, .98f, 1f),
+                new Vector2(.08f, .3f), new Vector2(.95f, .48f)).raycastTarget = false;
+            var chapterBar = MakeImage(chapter.transform, "Chapter Track", new Color(.03f, .1f, .2f, .9f), new Vector2(.08f, .16f), new Vector2(.92f, .24f));
+            chapterBar.raycastTarget = false;
+            var bossPreview = Panel(content, "Chapter Boss Backdrop", new Color(.02f, .04f, .08f, .95f), new Vector2(.165f, .04f), new Vector2(.285f, .4f));
+            bossPreview.GetComponent<Image>().raycastTarget = false;
 
             var routeLabels = ActNodeLabels[actIndex].Split('|');
+            var routeBosses = new List<string>();
             if (currentQid == ActQids[actIndex] && storyMapNodes.Count > 0)
             {
                 var serverLabels = new List<string>();
                 foreach (var node in storyMapNodes)
                     if (!string.IsNullOrEmpty(node.boss))
+                    {
                         serverLabels.Add(string.IsNullOrEmpty(node.label) ? DisplayName(node.boss) : node.label);
+                        routeBosses.Add(node.boss);
+                    }
                 if (serverLabels.Count > 0) routeLabels = serverLabels.ToArray();
+            }
+            if (routeBosses.Count > 0)
+            {
+                var bossArt = SpriteImage(bossPreview.transform, "Chapter Boss", "Portraits/" + PortraitFor(routeBosses[routeBosses.Count - 1]),
+                    new Vector2(.05f, .05f), new Vector2(.95f, .95f), true);
+                if (bossArt != null) bossArt.raycastTarget = false;
             }
             for (int i = 0; i < routeLabels.Length; i++)
             {
                 int column = i % 3, row = i / 3;
-                float x = .455f + column * .108f;
-                float y = row == 0 ? .48f : .24f;
-                var tile = Panel(content, "Route Preview " + (i + 1), new Color(.014f, .034f, .07f, .98f),
-                    new Vector2(x, y), new Vector2(x + .102f, y + .22f));
-                var tileBackground = SpriteImage(tile.transform, "9.2 Route Tile", "UI/hero_tile_background", Vector2.zero, Vector2.one, false);
-                if (tileBackground != null) tileBackground.raycastTarget = false;
-                var icon = SpriteImage(tile.transform, "Encounter Icon", "UI/boss_icon", new Vector2(.36f, .45f), new Vector2(.64f, .79f), true);
+                float x = .295f + column * .134f;
+                float y = row == 0 ? .42f : .04f;
+                var tile = Button(content, "Route Tile " + (i + 1), OpenStoryMap, new Vector2(x, y), new Vector2(x + .126f, y + .38f));
+                tile.GetComponent<Image>().sprite = null;
+                tile.GetComponent<Image>().color = i == 0 ? new Color(.1f, .48f, .82f, 1f) : new Color(.08f, .3f, .5f, 1f);
+                tile.GetComponentInChildren<Text>().text = "";
+                var frame = SpriteImage(tile.transform, "Encounter Frame", "UI/frame_selection", new Vector2(.28f, .4f), new Vector2(.72f, .92f), true);
+                if (frame != null) { frame.color = new Color(.75f, .8f, .85f, 1f); frame.raycastTarget = false; }
+                var icon = SpriteImage(tile.transform, "Encounter Icon", "UI/boss_icon", new Vector2(.14f, .38f), new Vector2(.3f, .52f), true);
                 if (icon != null) icon.raycastTarget = false;
-                LabelAt(tile.transform, "Encounter Number", (i + 1).ToString(), 12, TextAnchor.MiddleCenter, Color.white,
-                    new Vector2(.04f, .72f), new Vector2(.3f, .95f));
-                LabelAt(tile.transform, "Encounter Name", routeLabels[i].ToUpperInvariant(), 10, TextAnchor.MiddleCenter, Color.white,
-                    new Vector2(.06f, .05f), new Vector2(.94f, .43f));
+                var label = LabelAt(tile.transform, "Encounter Name", (i + 1) + ". " + routeLabels[i], 12, TextAnchor.UpperLeft, new Color(.85f, .95f, 1f),
+                    new Vector2(.1f, .12f), new Vector2(.95f, .38f));
+                label.raycastTarget = false;
+                if (i == 0)
+                {
+                    var bookmark = SpriteImage(tile.transform, "Current Marker", "UI/story_bookmark", new Vector2(-.04f, .8f), new Vector2(.2f, 1.06f), true);
+                    if (bookmark != null) bookmark.raycastTarget = false;
+                }
+                var track = MakeImage(tile.transform, "Encounter Track", new Color(.03f, .1f, .2f, .9f), new Vector2(.1f, .04f), new Vector2(.9f, .09f));
+                track.raycastTarget = false;
+            }
+            // Empty encounter slots continue the grid downwards.
+            for (int i = routeLabels.Length; i < 6; i++)
+            {
+                int column = i % 3, row = i / 3;
+                float x = .295f + column * .134f;
+                float y = row == 0 ? .42f : .04f;
+                var empty = Panel(content, "Empty Slot " + (i + 1), new Color(.02f, .04f, .08f, .9f), new Vector2(x, y), new Vector2(x + .126f, y + .38f));
+                empty.GetComponent<Image>().raycastTarget = false;
             }
             var back = Button(content, "Back to Fight Modes", () => Show("fightmode"),
-                new Vector2(.025f, .83f), new Vector2(.145f, .92f));
+                new Vector2(.004f, .9f), new Vector2(.06f, .995f));
             SetButtonSkin(back, "button_tab");
-            back.GetComponentInChildren<Text>().text = "‹  BACK";
+            back.GetComponentInChildren<Text>().text = "‹";
         }
 
         void ChapterScreen()
@@ -555,16 +573,18 @@ namespace StoryPort
             string[] artworkNames = { "UI/planet_landscape", "UI/starscream_fight", "UI/fightstoryimglrg_hd" };
             var artwork = SpriteImage(banner.transform, "9.2 Story Art", artworkNames[index], Vector2.zero, Vector2.one, false);
             if (artwork != null) { artwork.raycastTarget = false; artwork.transform.SetAsFirstSibling(); }
-            var shade = Panel(banner.transform, "Banner Shade", new Color(.008f, .018f, .038f, selected ? .82f : .64f),
-                new Vector2(0, 0), new Vector2(1, selected ? .62f : .5f));
+            var shade = Panel(banner.transform, "Banner Shade", new Color(.008f, .018f, .038f, .3f),
+                new Vector2(0, .25f), new Vector2(1, 1f));
             shade.GetComponent<Image>().raycastTarget = false;
-            LabelAt(banner.transform, "Act Number", "ACT " + Roman(index + 1), 17, TextAnchor.MiddleLeft, Color.white,
-                new Vector2(.07f, .49f), new Vector2(.93f, .61f)).raycastTarget = false;
-            LabelAt(banner.transform, "Act Title", ActTitles[index], 18, TextAnchor.MiddleLeft, Color.white,
-                new Vector2(.07f, .3f), new Vector2(.93f, .5f)).raycastTarget = false;
-            if (selected)
-                LabelAt(banner.transform, "Act Description", ActDescriptions[index], 11, TextAnchor.UpperLeft,
-                    new Color(.76f, .84f, .89f), new Vector2(.07f, .12f), new Vector2(.93f, .3f)).raycastTarget = false;
+            LabelAt(banner.transform, "Act Number", "ACT " + Roman(index + 1), 11, TextAnchor.MiddleLeft, Color.white,
+                new Vector2(.08f, .88f), new Vector2(.93f, .97f)).raycastTarget = false;
+            LabelAt(banner.transform, "Act Description", ActDescriptions[index], 10, TextAnchor.UpperLeft,
+                new Color(.9f, .93f, .96f), new Vector2(.08f, .5f), new Vector2(.93f, .88f)).raycastTarget = false;
+            var track = MakeImage(banner.transform, "Act Track", new Color(.3f, .75f, .32f, 1f), new Vector2(.06f, .155f), new Vector2(.94f, .185f));
+            track.raycastTarget = false;
+            var play = MakeImage(banner.transform, "Act Play", new Color(.09f, .5f, .2f, 1f), new Vector2(.06f, .03f), new Vector2(.94f, .14f));
+            play.raycastTarget = false;
+            LabelAt(play.transform, "Act Play Label", selected ? "ENTER" : "SELECT", 13, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.one).raycastTarget = false;
             banner.GetComponentInChildren<Text>().text = "";
         }
 
