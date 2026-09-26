@@ -946,11 +946,13 @@ namespace StoryPort
             var camera = Camera.main;
             if (camera != null)
             {
-                camera.transform.position = new Vector3(0, 3.6f, -8f);
-                camera.transform.LookAt(new Vector3(0, 2.1f, 0));
+                var cam = Tune("SP_SQUADCAM", new[] { 0f, 2.7f, -11.5f, 0f, 2.4f, 0f });
+                camera.fieldOfView = 36;
+                camera.transform.position = new Vector3(cam[0], cam[1], cam[2]);
+                camera.transform.LookAt(new Vector3(cam[3], cam[4], cam[5]));
             }
             var selected = Mathf.Clamp(selectedBot, 0, rosterKeys.Length - 1);
-            var player = SpawnBot(rosterKeys[selected], new Vector3(squadForStory ? -2.7f : 0f, 0, 0), 180f, .88f);
+            var player = SpawnBot(rosterKeys[selected], new Vector3(squadForStory ? -3.1f : 0f, 0, 0), 150f, .88f);
             if (player != null)
             {
                 worldRoots.Add(player);
@@ -958,7 +960,7 @@ namespace StoryPort
             }
             if (squadForStory)
             {
-                var opponent = SpawnBot(enemyKey, new Vector3(2.7f, 0, 0), 180f, .88f);
+                var opponent = SpawnBot(enemyKey, new Vector3(3.5f, 0, 0), 215f, .88f);
                 if (opponent != null)
                 {
                     worldRoots.Add(opponent);
@@ -966,66 +968,105 @@ namespace StoryPort
                 }
             }
 
-            LabelAt(content, "Bot Selection Title", squadForStory ? "SELECT YOUR BOT" : "BOT ROSTER", 26,
+            TechBackdrop();
+            var title = LabelAt(content, "Bot Selection Title", squadForStory ? "SELECT YOUR BOT" : "BOT ROSTER", 26,
                 TextAnchor.MiddleCenter, Color.white, new Vector2(.34f, .88f), new Vector2(.66f, .98f));
-            LabelAt(content, "Team Count", "TEAM  " + squad.Count + " / 3", 13, TextAnchor.MiddleCenter,
-                new Color(.51f, .86f, .95f), new Vector2(.018f, .82f), new Vector2(.105f, .88f));
+            title.fontStyle = FontStyle.Bold;
+            // Team column down the left edge; tapping a portrait focuses that bot.
             for (int i = 0; i < rosterKeys.Length; i++)
             {
                 int index = i;
-                float y = .7f - i * .135f;
+                float y = .745f - i * .152f;
                 var tile = Button(content, "Choose " + rosterNames[i], () => FocusBot(index),
-                    new Vector2(.018f, y), new Vector2(.1f, y + .12f));
+                    new Vector2(.004f, y), new Vector2(.084f, y + .135f));
                 SetButtonSkin(tile, i == selected ? "frame_selection" : "frame_button");
                 tile.GetComponentInChildren<Text>().text = "";
                 var portrait = SpriteImage(tile.transform, "Bot Portrait", "Portraits/" + PortraitFor(rosterKeys[i]),
                     new Vector2(.13f, .09f), new Vector2(.87f, .91f), true);
                 if (portrait != null) portrait.raycastTarget = false;
-                if (squad.Contains(i))
-                    LabelAt(tile.transform, "Team Slot", "✓", 16, TextAnchor.MiddleCenter, new Color(.34f, .98f, .49f),
-                        new Vector2(.68f, .65f), new Vector2(1f, 1f)).raycastTarget = false;
+                var teamBar = MakeImage(tile.transform, "Team Marker", squad.Contains(i) ? new Color(.2f, .7f, .91f) : new Color(.15f, .2f, .26f),
+                    new Vector2(.1f, -.06f), new Vector2(.9f, .02f));
+                teamBar.raycastTarget = false;
             }
+            LabelAt(content, "Team Count", "TEAM  " + squad.Count + " / 3", 11, TextAnchor.MiddleLeft,
+                new Color(.51f, .86f, .95f), new Vector2(.004f, .885f), new Vector2(.09f, .93f));
 
-            LabelAt(content, "Selected Bot Name", rosterNames[selected].ToUpperInvariant(), 22, TextAnchor.MiddleLeft,
-                Color.white, new Vector2(.18f, .37f), new Vector2(.42f, .48f));
-            HealthBar(content, "Selected Bot Health", new Vector2(.18f, .32f), new Vector2(.4f, .355f), 1f,
+            // Names sit under each bot, health as a thin blue track.
+            LabelAt(content, "Selected Bot Name", rosterNames[selected].ToUpperInvariant(), 20, TextAnchor.MiddleLeft,
+                Color.white, new Vector2(.14f, .8f), new Vector2(.4f, .87f)).fontStyle = FontStyle.Bold;
+            HealthBar(content, "Selected Bot Health", new Vector2(.14f, .78f), new Vector2(.4f, .795f), 1f,
                 new Color(.2f, .7f, .91f));
-            LabelAt(content, "Selected Bot Health Text", "100 / 100", 12, TextAnchor.MiddleLeft,
-                new Color(.83f, .94f, .98f), new Vector2(.18f, .27f), new Vector2(.38f, .32f));
             var teamButton = Button(content, "Team Selection", () => ToggleBot(selected),
-                new Vector2(.18f, .17f), new Vector2(.38f, .25f));
+                new Vector2(.42f, .04f), new Vector2(.58f, .11f));
             SetButtonSkin(teamButton, squad.Contains(selected) ? "button_tab_active" : "button_tab");
-            teamButton.GetComponentInChildren<Text>().text = squad.Contains(selected) ? "IN YOUR TEAM · REMOVE" : "ADD TO TEAM";
+            teamButton.GetComponentInChildren<Text>().text = squad.Contains(selected) ? "－ REMOVE" : "＋ ADD";
 
             if (squadForStory)
             {
-                LabelAt(content, "Versus", "VS", 30, TextAnchor.MiddleCenter, Color.white,
-                    new Vector2(.465f, .46f), new Vector2(.535f, .58f));
-                LabelAt(content, "Opponent Name", enemyName.ToUpperInvariant(), 22, TextAnchor.MiddleLeft,
-                    Color.white, new Vector2(.61f, .37f), new Vector2(.83f, .48f));
-                HealthBar(content, "Opponent Health", new Vector2(.61f, .32f), new Vector2(.83f, .355f), 1f,
+                var vs = LabelAt(content, "Versus", "VS", 34, TextAnchor.MiddleCenter, Color.white,
+                    new Vector2(.44f, .47f), new Vector2(.56f, .58f));
+                vs.fontStyle = FontStyle.BoldAndItalic;
+                var match = MakeImage(content, "Matchup Bar", new Color(.4f, .8f, .3f), new Vector2(.46f, .455f), new Vector2(.54f, .47f));
+                var middle = MakeImage(match.transform, "Matchup Warning", new Color(.95f, .75f, .15f), new Vector2(.35f, 0), new Vector2(.68f, 1));
+                var hard = MakeImage(match.transform, "Matchup Danger", new Color(.9f, .25f, .2f), new Vector2(.68f, 0), new Vector2(1, 1));
+                match.raycastTarget = middle.raycastTarget = hard.raycastTarget = false;
+                LabelAt(content, "Opponent Name", enemyName.ToUpperInvariant(), 20, TextAnchor.MiddleRight,
+                    Color.white, new Vector2(.66f, .8f), new Vector2(.92f, .87f)).fontStyle = FontStyle.Bold;
+                HealthBar(content, "Opponent Health", new Vector2(.66f, .78f), new Vector2(.92f, .795f), 1f,
                     new Color(.2f, .7f, .91f));
-                LabelAt(content, "Opponent Health Text", "100 / 100", 12, TextAnchor.MiddleLeft,
-                    new Color(.83f, .94f, .98f), new Vector2(.61f, .27f), new Vector2(.82f, .32f));
-            }
 
-            if (squadForStory)
-            {
+                var repair = Button(content, "Repair", null, new Vector2(.06f, .02f), new Vector2(.2f, .095f));
+                repair.GetComponentInChildren<Text>().text = "REPAIR";
+                repair.interactable = false;
                 var fight = Button(content, "Fight", SaveSquadAndBegin,
-                    new Vector2(.72f, .045f), new Vector2(.94f, .145f));
+                    new Vector2(.82f, .02f), new Vector2(.995f, .105f));
                 SetButtonSkin(fight, "button_main_glowing");
                 fight.GetComponent<Image>().color = new Color(.22f, .83f, .28f, 1f);
                 fight.GetComponentInChildren<Text>().text = !squad.Contains(selected) ? "ADD BOT FIRST" : pendingEncounter ? "FIGHT!" : "SAVE TEAM";
                 var back = Button(content, "Back to Board", () => Show("map"),
-                    new Vector2(.12f, .82f), new Vector2(.25f, .9f));
+                    new Vector2(.004f, .92f), new Vector2(.06f, .995f));
                 SetButtonSkin(back, "button_tab");
-                back.GetComponentInChildren<Text>().text = "‹  BOARD";
+                back.GetComponentInChildren<Text>().text = "‹";
             }
             else
             {
-                ActionButton("SAVE ROSTER", "", SaveRoster, .72f, .045f, .22f, .1f, true);
-                ActionButton("BACK TO BASE", "", () => Show("base"), .12f, .82f, .2f, .08f, false);
+                ActionButton("SAVE ROSTER", "", SaveRoster, .8f, .02f, .19f, .1f, true);
+                ActionButton("BACK TO BASE", "", () => Show("base"), .09f, .885f, .16f, .075f, false);
             }
+        }
+
+        // Dark blue-black technical panel backdrop used behind bot selection.
+        void TechBackdrop()
+        {
+            const int w = 160, h = 90;
+            var texture = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            for (var y = 0; y < h; y++)
+                for (var x = 0; x < w; x++)
+                {
+                    var dx = (x - w * .5f) / (w * .5f);
+                    var dy = (y - h * .5f) / (h * .5f);
+                    var vignette = Mathf.Clamp01(1f - (dx * dx * .5f + dy * dy * .7f));
+                    var band = Mathf.Abs(Mathf.Repeat((x + y * 1.4f) / 22f, 1f) - .5f) < .03f ? .035f : 0f;
+                    var shade = .02f + vignette * .085f + band;
+                    texture.SetPixel(x, y, new Color(shade * .55f, shade * .8f, shade * 1.35f, 1f));
+                }
+            texture.Apply();
+            // A camera-attached quad keeps the 3D bots visible in front of it; a UI
+            // image would cover them.
+            var camera = Camera.main;
+            if (camera == null) return;
+            var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = "Tech Backdrop";
+            quad.transform.SetParent(camera.transform, false);
+            quad.transform.localPosition = new Vector3(0, 0, 60f);
+            quad.transform.localScale = new Vector3(80f, 45f, 1f);
+            var collider = quad.GetComponent<Collider>();
+            if (collider != null) { if (Application.isPlaying) Destroy(collider); else DestroyImmediate(collider); }
+            var material = new Material(Shader.Find("Unlit/Texture"));
+            texture.wrapMode = TextureWrapMode.Clamp;
+            material.mainTexture = texture;
+            quad.GetComponent<Renderer>().sharedMaterial = material;
+            worldRoots.Add(quad);
         }
 
         void FightScreen()
