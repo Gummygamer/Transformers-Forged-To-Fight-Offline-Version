@@ -613,6 +613,32 @@ public function obj_set(node: Json, key: text, value: Json): Json
   end
 end
 
+public function obj_keys(node: Json): a list of text
+  intent: get
+  match node
+    when JObj { pairs } then
+      mutable result: a list of text = []
+      for pair in pairs do
+        set result = append(result, pair.k)
+      end
+      result
+    otherwise then
+      fail("obj_keys expected object")
+      []
+  end
+end
+
+public function obj_keys_count(node: Json): integer
+  intent: get
+  match node
+    when JObj { pairs } then
+      length(pairs)
+    otherwise then
+      fail("obj_keys_count expected object")
+      0
+  end
+end
+
 public function list_items(node: Json): a list of Json
   intent: get
   match node
