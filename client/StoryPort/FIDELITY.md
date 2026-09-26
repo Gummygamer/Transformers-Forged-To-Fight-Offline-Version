@@ -56,6 +56,10 @@ the full Act I and Act II route):
 - Mission Complete screen after an act's last encounter (BACK TO MISSIONS, greyed
   REPLAY, PLAY NEXT); the rewards panel stays empty because the server grants none.
 - Knockout shot: the camera pushes in on the winner under "<NAME> WINS!".
+- Enemy anticipation now uses the 9.2 melee personality's dodge, block,
+  sidestep and idle weights. The response plays the converted fight animations;
+  a short cooldown lets later combo hits through. Editor checks cover the
+  weighted decision, and the converted fight controllers contain its states.
 
 Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 `CaptureDialogue`, `CaptureComplete`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,
@@ -65,4 +69,5 @@ layout in the Editor only.
 Remaining gaps: the server grants no match rewards, so the result screen has no
 rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
 alliance beam glow is hidden (it renders opaque); nav tab icons; the enemy
-blocks and dodges less than in the footage; no special-attack cinematic camera yet.
+defense timing still needs a full device fight comparison; no special-attack
+cinematic camera yet.

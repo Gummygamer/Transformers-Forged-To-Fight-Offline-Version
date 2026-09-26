@@ -94,6 +94,7 @@ namespace StoryPort
         int comboHits;
         Vector2 touchStart;
         float lastPlayerHit;
+        float lastEnemyDefense;
         Sprite uiButtonSprite;
         Transform headerRoot;
         Transform uiRoot;
@@ -1216,6 +1217,7 @@ namespace StoryPort
             lightCombo = 0;
             comboHits = 0;
             lastPlayerHit = 0;
+            lastEnemyDefense = -10f;
             nextEnemyTurn = Time.time + 2.8f;
             if (audioPlayer != null) { audioPlayer.Preload(playerKey); audioPlayer.Preload(enemyKey); }
             hitsLanded = hitsReceived = highestChain = 0;
@@ -1507,6 +1509,25 @@ namespace StoryPort
             playerBusy = true;
             guarding = false;
             Vector3 playerHome = playerActor != null ? playerActor.transform.position : Vector3.zero;
+            Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
+            // The original AI anticipates an incoming attack and weights dodge,
+            // block, sidestep and idle. Give each reaction a short cooldown so a
+            // combo can break through, as it does in the reference fight.
+            var defense = Time.time - lastEnemyDefense >= 1f
+                ? StoryPortEnemyDefense.Choose(UnityEngine.Random.value)
+                : StoryPortEnemyDefense.Action.Idle;
+            if (defense != StoryPortEnemyDefense.Action.Idle) lastEnemyDefense = Time.time;
+            if (defense == StoryPortEnemyDefense.Action.Block)
+            {
+                PlayState(enemyAnimator, "Block");
+                SetBoolIfPresent(enemyAnimator, "Blocking", true);
+            }
+            else if (defense == StoryPortEnemyDefense.Action.Dodge || defense == StoryPortEnemyDefense.Action.Sidestep)
+            {
+                PlayState(enemyAnimator, defense == StoryPortEnemyDefense.Action.Dodge ? "Dodge" : "Dash");
+                Combat(enemyKey, defense == StoryPortEnemyDefense.Action.Dodge ? "dodge" : "dash", .7f);
+                if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome + enemyActor.transform.right * (defense == StoryPortEnemyDefense.Action.Dodge ? .7f : -.5f), .2f));
+            }
             PlayState(playerAnimator, state);
             int step = AttackStep(state);
             Combat(playerKey, "attack_" + step);
@@ -1517,31 +1538,40 @@ namespace StoryPort
             }
             yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
-            if (enemyAnimator != null) PlayState(enemyAnimator, state.StartsWith("Special", StringComparison.Ordinal) ? state + "HitReaction" : "HitReactionLightLeftHigh");
             var move = rules.MoveFor(state);
             bool specialMove = state.StartsWith("Special", StringComparison.Ordinal);
             float share = specialMove ? rules.SpecialRatio(playerKey, AttackStepLevel(state)) : move.Share;
             bool crit = !specialMove && UnityEngine.Random.value < move.CritChance;
             float dealt = playerAttack * share * (crit ? move.CritDamage : 1f) * UnityEngine.Random.Range(.95f, 1.05f);
+            bool dodged = defense == StoryPortEnemyDefense.Action.Dodge || defense == StoryPortEnemyDefense.Action.Sidestep;
+            bool blocked = defense == StoryPortEnemyDefense.Action.Block;
+            if (dodged) dealt = 0f;
+            else if (blocked) dealt *= .1f;
+            if (blocked) { PlayState(enemyAnimator, "BlockReact"); Combat(enemyKey, "block_react"); }
+            else if (!dodged && enemyAnimator != null) PlayState(enemyAnimator, specialMove ? state + "HitReaction" : "HitReactionLightLeftHigh");
             enemyHealth = Mathf.Max(0f, enemyHealth - dealt);
             SyncHealthPercent();
-            ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, crit ? new Color(1f, .8f, .2f) : new Color(1f, .97f, .9f));
-            Combat(playerKey, "attack_hit_" + step);
-            Combat(enemyKey, step >= 6 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
+            if (dodged) SetNotice("DODGED");
+            else
+            {
+                ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, blocked ? new Color(.7f, .85f, 1f) : crit ? new Color(1f, .8f, .2f) : new Color(1f, .97f, .9f));
+                Combat(playerKey, "attack_hit_" + step);
+                if (!blocked) Combat(enemyKey, step >= 6 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
+            }
             if (enemyHp == 0) Combat(enemyKey, "knockout");
-            if (!specialMove)
+            if (!specialMove && !dodged)
             {
                 // Attacker gains the move's special energy, the defender half of it.
                 playerMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, playerMana + move.Mana);
                 enemyMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, enemyMana + move.Mana * .5f);
             }
             if (Time.time - lastPlayerHit > 1.4f) comboHits = 0;
-            comboHits++;
-            hitsLanded++;
+            if (!dodged) { comboHits++; hitsLanded++; }
+            else comboHits = 0;
             highestChain = Mathf.Max(highestChain, comboHits);
             lastPlayerHit = Time.time;
-            if (comboText != null) comboText.text = comboHits + " HITS!\n<size=16>GOOD!</size>";
-            if (playerActor != null && enemyActor != null)
+            if (comboText != null) comboText.text = comboHits > 0 ? comboHits + " HITS!\n<size=16>GOOD!</size>" : "";
+            if (!dodged && !blocked && playerActor != null && enemyActor != null)
             {
                 var direction = (enemyActor.transform.position - playerActor.transform.position).normalized;
                 enemyActor.transform.position += direction * .22f;
@@ -1549,6 +1579,8 @@ namespace StoryPort
             }
             UpdateFightHud();
             if (playerActor != null) yield return StartCoroutine(MoveActor(playerActor, playerHome, .16f));
+            if (enemyActor != null && dodged) yield return StartCoroutine(MoveActor(enemyActor, enemyHome, .16f));
+            if (blocked) SetBoolIfPresent(enemyAnimator, "Blocking", false);
             playerBusy = false;
             if (enemyHp == 0) { StartCoroutine(ResolveWinAfterImpact()); yield break; }
             // A landed hit only staggers the enemy briefly; it keeps its own attack rhythm.

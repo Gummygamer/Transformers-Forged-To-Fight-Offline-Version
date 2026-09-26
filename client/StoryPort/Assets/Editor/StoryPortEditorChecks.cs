@@ -12,6 +12,7 @@ namespace StoryPort.Editor
         public static void Run()
         {
             CheckStoryRoute();
+            CheckEnemyDefense();
             AssetDatabase.Refresh();
             StoryPortAssetSetup.ImportLocalUiArt(false);
             foreach (var name in new[]
@@ -30,6 +31,15 @@ namespace StoryPort.Editor
             if (road == null || road.mainTexture == null || road.shader == null || road.shader.name != "StoryPort/ChicagoRoad")
                 throw new Exception("Missing converted 9.2 Chicago asphalt material");
             Debug.Log("StoryPort Editor checks passed: server route parser, 9.2 UI sprites, bot materials, audio, and Chicago environment");
+        }
+
+        static void CheckEnemyDefense()
+        {
+            if (StoryPortEnemyDefense.Choose(0f) != StoryPortEnemyDefense.Action.Dodge ||
+                StoryPortEnemyDefense.Choose(.3f) != StoryPortEnemyDefense.Action.Block ||
+                StoryPortEnemyDefense.Choose(.7f) != StoryPortEnemyDefense.Action.Sidestep ||
+                StoryPortEnemyDefense.Choose(.95f) != StoryPortEnemyDefense.Action.Idle)
+                throw new Exception("Enemy anticipation weights changed unexpectedly");
         }
 
         static void CheckAudio()
