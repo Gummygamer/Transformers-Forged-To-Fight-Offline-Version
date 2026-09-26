@@ -23,6 +23,11 @@ namespace StoryPort.Editor
             Capture("squad");
         }
 
+        public static void CaptureLoading()
+        {
+            Capture("loading");
+        }
+
         public static void CaptureFight()
         {
             Capture("fight");
@@ -67,6 +72,7 @@ namespace StoryPort.Editor
                 Invoke(client, "SquadScreen");
             }
             else if (screen == "fight") Invoke(client, "FightScreen");
+            else if (screen == "loading") Invoke(client, "LoadingScreen");
             else throw new ArgumentOutOfRangeException("screen", screen, "No preview renderer for this screen");
             Invoke(client, "UpdateHeaderState", screen);
 

@@ -34,6 +34,16 @@ Fast gates before producing an APK:
 4. Build and install once for the completed screen or combat slice. Check
    navigation, a full fight, and the server's recorded result on device.
 
-Current visual gaps: base building placement and camera; bot material color and
-reflection; story board terrain framing; Chicago scenery composition and
-combat motion. The Editor preview covers story, selection, and fight screens.
+Matched to the reference so far (Editor previews): fight (street-level Chicago
+stage at real scale, dusk sky pinned to the horizon, slanted health bars, hex
+touch zones, segmented special meter), bot selection (dark panel, team column,
+VS with matchup bar), story missions (act cards, chapter panel, encounter grid)
+and the hex-collage loading page. Preview with `CaptureFight`, `CaptureSquad`,
+`CaptureStory`, `CaptureLoading`; `SP_STAGE`, `SP_CAM` and `SP_SQUADCAM`
+environment variables retune the stage and cameras in the Editor only.
+
+Remaining gaps: base building placement and camera; bot material color and
+reflection; story board terrain framing; Chicago skyline density and rubble;
+per-bot rating and class icons under the fight bars (no server field mapped
+yet); explored percentages on the story cards; on-device verification of the
+new fight camera and HUD.

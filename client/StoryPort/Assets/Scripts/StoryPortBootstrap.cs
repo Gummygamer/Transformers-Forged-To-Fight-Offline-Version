@@ -348,12 +348,19 @@ namespace StoryPort
 
         void LoadingScreen()
         {
-            Backdrop("UI/planet_landscape");
-            var logo = SpriteImage(content, "Loading Logo", "UI/tff_logo_en", new Vector2(.34f, .66f), new Vector2(.66f, .89f), false);
-            if (logo != null) logo.preserveAspect = true;
-            TextAt("INITIALIZING TELETRAN", "Loading base and story data…", .27f, .35f, .46f, .14f, 23, TextAnchor.MiddleCenter);
-            Panel(content, "Loading Track", new Color(.04f, .15f, .2f, .9f), new Vector2(.32f, .28f), new Vector2(.68f, .3f));
-            Panel(content, "Loading Fill", new Color(.15f, .77f, .89f, .95f), new Vector2(.32f, .28f), new Vector2(.56f, .3f));
+            // Black loading page with the bot hexagon collage, a tip line and a
+            // LOADING… mark at the bottom right, as in the footage.
+            var black = Panel(uiRoot != null ? uiRoot : content, "Loading Black", Color.black, Vector2.zero, Vector2.one);
+            black.transform.SetAsFirstSibling();
+            black.GetComponent<Image>().raycastTarget = false;
+            backgroundArt = black;
+            var collage = SpriteImage(content, "Loading Collage", "UI/bot_roster", new Vector2(.3f, .3f), new Vector2(.7f, 1.05f), true);
+            if (collage != null) collage.raycastTarget = false;
+            LabelAt(content, "Loading Tip", "Bots carry their Forge XP forward. The higher their Forge Level, the more Forge XP they provide.", 14,
+                TextAnchor.MiddleCenter, new Color(.85f, .88f, .92f), new Vector2(.12f, .2f), new Vector2(.88f, .27f));
+            var spinner = SpriteImage(content, "Loading Mark", "UI/icon_loading", new Vector2(.9f, .06f), new Vector2(.965f, .17f), true);
+            if (spinner != null) spinner.raycastTarget = false;
+            LabelAt(content, "Loading Label", "LOADING...", 11, TextAnchor.MiddleCenter, Color.white, new Vector2(.88f, .02f), new Vector2(.985f, .07f));
             StartCoroutine(AnimateLoading());
         }
 
