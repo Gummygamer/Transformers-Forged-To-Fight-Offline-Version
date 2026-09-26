@@ -39,16 +39,28 @@ Fast gates before producing an APK:
 4. Build and install once for the completed screen or combat slice. Check
    navigation, a full fight, and the server's recorded result on device.
 
-Matched to the reference so far (Editor previews): fight (street-level Chicago
-stage at real scale, dusk sky pinned to the horizon, slanted health bars, hex
-touch zones, segmented special meter), bot selection (dark panel, team column,
-VS with matchup bar), story missions (act cards, chapter panel, encounter grid)
-the hex-collage loading page and the base (low crater camera at the command tower, enlarged buildings spread on the server's sockets, dusk grade, full-width nav tabs). Preview with `CaptureFight`, `CaptureSquad`,
-`CaptureStory`, `CaptureLoading`, `CaptureBase`; `SP_STAGE`, `SP_CAM`, `SP_SQUADCAM`, `SP_BASECAM` and `SP_BLDG`
-environment variables retune the stage and cameras in the Editor only.
+Matched to the reference so far (Editor previews, and on the Samsung phone for
+the full Act I and Act II route):
 
-Remaining gaps: base beam glow effects (hidden, they render opaque white) and tab icons; bot material color and
-reflection; story board terrain framing; Chicago skyline density and rubble;
-per-bot rating and class icons under the fight bars (no server field mapped
-yet); explored percentages on the story cards; on-device verification of the
-new fight camera and HUD.
+- Loading, base (crater camera, buildings on the server's sockets, warm grade),
+  story missions, story board, bot selection, fight and result screens.
+- Story dialogue from the server's `dialogueTable`: `dialogue` before an
+  encounter and `dialoguePE` after the win, with 3D speakers, the silent side
+  dimmed, SKIP and tap to continue.
+- Combat uses server data only: health/attack from `/bcg/getBaseHeroData`, the
+  `attackValues` move table and each blueprint's special ratios `s1..s3` from
+  `/bcg/getLoginData`. Specials fire at one to three bars. The enemy attacks in
+  one to three hit combos on its own timer; a test fight gave 14 hits landed,
+  13 received, chain 5 (reference: 16, 9, 5).
+- Music and sound from the local 9.2 audio (see Audio above).
+
+Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
+`CaptureDialogue`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,
+`SP_SQUADCAM`, `SP_BASECAM` and `SP_BLDG` retune the stage, cameras and building
+layout in the Editor only.
+
+Remaining gaps: the server grants no match rewards, so the result screen has no
+rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
+alliance beam glow is hidden (it renders opaque); nav tab icons; the enemy
+blocks and dodges less than in the footage; no transform or special cinematic
+camera yet.

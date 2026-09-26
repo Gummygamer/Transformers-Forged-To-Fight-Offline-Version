@@ -1549,7 +1549,8 @@ namespace StoryPort
             if (playerActor != null) yield return StartCoroutine(MoveActor(playerActor, playerHome, .16f));
             playerBusy = false;
             if (enemyHp == 0) { StartCoroutine(ResolveWinAfterImpact()); yield break; }
-            nextEnemyTurn = Time.time + Mathf.Max(.8f, 2.4f - charge * .04f);
+            // A landed hit only staggers the enemy briefly; it keeps its own attack rhythm.
+            nextEnemyTurn = Mathf.Max(nextEnemyTurn, Time.time + .35f);
             RunQueuedAttack();
         }
 
@@ -1668,7 +1669,10 @@ namespace StoryPort
         // AI landing about one hit for every two the player lands.
         IEnumerator EnemyAttack()
         {
+            // Claim the turn so further player taps queue, then let the current swing land.
             enemyBusy = true;
+            while (playerBusy && screen == "fight") yield return null;
+            if (screen != "fight" || playerHp <= 0 || enemyHp <= 0) { enemyBusy = false; yield break; }
             int enemyBars = Mathf.FloorToInt(enemyMana / StoryPortCombatRules.ManaPerBar);
             bool special = enemyBars >= 1 && (enemyBars >= 3 || UnityEngine.Random.value < .3f);
             enemySpecialLevel = special ? Mathf.Min(3, enemyBars) : 0;
@@ -1739,7 +1743,8 @@ namespace StoryPort
         void Update()
         {
             if (screen == "fight" && !paused) HandleFightTouch();
-            if (screen == "fight" && !paused && !requestBusy && !enemyBusy && !playerBusy && Time.time >= nextEnemyTurn && playerHp > 0 && enemyHp > 0)
+            // The enemy's turn comes on its own timer, not only when the player is idle.
+            if (screen == "fight" && !paused && !requestBusy && !enemyBusy && Time.time >= nextEnemyTurn && playerHp > 0 && enemyHp > 0)
                 EnemyTurn();
             if (statusText != null)
             {
