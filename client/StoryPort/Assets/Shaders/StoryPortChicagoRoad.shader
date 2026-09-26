@@ -17,7 +17,8 @@ Shader "StoryPort/ChicagoRoad"
         void surf(Input IN, inout SurfaceOutputStandard o)
         {
             fixed4 color = tex2D(_MainTex, IN.worldPos.xz / max(_WorldScale, 0.01));
-            o.Albedo = color.rgb;
+            // Weathered asphalt reads mid-grey in the reference, not near white.
+            o.Albedo = color.rgb * 0.55;
             o.Alpha = 1;
             o.Metallic = 0;
             o.Smoothness = 0.08;
