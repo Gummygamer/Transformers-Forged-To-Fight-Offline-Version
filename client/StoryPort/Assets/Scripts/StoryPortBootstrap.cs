@@ -55,11 +55,17 @@ namespace StoryPort
         int enemyHp = 100;
         // Absolute fight stats from /bcg/getBaseHeroData; the percent fields above
         // are derived from these for the HUD.
-        float playerMaxHealth = 1, playerHealth = 1, playerAttack = 1;
-        float enemyMaxHealth = 1, enemyHealth = 1, enemyAttack = 1;
+        // Preview-only placeholders until the server answers.
+        float playerMaxHealth = 3000, playerHealth = 3000, playerAttack = 300;
+        float enemyMaxHealth = 3000, enemyHealth = 3000, enemyAttack = 300;
         string lastQuestJson = "";
         int specialMeter;
-        int enemySpecialMeter;
+        float playerMana, enemyMana;
+        int enemySpecialLevel;
+        readonly StoryPortCombatRules rules = new StoryPortCombatRules();
+        Text playerRatingText, enemyRatingText;
+        Image specialHex;
+        Image[] specialSegmentFills;
         int selectedBot;
         bool requestBusy;
         bool guarding;
@@ -96,14 +102,12 @@ namespace StoryPort
         Text playerHpText;
         Text enemyHpText;
         Text specialText;
-        Text enemySpecialText;
         Text specialButtonLabel;
         Text comboText;
         Image playerHpFill;
         Image enemyHpFill;
         Image specialFill;
         Image[] specialSegments;
-        Image enemySpecialFill;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void StartClient()
@@ -128,6 +132,7 @@ namespace StoryPort
         IEnumerator LoadCampaignMetadata()
         {
             yield return StartCoroutine(Get("/base/active", _ => { }));
+            yield return StartCoroutine(Get("/bcg/getLoginData", json => rules.Load(json)));
             for (int i = 0; i < ActQids.Length; i++)
             {
                 string response = "";
@@ -1187,7 +1192,6 @@ namespace StoryPort
             enemyBusy = false;
             playerBusy = false;
             queuedAttack = false;
-            enemySpecialMeter = 0;
             lightCombo = 0;
             comboHits = 0;
             lastPlayerHit = 0;
@@ -1204,8 +1208,12 @@ namespace StoryPort
             full.offsetMin = full.offsetMax = Vector2.zero;
             FighterHud(hud.transform, "Player", playerKey, playerName, false, out playerHpText, out playerHpFill);
             FighterHud(hud.transform, "Enemy", enemyKey, enemyName, true, out enemyHpText, out enemyHpFill);
-            enemySpecialFill = HealthBar(hud.transform, "Enemy Special Meter", new Vector2(.6f, .845f), new Vector2(.84f, .857f), enemySpecialMeter / 3f, new Color(1f, .48f, .13f));
-            enemySpecialText = LabelAt(hud.transform, "Enemy Special Charges", "", 10, TextAnchor.MiddleRight, new Color(1f, .77f, .53f), new Vector2(.6f, .82f), new Vector2(.84f, .845f));
+            // Ratings under the portraits use the server formula (health + attack) / 20.
+            playerRatingText = LabelAt(hud.transform, "Player Rating", StoryPortCombatRules.Rating(playerMaxHealth, playerAttack).ToString(), 14,
+                TextAnchor.MiddleCenter, Color.white, new Vector2(.004f, .79f), new Vector2(.08f, .84f));
+            enemyRatingText = LabelAt(hud.transform, "Enemy Rating", StoryPortCombatRules.Rating(enemyMaxHealth, enemyAttack).ToString(), 14,
+                TextAnchor.MiddleCenter, Color.white, new Vector2(.918f, .79f), new Vector2(.996f, .84f));
+            playerRatingText.fontStyle = enemyRatingText.fontStyle = FontStyle.Bold;
             var pause = Button(hud.transform, "PAUSE", TogglePause, new Vector2(.47f, .915f), new Vector2(.53f, .99f));
             SetButtonSkin(pause, "button_tab");
             pause.GetComponentInChildren<Text>().text = "Ⅱ";
@@ -1213,33 +1221,54 @@ namespace StoryPort
             comboText = LabelAt(hud.transform, "Combo", "", 30, TextAnchor.MiddleLeft, Color.white, new Vector2(.012f, .5f), new Vector2(.2f, .64f));
             comboText.fontStyle = FontStyle.BoldAndItalic;
             comboText.raycastTarget = false;
-            // Left and right hex zones mark where block and attack gestures are read.
-            foreach (var side in new[] { 0, 1 })
-            {
-                var zone = SpriteImage(hud.transform, side == 0 ? "Block Zone" : "Attack Zone", "UI/hexagon_border",
-                    side == 0 ? new Vector2(.03f, .035f) : new Vector2(.885f, .035f),
-                    side == 0 ? new Vector2(.115f, .175f) : new Vector2(.97f, .175f), true);
-                if (zone == null) continue;
-                zone.color = new Color(.75f, .85f, .95f, .45f);
-                zone.raycastTarget = false;
-            }
-
-            // Fight gestures own the arena: hold left to block, swipe to
-            // dash, tap or hold right to attack. The segmented special meter
-            // doubles as the special button once three charges are ready.
-            var specialButton = Button(content, "SPECIAL", SpecialAttack, new Vector2(.4f, .035f), new Vector2(.6f, .125f));
+            // Bottom corners as in the footage: the left hex is the special button and
+            // glows green once a bar is charged; the right hex marks the attack side,
+            // with the three special bars beside it.
+            var specialButton = Button(hud.transform, "SPECIAL", SpecialAttack, new Vector2(.03f, .035f), new Vector2(.115f, .175f));
             specialButton.GetComponent<Image>().color = new Color(0, 0, 0, 0);
             specialButtonLabel = specialButton.GetComponentInChildren<Text>();
             specialButtonLabel.text = "";
+            specialHex = SpriteImage(specialButton.transform, "Special Hex", "UI/hexagon_progress", Vector2.zero, Vector2.one, true);
+            if (specialHex != null) specialHex.raycastTarget = false;
+            var attackZone = SpriteImage(hud.transform, "Attack Zone", "UI/hexagon_border", new Vector2(.885f, .035f), new Vector2(.97f, .175f), true);
+            if (attackZone != null) { attackZone.color = new Color(.75f, .85f, .95f, .45f); attackZone.raycastTarget = false; }
             specialSegments = new Image[3];
+            specialSegmentFills = new Image[3];
             for (var i = 0; i < 3; i++)
             {
-                var slot = MakeImage(specialButton.transform, "Special Segment " + (i + 1), new Color(.1f, .12f, .14f, .85f),
-                    new Vector2(.04f + i * .32f, .3f), new Vector2(.32f + i * .32f, .7f));
+                float x = .68f + i * .066f;
+                var slot = MakeImage(hud.transform, "Special Bar " + (i + 1), new Color(.12f, .13f, .15f, .8f), new Vector2(x, .05f), new Vector2(x + .06f, .085f));
                 slot.raycastTarget = false;
+                var fill = MakeImage(slot.transform, "Special Bar Fill", new Color(1f, .86f, .1f, 1f), Vector2.zero, Vector2.one);
+                fill.sprite = SlantSprite(false, false);
+                fill.type = Image.Type.Filled;
+                fill.fillMethod = Image.FillMethod.Horizontal;
+                fill.fillAmount = 0f;
+                fill.raycastTarget = false;
                 specialSegments[i] = slot;
+                specialSegmentFills[i] = fill;
             }
+            StartCoroutine(FightIntro(hud.transform));
             UpdateFightHud();
+        }
+
+        // Big "FIGHT!" call at the start of each fight; the enemy waits for it.
+        IEnumerator FightIntro(Transform hud)
+        {
+            nextEnemyTurn = Time.time + 3.4f;
+            var label = LabelAt(hud, "Fight Call", "FIGHT!", 64, TextAnchor.MiddleCenter, Color.white, new Vector2(.3f, .42f), new Vector2(.7f, .62f));
+            label.fontStyle = FontStyle.BoldAndItalic;
+            label.raycastTarget = false;
+            label.gameObject.AddComponent<Outline>().effectColor = new Color(.05f, .25f, .45f, .9f);
+            float t = 0f;
+            while (t < 1.3f && label != null)
+            {
+                t += Time.deltaTime;
+                label.transform.localScale = Vector3.one * Mathf.Lerp(1.6f, 1f, Mathf.Clamp01(t * 5f));
+                label.color = new Color(1f, 1f, 1f, Mathf.Clamp01((1.3f - t) * 3f));
+                yield return null;
+            }
+            if (label != null) Destroy(label.gameObject);
         }
 
         // One fighter's HUD cluster: hex portrait, name and a slanted health bar.
@@ -1466,15 +1495,24 @@ namespace StoryPort
             }
             yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
-            if (enemyAnimator != null) PlayState(enemyAnimator, state == "SpecialAttack03" ? "SpecialAttack03HitReaction" : "HitReactionLightLeftHigh");
-            float dealt = playerAttack * MoveMultiplier(state) * UnityEngine.Random.Range(.92f, 1.08f);
+            if (enemyAnimator != null) PlayState(enemyAnimator, state.StartsWith("Special", StringComparison.Ordinal) ? state + "HitReaction" : "HitReactionLightLeftHigh");
+            var move = rules.MoveFor(state);
+            bool specialMove = state.StartsWith("Special", StringComparison.Ordinal);
+            float share = specialMove ? rules.SpecialRatio(playerKey, AttackStepLevel(state)) : move.Share;
+            bool crit = !specialMove && UnityEngine.Random.value < move.CritChance;
+            float dealt = playerAttack * share * (crit ? move.CritDamage : 1f) * UnityEngine.Random.Range(.95f, 1.05f);
             enemyHealth = Mathf.Max(0f, enemyHealth - dealt);
             SyncHealthPercent();
-            ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, new Color(1f, .95f, .8f));
+            ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, crit ? new Color(1f, .8f, .2f) : new Color(1f, .97f, .9f));
             Combat(playerKey, "attack_hit_" + step);
             Combat(enemyKey, step >= 6 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
             if (enemyHp == 0) Combat(enemyKey, "knockout");
-            specialMeter = Mathf.Min(3, specialMeter + 1);
+            if (!specialMove)
+            {
+                // Attacker gains the move's special energy, the defender half of it.
+                playerMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, playerMana + move.Mana);
+                enemyMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, enemyMana + move.Mana * .5f);
+            }
             if (Time.time - lastPlayerHit > 1.4f) comboHits = 0;
             comboHits++;
             lastPlayerHit = Time.time;
@@ -1513,7 +1551,6 @@ namespace StoryPort
             Combat(playerKey, towardEnemy ? "dash" : "dodge", .7f);
             var direction = (enemyActor.transform.position - playerActor.transform.position).normalized;
             playerActor.transform.position += direction * (towardEnemy ? .95f : -.7f);
-            specialMeter = Mathf.Min(3, specialMeter + 1);
             evadeUntil = Time.time + (towardEnemy ? .38f : .72f);
             nextEnemyTurn = Time.time + .8f;
             UpdateFightHud();
@@ -1575,8 +1612,7 @@ namespace StoryPort
             queuedAttack = false;
             lightCombo = 0;
             comboHits = 0;
-            specialMeter = 0;
-            enemySpecialMeter = 0;
+            playerMana = enemyMana = 0;
             playerHealth = playerMaxHealth;
             enemyHealth = enemyMaxHealth;
             SyncHealthPercent();
@@ -1587,14 +1623,15 @@ namespace StoryPort
 
         void SpecialAttack()
         {
-            if (specialMeter < 3)
+            int level = Mathf.FloorToInt(playerMana / StoryPortCombatRules.ManaPerBar);
+            if (level < 1 || playerBusy || enemyHp <= 0)
             {
-                SetNotice("Build 3 special charges with attacks and dodges");
+                if (level < 1) SetNotice("Land hits to charge a special bar");
                 return;
             }
-            specialMeter = 0;
-            PlayerAttack("SpecialAttack03", 45, 8);
-            specialMeter = 0;
+            level = Mathf.Min(3, level);
+            playerMana -= level * StoryPortCombatRules.ManaPerBar;
+            PlayerAttack("SpecialAttack0" + level, 0, 8);
             UpdateFightHud();
         }
 
@@ -1607,9 +1644,12 @@ namespace StoryPort
         IEnumerator EnemyAttack()
         {
             enemyBusy = true;
-            bool special = enemySpecialMeter >= 3;
+            int enemyBars = Mathf.FloorToInt(enemyMana / StoryPortCombatRules.ManaPerBar);
+            bool special = enemyBars >= 1 && (enemyBars >= 3 || UnityEngine.Random.value < .3f);
+            enemySpecialLevel = special ? Mathf.Min(3, enemyBars) : 0;
+            if (special) enemyMana -= enemySpecialLevel * StoryPortCombatRules.ManaPerBar;
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
-            PlayState(enemyAnimator, special ? "SpecialAttack03" : "LightAttack01");
+            PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack01");
             int enemyStep = special ? 6 : UnityEngine.Random.Range(1, 4);
             Combat(enemyKey, "attack_" + enemyStep);
             if (enemyActor != null && playerActor != null)
@@ -1621,7 +1661,8 @@ namespace StoryPort
             yield return new WaitForSeconds(special ? 1f : .58f);
             if (playerHp > 0 && enemyHp > 0)
             {
-                float raw = enemyAttack * (special ? 3.5f : .5f) * UnityEngine.Random.Range(.92f, 1.08f);
+                var enemyMove = rules.MoveFor("LightAttack01");
+                float raw = enemyAttack * (special ? rules.SpecialRatio(enemyKey, enemySpecialLevel) : enemyMove.Share) * UnityEngine.Random.Range(.95f, 1.05f);
                 float taken = Time.time < evadeUntil ? 0f : guarding ? raw * .1f : raw;
                 int damage = Mathf.RoundToInt(taken);
                 playerHealth = Mathf.Max(0f, playerHealth - taken);
@@ -1635,10 +1676,12 @@ namespace StoryPort
                 }
                 comboHits = 0;
                 if (comboText != null) comboText.text = "";
-                if (special) enemySpecialMeter = 0;
-                else enemySpecialMeter = Mathf.Min(3, enemySpecialMeter + 1);
-                specialMeter = guarding ? Mathf.Min(3, specialMeter + 1) : specialMeter;
-                PlayState(playerAnimator, guarding ? "BlockReact" : damage == 0 ? "Dash" : special ? "SpecialAttack03HitReaction" : "HitReactionLightRightHigh");
+                if (!special && taken > 0f)
+                {
+                    enemyMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, enemyMana + enemyMove.Mana);
+                    playerMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, playerMana + enemyMove.Mana * .5f);
+                }
+                PlayState(playerAnimator, guarding ? "BlockReact" : damage == 0 ? "Dash" : special ? "SpecialAttack0" + enemySpecialLevel + "HitReaction" : "HitReactionLightRightHigh");
                 CameraShake(guarding || damage == 0 ? .05f : .12f);
                 if (damage == 0) SetNotice("DODGED");
                 UpdateFightHud();
@@ -1681,11 +1724,13 @@ namespace StoryPort
             if (enemyHpFill != null) enemyHpFill.fillAmount = enemyHp / 100f;
             if (specialFill != null) specialFill.fillAmount = specialMeter / 3f;
             if (specialText != null) specialText.text = "SPECIAL  " + specialMeter + " / 3";
-            if (specialSegments != null)
-                for (var i = 0; i < specialSegments.Length; i++)
-                    if (specialSegments[i] != null)
-                        specialSegments[i].color = i < specialMeter ? new Color(.25f, .9f, .22f, 1f) : new Color(.1f, .12f, .14f, .85f);
-            if (enemySpecialFill != null) enemySpecialFill.fillAmount = enemySpecialMeter / 3f;
+            specialMeter = Mathf.FloorToInt(playerMana / StoryPortCombatRules.ManaPerBar);
+            if (specialSegmentFills != null)
+                for (var i = 0; i < specialSegmentFills.Length; i++)
+                    if (specialSegmentFills[i] != null)
+                        specialSegmentFills[i].fillAmount = Mathf.Clamp01(playerMana / StoryPortCombatRules.ManaPerBar - i);
+            if (specialHex != null)
+                specialHex.color = specialMeter >= 1 ? new Color(.3f, 1f, .3f, .95f) : new Color(.75f, .85f, .95f, .45f);
             if (specialButtonLabel != null) specialButtonLabel.text = "";
         }
 
@@ -1710,7 +1755,7 @@ namespace StoryPort
                     enemyName = DisplayName(enemyKey);
                     playerHp = 100;
                     enemyHp = 100;
-                    specialMeter = 0;
+                    playerMana = enemyMana = 0;
                     playerKey = rosterKeys[squad[0]];
                     playerName = rosterNames[squad[0]];
                     squadForStory = true;
@@ -1831,16 +1876,10 @@ namespace StoryPort
             enemyHp = enemyHealth <= 0 ? 0 : Mathf.Clamp(Mathf.CeilToInt(enemyHealth / enemyMaxHealth * 100f), 1, 100);
         }
 
-        // Damage multipliers of attack per move: light hits land at about half the
-        // attack stat (the reference shows 173 from a 345-attack bot), and the
-        // special follows the blueprint's escalating special scale.
-        static float MoveMultiplier(string state)
+        static int AttackStepLevel(string state)
         {
-            if (state == "SpecialAttack03") return 3.5f;
-            if (state.StartsWith("Special", StringComparison.Ordinal)) return 1.75f;
-            if (state.StartsWith("Medium", StringComparison.Ordinal)) return .8f;
-            if (state == "LightAttack03") return .65f;
-            return .5f;
+            int level;
+            return int.TryParse(state.Substring(state.Length - 1), out level) ? Mathf.Clamp(level, 1, 3) : 1;
         }
 
         void SaveSquadAndBegin()
@@ -1859,7 +1898,7 @@ namespace StoryPort
                 if (pendingEncounter)
                 {
                     playerHp = enemyHp = 100;
-                    specialMeter = 0;
+                    playerMana = enemyMana = 0;
                     Show("loading");
                     StartCoroutine(LoadFight());
                 }
