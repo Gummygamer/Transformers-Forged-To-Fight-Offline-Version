@@ -15,6 +15,34 @@ VERSION = "6000.6.3f1"
 EXCLUDED = {"Scripts", "Plugins"}  # Never import decompiled game code or APK plugins.
 
 
+def extract_atlas_sprites(atlas_image: Path, atlas_data: Path, destination: Path,
+                          wanted: dict[str, str]) -> None:
+    """Crop named 9.2 UI sprites, failing before a build if the atlas is incomplete."""
+    if not atlas_image.is_file() or not atlas_data.is_file():
+        raise FileNotFoundError(f"Missing local 9.2 UI atlas: {atlas_image} or {atlas_data}")
+    source_text = atlas_data.read_text(encoding="utf-8", errors="replace")
+    found: set[str] = set()
+    with Image.open(atlas_image) as atlas:
+        for match in re.finditer(r"^  - name: ([^\n]+)\n(.*?)(?=^  - name: |\Z)", source_text, re.M | re.S):
+            name, block = match.group(1).strip(), match.group(2)
+            if name not in wanted:
+                continue
+            values = {}
+            for key in ("x", "y", "width", "height"):
+                value = re.search(rf"^    {key}: (-?\d+)$", block, re.M)
+                if value is None:
+                    raise ValueError(f"Sprite {name!r} is missing its {key} coordinate")
+                values[key] = int(value.group(1))
+            x, y, width, height = (values[key] for key in ("x", "y", "width", "height"))
+            if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > atlas.width or y + height > atlas.height:
+                raise ValueError(f"Sprite {name!r} is outside the {atlas.size} atlas")
+            atlas.crop((x, y, x + width, y + height)).save(destination / wanted[name])
+            found.add(name)
+    missing = set(wanted) - found
+    if missing:
+        raise ValueError("Missing named 9.2 UI sprites: " + ", ".join(sorted(missing)))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--converted-project", type=Path, required=True)
@@ -116,8 +144,7 @@ def main() -> None:
     # Sprite coordinates in MainUIAtlasHdPrefab are top-left based.
     atlas_image = args.assetpack_root / "ui/bundles/uitextures/fte/atlases/mainuiatlashdprefab.png"
     atlas_data = args.converted_project / "Assets/GameObject/MainUIAtlasHdPrefab.prefab"
-    if atlas_image.is_file() and atlas_data.is_file():
-        wanted = {
+    wanted = {
             "Button_MainGlowing": "button_main_glowing.png",
             "Button_Tab": "button_tab.png",
             "Button_TabActive": "button_tab_active.png",
@@ -137,24 +164,18 @@ def main() -> None:
             "ProgressBarFill": "progress_bar_fill.png",
             "ProgressBarFill_gray": "progress_bar_fill_gray.png",
             "SpecialFrame": "special_frame.png",
+            "bookmark": "story_bookmark.png",
+            "CommonFrame": "common_frame.png",
+            "frame_gate": "frame_gate.png",
+            "frame_Selection": "frame_selection.png",
+            "HeroTile_Background": "hero_tile_background.png",
+            "IconLoading": "icon_loading.png",
+            "IconLock": "icon_lock.png",
+            "PopUp_Background": "popup_background.png",
+            "SelectionOutline": "selection_outline.png",
+            "Teletraan_bg": "teletraan_bg.png",
         }
-        source_text = atlas_data.read_text(encoding="utf-8", errors="replace")
-        with Image.open(atlas_image) as atlas:
-            for match in re.finditer(r"^  - name: ([^\n]+)\n(.*?)(?=^  - name: |\Z)", source_text, re.M | re.S):
-                name, block = match.group(1).strip(), match.group(2)
-                destination_name = wanted.get(name)
-                if destination_name is None:
-                    continue
-                values = {}
-                for key in ("x", "y", "width", "height"):
-                    value = re.search(rf"^    {key}: (-?\d+)$", block, re.M)
-                    if value is None:
-                        break
-                    values[key] = int(value.group(1))
-                if len(values) != 4:
-                    continue
-                x, y, width, height = (values[key] for key in ("x", "y", "width", "height"))
-                atlas.crop((x, y, x + width, y + height)).save(ui_art / destination_name)
+    extract_atlas_sprites(atlas_image, atlas_data, ui_art, wanted)
     game_portraits = args.assetpack_root / "portraits_odr" / "portraits"
     for image in game_portraits.glob("portrait_*_large.png"):
         shutil.copy2(image, portrait_art / image.name)

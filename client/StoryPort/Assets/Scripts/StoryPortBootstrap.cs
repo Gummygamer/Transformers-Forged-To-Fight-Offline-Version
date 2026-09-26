@@ -98,16 +98,6 @@ namespace StoryPort
         Image specialFill;
         Image enemySpecialFill;
 
-        sealed class StoryMapNode
-        {
-            public int x;
-            public int y;
-            public string label;
-            public string boss;
-            public bool isFinal;
-            public readonly List<Vector2Int> links = new List<Vector2Int>();
-        }
-
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void StartClient()
         {
@@ -231,10 +221,14 @@ namespace StoryPort
             var bar = Panel(parent, "Top Status Bar", new Color(.018f, .06f, .105f, .99f), new Vector2(0, .88f), Vector2.one);
             headerRoot = bar.transform;
             var stripe = Panel(bar.transform, "Cyan Keyline", new Color(.18f, .72f, .85f, .9f), new Vector2(0, 0), new Vector2(1, .025f));
-            var logo = SpriteImage(bar.transform, "Logo", "UI/tff_logo_en", new Vector2(.012f, .22f), new Vector2(.12f, .82f), true);
-            if (logo != null) logo.preserveAspect = true;
-            LabelAt(bar.transform, "Commander", "COMMANDER  ·  LV 2", 14, TextAnchor.MiddleLeft, new Color(.77f, .87f, .92f), new Vector2(.13f, .62f), new Vector2(.33f, .92f));
-            var xpTrack = MakeImage(bar.transform, "Commander XP Track", new Color(.08f, .13f, .18f, .95f), new Vector2(.13f, .53f), new Vector2(.33f, .59f));
+            var menu = Button(bar.transform, "Menu", () => Show("base"), new Vector2(.008f, .54f), new Vector2(.047f, .95f));
+            SetButtonSkin(menu, "button_tab");
+            menu.GetComponentInChildren<Text>().text = "☰";
+            var commanderPortrait = SpriteImage(bar.transform, "Commander Portrait", "Portraits/portrait_optimus_gs_large",
+                new Vector2(.053f, .52f), new Vector2(.083f, .96f), true);
+            if (commanderPortrait != null) commanderPortrait.raycastTarget = false;
+            LabelAt(bar.transform, "Commander", "COMMANDER  ·  LV 2", 14, TextAnchor.MiddleLeft, new Color(.77f, .87f, .92f), new Vector2(.09f, .62f), new Vector2(.31f, .92f));
+            var xpTrack = MakeImage(bar.transform, "Commander XP Track", new Color(.08f, .13f, .18f, .95f), new Vector2(.09f, .53f), new Vector2(.31f, .59f));
             var xpFill = MakeImage(xpTrack.transform, "Commander XP", new Color(.92f, .67f, .12f, 1f), Vector2.zero, new Vector2(.67f, 1f));
             xpFill.raycastTarget = xpTrack.raycastTarget = false;
             HeaderResource(bar.transform, "PvE Energy", "UI/energy_pve", "100/100", .62f, .12f);
@@ -270,6 +264,8 @@ namespace StoryPort
         void UpdateHeaderState(string next)
         {
             if (headerRoot == null) return;
+            bool showNav = next == "base" || next == "fightmode" || next == "roster" || next == "inventory";
+            headerRoot.GetComponent<RectTransform>().anchorMin = new Vector2(0, showNav ? .88f : .93f);
             int selected = next == "base" ? 0 : next == "roster" || next == "squad" ? 1 : next == "inventory" ? 2 :
                 next == "fightmode" || next == "story" || next == "chapter" || next == "map" || next == "fight" || next == "victory" || next == "defeat" ? 3 : -1;
             string[] tabs = { "BASE", "BOTS", "INVENTORY", "FIGHT", "ALLIANCE", "CRYSTALS", "STORE" };
@@ -277,6 +273,7 @@ namespace StoryPort
             {
                 var button = headerRoot.Find(tabs[i]);
                 if (button == null) continue;
+                button.gameObject.SetActive(showNav);
                 string resource = i == 3
                     ? (selected == i ? "global_nav_center_active" : "global_nav_center")
                     : (selected == i ? "global_nav_button_active" : "global_nav_button");
@@ -295,7 +292,8 @@ namespace StoryPort
             notice = "";
             if (backgroundArt != null) Destroy(backgroundArt);
             backgroundArt = null;
-            if (headerRoot != null) headerRoot.gameObject.SetActive(next != "title" && next != "loading");
+            if (headerRoot != null) headerRoot.gameObject.SetActive(next != "title" && next != "loading" &&
+                next != "fight" && next != "victory" && next != "defeat");
             if (content == null) return;
             foreach (Transform child in content) Destroy(child.gameObject);
             if (next != "fight" && next != "victory" && next != "defeat") DestroyWorld();
@@ -456,37 +454,99 @@ namespace StoryPort
 
         void StoryScreen()
         {
-            LabelAt(content, "Story Missions Header", "SELECT AN ACT", 27, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .89f), new Vector2(.8f, .98f));
-            LabelAt(content, "Story Missions Subtitle", "Choose an act to continue the campaign.", 13, TextAnchor.MiddleCenter, new Color(.71f, .81f, .86f), new Vector2(.12f, .83f), new Vector2(.88f, .9f));
-            string[] artNames = { "UI/fightstoryimglrg_hd", "UI/fightstoryimglrg_sd", "UI/fightstoryimgsml_hd" };
-            for (int i = 0; i < 3; i++)
+            Panel(content, "Story Mission Backdrop", new Color(.012f, .025f, .052f, .96f), Vector2.zero, Vector2.one);
+            LabelAt(content, "Story Missions Header", "STORY MISSIONS", 25, TextAnchor.MiddleCenter, Color.white,
+                new Vector2(.28f, .88f), new Vector2(.72f, .99f));
+            LabelAt(content, "Story Missions Subtitle", "Explore the campaign and continue your route", 12,
+                TextAnchor.MiddleCenter, new Color(.69f, .8f, .87f), new Vector2(.25f, .83f), new Vector2(.75f, .9f));
+
+            for (int i = 0; i < ActQids.Length; i++)
             {
-                int act = i;
-                float x = .035f + i * .315f;
-                var card = Panel(content, "Story Act Card " + (i + 1), new Color(.012f, .028f, .052f, .96f), new Vector2(x, .1f), new Vector2(x + .29f, .79f));
-                var art = SpriteImage(card.transform, "Act Art", artNames[i], new Vector2(.035f, .39f), new Vector2(.965f, .97f), false);
-                if (art != null) art.preserveAspect = false;
-                Panel(card.transform, "Art Shade", new Color(.01f, .025f, .045f, .78f), new Vector2(.02f, .02f), new Vector2(.98f, .43f));
-                LabelAt(card.transform, "Act Label", "ACT " + Roman(i + 1), 13, TextAnchor.MiddleLeft, new Color(.28f, .8f, .91f), new Vector2(.08f, .33f), new Vector2(.9f, .42f));
-                LabelAt(card.transform, "Act Title", ActTitles[i], 17, TextAnchor.MiddleLeft, Color.white, new Vector2(.08f, .23f), new Vector2(.92f, .35f));
-                LabelAt(card.transform, "Act Description", ActDescriptions[i], 11, TextAnchor.UpperLeft, new Color(.7f, .8f, .85f), new Vector2(.08f, .1f), new Vector2(.92f, .24f));
-                var select = Button(card.transform, "SELECT ACT", () => { actIndex = act; Show("chapter"); }, new Vector2(.52f, .025f), new Vector2(.93f, .105f));
-                SetButtonSkin(select, i == 0 ? "button_main_glowing" : "button_tab");
-                var selectLabel = select.GetComponentInChildren<Text>();
-                selectLabel.text = "ACT " + Roman(i + 1);
-                selectLabel.fontSize = 12;
+                int selected = i;
+                float x = .26f + i * .16f;
+                var tab = Button(content, "Act " + Roman(i + 1), () => { actIndex = selected; Show("story"); },
+                    new Vector2(x, .77f), new Vector2(x + .15f, .84f));
+                SetButtonSkin(tab, i == actIndex ? "button_tab_active" : "button_tab");
+                var label = tab.GetComponentInChildren<Text>();
+                label.text = "ACT " + Roman(i + 1);
+                label.fontSize = 14;
             }
+
+            StoryActBanner(actIndex, new Vector2(.018f, .08f), new Vector2(.235f, .77f), true);
+            StoryActBanner((actIndex + 1) % ActQids.Length, new Vector2(.795f, .08f), new Vector2(.982f, .77f), false);
+
+            var chapter = Button(content, "Chapter 1", OpenStoryMap, new Vector2(.26f, .24f), new Vector2(.445f, .74f));
+            chapter.GetComponent<Image>().color = new Color(.055f, .23f, .36f, 1f);
+            var chapterArt = SpriteImage(chapter.transform, "Chapter Art", "UI/button_tab_active", Vector2.zero, Vector2.one, false);
+            if (chapterArt != null) { chapterArt.raycastTarget = false; chapterArt.transform.SetAsFirstSibling(); }
+            var chapterShade = Panel(chapter.transform, "Chapter Text Shade", new Color(.008f, .022f, .045f, .88f),
+                new Vector2(.04f, .04f), new Vector2(.96f, .56f));
+            chapterShade.GetComponent<Image>().raycastTarget = false;
+            var bookmark = SpriteImage(chapter.transform, "Chapter Bookmark", "UI/story_bookmark",
+                new Vector2(-.06f, .77f), new Vector2(.18f, 1.08f), true);
+            if (bookmark != null) bookmark.raycastTarget = false;
+            LabelAt(chapter.transform, "Chapter Number", "CHAPTER 1", 15, TextAnchor.MiddleLeft, new Color(.39f, .84f, .98f),
+                new Vector2(.1f, .56f), new Vector2(.92f, .65f)).raycastTarget = false;
+            LabelAt(chapter.transform, "Chapter Name", ActTitles[actIndex], 20, TextAnchor.MiddleLeft, Color.white,
+                new Vector2(.1f, .31f), new Vector2(.92f, .58f)).raycastTarget = false;
+            LabelAt(chapter.transform, "Chapter Action", "ENTER STORY BOARD", 13, TextAnchor.MiddleLeft, new Color(.57f, .95f, 1f),
+                new Vector2(.1f, .09f), new Vector2(.92f, .25f)).raycastTarget = false;
+            chapter.GetComponentInChildren<Text>().text = "";
+
+            var routeLabels = ActNodeLabels[actIndex].Split('|');
+            if (currentQid == ActQids[actIndex] && storyMapNodes.Count > 0)
+            {
+                var serverLabels = new List<string>();
+                foreach (var node in storyMapNodes)
+                    if (!string.IsNullOrEmpty(node.boss))
+                        serverLabels.Add(string.IsNullOrEmpty(node.label) ? DisplayName(node.boss) : node.label);
+                if (serverLabels.Count > 0) routeLabels = serverLabels.ToArray();
+            }
+            for (int i = 0; i < routeLabels.Length; i++)
+            {
+                int column = i % 3, row = i / 3;
+                float x = .455f + column * .108f;
+                float y = row == 0 ? .48f : .24f;
+                var tile = Panel(content, "Route Preview " + (i + 1), new Color(.014f, .034f, .07f, .98f),
+                    new Vector2(x, y), new Vector2(x + .102f, y + .22f));
+                var tileBackground = SpriteImage(tile.transform, "9.2 Route Tile", "UI/hero_tile_background", Vector2.zero, Vector2.one, false);
+                if (tileBackground != null) tileBackground.raycastTarget = false;
+                var icon = SpriteImage(tile.transform, "Encounter Icon", "UI/boss_icon", new Vector2(.36f, .45f), new Vector2(.64f, .79f), true);
+                if (icon != null) icon.raycastTarget = false;
+                LabelAt(tile.transform, "Encounter Number", (i + 1).ToString(), 12, TextAnchor.MiddleCenter, Color.white,
+                    new Vector2(.04f, .72f), new Vector2(.3f, .95f));
+                LabelAt(tile.transform, "Encounter Name", routeLabels[i].ToUpperInvariant(), 10, TextAnchor.MiddleCenter, Color.white,
+                    new Vector2(.06f, .05f), new Vector2(.94f, .43f));
+            }
+            var back = Button(content, "Back to Fight Modes", () => Show("fightmode"),
+                new Vector2(.025f, .83f), new Vector2(.145f, .92f));
+            SetButtonSkin(back, "button_tab");
+            back.GetComponentInChildren<Text>().text = "‹  BACK";
         }
 
         void ChapterScreen()
         {
-            var panel = Panel(content, "Chapter Panel", new Color(.025f, .08f, .125f, .96f), new Vector2(.12f, .1f), new Vector2(.88f, .9f));
-            SpriteImage(panel.transform, "Chapter Art", "UI/fightstoryimglrg_hd", new Vector2(.03f, .05f), new Vector2(.48f, .95f), false);
-            LabelAt(panel.transform, "Act", "ACT " + Roman(actIndex + 1), 18, TextAnchor.MiddleLeft, new Color(.3f, .76f, .85f), new Vector2(.54f, .75f), new Vector2(.94f, .9f));
-            LabelAt(panel.transform, "Title", ActTitles[actIndex], 32, TextAnchor.MiddleLeft, Color.white, new Vector2(.54f, .59f), new Vector2(.94f, .76f));
-            LabelAt(panel.transform, "Description", ActDescriptions[actIndex], 21, TextAnchor.UpperLeft, new Color(.69f, .8f, .85f), new Vector2(.54f, .4f), new Vector2(.94f, .58f));
-            ActionButton("CHAPTER 1", "Resume this act's mission", () => OpenStoryMap(), .55f, .19f, .37f, .15f, true);
-            ActionButton("BACK", "Story missions", () => Show("story"), .55f, .04f, .18f, .12f, false);
+            StoryScreen();
+        }
+
+        void StoryActBanner(int index, Vector2 min, Vector2 max, bool selected)
+        {
+            var banner = Button(content, "Act Banner " + (index + 1), () => { actIndex = index; Show("story"); }, min, max);
+            banner.GetComponent<Image>().color = new Color(.02f, .05f, .09f, 1f);
+            string[] artworkNames = { "UI/planet_landscape", "UI/starscream_fight", "UI/fightstoryimglrg_hd" };
+            var artwork = SpriteImage(banner.transform, "9.2 Story Art", artworkNames[index], Vector2.zero, Vector2.one, false);
+            if (artwork != null) { artwork.raycastTarget = false; artwork.transform.SetAsFirstSibling(); }
+            var shade = Panel(banner.transform, "Banner Shade", new Color(.008f, .018f, .038f, selected ? .82f : .64f),
+                new Vector2(0, 0), new Vector2(1, selected ? .62f : .5f));
+            shade.GetComponent<Image>().raycastTarget = false;
+            LabelAt(banner.transform, "Act Number", "ACT " + Roman(index + 1), 17, TextAnchor.MiddleLeft, Color.white,
+                new Vector2(.07f, .49f), new Vector2(.93f, .61f)).raycastTarget = false;
+            LabelAt(banner.transform, "Act Title", ActTitles[index], 18, TextAnchor.MiddleLeft, Color.white,
+                new Vector2(.07f, .3f), new Vector2(.93f, .5f)).raycastTarget = false;
+            if (selected)
+                LabelAt(banner.transform, "Act Description", ActDescriptions[index], 11, TextAnchor.UpperLeft,
+                    new Color(.76f, .84f, .89f), new Vector2(.07f, .12f), new Vector2(.93f, .3f)).raycastTarget = false;
+            banner.GetComponentInChildren<Text>().text = "";
         }
 
         void MapScreen()
@@ -497,6 +557,9 @@ namespace StoryPort
             SectionTitle("ACT " + Roman(actIndex + 1) + "  ·  " + ActTitles[actIndex], "Select an encounter to continue the campaign");
             DrawBoardNodes();
             ActionButton("SQUAD", "Select the team for the next fight", () => { squadForStory = true; Show("squad"); }, .05f, .08f, .2f, .16f, false);
+            var back = Button(content, "Back to Story", () => Show("story"), new Vector2(.025f, .84f), new Vector2(.15f, .94f));
+            SetButtonSkin(back, "button_tab");
+            back.GetComponentInChildren<Text>().text = "‹  STORY";
         }
 
         void DrawHexMapField()
@@ -1331,131 +1394,13 @@ namespace StoryPort
 
         void ReadStoryMap(string response)
         {
+            var route = StoryRouteData.Parse(response, currentQid);
             storyMapNodes.Clear();
-            storyMapDimension = 0;
-            string quest = ExtractJsonValue(response, currentQid);
-            string map = ExtractJsonValue(quest, "map");
-            if (string.IsNullOrEmpty(map))
-            {
+            storyMapNodes.AddRange(route.nodes);
+            storyMapDimension = route.dimension;
+            if (!route.hasMap)
                 Debug.LogWarning("StoryPort server response did not include map data for " + currentQid);
-                return;
-            }
-            var dimMatch = Regex.Match(map, "\\\"gridDimension\\\"\\s*:\\s*(\\d+)");
-            if (dimMatch.Success) int.TryParse(dimMatch.Groups[1].Value, out storyMapDimension);
-            var rows = SplitJsonArray(ExtractJsonValue(map, "grid"));
-            for (int x = 0; x < rows.Count; x++)
-            {
-                var cells = SplitJsonArray(rows[x]);
-                for (int y = 0; y < cells.Count; y++)
-                {
-                    string tile = cells[y];
-                    if (ExtractJsonValue(tile, "walkable") != "true" || ExtractJsonValue(tile, "hidden") == "true") continue;
-                    var node = new StoryMapNode
-                    {
-                        // The game's grid stores x in the outer (row) index and y in the inner index.
-                        x = x,
-                        y = y,
-                        label = ExtractJsonString(tile, "lab"),
-                        boss = ExtractJsonString(tile, "boss"),
-                        isFinal = ExtractJsonValue(tile, "final") == "true"
-                    };
-                    foreach (var link in SplitJsonArray(ExtractJsonValue(tile, "links")))
-                    {
-                        int linkX, linkY;
-                        if (int.TryParse(ExtractJsonValue(link, "x"), out linkX) && int.TryParse(ExtractJsonValue(link, "y"), out linkY))
-                            node.links.Add(new Vector2Int(linkX, linkY));
-                    }
-                    storyMapNodes.Add(node);
-                }
-            }
-            if (storyMapDimension <= 0) storyMapDimension = rows.Count;
             Debug.Log("StoryPort loaded " + storyMapNodes.Count + " walkable server map nodes for " + currentQid + " (dimension " + storyMapDimension + ")");
-        }
-
-        string ExtractJsonValue(string json, string key)
-        {
-            if (string.IsNullOrEmpty(json)) return "";
-            var match = Regex.Match(json, "\\\"" + Regex.Escape(key) + "\\\"\\s*:");
-            if (!match.Success) return "";
-            int start = match.Index + match.Length;
-            while (start < json.Length && char.IsWhiteSpace(json[start])) start++;
-            if (start >= json.Length) return "";
-            char first = json[start];
-            if (first == '{' || first == '[')
-            {
-                char open = first, close = first == '{' ? '}' : ']';
-                int depth = 0;
-                bool inString = false, escaped = false;
-                for (int i = start; i < json.Length; i++)
-                {
-                    char c = json[i];
-                    if (inString)
-                    {
-                        if (escaped) escaped = false;
-                        else if (c == '\\') escaped = true;
-                        else if (c == '"') inString = false;
-                        continue;
-                    }
-                    if (c == '"') { inString = true; continue; }
-                    if (c == open) depth++;
-                    else if (c == close && --depth == 0) return json.Substring(start, i - start + 1);
-                }
-                return "";
-            }
-            if (first == '"')
-            {
-                bool escaped = false;
-                for (int i = start + 1; i < json.Length; i++)
-                {
-                    if (escaped) escaped = false;
-                    else if (json[i] == '\\') escaped = true;
-                    else if (json[i] == '"') return json.Substring(start, i - start + 1);
-                }
-                return "";
-            }
-            int end = start;
-            while (end < json.Length && json[end] != ',' && json[end] != '}' && json[end] != ']') end++;
-            return json.Substring(start, end - start).Trim();
-        }
-
-        List<string> SplitJsonArray(string jsonArray)
-        {
-            var items = new List<string>();
-            if (string.IsNullOrEmpty(jsonArray) || jsonArray[0] != '[') return items;
-            int start = -1, depth = 0;
-            bool inString = false, escaped = false;
-            for (int i = 1; i < jsonArray.Length; i++)
-            {
-                char c = jsonArray[i];
-                if (inString)
-                {
-                    if (escaped) escaped = false;
-                    else if (c == '\\') escaped = true;
-                    else if (c == '"') inString = false;
-                    continue;
-                }
-                if (c == '"') { if (start < 0) start = i; inString = true; continue; }
-                if (c == '{' || c == '[') { if (start < 0) start = i; depth++; continue; }
-                if (c == '}' || c == ']')
-                {
-                    depth--;
-                    if (depth == 0 && start >= 0)
-                    {
-                        items.Add(jsonArray.Substring(start, i - start + 1));
-                        start = -1;
-                    }
-                    if (c == ']' && depth < 0) break;
-                    continue;
-                }
-                if (c == ',' && depth == 0)
-                {
-                    if (start >= 0) items.Add(jsonArray.Substring(start, i - start).Trim());
-                    start = -1;
-                    continue;
-                }
-                if (!char.IsWhiteSpace(c) && start < 0) start = i;
-            }
-            return items;
         }
 
         IEnumerator LoadFight()
@@ -1655,8 +1600,7 @@ namespace StoryPort
 
         string ExtractJsonString(string json, string key)
         {
-            var match = Regex.Match(json, "\\\"" + Regex.Escape(key) + "\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-            return match.Success ? match.Groups[1].Value : "";
+            return StoryRouteData.ReadString(json, key);
         }
 
         string ExtractBattleKey(string json)
@@ -1929,7 +1873,7 @@ namespace StoryPort
             go.transform.SetParent(parent, false);
             var text = go.GetComponent<Text>();
             text.text = value;
-            text.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             text.fontSize = size;
             text.alignment = align;
             text.color = color;

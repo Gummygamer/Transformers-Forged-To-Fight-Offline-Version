@@ -59,20 +59,27 @@ namespace StoryPort.Editor
             Debug.Log("StoryPort: created asset aliases and runtime scene. Imported assets remain local-only.");
         }
 
-        static void ImportLocalUiArt()
+        internal static void ImportLocalUiArt(bool includePortraits = true)
         {
-            foreach (var path in Directory.GetFiles("Assets/Resources/StoryPort", "*.*", SearchOption.AllDirectories))
+            var directories = includePortraits
+                ? new[] { ResourcesRoot + "/UI", ResourcesRoot + "/Portraits" }
+                : new[] { ResourcesRoot + "/UI" };
+            foreach (var directory in directories)
             {
-                if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) &&
-                    !path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) &&
-                    !path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)) continue;
-                var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-                if (importer == null) continue;
-                importer.textureType = TextureImporterType.Sprite;
-                importer.spriteImportMode = SpriteImportMode.Single;
-                importer.mipmapEnabled = false;
-                importer.alphaIsTransparency = path.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
-                importer.SaveAndReimport();
+                if (!Directory.Exists(directory)) continue;
+                foreach (var path in Directory.GetFiles(directory, "*.*", SearchOption.AllDirectories))
+                {
+                    if (!path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) &&
+                        !path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) &&
+                        !path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)) continue;
+                    var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+                    if (importer == null) continue;
+                    importer.textureType = TextureImporterType.Sprite;
+                    importer.spriteImportMode = SpriteImportMode.Single;
+                    importer.mipmapEnabled = false;
+                    importer.alphaIsTransparency = path.EndsWith(".png", StringComparison.OrdinalIgnoreCase);
+                    importer.SaveAndReimport();
+                }
             }
         }
 
