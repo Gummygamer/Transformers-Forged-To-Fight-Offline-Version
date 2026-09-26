@@ -53,10 +53,12 @@ the full Act I and Act II route):
   one to three hit combos on its own timer; a test fight gave 14 hits landed,
   13 received, chain 5 (reference: 16, 9, 5).
 - Music and sound from the local 9.2 audio (see Audio above).
+- Mission Complete screen after an act's last encounter (BACK TO MISSIONS, greyed
+  REPLAY, PLAY NEXT); the rewards panel stays empty because the server grants none.
 - Knockout shot: the camera pushes in on the winner under "<NAME> WINS!".
 
 Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
-`CaptureDialogue`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,
+`CaptureDialogue`, `CaptureComplete`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,
 `SP_SQUADCAM`, `SP_BASECAM` and `SP_BLDG` retune the stage, cameras and building
 layout in the Editor only.
 

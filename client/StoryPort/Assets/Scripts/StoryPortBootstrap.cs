@@ -343,7 +343,7 @@ namespace StoryPort
             if (backgroundArt != null) Destroy(backgroundArt);
             backgroundArt = null;
             if (headerRoot != null) headerRoot.gameObject.SetActive(next != "title" && next != "loading" &&
-                next != "fight" && next != "victory" && next != "defeat" && next != "dialogue");
+                next != "fight" && next != "victory" && next != "defeat" && next != "dialogue" && next != "complete");
             if (content == null) return;
             foreach (Transform child in content) Destroy(child.gameObject);
             if (next != "fight" && next != "victory" && next != "defeat") DestroyWorld();
@@ -361,6 +361,7 @@ namespace StoryPort
             else if (next == "roster") RosterScreen();
             else if (next == "inventory") InventoryScreen();
             else if (next == "dialogue") DialogueScreen();
+            else if (next == "complete") MissionCompleteScreen();
             UpdateHeaderState(next);
             PlayScreenMusic(next);
         }
@@ -375,6 +376,7 @@ namespace StoryPort
                 case "squad": audioPlayer.Music("music_prefight"); break;
                 case "fight": audioPlayer.Music("music_fight_loop"); break;
                 case "dialogue": break;
+                case "complete": audioPlayer.Music("music_postfight_win", false); break;
                 case "victory": audioPlayer.Music("music_postfight_win", false); break;
                 case "defeat": audioPlayer.Music("music_postfight_lose", false); break;
                 default: audioPlayer.Music("music_questboard_loop"); break;
@@ -2088,14 +2090,47 @@ namespace StoryPort
                 Show("map");
                 return;
             }
-            if (actIndex < 2)
-            {
-                actIndex++;
-                Show("chapter");
-                return;
-            }
-            SetNotice("ALL THREE ACTS COMPLETE");
-            Show("story");
+            Show("complete");
+        }
+
+        // Mission Complete screen after an act's final encounter, as in the
+        // reference. The server grants no rewards, so the panel stays empty.
+        void MissionCompleteScreen()
+        {
+            Cue("complete_celebration", .8f);
+            TechBackdrop();
+            var title = LabelAt(content, "Mission Complete", "MISSION COMPLETE!", 44, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .83f), new Vector2(.8f, .98f));
+            title.fontStyle = FontStyle.Bold;
+            title.gameObject.AddComponent<Outline>().effectColor = new Color(.1f, .5f, .9f, .9f);
+            LabelAt(content, "Mission Name", ActTitles[actIndex], 20, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .76f), new Vector2(.8f, .84f)).fontStyle = FontStyle.Bold;
+            var rewards = Panel(content, "Rewards Panel", new Color(.08f, .09f, .11f, .95f), new Vector2(.18f, .34f), new Vector2(.82f, .76f));
+            rewards.GetComponent<Image>().raycastTarget = false;
+            LabelAt(rewards.transform, "Rewards Title", "REWARDS", 16, TextAnchor.MiddleCenter, new Color(.8f, .85f, .9f), new Vector2(0, .82f), new Vector2(1, .98f));
+            Panel(rewards.transform, "Rewards Rule", new Color(.3f, .34f, .38f, 1f), new Vector2(.03f, .8f), new Vector2(.97f, .805f)).GetComponent<Image>().raycastTarget = false;
+            var bar = Panel(content, "Mission Progress", new Color(.08f, .09f, .11f, .95f), new Vector2(.18f, .25f), new Vector2(.82f, .33f));
+            bar.GetComponent<Image>().raycastTarget = false;
+            LabelAt(bar.transform, "Mission Number", "MISSION " + Roman(actIndex + 1), 14, TextAnchor.MiddleLeft, new Color(.8f, .85f, .9f), new Vector2(.04f, 0), new Vector2(.28f, 1));
+            var track = MakeImage(bar.transform, "Mission Track", new Color(.2f, .2f, .22f, 1f), new Vector2(.3f, .3f), new Vector2(.72f, .7f));
+            track.raycastTarget = false;
+            float explored = ExploredShare();
+            MakeImage(track.transform, "Mission Fill", new Color(.9f, .64f, .12f, 1f), Vector2.zero, new Vector2(explored, 1f)).raycastTarget = false;
+            LabelAt(bar.transform, "Mission Explored", Mathf.RoundToInt(explored * 100f) + "% EXPLORED", 14, TextAnchor.MiddleRight, new Color(.75f, .8f, .85f), new Vector2(.72f, 0), new Vector2(.96f, 1));
+
+            var back = Button(content, "Back to Missions", () => Show("story"), new Vector2(.18f, .1f), new Vector2(.4f, .19f));
+            SetButtonSkin(back, "button_main_glowing");
+            back.GetComponent<Image>().color = new Color(.16f, .55f, .25f, 1f);
+            back.GetComponentInChildren<Text>().text = "BACK TO MISSIONS";
+            // Replaying would rewrite the server's progress, so it stays greyed out.
+            var replay = Button(content, "Replay", null, new Vector2(.42f, .1f), new Vector2(.58f, .19f));
+            replay.interactable = false;
+            replay.GetComponent<Image>().color = new Color(.45f, .47f, .5f, .8f);
+            replay.GetComponentInChildren<Text>().text = "REPLAY";
+            bool hasNext = actIndex < 2;
+            var next = Button(content, "Play Next", () => { actIndex++; Show("chapter"); }, new Vector2(.6f, .1f), new Vector2(.82f, .19f));
+            SetButtonSkin(next, "button_main_glowing");
+            next.GetComponent<Image>().color = new Color(.16f, .55f, .25f, 1f);
+            next.GetComponentInChildren<Text>().text = "PLAY NEXT";
+            next.interactable = hasNext;
         }
 
         // Server-authored story dialogue: 3D speakers left and right over a dimmed
