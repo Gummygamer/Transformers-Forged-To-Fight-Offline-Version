@@ -285,6 +285,10 @@ namespace StoryPort
             HeaderResource(bar.transform, "Energon", "UI/soft_currency", "7,800", .75f, .09f);
             HeaderResource(bar.transform, "Premium Currency", "UI/hard_currency", "99", .89f, .085f);
             string[] tabs = { "BASE", "BOTS", "INVENTORY", "FIGHT", "ALLIANCE", "CRYSTALS", "STORE" };
+            // The 9.2 menu prefab assigns these private-use glyphs from
+            // Tecnica_Bold_116 to its seven global navigation buttons.
+            char[] navGlyphs = { '\uE201', '\uE205', '\uE206', '\uE202', '\uE203', '\uE204', '\uE207' };
+            var navFont = Resources.Load<Font>("StoryPort/Fonts/tecnica_nav");
             Action[] actions = { () => Show("base"), () => Show("roster"), () => Show("inventory"), () => Show("fightmode"), () => Show("story"), () => Show("roster"), () => Show("roster") };
             var navNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_button");
             var centerNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_center");
@@ -299,8 +303,17 @@ namespace StoryPort
                 image.sprite = index == 3 ? (centerNormal != null ? centerNormal : navNormal) : navNormal;
                 image.type = Image.Type.Simple;
                 image.color = Color.white;
-                button.GetComponentInChildren<Text>().fontSize = 14;
-                button.GetComponentInChildren<Text>().fontStyle = FontStyle.Bold;
+                var label = button.GetComponentInChildren<Text>();
+                label.fontSize = 12;
+                label.fontStyle = FontStyle.Bold;
+                Anchor(label.rectTransform, new Vector2(0, .02f), new Vector2(1, .37f));
+                if (navFont != null)
+                {
+                    var icon = Label(button.transform, "Nav Icon", navGlyphs[i].ToString(), 29, TextAnchor.MiddleCenter, Color.white);
+                    icon.font = navFont;
+                    icon.raycastTarget = false;
+                    Anchor(icon.rectTransform, new Vector2(0, .28f), new Vector2(1, .98f));
+                }
             }
         }
 

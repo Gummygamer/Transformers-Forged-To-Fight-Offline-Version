@@ -14,6 +14,7 @@ namespace StoryPort.Editor
             CheckStoryRoute();
             CheckEnemyDefense();
             AssetDatabase.Refresh();
+            CheckNavigationFont();
             StoryPortAssetSetup.ImportLocalUiArt(false);
             foreach (var name in new[]
             {
@@ -40,6 +41,17 @@ namespace StoryPort.Editor
                 StoryPortEnemyDefense.Choose(.7f) != StoryPortEnemyDefense.Action.Sidestep ||
                 StoryPortEnemyDefense.Choose(.95f) != StoryPortEnemyDefense.Action.Idle)
                 throw new Exception("Enemy anticipation weights changed unexpectedly");
+        }
+
+        static void CheckNavigationFont()
+        {
+            var font = Resources.Load<Font>("StoryPort/Fonts/tecnica_nav");
+            if (font == null)
+                throw new Exception("Missing converted 9.2 Tecnica navigation icon font");
+            font.RequestCharactersInTexture("\uE201\uE202\uE203\uE204\uE205\uE206\uE207");
+            foreach (var glyph in "\uE201\uE202\uE203\uE204\uE205\uE206\uE207")
+                if (!font.HasCharacter(glyph))
+                    throw new Exception("Converted navigation font lacks icon " + ((int)glyph).ToString("X4"));
         }
 
         static void CheckAudio()

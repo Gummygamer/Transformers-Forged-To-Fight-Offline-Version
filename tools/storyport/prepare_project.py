@@ -13,6 +13,9 @@ from PIL import Image
 
 VERSION = "6000.6.3f1"
 EXCLUDED = {"Scripts", "Plugins"}  # Never import decompiled game code or APK plugins.
+NAV_FONT_FALLBACK = Path(
+    "build/assetripper/exports/recompilation-2020/ExportedProject/Assets/Resources/ui/fonts/ttf/Tecnica_Bold_116.ttf"
+)
 
 
 def extract_atlas_sprites(atlas_image: Path, atlas_data: Path, destination: Path,
@@ -43,6 +46,20 @@ def extract_atlas_sprites(atlas_image: Path, atlas_data: Path, destination: Path
         raise ValueError("Missing named 9.2 UI sprites: " + ", ".join(sorted(missing)))
 
 
+def find_nav_font(converted_project: Path, explicit: Path | None,
+                  fallback: Path = NAV_FONT_FALLBACK) -> Path:
+    """Locate the local 9.2 icon font without putting it in the repository."""
+    if explicit is not None:
+        if explicit.is_file():
+            return explicit
+        raise FileNotFoundError(f"Navigation font does not exist: {explicit}")
+    converted = converted_project / "Assets/Resources/ui/fonts/ttf/Tecnica_Bold_116.ttf"
+    for candidate in (converted, fallback):
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError("Missing local 9.2 navigation font; pass --nav-font /path/to/Tecnica_Bold_116.ttf")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--converted-project", type=Path, required=True)
@@ -53,6 +70,10 @@ def main() -> None:
         type=Path,
         default=Path("build/pristine-rebuild/tree/assets/assetpack"),
         help="Local extracted 9.2 assetpack root; copied artwork is not tracked.",
+    )
+    parser.add_argument(
+        "--nav-font", type=Path,
+        help="Local extracted 9.2 Tecnica_Bold_116.ttf, when absent from the converted project.",
     )
     args = parser.parse_args()
 
@@ -115,6 +136,12 @@ def main() -> None:
         if folder.exists():
             shutil.rmtree(folder)
         folder.mkdir(parents=True, exist_ok=True)
+    nav_font = find_nav_font(args.converted_project, args.nav_font)
+    font_art = raw_art / "Fonts"
+    if font_art.exists():
+        shutil.rmtree(font_art)
+    font_art.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(nav_font, font_art / "tecnica_nav.ttf")
     art_copies = {
         args.assetpack_root / "ui/titles/tff_logo_en.png": ui_art / "tff_logo_en.png",
         args.assetpack_root / "ui/titles/title_background.jpg": ui_art / "title_background.jpg",
