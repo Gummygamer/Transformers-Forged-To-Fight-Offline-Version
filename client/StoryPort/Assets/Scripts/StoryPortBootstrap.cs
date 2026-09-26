@@ -577,33 +577,46 @@ namespace StoryPort
                 Debug.Log("StoryPort placed the converted 9.2 3x9 primordial landmass and terrain wings as the story-board terrain");
             }
 
-            // The original builder uses one 20m square for each server grid
-            // cell. Keep the grid's coordinates intact so routes preserve the
+            // Keep the server grid's 20m coordinates intact so routes preserve
             // authored branches instead of stretching to fit the landmass.
             int dimension = Mathf.Max(1, storyMapDimension);
-            BuildPrimordialGroundGrid(board, dimension, stitchedGroundY);
+            if (storyMapDimension >= 9)
+                BuildPrimordialGroundGrid(board, dimension, stitchedGroundY);
+
+            // A route usually visits only a few cells, but the original board
+            // has authored terrain across the whole playable grid. Stamp the
+            // converted 9.2 1x1 modules into every cell and let their terrain
+            // meshes form the surface instead of stretching one flat texture
+            // over the empty cells.
+            if (storyMapDimension < 9 && terrainPrefab != null)
+            {
+                for (int tileY = 0; tileY < dimension; tileY++)
+                {
+                    for (int tileX = 0; tileX < dimension; tileX++)
+                    {
+                        int variant = (tileX * 7 + tileY * 3) % 3;
+                        var selectedTerrain = variant == 1 ? terrainPrefab02 : variant == 2 ? terrainPrefab03 : terrainPrefab;
+                        var localTileCenter = StoryMapTileCenter(tileX, tileY, dimension);
+                        var tilePosition = board.transform.TransformPoint(new Vector3(localTileCenter.x, stitchedGroundY, localTileCenter.z));
+                        var terrain = Instantiate(selectedTerrain, tilePosition, Quaternion.identity, board.transform);
+                        terrain.name = "9.2 Primordial 1x1 Story Tile " + tileX + "-" + tileY;
+                        foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
+                        foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;
+                        foreach (var filter in terrain.GetComponentsInChildren<MeshFilter>(true))
+                        {
+                            if (filter.sharedMesh == null || filter.name != "BlankTerrain") continue;
+                            var meshCollider = filter.GetComponent<MeshCollider>();
+                            if (meshCollider == null) meshCollider = filter.gameObject.AddComponent<MeshCollider>();
+                            meshCollider.sharedMesh = filter.sharedMesh;
+                            meshCollider.enabled = true;
+                        }
+                    }
+                }
+            }
 
             foreach (var node in storyMapNodes)
             {
                 Vector3 localTileCenter = StoryMapTileCenter(node.x, node.y, dimension);
-                if (storyMapDimension < 9 && terrainPrefab != null)
-                {
-                    int variant = (node.x * 7 + node.y * 3) % 3;
-                    var selectedTerrain = variant == 1 ? terrainPrefab02 : variant == 2 ? terrainPrefab03 : terrainPrefab;
-                    var tilePosition = board.transform.TransformPoint(new Vector3(localTileCenter.x, stitchedGroundY, localTileCenter.z));
-                    var terrain = Instantiate(selectedTerrain, tilePosition, Quaternion.identity, board.transform);
-                    terrain.name = "9.2 Primordial 1x1 Story Tile " + node.x + "-" + node.y;
-                    foreach (var collider in terrain.GetComponentsInChildren<Collider>(true)) collider.enabled = false;
-                    foreach (var light in terrain.GetComponentsInChildren<Light>(true)) light.enabled = false;
-                    foreach (var filter in terrain.GetComponentsInChildren<MeshFilter>(true))
-                    {
-                        if (filter.sharedMesh == null || filter.name != "BlankTerrain") continue;
-                        var meshCollider = filter.GetComponent<MeshCollider>();
-                        if (meshCollider == null) meshCollider = filter.gameObject.AddComponent<MeshCollider>();
-                        meshCollider.sharedMesh = filter.sharedMesh;
-                        meshCollider.enabled = true;
-                    }
-                }
                 Vector3 position = board.transform.TransformPoint(localTileCenter);
                 RaycastHit terrainHit;
                 if (Physics.Raycast(position + Vector3.up * 1000f, Vector3.down, out terrainHit, 2000f))
