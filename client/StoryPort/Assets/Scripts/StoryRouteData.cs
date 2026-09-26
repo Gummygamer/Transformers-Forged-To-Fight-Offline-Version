@@ -12,7 +12,19 @@ namespace StoryPort
         public string label;
         public string boss;
         public bool isFinal;
+        // Dialogue set ids the server attaches to the tile: shown before the
+        // fight ("dialogue") and after it is won ("dialoguePE").
+        public string dialogue;
+        public string dialogueAfter;
         public readonly List<Vector2Int> links = new List<Vector2Int>();
+    }
+
+    public sealed class DialogueLine
+    {
+        public string character;
+        public string side;
+        public string line;
+        public bool inShadow;
     }
 
     // The server owns the route. Keeping its parser independent of the screen
@@ -46,7 +58,9 @@ namespace StoryPort
                         y = y,
                         label = ReadString(tile, "lab"),
                         boss = ReadString(tile, "boss"),
-                        isFinal = ReadValue(tile, "final") == "true"
+                        isFinal = ReadValue(tile, "final") == "true",
+                        dialogue = ReadString(tile, "dialogue"),
+                        dialogueAfter = ReadString(tile, "dialoguePE")
                     };
                     foreach (var link in SplitArray(ReadValue(tile, "links")))
                     {
@@ -60,6 +74,23 @@ namespace StoryPort
             }
             if (route.dimension <= 0) route.dimension = rows.Count;
             return route;
+        }
+
+        // One dialogue set from a quest-detail dialogueTable.
+        public static List<DialogueLine> ReadDialogue(string detailJson, string setId)
+        {
+            var lines = new List<DialogueLine>();
+            if (string.IsNullOrEmpty(setId)) return lines;
+            var table = ReadValue(detailJson, "dialogueTable");
+            foreach (var entry in SplitArray(ReadValue(table, setId)))
+                lines.Add(new DialogueLine
+                {
+                    character = ReadString(entry, "character"),
+                    side = ReadString(entry, "side"),
+                    line = ReadString(entry, "line"),
+                    inShadow = ReadValue(entry, "inShadow") == "true"
+                });
+            return lines;
         }
 
         public static string ReadString(string json, string key)

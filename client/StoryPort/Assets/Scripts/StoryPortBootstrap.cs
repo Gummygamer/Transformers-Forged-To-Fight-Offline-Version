@@ -15,6 +15,13 @@ namespace StoryPort
         const string StorySet = "custom_story_act1";
         static readonly string[] ActQids = { "2.1.1", "2.2.1", "2.3.1" };
         static readonly string[] ActTitles = { "BLUDGEON'S AMBUSH", "RESOURCE SCANNERS", "BLUDGEON'S RECKONING" };
+        // Raw quest-detail per act; holds the server's dialogueTable.
+        readonly string[] actDetails = new string[3];
+        List<DialogueLine> dialogueLines;
+        int dialogueIndex;
+        Action dialogueDone;
+        GameObject dialogueLeft, dialogueRight;
+        readonly HashSet<string> dialoguesSeen = new HashSet<string>();
         static readonly string[] ActDescriptions =
         {
             "Optimus Prime confronts Bludgeon in the city streets.",
@@ -137,6 +144,7 @@ namespace StoryPort
             {
                 string response = "";
                 yield return StartCoroutine(Get("/quests/quest-detail/" + ActQids[i], json => response = json));
+                actDetails[i] = response;
                 var title = ExtractJsonString(response, "friendlyName");
                 var description = ExtractJsonString(response, "description");
                 if (!string.IsNullOrEmpty(title)) ActTitles[i] = title.ToUpperInvariant();
@@ -334,7 +342,7 @@ namespace StoryPort
             if (backgroundArt != null) Destroy(backgroundArt);
             backgroundArt = null;
             if (headerRoot != null) headerRoot.gameObject.SetActive(next != "title" && next != "loading" &&
-                next != "fight" && next != "victory" && next != "defeat");
+                next != "fight" && next != "victory" && next != "defeat" && next != "dialogue");
             if (content == null) return;
             foreach (Transform child in content) Destroy(child.gameObject);
             if (next != "fight" && next != "victory" && next != "defeat") DestroyWorld();
@@ -351,6 +359,7 @@ namespace StoryPort
             else if (next == "defeat") ResultScreen(false);
             else if (next == "roster") RosterScreen();
             else if (next == "inventory") InventoryScreen();
+            else if (next == "dialogue") DialogueScreen();
             UpdateHeaderState(next);
             PlayScreenMusic(next);
         }
@@ -364,6 +373,7 @@ namespace StoryPort
                 case "base": audioPlayer.Music("base_ambience"); break;
                 case "squad": audioPlayer.Music("music_prefight"); break;
                 case "fight": audioPlayer.Music("music_fight_loop"); break;
+                case "dialogue": break;
                 case "victory": audioPlayer.Music("music_postfight_win", false); break;
                 case "defeat": audioPlayer.Music("music_postfight_lose", false); break;
                 default: audioPlayer.Music("music_questboard_loop"); break;
@@ -627,6 +637,11 @@ namespace StoryPort
                 tile.GetComponent<Image>().sprite = null;
                 tile.GetComponent<Image>().color = i == 0 ? new Color(.1f, .48f, .82f, 1f) : new Color(.08f, .3f, .5f, 1f);
                 tile.GetComponentInChildren<Text>().text = "";
+                if (i < routeBosses.Count)
+                {
+                    var bossPortrait = SpriteImage(tile.transform, "Encounter Boss", "Portraits/" + PortraitFor(routeBosses[i]), new Vector2(.31f, .44f), new Vector2(.69f, .88f), true);
+                    if (bossPortrait != null) bossPortrait.raycastTarget = false;
+                }
                 var frame = SpriteImage(tile.transform, "Encounter Frame", "UI/frame_selection", new Vector2(.28f, .4f), new Vector2(.72f, .92f), true);
                 if (frame != null) { frame.color = new Color(.75f, .8f, .85f, 1f); frame.raycastTarget = false; }
                 var icon = SpriteImage(tile.transform, "Encounter Icon", "UI/boss_icon", new Vector2(.14f, .38f), new Vector2(.3f, .52f), true);
@@ -1174,8 +1189,11 @@ namespace StoryPort
             var quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             quad.name = "Tech Backdrop";
             quad.transform.SetParent(camera.transform, false);
+            // Size the quad to overfill the view at any aspect ratio (phones are ~2.2:1).
+            float viewHeight = 2f * 60f * Mathf.Tan(camera.fieldOfView * .5f * Mathf.Deg2Rad) * 1.1f;
+            float viewWidth = viewHeight * Mathf.Max(2.4f, Mathf.Max(camera.aspect, (float)Screen.width / Mathf.Max(1, Screen.height)));
             quad.transform.localPosition = new Vector3(0, 0, 60f);
-            quad.transform.localScale = new Vector3(80f, 45f, 1f);
+            quad.transform.localScale = new Vector3(viewWidth, viewHeight, 1f);
             var collider = quad.GetComponent<Collider>();
             if (collider != null) { if (Application.isPlaying) Destroy(collider); else DestroyImmediate(collider); }
             var material = new Material(Shader.Find("Unlit/Texture"));
@@ -1760,7 +1778,8 @@ namespace StoryPort
                     playerName = rosterNames[squad[0]];
                     squadForStory = true;
                     Cue("node_land_on_fight");
-                    Show("squad");
+                    var landed = FindStoryMapNode(mapX, mapY);
+                    PlayDialogue(landed != null ? landed.dialogue : "", () => Show("squad"));
                 }
                 else
                 {
@@ -1813,9 +1832,13 @@ namespace StoryPort
 
         static float ReadStat(string json, string bid, string stat, float fallback)
         {
-            var block = Regex.Match(json ?? "", "\\{[^{}]*\"bid\"\\s*:\\s*\"" + Regex.Escape(bid) + "\"[^{}]*\\}");
-            if (!block.Success) return fallback;
-            var value = Regex.Match(block.Value, "\"" + stat + "\"\\s*:\\s*(-?[0-9.]+)");
+            // Hero entries hold nested objects ("pvpb": {}), so scan from this hero's
+            // "bid" to the next hero's instead of matching one brace-free block.
+            var start = Regex.Match(json ?? "", "\"bid\"\\s*:\\s*\"" + Regex.Escape(bid) + "\"");
+            if (!start.Success) return fallback;
+            var next = json.IndexOf("\"bid\"", start.Index + start.Length, StringComparison.Ordinal);
+            var body = json.Substring(start.Index, (next < 0 ? json.Length : next) - start.Index);
+            var value = Regex.Match(body, "\"" + stat + "\"\\s*:\\s*(-?[0-9.]+)");
             float parsed;
             return value.Success && float.TryParse(value.Groups[1].Value, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out parsed) && parsed > 0 ? parsed : fallback;
@@ -1959,6 +1982,13 @@ namespace StoryPort
 
         void ContinueRoute()
         {
+            var node = FindStoryMapNode(mapX, mapY);
+            var after = node != null ? node.dialogueAfter : "";
+            if (!string.IsNullOrEmpty(after) && !dialoguesSeen.Contains(currentQid + "/" + after))
+            {
+                PlayDialogue(after, ContinueRoute);
+                return;
+            }
             if (!CurrentNodeIsFinal())
             {
                 Show("map");
@@ -1972,6 +2002,132 @@ namespace StoryPort
             }
             SetNotice("ALL THREE ACTS COMPLETE");
             Show("story");
+        }
+
+        // Server-authored story dialogue: 3D speakers left and right over a dimmed
+        // backdrop, one line at a time, as in the reference footage.
+        void PlayDialogue(string setId, Action done)
+        {
+            var lines = StoryRouteData.ReadDialogue(actDetails[actIndex], setId);
+            var seenKey = currentQid + "/" + setId;
+            if (lines.Count == 0 || dialoguesSeen.Contains(seenKey)) { done(); return; }
+            dialoguesSeen.Add(seenKey);
+            dialogueLines = lines;
+            dialogueIndex = 0;
+            dialogueDone = done;
+            Show("dialogue");
+        }
+
+        void DialogueScreen()
+        {
+            TechBackdrop();
+            var camera = Camera.main;
+            if (camera != null)
+            {
+                camera.fieldOfView = 36;
+                // Close framing: speakers fill the side thirds and are cut off at the band.
+                camera.transform.position = new Vector3(0, 3.1f, -7.2f);
+                camera.transform.LookAt(new Vector3(0, 2.9f, 0));
+            }
+            string left = "", right = "";
+            foreach (var line in dialogueLines)
+            {
+                if (line.side == "right") { if (right == "") right = line.character; }
+                else if (left == "") left = line.character;
+            }
+            dialogueLeft = SpawnSpeaker(left, -3.9f, 150f);
+            dialogueRight = SpawnSpeaker(right, 3.9f, 210f);
+            var band = Panel(content, "Dialogue Band", new Color(0, 0, 0, .72f), new Vector2(-.03f, -.1f), new Vector2(1.03f, .2f));
+            band.GetComponent<Image>().raycastTarget = false;
+            var speaker = LabelAt(content, "Dialogue Speaker", "", 16, TextAnchor.MiddleLeft, new Color(.55f, .8f, .95f), new Vector2(.01f, .135f), new Vector2(.6f, .185f));
+            speaker.fontStyle = FontStyle.Bold;
+            var text = LabelAt(content, "Dialogue Line", "", 22, TextAnchor.UpperLeft, new Color(.92f, .33f, .27f), new Vector2(.01f, -.02f), new Vector2(.99f, .135f));
+            LabelAt(content, "Dialogue Continue", "TAP ANYWHERE TO CONTINUE  >", 11, TextAnchor.MiddleCenter, new Color(.7f, .75f, .8f), new Vector2(.3f, -.09f), new Vector2(.7f, -.04f));
+            var advance = Button(content, "Dialogue Advance", () => AdvanceDialogue(speaker, text), new Vector2(-.03f, -.1f), new Vector2(1.03f, 1.1f));
+            advance.GetComponent<Image>().color = new Color(0, 0, 0, 0);
+            advance.GetComponentInChildren<Text>().text = "";
+            advance.transform.SetAsFirstSibling();
+            var skip = Button(content, "Dialogue Skip", FinishDialogue, new Vector2(.9f, 1.02f), new Vector2(.99f, 1.09f));
+            SetButtonSkin(skip, "button_tab");
+            skip.GetComponentInChildren<Text>().text = "SKIP";
+            ShowDialogueLine(speaker, text);
+        }
+
+        GameObject SpawnSpeaker(string character, float x, float yaw)
+        {
+            if (string.IsNullOrEmpty(character) || character.Contains("marissa")) return null;
+            var actor = SpawnBot(character == "optimusprime_cin_tf" ? "optimusprime_cin_tf" : character, new Vector3(x, 0, 0), yaw, .9f);
+            if (actor == null) return null;
+            worldRoots.Add(actor);
+            PlayState(FindFightAnimator(actor), "Idle");
+            return actor;
+        }
+
+        void AdvanceDialogue(Text speaker, Text text)
+        {
+            dialogueIndex++;
+            if (dialogueIndex >= dialogueLines.Count) { FinishDialogue(); return; }
+            ShowDialogueLine(speaker, text);
+        }
+
+        void ShowDialogueLine(Text speaker, Text text)
+        {
+            var line = dialogueLines[dialogueIndex];
+            speaker.text = SpeakerName(line.character).ToUpperInvariant();
+            text.text = line.line;
+            Cue(line.inShadow ? "text_in_corrupt" : "text_in", .6f);
+            // The speaking side is lit; the other side (and a shadowed speaker) is dark.
+            bool rightSpeaks = line.side == "right";
+            ShadeSpeaker(dialogueLeft, rightSpeaks || (!rightSpeaks && line.inShadow));
+            ShadeSpeaker(dialogueRight, !rightSpeaks || (rightSpeaks && line.inShadow));
+        }
+
+        readonly Dictionary<Renderer, Material[]> speakerMaterials = new Dictionary<Renderer, Material[]>();
+        readonly Dictionary<Renderer, Material[]> speakerShadowMaterials = new Dictionary<Renderer, Material[]>();
+
+        // Swap to darkened copies of the speaker's materials while it is silent.
+        void ShadeSpeaker(GameObject actor, bool dark)
+        {
+            if (actor == null) return;
+            foreach (var renderer in actor.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!speakerMaterials.ContainsKey(renderer))
+                {
+                    var original = renderer.sharedMaterials;
+                    var shadow = new Material[original.Length];
+                    for (var i = 0; i < original.Length; i++)
+                    {
+                        if (original[i] == null) continue;
+                        shadow[i] = new Material(original[i]);
+                        if (shadow[i].HasProperty("_base_col")) shadow[i].SetColor("_base_col", new Color(.04f, .05f, .07f, 1f));
+                        if (shadow[i].HasProperty("_metallic_range")) shadow[i].SetFloat("_metallic_range", 0f);
+                        if (shadow[i].HasProperty("_roughness_range")) shadow[i].SetFloat("_roughness_range", 1f);
+                        if (shadow[i].HasProperty("_use_pbr_composite")) shadow[i].SetFloat("_use_pbr_composite", 0f);
+                        if (shadow[i].HasProperty("_use_roughness_tex")) shadow[i].SetFloat("_use_roughness_tex", 0f);
+                    }
+                    speakerMaterials[renderer] = original;
+                    speakerShadowMaterials[renderer] = shadow;
+                }
+                renderer.sharedMaterials = dark ? speakerShadowMaterials[renderer] : speakerMaterials[renderer];
+            }
+        }
+
+        string SpeakerName(string character)
+        {
+            if (string.IsNullOrEmpty(character)) return "";
+            if (character.Contains("marissa")) return "Marissa Faireborn";
+            return DisplayName(character);
+        }
+
+        void FinishDialogue()
+        {
+            var done = dialogueDone;
+            dialogueDone = null;
+            dialogueLeft = dialogueRight = null;
+            speakerMaterials.Clear();
+            speakerShadowMaterials.Clear();
+            if (done != null) done();
+            else Show("map");
         }
 
         void RosterScreen()
@@ -2092,6 +2248,7 @@ namespace StoryPort
         string DisplayName(string key)
         {
             if (key.IndexOf("bludgeon", StringComparison.OrdinalIgnoreCase) >= 0) return "Bludgeon";
+            if (key.IndexOf("optimus", StringComparison.OrdinalIgnoreCase) >= 0) return "Optimus Prime";
             if (key.IndexOf("stars", StringComparison.OrdinalIgnoreCase) >= 0) return "Starscream";
             if (key.IndexOf("ironhide", StringComparison.OrdinalIgnoreCase) >= 0) return "Ironhide";
             if (key.IndexOf("kickback", StringComparison.OrdinalIgnoreCase) >= 0) return "Kickback";

@@ -74,6 +74,11 @@ namespace StoryPort.Editor
             Capture("base");
         }
 
+        public static void CaptureDialogue()
+        {
+            Capture("dialogue");
+        }
+
         public static void CaptureFight()
         {
             Capture("fight");
@@ -119,6 +124,14 @@ namespace StoryPort.Editor
             }
             else if (screen == "fight") Invoke(client, "FightScreen");
             else if (screen == "loading") Invoke(client, "LoadingScreen");
+            else if (screen == "dialogue")
+            {
+                var detail = "{\"dialogueTable\":{\"intro\":[" +
+                    "{\"inShadow\":false,\"character\":\"optimusprime_cin_tf\",\"side\":\"left\",\"line\":\"Bludgeon?! So you are the one behind this ambush...\"}," +
+                    "{\"inShadow\":false,\"character\":\"bludgeon_gs_rd20\",\"side\":\"right\",\"line\":\"There is no escape, Optimus.\"}]}}";
+                Set(client, "dialogueLines", StoryRouteData.ReadDialogue(detail, "intro"));
+                Invoke(client, "DialogueScreen");
+            }
             else if (screen == "base")
             {
                 // Same sockets the server's /base/active placement list returns.
@@ -146,7 +159,7 @@ namespace StoryPort.Editor
             var canvas = UnityEngine.Object.FindObjectOfType<Canvas>();
             if (camera == null || canvas == null) throw new Exception("Story preview did not create its camera and canvas");
             var statusBar = canvas.transform.Find("Root/Top Status Bar");
-            if (statusBar != null) statusBar.gameObject.SetActive(screen != "fight");
+            if (statusBar != null) statusBar.gameObject.SetActive(screen != "fight" && screen != "dialogue");
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = camera;
             canvas.planeDistance = .3f;
