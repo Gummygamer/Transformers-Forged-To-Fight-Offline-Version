@@ -643,9 +643,9 @@ namespace StoryPort
             SectionTitle("ACT " + Roman(actIndex + 1) + "  ·  " + ActTitles[actIndex], "Select an encounter to continue the campaign");
             DrawBoardNodes();
             ActionButton("SQUAD", "Select the team for the next fight", () => { squadForStory = true; Show("squad"); }, .05f, .08f, .2f, .16f, false);
-            var back = Button(content, "Back to Story", () => Show("story"), new Vector2(.025f, .84f), new Vector2(.15f, .94f));
+            var back = Button(content, "Back to Story", () => Show("story"), new Vector2(.004f, .935f), new Vector2(.06f, .995f));
             SetButtonSkin(back, "button_tab");
-            back.GetComponentInChildren<Text>().text = "‹  STORY";
+            back.GetComponentInChildren<Text>().text = "‹";
         }
 
         void DrawHexMapField()
