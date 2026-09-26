@@ -53,6 +53,7 @@ the full Act I and Act II route):
   one to three hit combos on its own timer; a test fight gave 14 hits landed,
   13 received, chain 5 (reference: 16, 9, 5).
 - Music and sound from the local 9.2 audio (see Audio above).
+- Knockout shot: the camera pushes in on the winner under "<NAME> WINS!".
 
 Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 `CaptureDialogue`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,
@@ -62,5 +63,4 @@ layout in the Editor only.
 Remaining gaps: the server grants no match rewards, so the result screen has no
 rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
 alliance beam glow is hidden (it renders opaque); nav tab icons; the enemy
-blocks and dodges less than in the footage; no transform or special cinematic
-camera yet.
+blocks and dodges less than in the footage; no special-attack cinematic camera yet.

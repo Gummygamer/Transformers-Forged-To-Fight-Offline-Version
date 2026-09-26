@@ -1556,9 +1556,43 @@ namespace StoryPort
 
         IEnumerator ResolveWinAfterImpact()
         {
-            yield return new WaitForSeconds(.85f);
-            if (enemyActor != null) enemyActor.SetActive(false);
+            PlayState(enemyAnimator, "KnockoutLight");
+            yield return new WaitForSeconds(.9f);
+            yield return StartCoroutine(WinnerShot(playerActor, playerName));
             StartCoroutine(ResolveWin());
+        }
+
+        // Knockout shot from the reference: the camera closes in on the winner
+        // under a "<NAME> WINS!" call before the result screen.
+        IEnumerator WinnerShot(GameObject winner, string winnerName)
+        {
+            var camera = Camera.main;
+            if (camera == null || winner == null) yield break;
+            Cue("enemy_killed", .7f);
+            var hud = content != null ? content.Find("Fight HUD") : null;
+            if (hud != null) hud.gameObject.SetActive(false);
+            var label = LabelAt(content, "Winner Call", winnerName.ToUpperInvariant() + " WINS!", 40, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .8f), new Vector2(.8f, .95f));
+            label.fontStyle = FontStyle.BoldAndItalic;
+            label.raycastTarget = false;
+            label.gameObject.AddComponent<Outline>().effectColor = new Color(.05f, .25f, .45f, .9f);
+            var start = camera.transform.position;
+            var startRotation = camera.transform.rotation;
+            var focus = winner.transform.position + Vector3.up * 3.2f;
+            var toCamera = (start - winner.transform.position);
+            toCamera.y = 0f;
+            var end = focus + toCamera.normalized * 5.5f + Vector3.up * .3f;
+            float t = 0f;
+            while (t < 2.2f)
+            {
+                t += Time.deltaTime;
+                float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / .8f));
+                // Slow orbit after the push-in.
+                var orbit = Quaternion.AngleAxis(Mathf.Max(0f, t - .8f) * 8f, Vector3.up);
+                camera.transform.position = Vector3.Lerp(start, focus + orbit * (end - focus), k);
+                camera.transform.rotation = Quaternion.Slerp(startRotation, Quaternion.LookRotation(focus - camera.transform.position), k);
+                yield return null;
+            }
+            if (label != null) Destroy(label.gameObject);
         }
 
         void Dash()
@@ -1724,6 +1758,7 @@ namespace StoryPort
                     PlayState(playerAnimator, "KnockoutLight");
                     Combat(playerKey, "knockout");
                     yield return new WaitForSeconds(.8f);
+                    yield return StartCoroutine(WinnerShot(enemyActor, enemyName));
                     Show("defeat");
                 }
                 if (evaded) break;
