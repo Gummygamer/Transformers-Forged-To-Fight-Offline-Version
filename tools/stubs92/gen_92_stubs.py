@@ -28,6 +28,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 STRIP_CG_PROJECT = REPO_ROOT / "tools" / "stubs92" / "StripCG.csproj"
 IMPLEMENTED_MANIFEST = REPO_ROOT / "tools" / "stubs92" / "implemented.txt"
+PORTED_MANIFEST = REPO_ROOT / "build" / "port202" / "ported.txt"
+PORTED_OUTPUT = REPO_ROOT / "unity" / "StoryPort" / "Assets" / "Plugins" / "Port202"
 DEFAULT_UNITY_PROJECT = REPO_ROOT / "unity" / "StoryPort"
 
 
@@ -543,13 +545,34 @@ def fix_open_generic_serialized_fields(search_dirs):
 
 
 def load_implemented_manifest():
-    """Load the set of fully-qualified type names that have hand-written implementations."""
+    """Load the set of type names that must NOT be generated as stubs.
+
+    Two sources, both authoritative:
+      * tools/stubs92/implemented.txt  -- hand-written replacements
+      * tools/port202/ported.txt       -- types whose real bodies come from the
+        2.0.2 Mono assemblies via tools/port202/port_202.py
+
+    Both must be respected or the generator emits a stub alongside the real
+    implementation and the project fails with CS0101 duplicate definitions.
+    """
     implemented = set()
-    if IMPLEMENTED_MANIFEST.exists():
-        for line in IMPLEMENTED_MANIFEST.read_text().splitlines():
+    if PORTED_OUTPUT.exists() and any(PORTED_OUTPUT.glob("*.cs")) and not PORTED_MANIFEST.exists():
+        raise SystemExit(
+            "Assets/Plugins/Port202 contains ported sources but no manifest at\n"
+            f"  {PORTED_MANIFEST.relative_to(REPO_ROOT)}\n"
+            "Generating stubs for those types would produce duplicate definitions (CS0101).\n"
+            "Run the port first:  python3 tools/port202/port_202.py")
+    for manifest, ns_style in ((IMPLEMENTED_MANIFEST, "dotted"),
+                               (PORTED_MANIFEST, "bare")):
+        if not manifest.exists():
+            continue
+        for line in manifest.read_text().splitlines():
             line = line.strip()
-            if line and not line.startswith('#'):
-                implemented.add(line)
+            if not line or line.startswith('#'):
+                continue
+            # ported.txt holds bare type names (root-level, no namespace) while
+            # implemented.txt holds fully-qualified names.
+            implemented.add(line if ns_style == "dotted" else line)
     return implemented
 
 

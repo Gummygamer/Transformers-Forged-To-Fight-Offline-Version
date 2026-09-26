@@ -1,5 +1,11 @@
 # Repository instructions
 
+## Concise communication
+
+- Use as few tokens as practical. Keep user-facing explanations and progress updates brief;
+  include only what is needed to complete the task, explain a material decision, or report
+  a problem. Expand only when the user asks for detail.
+
 - Never add files from `media/` to Git. Screenshots and recordings are local-only captures;
   they may include copyrighted game audiovisual content. Keep them ignored and out of commits.
 

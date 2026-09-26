@@ -51,3 +51,8 @@
 /tools/netrelay/test_arena
 /tools/netrelay/test_arena_defaults
 /tools/netrelay/test_arena_patched
+
+# Python bytecode and local .NET build output of the porting tools.
+__pycache__/
+/tools/port202/bin/
+/tools/port202/obj/

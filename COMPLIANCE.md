@@ -645,3 +645,17 @@ Nothing was transcribed from recovered Kabam server data or from any other fork'
 content. No asset, binary APK, captured audiovisual content, credential, or recovered server
 dataset was added. Nothing under `media/` was touched. No new dependency was introduced. No
 generated payload changed, so no regeneration was required.
+
+## Unity 2020 porting patches (`tools/port202`)
+
+The port scripts edit decompiled sources that are generated locally from the user's own
+copy of the game and never committed. New patches locate a method by its signature only
+and replace or prefix its body with code written for this project
+(`replace_method_body` / `insert_after_signature` in `unity2020_csharp_compat.py`), so
+the repository stores interface names, not decompiled method bodies. The current bodies
+are an order-total asset-eviction comparator, a missing-shader guard for contact shadows,
+default node tuning when legacy tuning prefabs are absent, and texture assignment in an
+async UI callback. `update_ui_atlases.py` reads atlas rectangles from a locally loaded 9.2
+APK through a local AssetRipper instance and writes only into the git-ignored generated
+project; its sprite aliases are asset names already present in that APK. No asset,
+binary, captured audiovisual content, or recovered server data is added.
