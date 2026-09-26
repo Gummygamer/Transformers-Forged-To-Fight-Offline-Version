@@ -34,6 +34,12 @@ namespace StoryPort.Editor
             var prefab = Resources.Load<GameObject>("StoryPort/ChicagoFightStage");
             if (prefab == null) throw new Exception("Missing local Chicago stage prefab");
             var root = UnityEngine.Object.Instantiate(prefab);
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                var mf = r.GetComponent<MeshFilter>();
+                Debug.Log("StoryPort stage renderer " + r.transform.parent.name + "/" + r.name + " mesh=" + (mf != null && mf.sharedMesh != null ? mf.sharedMesh.name + " v=" + mf.sharedMesh.vertexCount : "-") +
+                    " mat=" + (r.sharedMaterial != null ? r.sharedMaterial.name : "-") + " active=" + r.gameObject.activeInHierarchy + " b=" + r.bounds.center + r.bounds.size);
+            }
             foreach (var child in root.GetComponentsInChildren<Transform>(true))
             {
                 if (child.name != "Main Stage" && child.name != "GroundPlane" &&

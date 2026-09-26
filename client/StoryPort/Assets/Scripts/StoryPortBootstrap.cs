@@ -96,6 +96,7 @@ namespace StoryPort
         Image playerHpFill;
         Image enemyHpFill;
         Image specialFill;
+        Image[] specialSegments;
         Image enemySpecialFill;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -150,6 +151,23 @@ namespace StoryPort
             RenderSettings.ambientLight = new Color(.7f, .74f, .8f);
         }
 
+        // Editor-only iteration hook: SP_* environment variables override defaults.
+        static float[] Tune(string name, float[] defaults)
+        {
+#if UNITY_EDITOR
+            var raw = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrEmpty(raw))
+            {
+                var parts = raw.Split(',');
+                var values = (float[])defaults.Clone();
+                for (var i = 0; i < parts.Length && i < values.Length; i++)
+                    float.TryParse(parts[i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out values[i]);
+                return values;
+            }
+#endif
+            return defaults;
+        }
+
         void ResetCamera()
         {
             var camera = Camera.main;
@@ -159,8 +177,9 @@ namespace StoryPort
             // Keep the converted Chicago geometry in the background. The
             // characters stand just in front of its near edge so foreground
             // buildings do not cover their legs during a fight.
-            camera.transform.position = new Vector3(0, 4.3f, -12.5f);
-            camera.transform.LookAt(new Vector3(0, 2.2f, -5f));
+            var cam = Tune("SP_CAM", new[] { 0f, 2.4f, -16.5f, 0f, 3f, -5f });
+            camera.transform.position = new Vector3(cam[0], cam[1], cam[2]);
+            camera.transform.LookAt(new Vector3(cam[3], cam[4], cam[5]));
         }
 
         void FrameWorld(GameObject instance, float padding = 1.18f)
@@ -1023,50 +1042,114 @@ namespace StoryPort
             nextEnemyTurn = Time.time + 2.8f;
             var hud = Panel(content, "Fight HUD", new Color(0, 0, 0, 0), Vector2.zero, Vector2.one);
             hud.GetComponent<Image>().raycastTarget = false;
-            var playerPortrait = SpriteImage(hud.transform, "Player Portrait", "Portraits/" + PortraitFor(playerKey), new Vector2(.012f, .81f), new Vector2(.075f, .99f), true);
-            if (playerPortrait != null) playerPortrait.preserveAspect = true;
-            var enemyPortrait = SpriteImage(hud.transform, "Enemy Portrait", "Portraits/" + PortraitFor(enemyKey), new Vector2(.925f, .81f), new Vector2(.988f, .99f), true);
-            if (enemyPortrait != null) enemyPortrait.preserveAspect = true;
-            var playerPortraitFrame = SpriteImage(hud.transform, "Player Portrait Frame", "UI/frame_hud_portrait", new Vector2(.012f, .81f), new Vector2(.075f, .99f), true);
-            if (playerPortraitFrame != null) { playerPortraitFrame.preserveAspect = true; playerPortraitFrame.raycastTarget = false; }
-            var enemyPortraitFrame = SpriteImage(hud.transform, "Enemy Portrait Frame", "UI/frame_hud_portrait", new Vector2(.925f, .81f), new Vector2(.988f, .99f), true);
-            if (enemyPortraitFrame != null) { enemyPortraitFrame.preserveAspect = true; enemyPortraitFrame.raycastTarget = false; }
-            LabelAt(hud.transform, "Player Name", playerName, 16, TextAnchor.MiddleLeft, Color.white, new Vector2(.08f, .91f), new Vector2(.34f, .99f));
-            LabelAt(hud.transform, "Enemy Name", enemyName, 16, TextAnchor.MiddleRight, Color.white, new Vector2(.66f, .91f), new Vector2(.92f, .99f));
-            playerHpText = LabelAt(hud.transform, "Player Health", playerHp + "%", 11, TextAnchor.MiddleLeft, Color.white, new Vector2(.08f, .81f), new Vector2(.16f, .89f));
-            enemyHpText = LabelAt(hud.transform, "Enemy Health", enemyHp + "%", 11, TextAnchor.MiddleRight, Color.white, new Vector2(.84f, .81f), new Vector2(.92f, .89f));
-            playerHpFill = HealthBar(hud.transform, "Player Health Bar", new Vector2(.16f, .825f), new Vector2(.4f, .89f), playerHp / 100f, new Color(.15f, .78f, .52f));
-            enemyHpFill = HealthBar(hud.transform, "Enemy Health Bar", new Vector2(.6f, .825f), new Vector2(.84f, .89f), enemyHp / 100f, new Color(.9f, .29f, .23f));
-            enemySpecialFill = HealthBar(hud.transform, "Enemy Special Meter", new Vector2(.6f, .785f), new Vector2(.84f, .8f), enemySpecialMeter / 3f, new Color(1f, .48f, .13f));
-            enemySpecialText = LabelAt(hud.transform, "Enemy Special Charges", "SPECIAL  " + enemySpecialMeter + " / 3", 10, TextAnchor.MiddleRight, new Color(1f, .77f, .53f), new Vector2(.6f, .755f), new Vector2(.84f, .785f));
-            var pause = Button(hud.transform, "PAUSE", TogglePause, new Vector2(.482f, .9f), new Vector2(.518f, .99f));
+            // The fight HUD spans the full screen, as in the beta footage: hex portraits
+            // in the top corners, slanted health bars, a hit counter on the left, two
+            // hex touch zones at the bottom corners and a segmented special meter.
+            var full = hud.GetComponent<RectTransform>();
+            full.anchorMin = new Vector2(-.0263f, -.0932f); full.anchorMax = new Vector2(1.0263f, 1.1491f);
+            full.offsetMin = full.offsetMax = Vector2.zero;
+            FighterHud(hud.transform, "Player", playerKey, playerName, false, out playerHpText, out playerHpFill);
+            FighterHud(hud.transform, "Enemy", enemyKey, enemyName, true, out enemyHpText, out enemyHpFill);
+            enemySpecialFill = HealthBar(hud.transform, "Enemy Special Meter", new Vector2(.6f, .845f), new Vector2(.84f, .857f), enemySpecialMeter / 3f, new Color(1f, .48f, .13f));
+            enemySpecialText = LabelAt(hud.transform, "Enemy Special Charges", "", 10, TextAnchor.MiddleRight, new Color(1f, .77f, .53f), new Vector2(.6f, .82f), new Vector2(.84f, .845f));
+            var pause = Button(hud.transform, "PAUSE", TogglePause, new Vector2(.47f, .915f), new Vector2(.53f, .99f));
             SetButtonSkin(pause, "button_tab");
             pause.GetComponentInChildren<Text>().text = "Ⅱ";
             pause.GetComponentInChildren<Text>().fontSize = 24;
-            comboText = LabelAt(hud.transform, "Combo", "", 24, TextAnchor.MiddleLeft, Color.white, new Vector2(.015f, .49f), new Vector2(.17f, .64f));
+            comboText = LabelAt(hud.transform, "Combo", "", 30, TextAnchor.MiddleLeft, Color.white, new Vector2(.012f, .5f), new Vector2(.2f, .64f));
+            comboText.fontStyle = FontStyle.BoldAndItalic;
+            comboText.raycastTarget = false;
+            // Left and right hex zones mark where block and attack gestures are read.
+            foreach (var side in new[] { 0, 1 })
+            {
+                var zone = SpriteImage(hud.transform, side == 0 ? "Block Zone" : "Attack Zone", "UI/hexagon_border",
+                    side == 0 ? new Vector2(.03f, .035f) : new Vector2(.885f, .035f),
+                    side == 0 ? new Vector2(.115f, .175f) : new Vector2(.97f, .175f), true);
+                if (zone == null) continue;
+                zone.color = new Color(.75f, .85f, .95f, .45f);
+                zone.raycastTarget = false;
+            }
 
             // Fight gestures own the arena: hold left to block, swipe to
-            // dash, tap or hold right to attack. Keep only the special input
-            // in the HUD, as in the game footage.
-            var specialButton = Button(content, "SPECIAL", SpecialAttack, new Vector2(.025f, .025f), new Vector2(.125f, .145f));
-            SetButtonSkin(specialButton, "button_main_glowing");
-            specialButton.GetComponent<Image>().color = new Color(.3f, .9f, .27f, 1f);
+            // dash, tap or hold right to attack. The segmented special meter
+            // doubles as the special button once three charges are ready.
+            var specialButton = Button(content, "SPECIAL", SpecialAttack, new Vector2(.4f, .035f), new Vector2(.6f, .125f));
+            specialButton.GetComponent<Image>().color = new Color(0, 0, 0, 0);
             specialButtonLabel = specialButton.GetComponentInChildren<Text>();
-            specialButtonLabel.text = "SPECIAL";
-            specialButtonLabel.fontSize = 13;
-            specialFill = HealthBar(content, "Special Meter", new Vector2(.025f, .15f), new Vector2(.125f, .165f), specialMeter / 3f, new Color(.36f, .92f, .21f));
-            specialText = LabelAt(content, "Special Charges", "SPECIAL  " + specialMeter + " / 3", 10, TextAnchor.MiddleCenter, new Color(.72f, .89f, .98f), new Vector2(.025f, .17f), new Vector2(.125f, .2f));
+            specialButtonLabel.text = "";
+            specialSegments = new Image[3];
+            for (var i = 0; i < 3; i++)
+            {
+                var slot = MakeImage(specialButton.transform, "Special Segment " + (i + 1), new Color(.1f, .12f, .14f, .85f),
+                    new Vector2(.04f + i * .32f, .3f), new Vector2(.32f + i * .32f, .7f));
+                slot.raycastTarget = false;
+                specialSegments[i] = slot;
+            }
             UpdateFightHud();
+        }
+
+        // One fighter's HUD cluster: hex portrait, name and a slanted health bar.
+        void FighterHud(Transform hud, string prefix, string key, string displayName, bool mirrored, out Text percent, out Image fill)
+        {
+            float px0 = mirrored ? .925f : .012f;
+            var portrait = SpriteImage(hud, prefix + " Portrait", "Portraits/" + PortraitFor(key), new Vector2(px0, .84f), new Vector2(px0 + .063f, .99f), true);
+            if (portrait != null) { portrait.preserveAspect = true; portrait.raycastTarget = false; }
+            var frame = SpriteImage(hud, prefix + " Portrait Frame", "UI/frame_hud_portrait", new Vector2(px0, .84f), new Vector2(px0 + .063f, .99f), true);
+            if (frame != null) { frame.preserveAspect = true; frame.raycastTarget = false; }
+            float x0 = mirrored ? .6f : .085f, x1 = mirrored ? .915f : .4f;
+            var name = LabelAt(hud, prefix + " Name", displayName, 15, mirrored ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft, Color.white, new Vector2(x0, .945f), new Vector2(x1, .99f));
+            name.fontStyle = FontStyle.Bold;
+            var rim = MakeImage(hud, prefix + " Health Frame", Color.white, new Vector2(x0, .885f), new Vector2(x1, .945f));
+            rim.sprite = SlantSprite(true, mirrored); rim.color = new Color(.82f, .85f, .88f, 1f); rim.raycastTarget = false;
+            var back = MakeImage(rim.transform, prefix + " Health Back", Color.white, new Vector2(.012f, .12f), new Vector2(.988f, .88f));
+            back.sprite = SlantSprite(false, mirrored); back.color = new Color(.02f, .06f, .1f, .95f); back.raycastTarget = false;
+            fill = MakeImage(back.transform, prefix + " Health Fill", new Color(.27f, .66f, .9f, 1f), Vector2.zero, Vector2.one);
+            fill.sprite = SlantSprite(false, mirrored);
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillOrigin = mirrored ? 1 : 0;
+            fill.raycastTarget = false;
+            percent = LabelAt(rim.transform, prefix + " Health", "100%", 13, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.one);
+            percent.fontStyle = FontStyle.Bold;
+            percent.raycastTarget = false;
+        }
+
+        Sprite slantOutline, slantFillLeft, slantFillRight, slantOutlineRight;
+
+        // Parallelogram bar shape (the HUD bars lean like the footage's), generated at
+        // runtime so no game texture is required.
+        Sprite SlantSprite(bool outline, bool mirrored)
+        {
+            var cached = outline ? (mirrored ? slantOutlineRight : slantOutline) : (mirrored ? slantFillRight : slantFillLeft);
+            if (cached != null) return cached;
+            const int w = 256, h = 32, lean = 10;
+            var texture = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            for (var y = 0; y < h; y++)
+            {
+                var shift = (float)y / h * lean;
+                if (mirrored) shift = lean - shift;
+                for (var x = 0; x < w; x++)
+                {
+                    var inside = x >= shift && x <= w - lean + shift;
+                    texture.SetPixel(x, y, inside ? Color.white : Color.clear);
+                }
+            }
+            texture.Apply();
+            var sprite = Sprite.Create(texture, new Rect(0, 0, w, h), new Vector2(.5f, .5f), 100f);
+            if (outline) { if (mirrored) slantOutlineRight = sprite; else slantOutline = sprite; }
+            else { if (mirrored) slantFillRight = sprite; else slantFillLeft = sprite; }
+            return sprite;
         }
 
         void SpawnFightWorld()
         {
             ResetCamera();
             CreateChicagoSky();
-            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, Vector3.zero, .015f);
+            var tune = Tune("SP_STAGE", new[] { 1f, -260f, 0f, -60f });
+            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, Vector3.zero, tune[0]);
             if (stage != null)
             {
-                stage.transform.localPosition += new Vector3(-2.84f, 0, 0);
+                stage.transform.localPosition += new Vector3(tune[1], tune[2], tune[3]);
                 ApplyStoryPortMaterials(stage);
                 foreach (var child in stage.GetComponentsInChildren<Transform>(true))
                     if (child.name == "Main Stage") child.gameObject.SetActive(false);
@@ -1075,9 +1158,6 @@ namespace StoryPort
                 {
                     if (roadMaterial != null && renderer.name.IndexOf("trrn_road", StringComparison.OrdinalIgnoreCase) >= 0)
                         renderer.sharedMaterial = roadMaterial;
-                    if (renderer.name.IndexOf("bldg", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                        renderer.name.IndexOf("rubble", StringComparison.OrdinalIgnoreCase) < 0)
-                        renderer.enabled = false;
                 }
             }
             playerActor = SpawnBot(playerKey, new Vector3(-2.55f, 0, -5.5f), 90f, .72f);
@@ -1099,9 +1179,19 @@ namespace StoryPort
             var sky = GameObject.CreatePrimitive(PrimitiveType.Quad);
             sky.name = "9.2 Chicago Day Sky";
             sky.transform.SetParent(camera.transform, false);
-            sky.transform.localPosition = new Vector3(0f, 0f, 100f);
+            // The texture's upper half runs from the sun-lit horizon (bottom) to the
+            // zenith, so pin its bottom edge to the camera's horizon line.
+            camera.backgroundColor = new Color(.62f, .5f, .32f); // dusk haze below the sky texture
+            var key = FindObjectOfType<Light>();
+            if (key != null) { key.color = new Color(1f, .86f, .68f); key.intensity = 1.25f; }
+            RenderSettings.ambientLight = new Color(.5f, .5f, .55f);
+            var pitch = camera.transform.eulerAngles.x;
+            if (pitch > 180f) pitch -= 360f;
+            const float distance = 100f, height = 46f;
+            var horizon = distance * Mathf.Tan(pitch * Mathf.Deg2Rad);
+            sky.transform.localPosition = new Vector3(0f, horizon + height * .5f - 1f, distance);
             sky.transform.localRotation = Quaternion.identity;
-            sky.transform.localScale = new Vector3(120f, 68f, 1f);
+            sky.transform.localScale = new Vector3(150f, height, 1f);
             sky.GetComponent<Renderer>().sharedMaterial = skyMaterial;
             var collider = sky.GetComponent<Collider>();
             if (collider != null)
@@ -1412,9 +1502,12 @@ namespace StoryPort
             if (enemyHpFill != null) enemyHpFill.fillAmount = enemyHp / 100f;
             if (specialFill != null) specialFill.fillAmount = specialMeter / 3f;
             if (specialText != null) specialText.text = "SPECIAL  " + specialMeter + " / 3";
+            if (specialSegments != null)
+                for (var i = 0; i < specialSegments.Length; i++)
+                    if (specialSegments[i] != null)
+                        specialSegments[i].color = i < specialMeter ? new Color(.25f, .9f, .22f, 1f) : new Color(.1f, .12f, .14f, .85f);
             if (enemySpecialFill != null) enemySpecialFill.fillAmount = enemySpecialMeter / 3f;
-            if (enemySpecialText != null) enemySpecialText.text = "SPECIAL  " + enemySpecialMeter + " / 3";
-            if (specialButtonLabel != null) specialButtonLabel.text = specialMeter >= 3 ? "SPECIAL 3" : "SPECIAL";
+            if (specialButtonLabel != null) specialButtonLabel.text = "";
         }
 
         void MoveStory(int dx, int dy)
