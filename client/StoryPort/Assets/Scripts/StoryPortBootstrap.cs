@@ -79,6 +79,7 @@ namespace StoryPort
         Transform headerRoot;
         Transform uiRoot;
         GameObject backgroundArt;
+        StoryPortAudio audioPlayer;
         GameObject pauseOverlay;
         GameObject playerActor;
         GameObject enemyActor;
@@ -112,6 +113,7 @@ namespace StoryPort
             storyNodes = ActNodeLabels[0].Split('|');
             Application.targetFrameRate = 60;
             Screen.orientation = ScreenOrientation.LandscapeLeft;
+            audioPlayer = gameObject.AddComponent<StoryPortAudio>();
             BuildCamera();
             BuildUI();
             Show("title");
@@ -331,6 +333,34 @@ namespace StoryPort
             else if (next == "roster") RosterScreen();
             else if (next == "inventory") InventoryScreen();
             UpdateHeaderState(next);
+            PlayScreenMusic(next);
+        }
+
+        // Music per screen, from the 9.2 music set.
+        void PlayScreenMusic(string next)
+        {
+            if (audioPlayer == null) return;
+            switch (next)
+            {
+                case "base": audioPlayer.Music("base_ambience"); break;
+                case "squad": audioPlayer.Music("music_prefight"); break;
+                case "fight": audioPlayer.Music("music_fight_loop"); break;
+                case "victory": audioPlayer.Music("music_postfight_win", false); break;
+                case "defeat": audioPlayer.Music("music_postfight_lose", false); break;
+                default: audioPlayer.Music("music_questboard_loop"); break;
+            }
+        }
+
+        void Cue(string clip, float volume = .8f) { if (audioPlayer != null) audioPlayer.Sfx(clip, volume); }
+
+        void Combat(string botKey, string kind, float volume = .9f) { if (audioPlayer != null) audioPlayer.Combat(botKey, kind, volume); }
+
+        static int AttackStep(string state)
+        {
+            if (state.StartsWith("Special", StringComparison.Ordinal)) return 6;
+            if (state.StartsWith("Medium", StringComparison.Ordinal)) return 4;
+            int step;
+            return int.TryParse(state.Substring(state.Length - 1), out step) ? Mathf.Clamp(step, 1, 3) : 1;
         }
 
         void TitleScreen()
@@ -1148,6 +1178,8 @@ namespace StoryPort
             comboHits = 0;
             lastPlayerHit = 0;
             nextEnemyTurn = Time.time + 2.8f;
+            if (audioPlayer != null) { audioPlayer.Preload(playerKey); audioPlayer.Preload(enemyKey); }
+            Cue("fight_start", .7f);
             var hud = Panel(content, "Fight HUD", new Color(0, 0, 0, 0), Vector2.zero, Vector2.one);
             hud.GetComponent<Image>().raycastTarget = false;
             // The fight HUD spans the full screen, as in the beta footage: hex portraits
@@ -1409,6 +1441,8 @@ namespace StoryPort
             guarding = false;
             Vector3 playerHome = playerActor != null ? playerActor.transform.position : Vector3.zero;
             PlayState(playerAnimator, state);
+            int step = AttackStep(state);
+            Combat(playerKey, "attack_" + step);
             if (playerActor != null && enemyActor != null)
             {
                 Vector3 towardEnemy = (enemyActor.transform.position - playerActor.transform.position).normalized;
@@ -1418,6 +1452,9 @@ namespace StoryPort
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
             if (enemyAnimator != null) PlayState(enemyAnimator, state == "SpecialAttack03" ? "SpecialAttack03HitReaction" : "HitReactionLightLeftHigh");
             enemyHp = Mathf.Max(0, enemyHp - damage);
+            Combat(playerKey, "attack_hit_" + step);
+            Combat(enemyKey, step >= 6 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
+            if (enemyHp == 0) Combat(enemyKey, "knockout");
             specialMeter = Mathf.Min(3, specialMeter + 1);
             if (Time.time - lastPlayerHit > 1.4f) comboHits = 0;
             comboHits++;
@@ -1454,6 +1491,7 @@ namespace StoryPort
             if (screen != "fight" || playerActor == null || enemyActor == null) return;
             guarding = false;
             PlayState(playerAnimator, "Dash");
+            Combat(playerKey, towardEnemy ? "dash" : "dodge", .7f);
             var direction = (enemyActor.transform.position - playerActor.transform.position).normalized;
             playerActor.transform.position += direction * (towardEnemy ? .95f : -.7f);
             specialMeter = Mathf.Min(3, specialMeter + 1);
@@ -1552,6 +1590,8 @@ namespace StoryPort
             bool special = enemySpecialMeter >= 3;
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
             PlayState(enemyAnimator, special ? "SpecialAttack03" : "LightAttack01");
+            int enemyStep = special ? 6 : UnityEngine.Random.Range(1, 4);
+            Combat(enemyKey, "attack_" + enemyStep);
             if (enemyActor != null && playerActor != null)
             {
                 Vector3 towardPlayer = (playerActor.transform.position - enemyActor.transform.position).normalized;
@@ -1563,6 +1603,12 @@ namespace StoryPort
             {
                 int damage = Time.time < evadeUntil ? 0 : guarding ? (special ? 7 : 1) : (special ? 24 : 4);
                 playerHp = Mathf.Max(0, playerHp - damage);
+                if (guarding) Combat(playerKey, "block_react");
+                else if (damage > 0)
+                {
+                    Combat(enemyKey, "attack_hit_" + enemyStep);
+                    Combat(playerKey, special ? "hit_react_heavy" : "hit_react_light", .6f);
+                }
                 comboHits = 0;
                 if (comboText != null) comboText.text = "";
                 if (special) enemySpecialMeter = 0;
@@ -1575,6 +1621,7 @@ namespace StoryPort
                 if (playerHp == 0)
                 {
                     PlayState(playerAnimator, "KnockoutLight");
+                    Combat(playerKey, "knockout");
                     yield return new WaitForSeconds(.8f);
                     Show("defeat");
                 }
@@ -1642,6 +1689,7 @@ namespace StoryPort
                     playerKey = rosterKeys[squad[0]];
                     playerName = rosterNames[squad[0]];
                     squadForStory = true;
+                    Cue("node_land_on_fight");
                     Show("squad");
                 }
                 else
@@ -1744,6 +1792,7 @@ namespace StoryPort
 
         void ResultScreen(bool won)
         {
+            Cue(won ? "fight_won" : "fight_lost", .8f);
             var panel = Panel(content, "Match Result", new Color(.02f, .065f, .105f, .92f), new Vector2(.28f, .29f), new Vector2(.72f, .83f));
             LabelAt(panel.transform, "Result", won ? "VICTORY" : "DEFEAT", 42, TextAnchor.MiddleCenter, won ? new Color(.45f, .94f, .78f) : new Color(1f, .48f, .42f), new Vector2(.08f, .57f), new Vector2(.92f, .93f));
             LabelAt(panel.transform, "Opponent", playerName + "   VS   " + enemyName, 20, TextAnchor.MiddleCenter, Color.white, new Vector2(.08f, .37f), new Vector2(.92f, .6f));
@@ -2098,7 +2147,7 @@ namespace StoryPort
             var button = go.AddComponent<Button>();
             button.targetGraphic = image;
             var colors = button.colors; colors.highlightedColor = new Color(.2f, .55f, .6f); colors.pressedColor = new Color(.96f, .59f, .2f); button.colors = colors;
-            button.onClick.AddListener(() => action?.Invoke());
+            button.onClick.AddListener(() => { Cue("finger_tap", .55f); action?.Invoke(); });
             var label = Label(go.transform, "Label", title, 18, TextAnchor.MiddleCenter, Color.white);
             Anchor(label.rectTransform, Vector2.zero, Vector2.one);
             return button;

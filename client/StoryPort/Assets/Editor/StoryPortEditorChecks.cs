@@ -22,13 +22,35 @@ namespace StoryPort.Editor
                 if (Resources.Load<Sprite>("StoryPort/UI/" + name) == null)
                     throw new Exception("Missing imported 9.2 UI sprite: " + name);
             CheckBotMaterial();
+            CheckAudio();
             var sky = Resources.Load<Material>("StoryPort/ChicagoDaySky");
             if (sky == null || sky.mainTexture == null)
                 throw new Exception("Missing converted 9.2 Chicago daylight sky");
             var road = Resources.Load<Material>("StoryPort/ChicagoRoad");
             if (road == null || road.mainTexture == null || road.shader == null || road.shader.name != "StoryPort/ChicagoRoad")
                 throw new Exception("Missing converted 9.2 Chicago asphalt material");
-            Debug.Log("StoryPort Editor checks passed: server route parser, 9.2 UI sprites, bot materials, and Chicago environment");
+            Debug.Log("StoryPort Editor checks passed: server route parser, 9.2 UI sprites, bot materials, audio, and Chicago environment");
+        }
+
+        static void CheckAudio()
+        {
+            foreach (var name in new[] { "music_fight_loop", "music_questboard_loop", "music_prefight", "fight_won", "fight_lost", "finger_tap" })
+                if (Resources.Load<AudioClip>("StoryPort/Audio/UI/" + name) == null)
+                    throw new Exception("Missing extracted 9.2 audio clip " + name + "; run tools/storyport/extract_audio.py");
+            foreach (var key in new[] { "fte_optimus_gs_t3", "bludgeon_gs_rd20", "ironhide_cin_rotf", "kickback_gs_kabam", "bumblebee_gs_kabam" })
+            {
+                var set = StoryPortAudio.SoundSetFor(key);
+                var clips = Resources.LoadAll<AudioClip>("StoryPort/Audio/Char/" + set);
+                bool attack = false, hit = false, react = false;
+                foreach (var clip in clips)
+                {
+                    attack |= clip.name.StartsWith(set + "_attack_1", StringComparison.Ordinal);
+                    hit |= clip.name.StartsWith(set + "_attack_hit_", StringComparison.Ordinal);
+                    react |= clip.name.StartsWith(set + "_hit_react_light", StringComparison.Ordinal);
+                }
+                if (!attack || !hit || !react)
+                    throw new Exception("Combat sound set " + set + " for " + key + " is incomplete");
+            }
         }
 
         static void CheckBotMaterial()

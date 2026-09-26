@@ -18,6 +18,11 @@ sprite for every dominant visual element before editing layout. If an element
 cannot be matched to a local asset, record that gap explicitly. Keep video
 captures, converted assets, and Unity previews outside Git.
 
+Audio: `build/unitypy-env/bin/python tools/storyport/extract_audio.py --project <UnityProject>`
+exports the local 9.2 music, UI and per-class combat clips into the project's
+Resources (git-ignored). The client plays questboard, pre-fight, fight and
+post-fight music plus attack, hit, block, dash and knockout cues.
+
 Fast gates before producing an APK:
 
 1. `python3 -m unittest discover -s tools/storyport -p 'test_prepare_project.py'`
