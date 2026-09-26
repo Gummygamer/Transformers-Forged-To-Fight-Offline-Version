@@ -28,6 +28,49 @@ namespace StoryPort.Editor
             Capture("loading");
         }
 
+        public static void InspectBase()
+        {
+            var prefab = Resources.Load<GameObject>("StoryPort/PrimordialBase");
+            var root = UnityEngine.Object.Instantiate(prefab);
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                var mats = "";
+                foreach (var m in r.sharedMaterials) mats += (m != null ? m.name + "[" + (m.shader != null ? m.shader.name : "-") + "]" : "null") + ",";
+                Debug.Log("StoryPort base renderer " + r.name + " mats=" + mats + " b=" + r.bounds.center + r.bounds.size);
+            }
+        }
+
+        public static void InspectBuilding()
+        {
+            var prefab = Resources.Load<GameObject>("StoryPort/Buildings/" + (Environment.GetEnvironmentVariable("SP_BLD") ?? "battle_centre"));
+            var root = UnityEngine.Object.Instantiate(prefab);
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+            {
+                var mats = "";
+                foreach (var m in r.sharedMaterials) mats += (m != null ? m.name + "[" + (m.shader != null ? m.shader.name : "-") + "]" : "null") + ",";
+                if (true)
+                    foreach (var m in r.sharedMaterials)
+                    {
+                        var sh = m.shader;
+                        for (var i = 0; i < sh.GetPropertyCount(); i++)
+                        {
+                            var n = sh.GetPropertyName(i);
+                            var t = sh.GetPropertyType(i);
+                            string v = t == UnityEngine.Rendering.ShaderPropertyType.Texture ? (m.GetTexture(n) != null ? m.GetTexture(n).name : "null")
+                                : t == UnityEngine.Rendering.ShaderPropertyType.Color ? m.GetColor(n).ToString()
+                                : t == UnityEngine.Rendering.ShaderPropertyType.Vector ? m.GetVector(n).ToString() : m.GetFloat(n).ToString();
+                            Debug.Log("StoryPort building prop " + r.name + " " + n + "=" + v);
+                        }
+                    }
+                Debug.Log("StoryPort building renderer " + r.name + " active=" + r.gameObject.activeInHierarchy + " enabled=" + r.enabled + " mats=" + mats + " b=" + r.bounds.center + r.bounds.size);
+            }
+        }
+
+        public static void CaptureBase()
+        {
+            Capture("base");
+        }
+
         public static void CaptureFight()
         {
             Capture("fight");
@@ -73,6 +116,26 @@ namespace StoryPort.Editor
             }
             else if (screen == "fight") Invoke(client, "FightScreen");
             else if (screen == "loading") Invoke(client, "LoadingScreen");
+            else if (screen == "base")
+            {
+                // Same sockets the server's /base/active placement list returns.
+                Invoke(client, "BaseScreen");
+                var baseRoot = GameObject.Find("StoryPort World · Base");
+                var response = "";
+                var only = Environment.GetEnvironmentVariable("SP_ONLY");
+                foreach (var socket in new[] { "bldg_battle_centre:2_2", "bldg_away_team:2_1", "bldg_alliance_help:2_3", "bldg_crystal_free:1_2", "bldg_crystal_daily:3_2" })
+                {
+                    var parts = socket.Split(':');
+                    if (!string.IsNullOrEmpty(only) && !only.Contains(parts[0])) continue;
+                    response += "{\"id\":\"" + parts[0] + "\",\"key\":\"sock_" + parts[1] + "\"}";
+                }
+                Invoke(client, "PlaceBaseBuildings", baseRoot.transform.GetChild(0), response);
+                var hide = Environment.GetEnvironmentVariable("SP_HIDE");
+                if (!string.IsNullOrEmpty(hide))
+                    foreach (var r in baseRoot.GetComponentsInChildren<Renderer>(true))
+                        foreach (var h in hide.Split(','))
+                            if (r.name.Contains(h)) r.enabled = false;
+            }
             else throw new ArgumentOutOfRangeException("screen", screen, "No preview renderer for this screen");
             Invoke(client, "UpdateHeaderState", screen);
 

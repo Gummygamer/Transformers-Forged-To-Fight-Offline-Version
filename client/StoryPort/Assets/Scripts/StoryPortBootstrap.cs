@@ -257,8 +257,8 @@ namespace StoryPort
             Action[] actions = { () => Show("base"), () => Show("roster"), () => Show("inventory"), () => Show("fightmode"), () => Show("story"), () => Show("roster"), () => Show("roster") };
             var navNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_button");
             var centerNormal = Resources.Load<Sprite>("StoryPort/UI/global_nav_center");
-            float left = .12f;
-            float width = .083f;
+            float left = .004f;
+            float width = .1421f;
             for (int i = 0; i < tabs.Length; i++)
             {
                 int index = i;
@@ -268,7 +268,8 @@ namespace StoryPort
                 image.sprite = index == 3 ? (centerNormal != null ? centerNormal : navNormal) : navNormal;
                 image.type = Image.Type.Simple;
                 image.color = Color.white;
-                button.GetComponentInChildren<Text>().fontSize = 13;
+                button.GetComponentInChildren<Text>().fontSize = 14;
+                button.GetComponentInChildren<Text>().fontStyle = FontStyle.Bold;
             }
         }
 
@@ -373,6 +374,17 @@ namespace StoryPort
         void BaseScreen()
         {
             var baseWorld = SpawnWorld("Base", "PrimordialBase", Vector3.zero, Vector3.zero, .012f);
+            if (baseWorld != null)
+                foreach (var renderer in baseWorld.GetComponentsInChildren<Renderer>(true))
+                {
+                    // The blank terrain plane renders as a white rim and the fringe as icy
+                    // blue; the footage's surroundings are dark warm rock.
+                    if (renderer.name == "BlankTerrain") renderer.enabled = false;
+                    else if (renderer.name.StartsWith("qb_primordial_terrainblend_base_nograss", StringComparison.Ordinal) && renderer.material.HasProperty("_base_col"))
+                        renderer.material.SetColor("_base_col", new Color(.6f, .52f, .46f, 1f));
+                    else if (renderer.name == "qb_terrain_fringe" && renderer.material.HasProperty("_base_col"))
+                        renderer.material.SetColor("_base_col", new Color(.32f, .25f, .2f, 1f));
+                }
             FrameWorld(baseWorld, 1.3f);
             if (baseWorld != null) StartCoroutine(LoadBaseBuildings(baseWorld.transform));
         }
@@ -382,7 +394,11 @@ namespace StoryPort
             string response = "";
             yield return StartCoroutine(Get("/base/active", json => response = json));
             if (baseRoot == null || string.IsNullOrEmpty(response)) yield break;
+            PlaceBaseBuildings(baseRoot, response);
+        }
 
+        void PlaceBaseBuildings(Transform baseRoot, string response)
+        {
             var buildings = Regex.Matches(response,
                 "\\\"id\\\"\\s*:\\s*\\\"(bldg_[^\\\"]+)\\\"\\s*,\\s*\\\"key\\\"\\s*:\\s*\\\"sock_(\\d+)_(\\d+)\\\"");
             foreach (Match building in buildings)
@@ -404,11 +420,35 @@ namespace StoryPort
                 // The server exposes a five by five base socket grid. Its live
                 // buildings occupy a compact cross around the command centre.
                 // The source prefab and base use the same world scale.
-                instance.transform.localPosition = new Vector3((x - 2) * 92f, 0f, (2 - y) * 92f);
+                var layout = Tune("SP_BLDG", new[] { 320f, 1.9f });
+                instance.transform.localPosition = new Vector3((x - 2) * layout[0], 0f, (2 - y) * layout[0]);
                 instance.transform.localRotation = Quaternion.identity;
-                instance.transform.localScale = Vector3.one;
+                instance.transform.localScale = Vector3.one * layout[1];
+                // The beam columns are additive glow meshes; opaque they read as white slabs.
+                foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
+                    if (renderer.name.IndexOf("beam_column", StringComparison.OrdinalIgnoreCase) >= 0) renderer.enabled = false;
             }
-            FrameWorld(baseRoot.gameObject, 1.3f);
+            FrameBaseCrater(baseRoot);
+        }
+
+        // The footage keeps the camera low inside the crater with the command tower
+        // at the centre, rather than showing the whole terrain tile.
+        void FrameBaseCrater(Transform baseRoot)
+        {
+            var camera = Camera.main;
+            if (camera == null) return;
+            var centre = baseRoot.Find("bldg_battle_centre at sock_2_2");
+            if (centre == null) { FrameWorld(baseRoot.gameObject, 1.3f); return; }
+            var v = Tune("SP_BASECAM", new[] { 0f, 5.4f, -8.6f, 0f, 1.1f, 0f, 42f });
+            var target = centre.position + new Vector3(v[3], v[4], v[5]);
+            camera.fieldOfView = v[6];
+            // Moody warm grade like the footage: dim ambient, low warm key light.
+            var key = FindObjectOfType<Light>();
+            if (key != null) { key.color = new Color(1f, .82f, .62f); key.intensity = 1.05f; key.transform.rotation = Quaternion.Euler(38, -35, 0); }
+            RenderSettings.ambientLight = new Color(.34f, .33f, .38f);
+            camera.backgroundColor = new Color(.1f, .085f, .09f);
+            camera.transform.position = centre.position + new Vector3(v[0], v[1], v[2]);
+            camera.transform.LookAt(target);
         }
 
         string BuildingResource(string id)

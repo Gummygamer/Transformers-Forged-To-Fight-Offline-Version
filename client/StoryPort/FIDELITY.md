@@ -38,11 +38,11 @@ Matched to the reference so far (Editor previews): fight (street-level Chicago
 stage at real scale, dusk sky pinned to the horizon, slanted health bars, hex
 touch zones, segmented special meter), bot selection (dark panel, team column,
 VS with matchup bar), story missions (act cards, chapter panel, encounter grid)
-and the hex-collage loading page. Preview with `CaptureFight`, `CaptureSquad`,
-`CaptureStory`, `CaptureLoading`; `SP_STAGE`, `SP_CAM` and `SP_SQUADCAM`
+the hex-collage loading page and the base (low crater camera at the command tower, enlarged buildings spread on the server's sockets, dusk grade, full-width nav tabs). Preview with `CaptureFight`, `CaptureSquad`,
+`CaptureStory`, `CaptureLoading`, `CaptureBase`; `SP_STAGE`, `SP_CAM`, `SP_SQUADCAM`, `SP_BASECAM` and `SP_BLDG`
 environment variables retune the stage and cameras in the Editor only.
 
-Remaining gaps: base building placement and camera; bot material color and
+Remaining gaps: base beam glow effects (hidden, they render opaque white) and tab icons; bot material color and
 reflection; story board terrain framing; Chicago skyline density and rubble;
 per-bot rating and class icons under the fight bars (no server field mapped
 yet); explored percentages on the story cards; on-device verification of the
