@@ -2193,7 +2193,7 @@ end
 
 public function base_dim(): integer
   intent: return
-  5
+  50
 end
 
 public function base_socket_type(): text
@@ -2203,12 +2203,12 @@ end
 
 function base_buildings(): a list of BuildingSpec
   intent: build
-  [BuildingSpec { bid: "bldg_battle_centre", name: "Battle Centre", desc: "Coordinate your Autobots' battles from here.", model: "z_bldg_battle_centre_01" }, BuildingSpec { bid: "bldg_away_team", name: "Away Team", desc: "Send bots on away missions across Cybertron.", model: "z_bldg_away_team_01" }, BuildingSpec { bid: "bldg_alliance_help", name: "Alliance Beacon", desc: "Call in help from allied Autobots.", model: "z_bldg_alliance_help_01" }, BuildingSpec { bid: "bldg_crystal_free", name: "Crystal Chamber", desc: "Synthesizes a free crystal now and then.", model: "z_bldg_gacha_free_01" }, BuildingSpec { bid: "bldg_crystal_daily", name: "Daily Crystal Vault", desc: "Produces one crystal every day.", model: "z_bldg_gacha_daily_01" }, BuildingSpec { bid: "bldg_crystal_premium", name: "Premium Crystal Vault", desc: "Stores premium crystals.", model: "z_bldg_gacha_other_01" }]
+  [BuildingSpec { bid: "bldg_battle_centre", name: "Battle Centre", desc: "Coordinate your Autobots' battles from here.", model: "z_bldg_battle_centre_03" }, BuildingSpec { bid: "bldg_away_team", name: "Away Team Station", desc: "Send bots on away missions across Cybertron.", model: "z_bldg_away_team_03" }, BuildingSpec { bid: "bldg_alliance_help", name: "Alliance Relay", desc: "Call in help from allied Autobots.", model: "z_bldg_alliance_help_03" }, BuildingSpec { bid: "bldg_crystal_free", name: "Free Crystal Vault", desc: "Synthesizes a free crystal now and then.", model: "z_bldg_gacha_free_01" }, BuildingSpec { bid: "bldg_crystal_daily", name: "Daily Crystal Vault", desc: "Produces one crystal every day.", model: "z_bldg_gacha_daily_01" }, BuildingSpec { bid: "bldg_crystal_premium", name: "Premium Crystal Vault", desc: "Stores premium crystals.", model: "z_bldg_gacha_other_01" }]
 end
 
 function base_placements(): a list of BasePlacement
   intent: build
-  [BasePlacement { row: 2, col: 2, bid: "bldg_battle_centre" }, BasePlacement { row: 2, col: 1, bid: "bldg_away_team" }, BasePlacement { row: 2, col: 3, bid: "bldg_alliance_help" }, BasePlacement { row: 1, col: 2, bid: "bldg_crystal_free" }, BasePlacement { row: 3, col: 2, bid: "bldg_crystal_daily" }]
+  [BasePlacement { row: 25, col: 23, bid: "bldg_battle_centre" }, BasePlacement { row: 21, col: 25, bid: "bldg_away_team" }, BasePlacement { row: 29, col: 25, bid: "bldg_alliance_help" }, BasePlacement { row: 27, col: 24, bid: "bldg_crystal_free" }, BasePlacement { row: 23, col: 24, bid: "bldg_crystal_premium" }]
 end
 
 public function build_base_summary(): Json
@@ -2217,9 +2217,8 @@ public function build_base_summary(): Json
 end
 
 public function base_is_walkable(row: integer, col: integer): boolean
-  intent: check
-  let centre: integer = to_integer(to_decimal(base_dim()) / 2)
-  row == centre or col == centre
+  intent: check whether tile is an active node on the 50x50 canyon fortress base
+  (row == 25 and (col == 30 or col == 31 or col == 35 or col == 38 or col == 42 or col == 44)) or (row == 22 and (col == 33 or col == 35 or col == 39)) or (row == 28 and (col == 33 or col == 35 or col == 39)) or (row == 19 and col == 40) or (row == 20 and col == 33) or (row == 30 and col == 33) or (row == 31 and col == 40)
 end
 
 public function base_socket_id(row: integer, col: integer): text
@@ -2227,136 +2226,31 @@ public function base_socket_id(row: integer, col: integer): text
   "sock_" ++ to_text(row) ++ "_" ++ to_text(col)
 end
 
-function base_links_for(row: integer, col: integer): Json
-  intent: build
-  let dim: integer = base_dim()
-  mutable links: a list of Json = []
-  if row - 1 >= 0 and base_is_walkable(row - 1, col) then
-  set links = append(links, vec2(row - 1, col))
-end
-  if row + 1 < dim and base_is_walkable(row + 1, col) then
-  set links = append(links, vec2(row + 1, col))
-end
-  if col - 1 >= 0 and base_is_walkable(row, col - 1) then
-  set links = append(links, vec2(row, col - 1))
-end
-  if col + 1 < dim and base_is_walkable(row, col + 1) then
-  set links = append(links, vec2(row, col + 1))
-end
-  jsonout.json_list(links)
-end
-
-function base_tile(row: integer, col: integer, centre: integer): Json
-  intent: build
-  if not base_is_walkable(row, col) then
-  jsonout.json_obj([pair_bool("walkable", false), pair_bool("hidden", true)])
-else
-  let links: Json = base_links_for(row, col)
-  let sockets: Json = jsonout.json_obj([jsonout.json_pair(base_socket_id(row, col), jsonout.json_obj([pair_text("entityType", base_socket_type()), pair_bool("locked", false)]))])
-  let tile: Json = jsonout.json_obj([pair_bool("walkable", true), pair_bool("hidden", false), pair_text("lab", "Plot " ++ to_text(row) ++ "-" ++ to_text(col)), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), jsonout.json_pair("sockets", sockets)])
-  if row == centre and col == centre then
-  jsonout.obj_set(jsonout.obj_set(tile, "start", jsonout.json_bool(true)), "lab", jsonout.json_text("Command Centre"))
-else
-  tile
-end
-end
-end
-
-function base_grid(dim: integer, centre: integer): Json
-  intent: build every row of the base board
-  mutable grid: a list of Json = []
-  mutable row: integer = 0
-  while row < dim do
-    mutable tiles: a list of Json = []
-    mutable col: integer = 0
-    while col < dim do
-      set tiles = append(tiles, base_tile(row, col, centre))
-      set col = col + 1
-    end
-    set grid = append(grid, jsonout.json_list(tiles))
-    set row = row + 1
-  end
-  jsonout.json_list(grid)
-end
-
-function base_walkable_count(dim: integer): integer
-  intent: count the walkable tiles of the base board
-  mutable walkable: integer = 0
-  mutable row: integer = 0
-  while row < dim do
-    mutable col: integer = 0
-    while col < dim do
-      if base_is_walkable(row, col) then set walkable = walkable + 1 end
-      set col = col + 1
-    end
-    set row = row + 1
-  end
-  walkable
-end
-
-function base_path_data(dim: integer, centre: integer): Json
-  intent: build the horizontal and vertical routes through the base centre
-  mutable horizontal: a list of Json = []
-  mutable vertical: a list of Json = []
-  mutable index: integer = 0
-  while index < dim do
-    set horizontal = append(horizontal, vec2(centre, index))
-    set vertical = append(vertical, vec2(index, centre))
-    set index = index + 1
-  end
-  jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", jsonout.json_list(horizontal))]), jsonout.json_obj([jsonout.json_pair("path", jsonout.json_list(vertical))])])
+function base_active_template(): Json
+  intent: load the authored base active response json template
+  let base_active_path: text = path_join(resp_dir(), "GET__base_active.json")
+  let resp: Json = jsonout.parse_json(read_file(base_active_path))
+  jsonout.obj_get(resp, "result")
 end
 
 public function build_base_map(): Json
-  intent: build the base map
-  let dim: integer = base_dim()
-  let centre: integer = to_integer(to_decimal(dim) / 2)
-  let walkable: integer = base_walkable_count(dim)
-  let map_hash: text = "bm_" ++ base_id()
-  jsonout.json_obj([pair_text("hash", map_hash), pair_int("v", 1), pair_text("mapHash", map_hash), pair_int("gridDimension", dim), jsonout.json_pair("grid", base_grid(dim, centre)), pair_int("walkableCount", walkable), pair_int("visibleWalkableCount", walkable), jsonout.json_pair("pathData", base_path_data(dim, centre)), pair_int("overrideZoom", 0)])
+  intent: build the base map from the authored canyon layout template
+  jsonout.obj_get(jsonout.obj_get(base_active_template(), "userBase"), "map")
 end
 
 public function build_base_mission(): Json
-  intent: build
-  mutable placements: a list of Pair = []
-  for placement in base_placements() do
-    let value: Json = jsonout.json_obj([pair_text("entityType", "building"), pair_text("parentEntityType", "building"), pair_text("key", placement.bid), jsonout.json_pair("position", vec2(placement.row, placement.col))])
-    set placements = append(placements, jsonout.json_pair(base_socket_id(placement.row, placement.col), value))
-  end
-  jsonout.json_obj([pair_text("mode", "base"), pair_text("category", "base"), pair_text("id", base_id()), pair_text("hash", "b1"), pair_text("setName", ""), pair_text("setId", ""), pair_text("uid", local_uid()), pair_text("aid", ""), jsonout.json_pair("modes", jsonout.json_list([jsonout.json_text("base")])), jsonout.json_pair("data", build_base_summary()), jsonout.json_pair("map", build_base_map()), jsonout.json_pair("placements", jsonout.json_obj(placements))])
+  intent: build the base mission from the authored canyon layout template
+  jsonout.obj_get(base_active_template(), "userBase")
 end
 
 public function build_base_available_buildings(): Json
-  intent: build
-  mutable buildings: a list of Json = []
-  for spec in base_buildings() do
-    let funds: Json = jsonout.json_obj([jsonout.json_pair("upgrade", jsonout.json_list([])), jsonout.json_pair("repair", jsonout.json_list([]))])
-    let building: Json = jsonout.json_obj([pair_text("entityType", "building"), pair_text("id", spec.bid), pair_text("name", spec.name), pair_text("description", spec.desc), pair_text("img", ""), pair_text("modelId", spec.model), pair_int("maxDamage", 100), jsonout.json_pair("cost", jsonout.json_list([])), pair_bool("comingSoon", false), jsonout.json_pair("levels", jsonout.json_list([])), pair_int("rank", 1), pair_int("level", 1), pair_int("damage", 0), jsonout.json_pair("funds", funds)])
-    set buildings = append(buildings, building)
-  end
-  jsonout.json_list(buildings)
+  intent: build available buildings catalogue
+  jsonout.obj_get(base_active_template(), "userAvailableBuildings")
 end
 
 public function build_base_active(): Json
-  intent: build
-  mutable buildings: a list of Json = []
-  for placement in base_placements() do
-    set buildings = append(buildings, jsonout.json_obj([pair_text("id", placement.bid), pair_text("key", base_socket_id(placement.row, placement.col))]))
-  end
-  let dim: integer = base_dim()
-  mutable sockets: a list of Pair = []
-  mutable row: integer = 0
-  while row < dim do
-    mutable col: integer = 0
-    while col < dim do
-      if base_is_walkable(row, col) then
-  set sockets = append(sockets, pair_bool(base_socket_id(row, col), true))
-end
-      set col = col + 1
-    end
-    set row = row + 1
-  end
-  jsonout.json_obj([jsonout.json_pair("userBase", build_base_mission()), jsonout.json_pair("userAvailableBuildings", build_base_available_buildings()), jsonout.json_pair("userBuildings", jsonout.json_list(buildings)), jsonout.json_pair("userSockets", jsonout.json_obj(sockets))])
+  intent: build the complete active base response
+  base_active_template()
 end
 
 function hero_bid(hero: Json): text
