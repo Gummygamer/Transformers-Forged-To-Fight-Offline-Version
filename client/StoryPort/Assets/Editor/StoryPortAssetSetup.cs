@@ -26,6 +26,7 @@ namespace StoryPort.Editor
             CreateStoryBoardGroundMaterial();
             CreateChicagoSkyMaterial();
             CreateChicagoRoadMaterial();
+            CreateReflectionCubemap();
             CopyFirst("PrimordialBase", "library_primordial_base", "library_primordial_base");
             CopyBuilding("Buildings/battle_centre", "z_bldg_battle_centre_01");
             CopyBuilding("Buildings/away_team", "z_bldg_away_team_01");
@@ -195,6 +196,23 @@ namespace StoryPort.Editor
                 return;
             }
             Debug.LogWarning("StoryPort: local 9.2 Chicago daylight sky texture was not found");
+        }
+
+        // The game lit characters with EB reflection probes baked from 6-face
+        // strips; import one as a cubemap for Unity's custom reflection source.
+        public static void CreateReflectionCubemap()
+        {
+            const string source = "Assets/Art92/Cubemap/PBR-PMREM-3-8bit.png";
+            var destination = ResourcesRoot + "/EnvReflection.png";
+            if (!File.Exists(source)) { Debug.LogWarning("StoryPort: 9.2 reflection strip not found: " + source); return; }
+            if (!File.Exists(destination)) AssetDatabase.CopyAsset(source, destination);
+            var importer = (TextureImporter)AssetImporter.GetAtPath(destination);
+            if (importer == null) return;
+            importer.textureShape = TextureImporterShape.TextureCube;
+            importer.generateCubemap = TextureImporterGenerateCubemap.AutoCubemap;
+            importer.mipmapEnabled = true;
+            importer.sRGBTexture = true;
+            importer.SaveAndReimport();
         }
 
         static void CreateChicagoRoadMaterial()

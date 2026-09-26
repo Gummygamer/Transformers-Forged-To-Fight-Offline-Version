@@ -42,7 +42,8 @@ namespace StoryPort.Editor
 
         public static void InspectBuilding()
         {
-            var prefab = Resources.Load<GameObject>("StoryPort/Buildings/" + (Environment.GetEnvironmentVariable("SP_BLD") ?? "battle_centre"));
+            var bld = Environment.GetEnvironmentVariable("SP_BLD") ?? "Buildings/battle_centre";
+            var prefab = Resources.Load<GameObject>("StoryPort/" + (bld.Contains("/") ? bld : "Buildings/" + bld));
             var root = UnityEngine.Object.Instantiate(prefab);
             foreach (var r in root.GetComponentsInChildren<Renderer>(true))
             {
@@ -60,6 +61,8 @@ namespace StoryPort.Editor
                                 : t == UnityEngine.Rendering.ShaderPropertyType.Color ? m.GetColor(n).ToString()
                                 : t == UnityEngine.Rendering.ShaderPropertyType.Vector ? m.GetVector(n).ToString() : m.GetFloat(n).ToString();
                             Debug.Log("StoryPort building prop " + r.name + " " + n + "=" + v);
+                            if (t == UnityEngine.Rendering.ShaderPropertyType.Texture && m.GetTexture(n) != null)
+                                Debug.Log("StoryPort building texpath " + n + "=" + UnityEditor.AssetDatabase.GetAssetPath(m.GetTexture(n)));
                         }
                     }
                 Debug.Log("StoryPort building renderer " + r.name + " active=" + r.gameObject.activeInHierarchy + " enabled=" + r.enabled + " mats=" + mats + " b=" + r.bounds.center + r.bounds.size);

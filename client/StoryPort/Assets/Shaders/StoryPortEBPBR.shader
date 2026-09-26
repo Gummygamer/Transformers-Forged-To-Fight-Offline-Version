@@ -75,10 +75,14 @@ Shader "StoryPort/EBPBR"
             fixed roughness = tex2D(_roughness_tex, meshUv * _roughness_tex_ST.xy + _roughness_tex_ST.zw).r;
             fixed3 emission = tex2D(_emissive_tex, meshUv * _emissive_tex_ST.xy + _emissive_tex_ST.zw).rgb;
 
-            o.Albedo = base.rgb;
+            // EB tints are authored around 0.5 grey as neutral (x2), so a plain
+            // multiply halved every paint colour and left reflections dominant.
+            o.Albedo = saturate(base.rgb * 2.0h);
             o.Alpha = base.a;
             o.Normal = UnpackScaleNormal(tex2D(_normal_tex, meshUv * _normal_tex_ST.xy + _normal_tex_ST.zw), _normal_scale);
-            o.Metallic = saturate(_metallic_range * (_use_metallic_tex > 0.5h ? metallic : 1.0h));
+            // Without a metal mask the range applies to the whole surface; halving
+            // it keeps painted armour coloured, matching the reference footage.
+            o.Metallic = saturate(_metallic_range * (_use_metallic_tex > 0.5h ? metallic : 0.5h));
             o.Smoothness = saturate(1.0h - ((_use_roughness_tex > 0.5h ? roughness : _use_pbr_composite > 0.5h ? packed.r : 1.0h) * _roughness_range));
             o.Occlusion = _use_pbr_composite > 0.5h ? packed.g : ao;
             o.Emission = emission * _emissive_col.rgb * _emissive_range;

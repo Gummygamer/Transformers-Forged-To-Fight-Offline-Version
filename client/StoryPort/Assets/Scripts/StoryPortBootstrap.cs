@@ -53,6 +53,11 @@ namespace StoryPort
         int mapY;
         int playerHp = 100;
         int enemyHp = 100;
+        // Absolute fight stats from /bcg/getBaseHeroData; the percent fields above
+        // are derived from these for the HUD.
+        float playerMaxHealth = 1, playerHealth = 1, playerAttack = 1;
+        float enemyMaxHealth = 1, enemyHealth = 1, enemyAttack = 1;
+        string lastQuestJson = "";
         int specialMeter;
         int enemySpecialMeter;
         int selectedBot;
@@ -151,6 +156,15 @@ namespace StoryPort
             light.intensity = 1.65f;
             light.transform.rotation = Quaternion.Euler(42, -28, 0);
             RenderSettings.ambientLight = new Color(.7f, .74f, .8f);
+            // Reflect the 9.2 outdoor probe, not Unity's default bright sky,
+            // so painted armour keeps its colour instead of reading as chrome.
+            var reflection = Resources.Load<Cubemap>("StoryPort/EnvReflection");
+            if (reflection != null)
+            {
+                RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Custom;
+                RenderSettings.customReflectionTexture = reflection;
+                RenderSettings.reflectionIntensity = 1f;
+            }
         }
 
         // Editor-only iteration hook: SP_* environment variables override defaults.
@@ -1285,8 +1299,10 @@ namespace StoryPort
         {
             ResetCamera();
             CreateChicagoSky();
-            var tune = Tune("SP_STAGE", new[] { 1f, -260f, 0f, -60f });
-            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, Vector3.zero, tune[0]);
+            // Scale, offset and heading place the fighters on the ruined street by
+            // the stage's main fight area, facing the brick towers as in the footage.
+            var tune = Tune("SP_STAGE", new[] { .6f, -33.6f, 0f, 40f, 180f });
+            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, new Vector3(0f, tune[4], 0f), tune[0]);
             if (stage != null)
             {
                 stage.transform.localPosition += new Vector3(tune[1], tune[2], tune[3]);
@@ -1451,7 +1467,10 @@ namespace StoryPort
             yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
             if (enemyAnimator != null) PlayState(enemyAnimator, state == "SpecialAttack03" ? "SpecialAttack03HitReaction" : "HitReactionLightLeftHigh");
-            enemyHp = Mathf.Max(0, enemyHp - damage);
+            float dealt = playerAttack * MoveMultiplier(state) * UnityEngine.Random.Range(.92f, 1.08f);
+            enemyHealth = Mathf.Max(0f, enemyHealth - dealt);
+            SyncHealthPercent();
+            ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, new Color(1f, .95f, .8f));
             Combat(playerKey, "attack_hit_" + step);
             Combat(enemyKey, step >= 6 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
             if (enemyHp == 0) Combat(enemyKey, "knockout");
@@ -1558,8 +1577,9 @@ namespace StoryPort
             comboHits = 0;
             specialMeter = 0;
             enemySpecialMeter = 0;
-            playerHp = 100;
-            enemyHp = 100;
+            playerHealth = playerMaxHealth;
+            enemyHealth = enemyMaxHealth;
+            SyncHealthPercent();
             nextEnemyTurn = Time.time + 2.8f;
             DestroyWorld();
             Show("fight");
@@ -1601,8 +1621,12 @@ namespace StoryPort
             yield return new WaitForSeconds(special ? 1f : .58f);
             if (playerHp > 0 && enemyHp > 0)
             {
-                int damage = Time.time < evadeUntil ? 0 : guarding ? (special ? 7 : 1) : (special ? 24 : 4);
-                playerHp = Mathf.Max(0, playerHp - damage);
+                float raw = enemyAttack * (special ? 3.5f : .5f) * UnityEngine.Random.Range(.92f, 1.08f);
+                float taken = Time.time < evadeUntil ? 0f : guarding ? raw * .1f : raw;
+                int damage = Mathf.RoundToInt(taken);
+                playerHealth = Mathf.Max(0f, playerHealth - taken);
+                SyncHealthPercent();
+                if (damage > 0) ShowDamageNumber(damage, playerActor, guarding ? new Color(.7f, .85f, 1f) : new Color(1f, .45f, .4f));
                 if (guarding) Combat(playerKey, "block_react");
                 else if (damage > 0)
                 {
@@ -1671,6 +1695,7 @@ namespace StoryPort
             var path = "/quests/quest-movedir/" + currentQid + "-0/" + dx + "/" + dy;
             StartCoroutine(Post(path, "{}", response =>
             {
+                lastQuestJson = response;
                 if (!ReadCurrentPosition(response))
                 {
                     mapX += dx;
@@ -1723,8 +1748,99 @@ namespace StoryPort
 
         IEnumerator LoadFight()
         {
-            yield return new WaitForSeconds(.75f);
+            int playerRank, playerLevel, enemyRank, enemyLevel;
+            ReadRankLevel(lastQuestJson, playerKey, out playerRank, out playerLevel);
+            ReadRankLevel(lastQuestJson, enemyKey, out enemyRank, out enemyLevel);
+            string body = "{\"heroes\":[{\"bid\":\"" + playerKey + "\",\"rank\":" + playerRank + ",\"level\":" + playerLevel +
+                "},{\"bid\":\"" + enemyKey + "\",\"rank\":" + enemyRank + ",\"level\":" + enemyLevel + "}]}";
+            string response = "";
+            yield return StartCoroutine(Post("/bcg/getBaseHeroData", body, json => response = json));
+            playerMaxHealth = ReadStat(response, playerKey, "max_hp", 3000f);
+            playerAttack = ReadStat(response, playerKey, "attack", 300f);
+            enemyMaxHealth = ReadStat(response, enemyKey, "max_hp", 3000f);
+            enemyAttack = ReadStat(response, enemyKey, "attack", 300f);
+            playerHealth = playerMaxHealth;
+            enemyHealth = enemyMaxHealth;
+            SyncHealthPercent();
+            yield return new WaitForSeconds(.3f);
             if (screen == "loading") Show("fight");
+        }
+
+        static float ReadStat(string json, string bid, string stat, float fallback)
+        {
+            var block = Regex.Match(json ?? "", "\\{[^{}]*\"bid\"\\s*:\\s*\"" + Regex.Escape(bid) + "\"[^{}]*\\}");
+            if (!block.Success) return fallback;
+            var value = Regex.Match(block.Value, "\"" + stat + "\"\\s*:\\s*(-?[0-9.]+)");
+            float parsed;
+            return value.Success && float.TryParse(value.Groups[1].Value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out parsed) && parsed > 0 ? parsed : fallback;
+        }
+
+        // Rank and level of a hero or boss as the quest data lists them (default 1/1).
+        static void ReadRankLevel(string json, string key, out int rank, out int level)
+        {
+            rank = level = 1;
+            foreach (Match block in Regex.Matches(json ?? "", "\"" + Regex.Escape(key) + "\"\\s*:\\s*\\{[^{}]*\\}"))
+            {
+                var r = Regex.Match(block.Value, "\"rank\"\\s*:\\s*(\\d+)");
+                var l = Regex.Match(block.Value, "\"level\"\\s*:\\s*(\\d+)");
+                if (!r.Success) continue;
+                rank = int.Parse(r.Groups[1].Value);
+                if (l.Success) level = int.Parse(l.Groups[1].Value);
+                return;
+            }
+        }
+
+        // Floating damage number above a fighter, as in the reference footage.
+        void ShowDamageNumber(int amount, GameObject target, Color color)
+        {
+            var camera = Camera.main;
+            if (camera == null || target == null || uiRoot == null) return;
+            var label = Label(uiRoot, "Damage Number", amount.ToString(), 30, TextAnchor.MiddleCenter, color);
+            label.fontStyle = FontStyle.Bold;
+            label.raycastTarget = false;
+            var outline = label.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0, 0, 0, .8f);
+            StartCoroutine(FloatDamageNumber(label, target.transform.position + Vector3.up * 3.6f));
+        }
+
+        IEnumerator FloatDamageNumber(Text label, Vector3 world)
+        {
+            var rect = label.rectTransform;
+            rect.anchorMin = rect.anchorMax = Vector2.zero;
+            rect.sizeDelta = new Vector2(160, 50);
+            float t = 0f;
+            var jitter = new Vector2(UnityEngine.Random.Range(-30f, 30f), 0);
+            while (t < .9f && label != null)
+            {
+                t += Time.deltaTime;
+                var camera = Camera.main;
+                if (camera == null) break;
+                var screenPoint = (Vector2)camera.WorldToScreenPoint(world);
+                var scale = canvas != null ? canvas.scaleFactor : 1f;
+                rect.anchoredPosition = screenPoint / scale + jitter + Vector2.up * (t * 70f);
+                label.color = new Color(label.color.r, label.color.g, label.color.b, Mathf.Clamp01(1.6f - t * 1.8f));
+                yield return null;
+            }
+            if (label != null) Destroy(label.gameObject);
+        }
+
+        void SyncHealthPercent()
+        {
+            playerHp = playerHealth <= 0 ? 0 : Mathf.Clamp(Mathf.CeilToInt(playerHealth / playerMaxHealth * 100f), 1, 100);
+            enemyHp = enemyHealth <= 0 ? 0 : Mathf.Clamp(Mathf.CeilToInt(enemyHealth / enemyMaxHealth * 100f), 1, 100);
+        }
+
+        // Damage multipliers of attack per move: light hits land at about half the
+        // attack stat (the reference shows 173 from a 345-attack bot), and the
+        // special follows the blueprint's escalating special scale.
+        static float MoveMultiplier(string state)
+        {
+            if (state == "SpecialAttack03") return 3.5f;
+            if (state.StartsWith("Special", StringComparison.Ordinal)) return 1.75f;
+            if (state.StartsWith("Medium", StringComparison.Ordinal)) return .8f;
+            if (state == "LightAttack03") return .65f;
+            return .5f;
         }
 
         void SaveSquadAndBegin()
@@ -1770,6 +1886,7 @@ namespace StoryPort
         {
             string response = "";
             yield return StartCoroutine(Post("/quests/quest-movedir/" + currentQid + "-0/0/0", "{}", json => response = json));
+            lastQuestJson = response;
             ReadCurrentPosition(response);
             var serverEnemy = ExtractJsonString(response, "currentBattleId");
             if (string.IsNullOrEmpty(serverEnemy)) serverEnemy = ExtractBattleKey(response);
