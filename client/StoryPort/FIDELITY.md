@@ -1,9 +1,9 @@
 # StoryPort fidelity workflow
 
-Reference: [PrimeDev beta gameplay](https://www.youtube.com/watch?v=Zsf63-gR0nA).
-Its route and rewards differ from this project's server. The server remains the
-source for the three act IDs, encounter order, map links, teams, and fight
-results. The video supplies screen composition, animation, and control cues.
+Reference: [Beta gameplay reference video](https://www.youtube.com/watch?v=Zsf63-gR0nA).
+Its route and rewards differ from this project's server. The existing server data is authoritative and must not be replaced by
+video content: keep its story fight sequence, encounter order, stats, act IDs,
+map links, teams, and fight results. The video supplies screen composition, animation, and control cues.
 
 | Video time | Screen to compare | Visible details to retain |
 | --- | --- | --- |
@@ -24,16 +24,16 @@ Fast gates before producing an APK:
    checks atlas coordinates and fails on missing or invalid UI sprites.
 2. Run Unity with `-batchmode -nographics -quit -executeMethod
    StoryPort.Editor.StoryPortEditorChecks.Run` against the prepared local
-   project. This checks route parsing and required imported art.
+   project. This checks route parsing, required UI art, bot material values,
+   and the Chicago sky and road resources.
 3. Run Unity with `-batchmode -force-glcore -quit -executeMethod
-   StoryPort.Editor.StoryPortPreviewCapture.CaptureStory`, setting
-   `STORYPORT_PREVIEW_PNG` to a local output path. Compare the resulting
-   1600×900 screen to the video frame at 12:06. Fix major layout and art
+   StoryPort.Editor.StoryPortPreviewCapture.CaptureStory`, `CaptureSquad`, or
+   `CaptureFight`, setting `STORYPORT_PREVIEW_PNG` to a local output path.
+   Compare each 1600×900 render to its video frame. Fix major layout and art
    differences in the Editor before an Android build.
 4. Build and install once for the completed screen or combat slice. Check
    navigation, a full fight, and the server's recorded result on device.
 
-Next visual gaps: base building placement and camera; squad composition and
-materials; story board terrain framing; combat motion and HUD. The Editor
-preview should cover these screens as their code is separated from the main
-bootstrap file.
+Current visual gaps: base building placement and camera; bot material color and
+reflection; story board terrain framing; Chicago scenery composition and
+combat motion. The Editor preview covers story, selection, and fight screens.

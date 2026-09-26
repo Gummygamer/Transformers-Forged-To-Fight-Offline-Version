@@ -24,6 +24,8 @@ namespace StoryPort.Editor
             Directory.CreateDirectory(ResourcesRoot + "/Materials");
             ImportLocalUiArt();
             CreateStoryBoardGroundMaterial();
+            CreateChicagoSkyMaterial();
+            CreateChicagoRoadMaterial();
             CopyFirst("PrimordialBase", "library_primordial_base", "library_primordial_base");
             CopyBuilding("Buildings/battle_centre", "z_bldg_battle_centre_01");
             CopyBuilding("Buildings/away_team", "z_bldg_away_team_01");
@@ -39,6 +41,7 @@ namespace StoryPort.Editor
             CopyFirst("PrimordialTerrain", "primordial_timeofday_0_forward", "primordial_timeofday_0_forward");
             // prepare_project.py links ChicagoFightStage from the converted scene bundle.
             CopyFirst("Bots/optimusprime_cin_tf", "optimusprime_cin_tf", "optimusprime_cin_tf");
+            CopyFirst("Bots/optimusprime_gs_v", "optimusprime_gs_v", "optimusprime_gs_v");
             CopyFirst("Bots/bludgeon_gs_rd20", "bludgeon_gs_rd20", "bludgeon_gs_rd20");
             CopyFirst("Bots/bumblebee_gs_kabam", "bumblebee_gs_kabam", "bumblebee_gs_kabam");
             CopyFirst("Bots/grindor_cin_rotf", "grindor_cin_rotf", "grindor_cin_rotf");
@@ -92,12 +95,12 @@ namespace StoryPort.Editor
                 var materialPath = AssetDatabase.GUIDToAssetPath(materialGuid);
                 var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
                 if (material == null) continue;
-                AddTexturePath(normalPaths, material, "_normal_tex");
-                AddTexturePath(normalPaths, material, "_normal2_tex");
-                AddTexturePath(linearPaths, material, "_pbr_composite_tex");
-                AddTexturePath(linearPaths, material, "_ao_tex");
-                AddTexturePath(linearPaths, material, "_metallic_tex");
-                AddTexturePath(linearPaths, material, "_roughness_tex");
+                AddTexturePath(normalPaths, material, materialPath, "_normal_tex");
+                AddTexturePath(normalPaths, material, materialPath, "_normal2_tex");
+                AddTexturePath(linearPaths, material, materialPath, "_pbr_composite_tex");
+                AddTexturePath(linearPaths, material, materialPath, "_ao_tex");
+                AddTexturePath(linearPaths, material, materialPath, "_metallic_tex");
+                AddTexturePath(linearPaths, material, materialPath, "_roughness_tex");
             }
             foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
             {
@@ -118,9 +121,9 @@ namespace StoryPort.Editor
             }
         }
 
-        static void AddTexturePath(HashSet<string> paths, Material material, string property)
+        static void AddTexturePath(HashSet<string> paths, Material material, string materialPath, string property)
         {
-            var texture = material.GetTexture(property);
+            var texture = ReadTextureProperty(material, materialPath, property);
             if (texture == null) return;
             var path = AssetDatabase.GetAssetPath(texture);
             if (!string.IsNullOrEmpty(path)) paths.Add(path);
@@ -169,6 +172,49 @@ namespace StoryPort.Editor
             if (AssetDatabase.LoadAssetAtPath<Material>(path) != null) AssetDatabase.DeleteAsset(path);
             AssetDatabase.CreateAsset(material, path);
             Debug.Log("StoryPort: created local story-board material from " + albedoPath);
+        }
+
+        static void CreateChicagoSkyMaterial()
+        {
+            foreach (var guid in AssetDatabase.FindAssets("chic_sky_day_01 t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+            {
+                var texturePath = AssetDatabase.GUIDToAssetPath(guid);
+                if (Path.GetFileNameWithoutExtension(texturePath) != "chic_sky_day_01") continue;
+                var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
+                var shader = Shader.Find("Unlit/Texture");
+                if (texture == null || shader == null) break;
+                var material = new Material(shader) { name = "ChicagoDaySky" };
+                material.SetTexture("_MainTex", texture);
+                // The source is two stacked sky hemispheres. The upper half
+                // is the daylight skyline used by this encounter.
+                material.SetTextureScale("_MainTex", new Vector2(1f, .5f));
+                material.SetTextureOffset("_MainTex", new Vector2(0f, .5f));
+                var destination = ResourcesRoot + "/ChicagoDaySky.mat";
+                if (AssetDatabase.LoadAssetAtPath<Material>(destination) != null) AssetDatabase.DeleteAsset(destination);
+                AssetDatabase.CreateAsset(material, destination);
+                return;
+            }
+            Debug.LogWarning("StoryPort: local 9.2 Chicago daylight sky texture was not found");
+        }
+
+        static void CreateChicagoRoadMaterial()
+        {
+            foreach (var guid in AssetDatabase.FindAssets("chic_trrn_road_02_d t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+            {
+                var texturePath = AssetDatabase.GUIDToAssetPath(guid);
+                if (Path.GetFileNameWithoutExtension(texturePath) != "chic_trrn_road_02_d") continue;
+                var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
+                var shader = Shader.Find("StoryPort/ChicagoRoad");
+                if (texture == null || shader == null) break;
+                var material = new Material(shader) { name = "ChicagoRoad" };
+                material.SetTexture("_MainTex", texture);
+                material.SetFloat("_WorldScale", 6f);
+                var destination = ResourcesRoot + "/ChicagoRoad.mat";
+                if (AssetDatabase.LoadAssetAtPath<Material>(destination) != null) AssetDatabase.DeleteAsset(destination);
+                AssetDatabase.CreateAsset(material, destination);
+                return;
+            }
+            Debug.LogWarning("StoryPort: local 9.2 Chicago asphalt texture or shader was not found");
         }
 
         public static void InspectLocalAssets()
@@ -327,6 +373,12 @@ namespace StoryPort.Editor
                     converted.SetTextureOffset(baseProperty, source.GetTextureOffset("_base_tex"));
                 }
                 catch { }
+                if (converted.HasProperty("_base_uv_transform"))
+                {
+                    var scale = converted.GetTextureScale(baseProperty);
+                    var offset = converted.GetTextureOffset(baseProperty);
+                    converted.SetVector("_base_uv_transform", new Vector4(scale.x, scale.y, offset.x, offset.y));
+                }
             }
             // Decompiled Unity 2020 materials can resolve to InternalErrorShader
             // while retaining their texture properties. GetColor("_Color") on
@@ -409,29 +461,28 @@ namespace StoryPort.Editor
             }
             if (converted.HasProperty("_metallic_range"))
             {
-                float metallic = 0;
-                try { metallic = source.GetFloat("_metallic_range"); } catch { }
+                float metallic = ReadFloatProperty(source, sourcePath, "_metallic_range", 0f);
                 converted.SetFloat("_metallic_range", Mathf.Clamp01(metallic));
             }
             if (converted.HasProperty("_roughness_range"))
             {
-                float roughness = .5f;
-                try { roughness = source.GetFloat("_roughness_range"); } catch { }
+                float roughness = ReadFloatProperty(source, sourcePath, "_roughness_range", .5f);
                 converted.SetFloat("_roughness_range", Mathf.Clamp01(roughness));
             }
             if (converted.HasProperty("_emissive_range"))
             {
-                float intensity = 0;
-                try { intensity = source.GetFloat("_emissive_range"); } catch { }
+                float intensity = ReadFloatProperty(source, sourcePath, "_emissive_range", 0f);
                 converted.SetFloat("_emissive_range", Mathf.Clamp(intensity, 0f, 8f));
             }
+            if (converted.HasProperty("_normal_scale"))
+                converted.SetFloat("_normal_scale", Mathf.Clamp(ReadFloatProperty(source, sourcePath, "_normal_scale", 1f), 0f, 2f));
             if (converted.HasProperty("_Metallic"))
             {
-                converted.SetFloat("_Metallic", Mathf.Clamp01(source.GetFloat("_metallic_range")));
+                converted.SetFloat("_Metallic", Mathf.Clamp01(ReadFloatProperty(source, sourcePath, "_metallic_range", 0f)));
             }
             if (converted.HasProperty("_Glossiness"))
             {
-                converted.SetFloat("_Glossiness", Mathf.Clamp01(1f - source.GetFloat("_roughness_range")));
+                converted.SetFloat("_Glossiness", Mathf.Clamp01(1f - ReadFloatProperty(source, sourcePath, "_roughness_range", .5f)));
             }
 
             if (!string.IsNullOrEmpty(sourcePath))
@@ -489,6 +540,22 @@ namespace StoryPort.Editor
                     CultureInfo.InvariantCulture, out values[i])) return false;
             color = new Color(values[0], values[1], values[2], values[3]);
             return true;
+        }
+
+        static float ReadFloatProperty(Material material, string materialPath, string property, float fallback)
+        {
+            // The imported Unity 2020 shader is unavailable to Unity 6. A
+            // GetFloat call then returns zero even when the YAML stores a
+            // different value, making every surface mirror-smooth.
+            if (!string.IsNullOrEmpty(materialPath) && File.Exists(materialPath))
+            {
+                var match = Regex.Match(File.ReadAllText(materialPath),
+                    @"(?m)^\s*" + Regex.Escape(property) + @":\s*([-+0-9.eE]+)\s*$");
+                if (match.Success && float.TryParse(match.Groups[1].Value, NumberStyles.Float,
+                    CultureInfo.InvariantCulture, out var serialized)) return serialized;
+            }
+            try { if (material.HasProperty(property)) return material.GetFloat(property); } catch { }
+            return fallback;
         }
     }
 }

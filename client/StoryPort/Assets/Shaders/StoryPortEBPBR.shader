@@ -4,6 +4,7 @@ Shader "StoryPort/EBPBR"
     {
         _base_tex ("Base Color", 2D) = "white" {}
         _base_col ("Base Tint", Color) = (1,1,1,1)
+        _base_uv_transform ("Base UV Transform", Vector) = (1,1,0,0)
         _normal_tex ("Normal", 2D) = "bump" {}
         _pbr_composite_tex ("Roughness and Occlusion", 2D) = "white" {}
         _ao_tex ("Occlusion", 2D) = "white" {}
@@ -36,6 +37,13 @@ Shader "StoryPort/EBPBR"
         sampler2D _metallic_tex;
         sampler2D _roughness_tex;
         sampler2D _emissive_tex;
+        float4 _base_uv_transform;
+        float4 _normal_tex_ST;
+        float4 _pbr_composite_tex_ST;
+        float4 _ao_tex_ST;
+        float4 _metallic_tex_ST;
+        float4 _roughness_tex_ST;
+        float4 _emissive_tex_ST;
         fixed4 _base_col;
         fixed4 _emissive_col;
         half _metallic_range;
@@ -57,16 +65,19 @@ Shader "StoryPort/EBPBR"
 
         void surf(Input IN, inout SurfaceOutputStandard o)
         {
+            // Unity applies _base_tex_ST to the one interpolated UV. Recover
+            // mesh UV0 so each atlas texture can use its own saved transform.
+            float2 meshUv = (IN.uv_base_tex - _base_uv_transform.zw) / _base_uv_transform.xy;
             fixed4 base = tex2D(_base_tex, IN.uv_base_tex) * _base_col;
-            fixed4 packed = tex2D(_pbr_composite_tex, IN.uv_base_tex);
-            fixed ao = tex2D(_ao_tex, IN.uv_base_tex).r;
-            fixed metallic = tex2D(_metallic_tex, IN.uv_base_tex).r;
-            fixed roughness = tex2D(_roughness_tex, IN.uv_base_tex).r;
-            fixed3 emission = tex2D(_emissive_tex, IN.uv_base_tex).rgb;
+            fixed4 packed = tex2D(_pbr_composite_tex, meshUv * _pbr_composite_tex_ST.xy + _pbr_composite_tex_ST.zw);
+            fixed ao = tex2D(_ao_tex, meshUv * _ao_tex_ST.xy + _ao_tex_ST.zw).r;
+            fixed metallic = tex2D(_metallic_tex, meshUv * _metallic_tex_ST.xy + _metallic_tex_ST.zw).r;
+            fixed roughness = tex2D(_roughness_tex, meshUv * _roughness_tex_ST.xy + _roughness_tex_ST.zw).r;
+            fixed3 emission = tex2D(_emissive_tex, meshUv * _emissive_tex_ST.xy + _emissive_tex_ST.zw).rgb;
 
             o.Albedo = base.rgb;
             o.Alpha = base.a;
-            o.Normal = UnpackScaleNormal(tex2D(_normal_tex, IN.uv_base_tex), _normal_scale);
+            o.Normal = UnpackScaleNormal(tex2D(_normal_tex, meshUv * _normal_tex_ST.xy + _normal_tex_ST.zw), _normal_scale);
             o.Metallic = saturate(_metallic_range * (_use_metallic_tex > 0.5h ? metallic : 1.0h));
             o.Smoothness = saturate(1.0h - ((_use_roughness_tex > 0.5h ? roughness : _use_pbr_composite > 0.5h ? packed.r : 1.0h) * _roughness_range));
             o.Occlusion = _use_pbr_composite > 0.5h ? packed.g : ao;

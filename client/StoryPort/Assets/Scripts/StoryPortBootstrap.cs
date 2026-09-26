@@ -30,7 +30,7 @@ namespace StoryPort
 
         readonly string[] rosterKeys =
         {
-            "optimusprime_cin_tf", "bumblebee_gs_kabam", "ironhide_cin_rotf", "jazz_gs_twm05", "bludgeon_gs_rd20"
+            "fte_optimus_gs_t3", "bumblebee_gs_kabam", "ironhide_cin_rotf", "jazz_gs_twm05", "bludgeon_gs_rd20"
         };
         readonly string[] rosterNames = { "Optimus Prime", "Bumblebee", "Ironhide", "Jazz", "Bludgeon" };
         readonly List<int> squad = new List<int> { 0, 1 };
@@ -41,7 +41,7 @@ namespace StoryPort
         string notice = "";
         string currentQid = ActQids[0];
         string enemyKey = "bludgeon_gs_rd20";
-        string playerKey = "optimusprime_cin_tf";
+        string playerKey = "fte_optimus_gs_t3";
         string playerName = "Optimus Prime";
         string enemyName = "Bludgeon";
         string[] storyNodes;
@@ -159,7 +159,7 @@ namespace StoryPort
             // Keep the converted Chicago geometry in the background. The
             // characters stand just in front of its near edge so foreground
             // buildings do not cover their legs during a fight.
-            camera.transform.position = new Vector3(0, 5.1f, -17.5f);
+            camera.transform.position = new Vector3(0, 4.3f, -12.5f);
             camera.transform.LookAt(new Vector3(0, 2.2f, -5f));
         }
 
@@ -927,46 +927,85 @@ namespace StoryPort
             var camera = Camera.main;
             if (camera != null)
             {
-                camera.transform.position = new Vector3(0, 5.1f, -12.5f);
+                camera.transform.position = new Vector3(0, 3.6f, -8f);
                 camera.transform.LookAt(new Vector3(0, 2.1f, 0));
             }
-            var platform = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            platform.name = "Roster Display Platform";
-            platform.transform.position = new Vector3(0, -.12f, 0);
-            platform.transform.localScale = new Vector3(13f, .24f, 3.5f);
-            var platformRenderer = platform.GetComponent<Renderer>();
-            var platformMaterial = new Material(Shader.Find("Standard"));
-            platformMaterial.color = new Color(.075f, .16f, .21f);
-            platformRenderer.sharedMaterial = platformMaterial;
-            worldRoots.Add(platform);
-            for (int i = 0; i < rosterKeys.Length; i++)
+            var selected = Mathf.Clamp(selectedBot, 0, rosterKeys.Length - 1);
+            var player = SpawnBot(rosterKeys[selected], new Vector3(squadForStory ? -2.7f : 0f, 0, 0), 180f, .88f);
+            if (player != null)
             {
-                var actor = SpawnBot(rosterKeys[i], new Vector3((i - 2) * 2.45f, 0, 0), 180f, .68f);
-                if (actor == null) continue;
-                worldRoots.Add(actor);
-                PlayState(FindFightAnimator(actor), "Idle");
-            }
-            SectionTitle("SELECT YOUR BOTS", "Choose up to three bots for this encounter.");
-            for (int i = 0; i < rosterKeys.Length; i++)
-            {
-                int index = i;
-                float x = .035f + i * .187f;
-                var tile = Button(content, rosterNames[i], () => ToggleBot(index), new Vector2(x, .17f), new Vector2(x + .175f, .34f));
-                SetButtonSkin(tile, squad.Contains(i) ? "button_tab_active" : "button_tab");
-                var label = tile.GetComponentInChildren<Text>();
-                label.text = rosterNames[i] + (squad.Contains(i) ? "\nSELECTED" : "\nTAP TO ADD");
-                label.fontSize = 14;
-                label.alignment = TextAnchor.MiddleCenter;
+                worldRoots.Add(player);
+                PlayState(FindFightAnimator(player), "Idle");
             }
             if (squadForStory)
             {
-                ActionButton("DEPLOY SQUAD", "Save team and open this encounter", () => SaveSquadAndBegin(), .65f, .025f, .3f, .12f, true);
-                ActionButton("BACK TO BOARD", "Return to the story route", () => Show("map"), .33f, .025f, .3f, .12f, false);
+                var opponent = SpawnBot(enemyKey, new Vector3(2.7f, 0, 0), 180f, .88f);
+                if (opponent != null)
+                {
+                    worldRoots.Add(opponent);
+                    PlayState(FindFightAnimator(opponent), "Idle");
+                }
+            }
+
+            LabelAt(content, "Bot Selection Title", squadForStory ? "SELECT YOUR BOT" : "BOT ROSTER", 26,
+                TextAnchor.MiddleCenter, Color.white, new Vector2(.34f, .88f), new Vector2(.66f, .98f));
+            LabelAt(content, "Team Count", "TEAM  " + squad.Count + " / 3", 13, TextAnchor.MiddleCenter,
+                new Color(.51f, .86f, .95f), new Vector2(.018f, .82f), new Vector2(.105f, .88f));
+            for (int i = 0; i < rosterKeys.Length; i++)
+            {
+                int index = i;
+                float y = .7f - i * .135f;
+                var tile = Button(content, "Choose " + rosterNames[i], () => FocusBot(index),
+                    new Vector2(.018f, y), new Vector2(.1f, y + .12f));
+                SetButtonSkin(tile, i == selected ? "frame_selection" : "frame_button");
+                tile.GetComponentInChildren<Text>().text = "";
+                var portrait = SpriteImage(tile.transform, "Bot Portrait", "Portraits/" + PortraitFor(rosterKeys[i]),
+                    new Vector2(.13f, .09f), new Vector2(.87f, .91f), true);
+                if (portrait != null) portrait.raycastTarget = false;
+                if (squad.Contains(i))
+                    LabelAt(tile.transform, "Team Slot", "✓", 16, TextAnchor.MiddleCenter, new Color(.34f, .98f, .49f),
+                        new Vector2(.68f, .65f), new Vector2(1f, 1f)).raycastTarget = false;
+            }
+
+            LabelAt(content, "Selected Bot Name", rosterNames[selected].ToUpperInvariant(), 22, TextAnchor.MiddleLeft,
+                Color.white, new Vector2(.18f, .37f), new Vector2(.42f, .48f));
+            HealthBar(content, "Selected Bot Health", new Vector2(.18f, .32f), new Vector2(.4f, .355f), 1f,
+                new Color(.2f, .7f, .91f));
+            LabelAt(content, "Selected Bot Health Text", "100 / 100", 12, TextAnchor.MiddleLeft,
+                new Color(.83f, .94f, .98f), new Vector2(.18f, .27f), new Vector2(.38f, .32f));
+            var teamButton = Button(content, "Team Selection", () => ToggleBot(selected),
+                new Vector2(.18f, .17f), new Vector2(.38f, .25f));
+            SetButtonSkin(teamButton, squad.Contains(selected) ? "button_tab_active" : "button_tab");
+            teamButton.GetComponentInChildren<Text>().text = squad.Contains(selected) ? "IN YOUR TEAM · REMOVE" : "ADD TO TEAM";
+
+            if (squadForStory)
+            {
+                LabelAt(content, "Versus", "VS", 30, TextAnchor.MiddleCenter, Color.white,
+                    new Vector2(.465f, .46f), new Vector2(.535f, .58f));
+                LabelAt(content, "Opponent Name", enemyName.ToUpperInvariant(), 22, TextAnchor.MiddleLeft,
+                    Color.white, new Vector2(.61f, .37f), new Vector2(.83f, .48f));
+                HealthBar(content, "Opponent Health", new Vector2(.61f, .32f), new Vector2(.83f, .355f), 1f,
+                    new Color(.2f, .7f, .91f));
+                LabelAt(content, "Opponent Health Text", "100 / 100", 12, TextAnchor.MiddleLeft,
+                    new Color(.83f, .94f, .98f), new Vector2(.61f, .27f), new Vector2(.82f, .32f));
+            }
+
+            if (squadForStory)
+            {
+                var fight = Button(content, "Fight", SaveSquadAndBegin,
+                    new Vector2(.72f, .045f), new Vector2(.94f, .145f));
+                SetButtonSkin(fight, "button_main_glowing");
+                fight.GetComponent<Image>().color = new Color(.22f, .83f, .28f, 1f);
+                fight.GetComponentInChildren<Text>().text = !squad.Contains(selected) ? "ADD BOT FIRST" : pendingEncounter ? "FIGHT!" : "SAVE TEAM";
+                var back = Button(content, "Back to Board", () => Show("map"),
+                    new Vector2(.12f, .82f), new Vector2(.25f, .9f));
+                SetButtonSkin(back, "button_tab");
+                back.GetComponentInChildren<Text>().text = "‹  BOARD";
             }
             else
             {
-                ActionButton("SAVE ROSTER", "Save your selected team", () => SaveRoster(), .65f, .025f, .3f, .12f, true);
-                ActionButton("BACK TO BASE", "Return to command center", () => Show("base"), .33f, .025f, .3f, .12f, false);
+                ActionButton("SAVE ROSTER", "", SaveRoster, .72f, .045f, .22f, .1f, true);
+                ActionButton("BACK TO BASE", "", () => Show("base"), .12f, .82f, .2f, .08f, false);
             }
         }
 
@@ -1006,32 +1045,40 @@ namespace StoryPort
             pause.GetComponentInChildren<Text>().fontSize = 24;
             comboText = LabelAt(hud.transform, "Combo", "", 24, TextAnchor.MiddleLeft, Color.white, new Vector2(.015f, .49f), new Vector2(.17f, .64f));
 
-            var dodge = Button(content, "BLOCK", ToggleBlock, new Vector2(.025f, .025f), new Vector2(.16f, .21f));
-            SetButtonSkin(dodge, "button_main_glowing");
-            var attack = Button(content, "ATTACK", () =>
-            {
-                lightCombo = (lightCombo % 3) + 1;
-                PlayerAttack("LightAttack0" + lightCombo, 16 + (lightCombo == 3 ? 8 : 0), 7);
-            }, new Vector2(.84f, .025f), new Vector2(.975f, .21f));
-            SetButtonSkin(attack, "button_main_glowing");
-            var specialButton = Button(content, "SPECIAL", SpecialAttack, new Vector2(.425f, .025f), new Vector2(.575f, .17f));
-            SetButtonSkin(specialButton, "button_tab_active");
+            // Fight gestures own the arena: hold left to block, swipe to
+            // dash, tap or hold right to attack. Keep only the special input
+            // in the HUD, as in the game footage.
+            var specialButton = Button(content, "SPECIAL", SpecialAttack, new Vector2(.025f, .025f), new Vector2(.125f, .145f));
+            SetButtonSkin(specialButton, "button_main_glowing");
+            specialButton.GetComponent<Image>().color = new Color(.3f, .9f, .27f, 1f);
             specialButtonLabel = specialButton.GetComponentInChildren<Text>();
             specialButtonLabel.text = "SPECIAL";
-            specialButtonLabel.fontSize = 16;
-            specialFill = HealthBar(content, "Special Meter", new Vector2(.425f, .18f), new Vector2(.575f, .195f), specialMeter / 3f, new Color(.28f, .72f, 1f));
-            specialText = LabelAt(content, "Special Charges", "SPECIAL  " + specialMeter + " / 3", 12, TextAnchor.MiddleCenter, new Color(.72f, .89f, .98f), new Vector2(.425f, .17f), new Vector2(.575f, .22f));
+            specialButtonLabel.fontSize = 13;
+            specialFill = HealthBar(content, "Special Meter", new Vector2(.025f, .15f), new Vector2(.125f, .165f), specialMeter / 3f, new Color(.36f, .92f, .21f));
+            specialText = LabelAt(content, "Special Charges", "SPECIAL  " + specialMeter + " / 3", 10, TextAnchor.MiddleCenter, new Color(.72f, .89f, .98f), new Vector2(.025f, .17f), new Vector2(.125f, .2f));
             UpdateFightHud();
         }
 
         void SpawnFightWorld()
         {
             ResetCamera();
-            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, Vector3.zero, .01f);
+            CreateChicagoSky();
+            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, Vector3.zero, .015f);
             if (stage != null)
             {
                 stage.transform.localPosition += new Vector3(-2.84f, 0, 0);
                 ApplyStoryPortMaterials(stage);
+                foreach (var child in stage.GetComponentsInChildren<Transform>(true))
+                    if (child.name == "Main Stage") child.gameObject.SetActive(false);
+                var roadMaterial = Resources.Load<Material>("StoryPort/ChicagoRoad");
+                foreach (var renderer in stage.GetComponentsInChildren<Renderer>(true))
+                {
+                    if (roadMaterial != null && renderer.name.IndexOf("trrn_road", StringComparison.OrdinalIgnoreCase) >= 0)
+                        renderer.sharedMaterial = roadMaterial;
+                    if (renderer.name.IndexOf("bldg", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        renderer.name.IndexOf("rubble", StringComparison.OrdinalIgnoreCase) < 0)
+                        renderer.enabled = false;
+                }
             }
             playerActor = SpawnBot(playerKey, new Vector3(-2.55f, 0, -5.5f), 90f, .72f);
             enemyActor = SpawnBot(enemyKey, new Vector3(2.55f, 0, -5.5f), 270f, .72f);
@@ -1042,6 +1089,27 @@ namespace StoryPort
             PlayState(playerAnimator, "Idle");
             PlayState(enemyAnimator, "Idle");
             nextEnemyTurn = Time.time + 2.8f;
+        }
+
+        void CreateChicagoSky()
+        {
+            var skyMaterial = Resources.Load<Material>("StoryPort/ChicagoDaySky");
+            var camera = Camera.main;
+            if (skyMaterial == null || camera == null) return;
+            var sky = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            sky.name = "9.2 Chicago Day Sky";
+            sky.transform.SetParent(camera.transform, false);
+            sky.transform.localPosition = new Vector3(0f, 0f, 100f);
+            sky.transform.localRotation = Quaternion.identity;
+            sky.transform.localScale = new Vector3(120f, 68f, 1f);
+            sky.GetComponent<Renderer>().sharedMaterial = skyMaterial;
+            var collider = sky.GetComponent<Collider>();
+            if (collider != null)
+            {
+                if (Application.isPlaying) Destroy(collider);
+                else DestroyImmediate(collider);
+            }
+            worldRoots.Add(sky);
         }
 
         void ApplyStoryPortMaterials(GameObject root)
@@ -1074,7 +1142,8 @@ namespace StoryPort
 
         GameObject SpawnBot(string key, Vector3 position, float yaw, float scale)
         {
-            var prefab = Resources.Load<GameObject>("StoryPort/Bots/" + key);
+            var prefabName = key == "fte_optimus_gs_t3" ? "optimusprime_gs_v" : key;
+            var prefab = Resources.Load<GameObject>("StoryPort/Bots/" + prefabName);
             if (prefab == null && key.Contains("stars")) prefab = Resources.Load<GameObject>("StoryPort/Bots/starscream_gs");
             if (prefab == null && key.Contains("ironhide")) prefab = Resources.Load<GameObject>("StoryPort/Bots/ironhide_cin_rotf");
             if (prefab == null && key.Contains("megatron")) prefab = Resources.Load<GameObject>("StoryPort/Bots/optimusprime_cin_tf");
@@ -1371,8 +1440,8 @@ namespace StoryPort
                     specialMeter = 0;
                     playerKey = rosterKeys[squad[0]];
                     playerName = rosterNames[squad[0]];
-                    Show("loading");
-                    StartCoroutine(LoadFight());
+                    squadForStory = true;
+                    Show("squad");
                 }
                 else
                 {
@@ -1412,27 +1481,24 @@ namespace StoryPort
         void SaveSquadAndBegin()
         {
             if (squad.Count == 0) { SetNotice("Select at least one bot"); return; }
+            if (!squad.Contains(selectedBot)) { SetNotice("Add the selected bot to the team first"); return; }
+            squad.Remove(selectedBot);
+            squad.Insert(0, selectedBot);
             var heroes = new List<string>();
             for (int i = 0; i < squad.Count; i++) heroes.Add("\"" + rosterKeys[squad[i]] + "\"");
             string saved = "{\"heroes\":[" + string.Join(",", heroes) + "],\"api\":6,\"nonce\":\"storyport\",\"teamID\":\"0\"}";
-            StartCoroutine(Post("/bcg/setSavedTeam", saved, _ => BeginStory()));
-        }
-
-        void BeginStory()
-        {
-            currentQid = ActQids[actIndex];
-            mapX = 0;
-            mapY = actIndex == 2 ? 2 : 1;
-            pendingEncounter = false;
-            storyNodes = ActNodeLabels[actIndex].Split('|');
-            var parts = new List<string> { "\"setId\":\"" + StorySet + "\"" };
-            for (int i = 0; i < squad.Count; i++) parts.Add("\"tm" + i + "\":\"" + rosterKeys[squad[i]] + "\"");
-            StartCoroutine(Post("/quests/quest-begin/" + currentQid, "{" + string.Join(",", parts) + "}", response =>
+            StartCoroutine(Post("/bcg/setSavedTeam", saved, _ =>
             {
-                ReadCurrentPosition(response);
-                ReadStoryMap(response);
-                Show("loading");
-                StartCoroutine(LoadBoardAndMove());
+                playerKey = rosterKeys[squad[0]];
+                playerName = rosterNames[squad[0]];
+                if (pendingEncounter)
+                {
+                    playerHp = enemyHp = 100;
+                    specialMeter = 0;
+                    Show("loading");
+                    StartCoroutine(LoadFight());
+                }
+                else Show("map");
             }));
         }
 
@@ -1465,13 +1531,6 @@ namespace StoryPort
                 enemyName = DisplayName(enemyKey);
             }
             if (screen == "loading") Show("map");
-        }
-
-        IEnumerator LoadBoardAndMove()
-        {
-            yield return new WaitForSeconds(.7f);
-            if (screen != "loading") yield break;
-            yield return StartCoroutine(ProbeStoryPosition());
         }
 
         IEnumerator ResolveWin()
@@ -1525,8 +1584,23 @@ namespace StoryPort
 
         void ToggleBot(int index)
         {
-            if (squad.Contains(index)) { if (squad.Count > 1) squad.Remove(index); }
-            else if (squad.Count < 3) squad.Add(index);
+            if (squad.Contains(index))
+            {
+                if (squad.Count == 1) { SetNotice("Keep at least one bot in the team"); return; }
+                squad.Remove(index);
+                selectedBot = squad[0];
+            }
+            else
+            {
+                if (squad.Count >= 3) { SetNotice("Team already has three bots"); return; }
+                squad.Add(index);
+                selectedBot = index;
+            }
+            Show(squadForStory ? "squad" : "roster");
+        }
+
+        void FocusBot(int index)
+        {
             selectedBot = index;
             Show(squadForStory ? "squad" : "roster");
         }
