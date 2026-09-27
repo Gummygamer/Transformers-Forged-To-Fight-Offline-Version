@@ -285,22 +285,22 @@ function check_movedir_step(payload: Payload, qid: text, transitions: a mapping 
   MoveCheck { detail: detail, next_x: next.x, next_y: next.y, cleared: not revisiting }
 end
 
-function test_header_layout_and_sorted_entries_step1(blob: integer, detail_in: text): text
+function test_header_layout_and_sorted_entries_step1(blob: integer, entry_count: integer, detail_in: text): text
   intent: check
   mutable detail: text = detail_in
   if detail == "" and (bytes_get(blob, 0) != 84 or bytes_get(blob, 1) != 70 or bytes_get(blob, 2) != 84 or bytes_get(blob, 3) != 70 or bytes_get(blob, 4) != 80 or bytes_get(blob, 5) != 65 or bytes_get(blob, 6) != 89 or bytes_get(blob, 7) != 0) then set detail = "invalid magic" end
   if detail == "" and bytes_read_u32_le(blob, 8) != 1 then set detail = "version is not 1" end
   if detail == "" and bytes_read_u32_le(blob, 12) != bytes_length(blob) then set detail = "header total differs from blob length" end
   if detail == "" and bytes_read_u32_le(blob, 16) != 8123 then set detail = "listen port is not 8123" end
-  if detail == "" and bytes_read_u32_le(blob, 20) != 10683 then set detail = "entry count is not 10683" end
+  if detail == "" and bytes_read_u32_le(blob, 20) != entry_count then set detail = "entry count differs from decoded table" end
   detail
 end
 
-function test_header_layout_and_sorted_entries_step2(blob: integer, detail_in: text): text
+function test_header_layout_and_sorted_entries_step2(blob: integer, prefix_count: integer, detail_in: text): text
   intent: check
   mutable detail: text = detail_in
   if detail == "" and bytes_read_u32_le(blob, 24) != 64 then set detail = "entry table offset is not 64" end
-  if detail == "" and bytes_read_u32_le(blob, 28) != 2 then set detail = "prefix count is not 2" end
+  if detail == "" and bytes_read_u32_le(blob, 28) != prefix_count then set detail = "prefix count differs from decoded table" end
   let entry_table_end: integer = bytes_read_u32_le(blob, 24) + bytes_read_u32_le(blob, 20) * 16
   let prefix_table_end: integer = bytes_read_u32_le(blob, 32) + bytes_read_u32_le(blob, 28) * 16
   let table_end: integer = if entry_table_end > prefix_table_end then entry_table_end else prefix_table_end end
@@ -319,8 +319,8 @@ end
 function test_header_layout_and_sorted_entries(blob: integer, payload: Payload): TestResult
   intent: test
   mutable detail: text = ""
-  set detail = test_header_layout_and_sorted_entries_step1(blob, detail)
-  set detail = test_header_layout_and_sorted_entries_step2(blob, detail)
+  set detail = test_header_layout_and_sorted_entries_step1(blob, length(payload.entry_keys), detail)
+  set detail = test_header_layout_and_sorted_entries_step2(blob, length(payload.prefix_keys), detail)
   set detail = test_header_layout_and_sorted_entries_step3(blob, payload, detail)
   mutable index: integer = 0
   while index < length(payload.entry_keys) and detail == "" do
