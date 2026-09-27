@@ -24,6 +24,11 @@ record QuestEncounter
   label: text
 end
 
+record BoardTerrain
+  theme: text
+  tod: integer
+end
+
 record BuildingSpec
   bid: text
   name: text
@@ -50,6 +55,140 @@ end
 function load_data(name: text): Json
   intent: read and parse one static JSON table from the data folder
   jsonout.parse_json(read_file(path_join(data_dir(), name ++ ".json")))
+end
+
+function terrain_node_or(node: Json, fallback: BoardTerrain): BoardTerrain
+  intent: read a board theme and time of day out of one terrain node
+  if jsonout.is_null(node) then
+  fallback
+else
+  let picked_theme: text = if jsonout.obj_has(node, "theme") then
+  jsonout.as_text(jsonout.obj_get(node, "theme"))
+else
+  fallback.theme
+end
+  let picked_tod: integer = if jsonout.obj_has(node, "todIndex") then
+  jsonout.as_int(jsonout.obj_get(node, "todIndex"))
+else
+  fallback.tod
+end
+  BoardTerrain { theme: picked_theme, tod: picked_tod }
+end
+end
+
+function arena_level_by_index(index: integer): text
+  intent: name the shipped arena level at one index of the five
+  if index == 1 then
+  "hongkong"
+else if index == 2 then
+  "karnak"
+else if index == 3 then
+  "mine"
+else if index == 4 then
+  "rust"
+else
+  "chicago"
+end
+end
+
+function arena_seed(qid: text, row: integer): integer
+  intent: derive a stable seed for one encounter from its quest id and row
+  -- Deliberately NOT random_int. build_quest_begin and build_quest_detail are baked into
+  -- the exported payload, which is guarded by a CRC-32 (export_payload.lbl:681, :895) and a
+  -- fixed entry count (:701). A fresh roll per call would make every export a different
+  -- blob, and could also show one arena on the map preview and a different one in the
+  -- fight. A seed keeps every encounter's arena varied but reproducible.
+  let digits: text = replace(qid, ".", "")
+  let base: integer = unwrap_or(to_integer(digits), length(qid))
+  -- Fold the digits together before scaling. Using base alone made every quest share one
+  -- level order, because 31 % 5 == 1 leaves the choice as base % 5 and almost every qid
+  -- ends in the same digit. Folding makes "1.1.1" and "2.1.1" diverge.
+  let folded: integer = base + (base / 10) + (base / 100) + (base / 1000)
+  folded * 31 + row * 17 + 7
+end
+
+function arena_node_for(qid: text): Json
+  intent: read the arena policy node authored for one quest
+  let quests: Json = jsonout.obj_get(load_data("quest_terrain"), "quests")
+  if jsonout.is_null(quests) then
+  jsonout.json_null()
+else if jsonout.obj_has(quests, qid) then
+  jsonout.obj_get(jsonout.obj_get(quests, qid), "arena")
+else
+  jsonout.json_null()
+end
+end
+
+public function arena_varies(qid: text): boolean
+  intent: check whether one quest opted in to per-encounter arena variety
+  let node: Json = arena_node_for(qid)
+  if jsonout.is_null(node) then
+  false
+else if jsonout.obj_has(node, "vary") then
+  jsonout.as_bool(jsonout.obj_get(node, "vary"))
+else
+  false
+end
+end
+
+function arena_pool_for(qid: text): a list of text
+  intent: list the arena levels one quest may draw from, defaulting to all five shipped
+  let node: Json = arena_node_for(qid)
+  let all: a list of text = ["chicago", "hongkong", "karnak", "mine", "rust"]
+  if jsonout.is_null(node) then
+  all
+else if jsonout.obj_has(node, "pool") then
+  mutable picked: a list of text = []
+  for entry in jsonout.list_items(jsonout.obj_get(node, "pool")) do
+    set picked = append(picked, jsonout.as_text(entry))
+  end
+  if length(picked) == 0 then all else picked end
+else
+  all
+end
+end
+
+public function encounter_arena_for(qid: text, row: integer, fallback_level: text, fallback_tod: integer): BoardTerrain
+  intent: pick the arena for one encounter, or keep the existing fallback when the quest has not opted in
+  -- OPT-IN ON PURPOSE, and this is a scoping decision rather than a technical limit.
+  -- Varying the arena everywhere is implemented and works; it is gated because turning it
+  -- on globally contradicts two things upstream wrote to defend the current behaviour:
+  --   * test_gamedata.lbl:1068 asserts enemy.mapOverride == arena_level(), i.e. that every
+  --     story fight uses the one global TFTF_ARENA_LEVEL arena;
+  --   * Server/fixtures/story_act1_848e4d3.json is a golden payload pinned to upstream
+  --     commit 848e4d3, and three tests compare against it.
+  -- Flipping the default would mean editing upstream's test and regenerating a fixture tied
+  -- to their commit, which is their design call to make and not ours to make silently.
+  -- To go global later: default `vary` to true here, update that assertion, and regenerate
+  -- the fixture. `pool` already allows a chosen grouping rather than all five, so
+  -- "these quests draw from these arenas" needs no further code.
+  if not arena_varies(qid) then
+  BoardTerrain { theme: fallback_level, tod: fallback_tod }
+else
+  let pool: a list of text = arena_pool_for(qid)
+  let size: integer = length(pool)
+  if size == 0 then
+  BoardTerrain { theme: fallback_level, tod: fallback_tod }
+else
+  let seed: integer = arena_seed(qid, row)
+  BoardTerrain { theme: unwrap_or(get(pool, seed % size), "chicago"), tod: (seed / size) % 3 }
+end
+end
+end
+
+public function quest_board_terrain(qid: text): BoardTerrain
+  intent: get the questboard theme and time of day authored for one story quest
+  let table: Json = load_data("quest_terrain")
+  let shipped: BoardTerrain = BoardTerrain { theme: "primordial", tod: 0 }
+  let fallback: BoardTerrain = terrain_node_or(jsonout.obj_get(table, "_default"), shipped)
+  let quests: Json = jsonout.obj_get(table, "quests")
+  if jsonout.is_null(quests) then
+  fallback
+else if jsonout.obj_has(quests, qid) then
+  terrain_node_or(jsonout.obj_get(quests, qid), fallback)
+else
+  fallback
+end
 end
 
 public function resp_dir(): text
@@ -1177,9 +1316,10 @@ function summary_head_pairs(mission_id: text, set_id: text, hash: text, act: int
   [pair_text("id", mission_id), pair_text("setId", set_id), pair_text("hash", hash), pair_int("act", act), pair_int("chapter", chapter), pair_int("mission", mission), pair_int("missionIndex", mission), pair_int("index", mission), pair_int("teamSizeMax", team_size_max()), pair_text("friendlyName", friendly_name), pair_text("description", description), pair_text("category", "story")]
 end
 
-function summary_tail_pairs(difficulty: text, min_xp: integer, max_xp: integer, image: text, dialogue: Json): a list of Pair
+function summary_tail_pairs(qid: text, difficulty: text, min_xp: integer, max_xp: integer, image: text, dialogue: Json): a list of Pair
   intent: list the difficulty, reward, art and dialogue pairs of a quest summary
-  [pair_text("difficulty", difficulty), pair_int("energyPerTile", 1), pair_int("minXpPerTile", min_xp), pair_int("maxXpPerTile", max_xp), pair_int("minHealthPerTile", 100), pair_int("maxHealthPerTile", 100), pair_text("image", image), pair_text("theme", "primordial"), pair_int("todIndex", 0), jsonout.json_pair("dialogueTable", dialogue)]
+  let terrain: BoardTerrain = quest_board_terrain(qid)
+  [pair_text("difficulty", difficulty), pair_int("energyPerTile", 1), pair_int("minXpPerTile", min_xp), pair_int("maxXpPerTile", max_xp), pair_int("minHealthPerTile", 100), pair_int("maxHealthPerTile", 100), pair_text("image", image), pair_text("theme", terrain.theme), pair_int("todIndex", terrain.tod), jsonout.json_pair("dialogueTable", dialogue)]
 end
 
 function custom_story_summary(mission_id: text, set_id: text): Json
@@ -1189,12 +1329,12 @@ function custom_story_summary(mission_id: text, set_id: text): Json
   let description: text = if mission_id == custom_story_act3_qid() then "Jazz leads the Autobots through a split assault on Grindor and Ironhide before the final duel." else if mission_id == custom_story_act2_qid() then "Marissa leads the Autobots to resources that can repair their ship." else "Optimus Prime confronts Bludgeon in the city streets." end
   -- Quest-select portraits use the roster art base, not the blueprint id.
   let image: text = if mission_id == custom_story_act3_qid() then "bludge_gs" else "" end
-  jsonout.json_obj(concat(summary_head_pairs(mission_id, set_id, custom_story_set_hash(), act, custom_story_summary_chapter(), custom_story_summary_mission(), friendly_name, description), summary_tail_pairs("normal", 1, 2, image, build_custom_story_dialogue_sets())))
+  jsonout.json_obj(concat(summary_head_pairs(mission_id, set_id, custom_story_set_hash(), act, custom_story_summary_chapter(), custom_story_summary_mission(), friendly_name, description), summary_tail_pairs(mission_id, "normal", 1, 2, image, build_custom_story_dialogue_sets())))
 end
 
 function challenge_summary(mission_id: text, set_id: text): Json
   intent: build the summary of the Karma Six challenge
-  jsonout.json_obj(concat(summary_head_pairs(mission_id, set_id, challenge_set_hash(), 1, 1, 1, "Karma Six", "High-difficulty wheel challenge: 6 spokes, 74 combat nodes, canonical stats."), summary_tail_pairs("hard", 10, 20, "", build_dialogue_sets())))
+  jsonout.json_obj(concat(summary_head_pairs(mission_id, set_id, challenge_set_hash(), 1, 1, 1, "Karma Six", "High-difficulty wheel challenge: 6 spokes, 74 combat nodes, canonical stats."), summary_tail_pairs(mission_id, "hard", 10, 20, "", build_dialogue_sets())))
 end
 
 public function build_quest_summary(mission_id: text, set_id: text): Json
@@ -1205,7 +1345,7 @@ public function build_quest_summary(mission_id: text, set_id: text): Json
   else if mission_id == challenge_qid() then
     challenge_summary(mission_id, set_id)
   else
-    jsonout.json_obj(concat(summary_head_pairs(mission_id, set_id, "h1", mission_part(parts, 0), mission_part(parts, 1), mission_part(parts, 2), "Arrival", "The first battle."), summary_tail_pairs("normal", 1, 2, "", build_dialogue_sets())))
+    jsonout.json_obj(concat(summary_head_pairs(mission_id, set_id, "h1", mission_part(parts, 0), mission_part(parts, 1), mission_part(parts, 2), "Arrival", "The first battle."), summary_tail_pairs(mission_id, "normal", 1, 2, "", build_dialogue_sets())))
   end
 end
 
@@ -1265,10 +1405,11 @@ else
 end
 end
 
-function encounter_tile(row: integer, links: Json): Json
+function encounter_tile(qid: text, row: integer, links: Json): Json
   intent: build
   let encounter: QuestEncounter = quest_encounter(row)
-  let enemy: Json = build_quest_enemy_for("", -1, encounter.key, encounter.final_boss)
+  let arena: BoardTerrain = encounter_arena_for(qid, row, "", -1)
+  let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, encounter.key, encounter.final_boss)
   mutable pairs: a list of Pair = [pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", encounter.final_boss), pair_text("lab", encounter.label), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), pair_text("boss", encounter.key), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(encounter.key, enemy)]))]
   let pre_dialogue: text = tile_dialogue_id(row)
   if pre_dialogue != "" then
@@ -1308,7 +1449,7 @@ end
 function custom_tile_entities(qid: text, row: integer, enemy_key: text, enemy: Json): Json
   intent: build the entity table of a custom story tile
   if qid == custom_story_act2_qid() and row == 1 then
-    jsonout.json_obj([jsonout.json_pair("bumblebee_gs_kabam", build_quest_enemy_for("chicago", 0, "bumblebee_gs_kabam", false)), jsonout.json_pair(enemy_key, enemy)])
+    jsonout.json_obj([jsonout.json_pair("bumblebee_gs_kabam", build_quest_enemy_for(encounter_arena_for(qid, row, "chicago", 0).theme, encounter_arena_for(qid, row, "chicago", 0).tod, "bumblebee_gs_kabam", false)), jsonout.json_pair(enemy_key, enemy)])
   else
     jsonout.json_obj([jsonout.json_pair(enemy_key, enemy)])
   end
@@ -1321,7 +1462,8 @@ function custom_story_encounter_tile(qid: text, row: integer): Json
   -- Act 2's opening tile intentionally presents Bumblebee's shipped card while
   -- the battle uses Kickback. Later encounters use their own battle identity.
   let boss_image_key: text = if qid == custom_story_act2_qid() and row == 1 then "bumblebee_gs_kabam" else encounter.key end
-  let entities: Json = custom_tile_entities(qid, row, encounter.key, build_quest_enemy_for("chicago", 0, encounter.key, encounter.final_boss))
+  let arena: BoardTerrain = encounter_arena_for(qid, row, "chicago", 0)
+  let entities: Json = custom_tile_entities(qid, row, encounter.key, build_quest_enemy_for(arena.theme, arena.tod, encounter.key, encounter.final_boss))
   let pairs: a list of Pair = [pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", encounter.final_boss), pair_text("lab", encounter.label), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), pair_text("boss", boss_image_key), jsonout.json_pair("entities", entities)]
   jsonout.json_obj(concat(pairs, custom_tile_dialogue_pairs(qid, row)))
 end
@@ -1329,7 +1471,8 @@ end
 function custom_story_act3_encounter_tile(x: integer, y: integer, links: Json): Json
   intent: build
   let encounter: QuestEncounter = quest_encounter_at(custom_story_act3_qid(), x, y)
-  let enemy: Json = build_quest_enemy_for("chicago", 0, encounter.key, encounter.final_boss)
+  let arena: BoardTerrain = encounter_arena_for(custom_story_act3_qid(), x, "chicago", 0)
+  let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, encounter.key, encounter.final_boss)
   jsonout.json_obj([pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", encounter.final_boss), pair_text("lab", encounter.label), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), pair_text("boss", encounter.key), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(encounter.key, enemy)]))])
 end
 
@@ -1340,7 +1483,8 @@ end
 
 function challenge_encounter_tile(key: text, final_boss: boolean, label: text, links: Json): Json
   intent: build
-  let enemy: Json = build_quest_enemy_for("", -1, key, final_boss)
+  let arena: BoardTerrain = encounter_arena_for(challenge_qid(), length(key), "", -1)
+  let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, key, final_boss)
   jsonout.json_obj([pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", final_boss), pair_text("lab", label), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), pair_text("boss", key), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(key, enemy)]))])
 end
 
@@ -1890,20 +2034,20 @@ function build_custom_story_act3_map(): Json
   jsonout.json_obj([pair_text("hash", "qm_" ++ custom_story_act3_qid()), pair_int("v", 1), pair_text("mapHash", "qm_" ++ custom_story_act3_qid()), pair_int("gridDimension", 5), jsonout.json_pair("grid", act3_grid()), pair_int("walkableCount", 5), pair_int("visibleWalkableCount", 5), jsonout.json_pair("pathData", act3_path_data()), pair_int("overrideZoom", 0)])
 end
 
-function linear_quest_tile(row: integer, col: integer): Json
+function linear_quest_tile(qid: text, row: integer, col: integer): Json
   intent: build one tile of the linear quest board
   if col != quest_path_col() then
     filler_tile()
   else if row == 0 then
     start_tile(links_for(row, col))
   else if quest_has_encounter(row) then
-    encounter_tile(row, links_for(row, col))
+    encounter_tile(qid, row, links_for(row, col))
   else
     middle_tile(row, links_for(row, col))
   end
 end
 
-function linear_quest_grid(): Json
+function linear_quest_grid(qid: text): Json
   intent: build every row of the linear quest board
   mutable grid: a list of Json = []
   mutable row: integer = 0
@@ -1911,7 +2055,7 @@ function linear_quest_grid(): Json
     mutable tiles: a list of Json = []
     mutable col: integer = 0
     while col < quest_dim() do
-      set tiles = append(tiles, linear_quest_tile(row, col))
+      set tiles = append(tiles, linear_quest_tile(qid, row, col))
       set col = col + 1
     end
     set grid = append(grid, jsonout.json_list(tiles))
@@ -1933,7 +2077,7 @@ end
 
 function build_linear_quest_map(qid: text): Json
   intent: build the quest map of a story quest with one path column
-  jsonout.json_obj([pair_text("hash", "qm_" ++ qid), pair_int("v", 1), pair_text("mapHash", "qm_" ++ qid), pair_int("gridDimension", quest_dim()), jsonout.json_pair("grid", linear_quest_grid()), pair_int("walkableCount", quest_dim()), pair_int("visibleWalkableCount", quest_dim()), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", linear_quest_path())])])), pair_int("overrideZoom", 0)])
+  jsonout.json_obj([pair_text("hash", "qm_" ++ qid), pair_int("v", 1), pair_text("mapHash", "qm_" ++ qid), pair_int("gridDimension", quest_dim()), jsonout.json_pair("grid", linear_quest_grid(qid)), pair_int("walkableCount", quest_dim()), pair_int("visibleWalkableCount", quest_dim()), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", linear_quest_path())])])), pair_int("overrideZoom", 0)])
 end
 
 public function build_quest_map(qid: text): Json
@@ -2097,7 +2241,8 @@ function movedir_results(step: MoveStep): a list of Json
   let moved: Json = jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("moveto", vec2(step.next_x, step.next_y))]))])
   if quest_has_encounter_at(step.qid, step.next_x, step.next_y) and not step.completed then
     let encounter: QuestEncounter = quest_encounter_at(step.qid, step.next_x, step.next_y)
-    let battle_enemy: Json = if is_custom_story_qid(step.qid) then build_quest_enemy_for("chicago", 0, encounter.key, encounter.final_boss) else build_quest_enemy_for("", -1, encounter.key, encounter.final_boss) end
+    let battle_arena: BoardTerrain = if is_custom_story_qid(step.qid) then encounter_arena_for(step.qid, step.next_x, "chicago", 0) else encounter_arena_for(step.qid, step.next_x, "", -1) end
+    let battle_enemy: Json = build_quest_enemy_for(battle_arena.theme, battle_arena.tod, encounter.key, encounter.final_boss)
     let battle: Json = jsonout.json_obj([pair_int("x", step.next_x), pair_int("y", step.next_y), pair_bool("isFinalBoss", encounter.final_boss), jsonout.json_pair("battleEnemy", battle_enemy)])
     [moved, jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("battle", battle)]))])]
   else

@@ -328,6 +328,18 @@ A working candidate map, one ability per row:
 | Armour break | `U+E516` | Power gain | `U+E91B` |
 | | | Power sting / drain | `U+E905` |
 
+> 📣 **A crowdsourced mapping now exists and supersedes this table as the place to look.**
+> kmcbest published a PUA icon viewer at <https://kmc.is-a.bot/tftfr/pua_icons_viewer.html>
+> so the original mappings can be identified collectively. Contribute observations there
+> rather than re-deriving them here. Note the sources disagree: for Bleed the shipped server
+> value is `U+E402`, this table says `U+E414`, and the crowdsourced reading is `U+E401` — a
+> codepoint never triaged here at all. That disagreement is the reason for the warning below,
+> not an argument against it.
+>
+> Remember what these values are: a codepoint is a **pointer**. The server names a slot and
+> the font decides what appears in it. Replace the font and every icon changes with no server
+> change, so this table is a late-binding convenience, not a contract.
+
 ⚠️ **Status of this table: visual identification, not verified in-game.** It is offered so you
 do not start from 523 unknowns. **None of these codepoints are served today** — `Server/gamedata.lbl`
 still emits the original `E402`/`E412`/`E41D` set. The swap to `U+E414`/`U+E914` shipped
