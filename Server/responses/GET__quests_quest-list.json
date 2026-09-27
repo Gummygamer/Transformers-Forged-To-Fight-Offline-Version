@@ -32,6 +32,14 @@
      "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
      "minHealthPerTile":100,"maxHealthPerTile":100,
      "image":"bludge_gs","theme":"primordial"
+   },
+   {
+     "id":"2.3.2","act":3,"chapter":1,"mission":2,"missionIndex":2,"index":2,"teamSizeMax":5,
+     "friendlyName":"Starscream's Device","description":"Marissa and Prowl follow Starscream through a dust storm, then race to stop him from powering up his forces.",
+     "category":"story","difficulty":"normal",
+     "energyPerTile":1,"minXpPerTile":1,"maxXpPerTile":2,
+     "minHealthPerTile":100,"maxHealthPerTile":100,
+     "image":"stars_gs","theme":"primordial"
    }
  ]
 },

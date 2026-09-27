@@ -280,7 +280,7 @@ function saved_team_template(): text
   let saved: text = unwrap_or(get(values, 0), "")
   let active: text = unwrap_or(get(values, 1), "")
   let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
-  replace_exact(one, active, "%ATEAM%", 5, "saved-team active heroes")
+  replace_exact(one, active, "%ATEAM%", 6, "saved-team active heroes")
 end
 
 function user_data_template(): text
@@ -288,7 +288,7 @@ function user_data_template(): text
   let values: a list of text = team_values("1.1.1", [])
   let body: text = envelope(gamedata.build_user_data([]))
   let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
-  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 5, "user-data active heroes")
+  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 6, "user-data active heroes")
 end
 
 function tutorial_templates(): Entries

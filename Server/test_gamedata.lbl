@@ -674,6 +674,47 @@ function test_custom_act2_dialogue_is_exact_and_ordered(): boolean
   let third: Json = unwrap_or(get(act2, 2), jsonout.json_obj([]))
   length(act2) == 3 and dialogue_entry_matches(act2, 0, "fte_marissa_t1", "left", "Scanners found vital resources to repair our ship.") and dialogue_entry_matches(act2, 1, "optimusprime_cin_tf", "left", "Understood, lead the way and secure them.") and dialogue_entry_matches(act2, 2, "fte_marissa_t1", "left", "Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights.") and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(first, "character"))) == "autobot" and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(second, "character"))) == "autobot" and gamedata.speaker_faction(jsonout.as_text(jsonout.obj_get(third, "character"))) == "autobot"
 end
+
+function standalone_tile(grid: a list of Json, row: integer): Json
+  intent: read the tile in the standalone map third column
+  unwrap_or(get(jsonout.list_items(unwrap_or(get(grid, row), jsonout.json_list([]))), 2), jsonout.json_obj([]))
+end
+
+function test_standalone_section_summary(): boolean
+  intent: test
+  let qid: text = gamedata.custom_story_standalone_qid()
+  let summary: Json = gamedata.build_quest_summary(qid, gamedata.custom_story_set_id())
+  jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 2 and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Starscream's Device" and jsonout.as_text(jsonout.obj_get(summary, "image")) == "stars_gs"
+end
+
+function test_standalone_map_tiles_and_dialogue_triggers(): boolean
+  intent: test
+  let qid: text = gamedata.custom_story_standalone_qid()
+  let map: Json = gamedata.build_quest_map(qid)
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  let tile1: Json = standalone_tile(grid, 1)
+  let tile2: Json = standalone_tile(grid, 2)
+  let tile3: Json = standalone_tile(grid, 3)
+  jsonout.as_int(jsonout.obj_get(map, "gridDimension")) == 4 and jsonout.as_bool(jsonout.obj_get(tile1, "walkable")) and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "barricade_cin_dotm" and jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_starscream_duststorm" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_starscream_device" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "tantrum_gs_kabam" and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(tile3, "final"))
+end
+
+function test_standalone_dialogue_is_exact_and_ordered(): boolean
+  intent: test
+  let sets: Json = gamedata.build_custom_story_dialogue_sets()
+  let intro: a list of Json = jsonout.list_items(jsonout.obj_get(sets, "custom_starscream_duststorm"))
+  let device: a list of Json = jsonout.list_items(jsonout.obj_get(sets, "custom_starscream_device"))
+  length(intro) == 4 and dialogue_entry_matches(intro, 0, "fte_marissa_t1", "left", "Commander, Prowl saw Starscream through a dust storm.") and dialogue_entry_matches(intro, 1, "fte_stars_gs_t3", "right", "Me no Decepticon. Me Starscream! King Seeker!!!!") and dialogue_entry_matches(intro, 2, "prowl_gs_deluxe2016", "left", "Uh-oh, things just got worse.") and dialogue_entry_matches(intro, 3, "fte_stars_gs_t3", "right", "Worse? What you mean?! Me smash you when me ready!") and length(device) == 3 and dialogue_entry_matches(device, 0, "prowl_gs_deluxe2016", "left", "I have more intel on Starscream. He's up ahead, and from what I can gather, he is preparing some sort of device to strengthen his forces...") and dialogue_entry_matches(device, 1, "fte_stars_gs_t3", "right", "AAAAAAHHH Prowl talks too much! But you're too late, Autobots! With this power, the skies will belong to me, and Megatron will finally bow to my superior leadership!") and dialogue_entry_matches(device, 2, "prowl_gs_deluxe2016", "left", "Commander, you take care of the task at hand. I'll investigate his device and report back")
+end
+
+function test_standalone_progression_reaches_motormaster(): boolean
+  intent: test
+  let qid: text = gamedata.custom_story_standalone_qid()
+  let first: Json = gamedata.build_quest_movedir(qid, 1, 0, 0, 2, [])
+  let second: Json = gamedata.build_quest_movedir(qid, 1, 0, 1, 2, [])
+  let third: Json = gamedata.build_quest_movedir(qid, 1, 0, 2, 2, [])
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(first), "battleEnemy"), "key")) == "barricade_cin_dotm" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(second), "battleEnemy"), "key")) == "tantrum_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(third), "battleEnemy"), "key")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(move_battle(third), "isFinalBoss"))
+end
+
 function test_custom_story_has_independent_identity_and_compact_map_part1(qid: text, summary: Json): boolean
   intent: test
   qid == "2.1.1" and gamedata.custom_story_set_id() == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(summary, "friendlyName")) == "Bludgeon's Ambush" and jsonout.as_int(jsonout.obj_get(summary, "teamSizeMax")) == gamedata.team_size_max() and jsonout.as_int(jsonout.obj_get(summary, "act")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 1 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(summary, "hash")) == gamedata.custom_story_set_hash()
@@ -902,6 +943,10 @@ function run_custom_story_tests(): integer
   set failed = failed + report("test_dialogue_speaker_factions_are_accurate", test_dialogue_speaker_factions_are_accurate(), "dialogue speaker factions were wrong")
   set failed = failed + report("test_custom_story_dialogue_factions_match_their_speakers", test_custom_story_dialogue_factions_match_their_speakers(), "custom story dialogue factions were wrong")
   set failed = failed + report("test_custom_act2_dialogue_is_exact_and_ordered", test_custom_act2_dialogue_is_exact_and_ordered(), "Act 2 dialogue was missing, reordered, or mismatched")
+  set failed = failed + report("test_standalone_section_summary", test_standalone_section_summary(), "standalone section summary or Starscream image was wrong")
+  set failed = failed + report("test_standalone_map_tiles_and_dialogue_triggers", test_standalone_map_tiles_and_dialogue_triggers(), "standalone encounter tiles or dialogue triggers were wrong")
+  set failed = failed + report("test_standalone_dialogue_is_exact_and_ordered", test_standalone_dialogue_is_exact_and_ordered(), "standalone dialogue was missing, reordered, or mismatched")
+  set failed = failed + report("test_standalone_progression_reaches_motormaster", test_standalone_progression_reaches_motormaster(), "standalone battle progression did not reach Motormaster")
   failed
 end
 
@@ -978,7 +1023,7 @@ function main(): nothing
   set failed = failed + main_group_3()
   set failed = failed + main_group_4()
   set failed = failed + main_group_5()
-  print(to_text(72 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(76 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -1274,7 +1319,7 @@ function test_user_data_uses_the_supplied_saved_and_active_team(): boolean
   let saved: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "savedTeams")), 0), jsonout.json_obj([]))
   let active: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
   let custom: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 1), jsonout.json_obj([]))
-  let challenge: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 4), jsonout.json_obj([]))
+  let challenge: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 5), jsonout.json_obj([]))
   saved_team_bids_match(saved, team) and team_object_matches(jsonout.obj_get(active, "heroes"), team) and jsonout.as_text(jsonout.obj_get(custom, "aid")) == gamedata.custom_story_qid() ++ "-0" and team_object_matches(jsonout.obj_get(custom, "heroes"), team) and jsonout.as_text(jsonout.obj_get(challenge, "aid")) == gamedata.challenge_qid() ++ "-0" and team_object_matches(jsonout.obj_get(challenge, "heroes"), team)
 end
 
