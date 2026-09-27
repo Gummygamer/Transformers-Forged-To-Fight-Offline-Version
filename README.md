@@ -12,17 +12,51 @@ For a complete native Windows 7 build of the 32-bit `armeabi-v7a` phone APK,
 including server setup, signing, installation, Wi-Fi, and USB operation, see
 [`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md).
 
-### The other documents in this repository
+## Table of contents
+
+- [The other documents in this repository](#the-other-documents-in-this-repository)
+- [What actually works right now](#what-actually-works-right-now)
+- [What does not work, and why](#what-does-not-work-and-why)
+- [How the offline boot works](#how-the-offline-boot-works)
+- [What is in this package](#what-is-in-this-package)
+- [What is not in this package, and where to get it](#what-is-not-in-this-package-and-where-to-get-it)
+- [How to run what exists today](#how-to-run-what-exists-today)
+  - [Running on a non-rooted phone over Wi-Fi (no USB while playing)](#running-on-a-non-rooted-phone-over-wi-fi-no-usb-while-playing)
+  - [Playing over a virtual LAN or tunnel](#playing-over-a-virtual-lan-or-tunnel)
+  - [Online modes over the tunnel](#online-modes-over-the-tunnel)
+  - [Optional live-fight relay for an arm64 separated-server APK](#optional-live-fight-relay-for-an-arm64-separated-server-apk)
+  - [Running on a non-rooted phone over USB](#running-on-a-non-rooted-phone-over-usb)
+  - [Legacy Legible APK builder (developer/reference)](#legacy-legible-apk-builder-developerreference)
+  - [Building for 32-bit ARM (armeabi-v7a)](#building-for-32-bit-arm-armeabi-v7a)
+- [The gotchas that will eat your time](#the-gotchas-that-will-eat-your-time)
+- [If you want to actually revive it: rebuilding the backend](#if-you-want-to-actually-revive-it-rebuilding-the-backend)
+- [STORY board: varied encounters and the Nemesis Prime boss](#story-board-varied-encounters-and-the-nemesis-prime-boss)
+
+## The other documents in this repository
 
 The rest of the repository's documentation is easy to miss, so here is the index:
 
 | document | what it covers |
 |---|---|
 | [`ABILITY_AUTHORING.md`](ABILITY_AUTHORING.md) | **Authoring abilities from the server.** The `statMods` wire format field by field, the complete trigger / condition / state / stat vocabularies, the effect-type registry recovered from both factories, and a recipe for building one end to end. Every claim is marked with how it is known — observed in a live fight, present in the served payload, read from the binary, or inferred — so you can tell settled mechanics from open questions at a glance. Start here if you want to design or add an ability. |
+| [`BOARD_AUTHORING.md`](BOARD_AUTHORING.md) | **Authoring story boards from the server.** Which parts of a board's appearance the server can name and which are baked into art: the questboard `theme` and `todIndex`, the per-encounter fight arena, the grid, and the prefab contract a theme library has to satisfy. Carries the same provenance marks as `ABILITY_AUTHORING.md`, plus the environment used and the steps to replicate it from a clean checkout. Start here if you want a quest to look different from the one before it. |
 | [`TECHNICAL_NOTES.md`](TECHNICAL_NOTES.md) | Client internals, patches and the reverse-engineering record. |
 | [`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md) | Native Windows 7 build of the 32-bit phone APK, end to end. |
 | [`COMPLIANCE.md`](COMPLIANCE.md) | What may and may not be added to this project, and the record of what each change contained. |
+| [`DECOMPILATION.md`](DECOMPILATION.md) | The dedicated decompilation track: a reproducible source-browsing workspace built from an operator-supplied APK. No APK, assemblies, native libraries or generated source enter Git. |
+| [`client/StoryPort/README.md`](client/StoryPort/README.md) | **StoryPort** — a clean Unity client for the local offline server, written fresh rather than ported from the game's executable code. Runtime code is versioned here; the Unity project and converted content stay under the ignored `build/`. See [`FIDELITY.md`](client/StoryPort/FIDELITY.md) for the reference-matching workflow. |
+| [`DOC_STYLE.md`](DOC_STYLE.md) | **How documentation in this repository is written.** Markdown is canonical, headings are strict, and every factual claim carries a mark showing whether it was observed in a running client, served, read from a binary, or inferred. Read it before adding a document. |
 | [`AGENTS.md`](AGENTS.md) | Rules for AI agents working in this repository. |
+
+The **2.0.2 Mono track** is a separate investigation from the 9.2 IL2CPP client path above,
+kept deliberately apart so evidence from one is not mistaken for the other:
+
+| document | what it covers |
+|---|---|
+| [`MONO_SERVER_CONTRACTS.md`](MONO_SERVER_CONTRACTS.md) | Server-facing facts recovered from the managed assemblies exported from the 2.0.2 Mono APK. |
+| [`MONO_SERVER_COMPARISON.md`](MONO_SERVER_COMPARISON.md) | A compatibility work-item inventory comparing the 2.0.2 Mono client against this offline server. A static comparison, not a runtime result. |
+| [`MONO_PACKAGING_PLAN.md`](MONO_PACKAGING_PLAN.md) | The 2.0.2 Mono substitution plan. A candidate has been packaged and installed for evidence; it is not a release artifact and makes no playability claim. |
+| [`MONO_STORY_FIGHT_SCRATCHPAD.md`](MONO_STORY_FIGHT_SCRATCHPAD.md) | Working handoff for the recompiled Mono client investigation. Its `Fresh-session update` section supersedes older status text above it. |
 
 
 ## What actually works right now
@@ -34,7 +68,7 @@ The scripted Optimus-versus-Starscream intro fight is playable through its light
 tutorial, with live 3D characters and combat controls.
 
 The local server also supplies a complete, authored STORY 1.1.1 loop: select a squad,
-enter the primordial board, move between reachable nodes, trigger the final boss,
+enter the board, move between reachable nodes, trigger the final boss,
 choose a bot on the native pre-fight screen, fight the Sharkticon, resolve a win, and
 return to the board. Movement from an encounter is gated on a submitted win, so a loss
 or quit reopens that same fight. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attack rows
@@ -45,6 +79,16 @@ Pre-mission squad selection exposes all five client slots; the initial saved squ
 the original three bots, leaving the fourth and fifth slots available to fill.
 The custom Bludgeon's Ambush story also advertises the same five-slot contract, so any
 robot in the supplied offline roster can replace the initial squad and carry into combat.
+The Karma Six special mission is served as a wheel challenge board — six spokes and 74
+combat nodes — reachable from the special-mission entry rather than the story chain.
+
+Board terrain is now server-authored rather than fixed: a quest names its questboard
+`theme` and time of day, and optionally varies the fight arena per encounter across the five
+shipped levels. Four themes are present in this build, so boards no longer all render as
+`primordial` at midday. Quests that do not author a terrain are unchanged. See
+[`BOARD_AUTHORING.md`](BOARD_AUTHORING.md); placing props and landmarks is still
+client-side and is not yet server-driven.
+
 During a STORY fight, the special-attack meter is no longer locked: it charges from landed
 and received hits, and a special attack can be fired for real damage. Every bot has all three
 special-meter segments available immediately.
@@ -136,6 +180,11 @@ source stay under ignored `build/` paths.
 README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
+ABILITY_AUTHORING.md          authoring abilities from the server: the statMods wire format
+BOARD_AUTHORING.md            authoring story boards: themes, times of day, fight arenas
+Server/data/
+  stat_modifiers.json         the ability rows served to the client
+  quest_terrain.json          per-quest board theme, time of day, and fight-arena policy
 patches/
   patch_il2cpp.lbl            the sixteen native patches plus the dependency re-injection
   abi_map.lbl                 translate arm64 addresses and field offsets to armeabi-v7a
