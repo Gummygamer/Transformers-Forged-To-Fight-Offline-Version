@@ -142,6 +142,10 @@ def main() -> None:
         shutil.rmtree(font_art)
     font_art.mkdir(parents=True, exist_ok=True)
     shutil.copy2(nav_font, font_art / "tecnica_nav.ttf")
+    base_sky = args.converted_project / "Assets/Texture2D/qb_primordial_sky_red.png"
+    if not base_sky.is_file():
+        raise FileNotFoundError(f"Missing local 9.2 Primordial sky texture: {base_sky}")
+    shutil.copy2(base_sky, raw_art / "BaseSky.png")
     art_copies = {
         args.assetpack_root / "ui/titles/tff_logo_en.png": ui_art / "tff_logo_en.png",
         args.assetpack_root / "ui/titles/title_background.jpg": ui_art / "title_background.jpg",

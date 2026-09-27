@@ -63,6 +63,8 @@ the full Act I and Act II route):
 - The seven base navigation icons use the original 9.2 button glyphs from the
   local Tecnica font. `prepare_project.py` copies that font into the ignored
   Unity project; the Editor base preview confirms their placement.
+- The base uses the local 9.2 Primordial sky panorama behind its 3D crater;
+  the Editor preview no longer shows black gaps beyond the terrain.
 
 Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 `CaptureDialogue`, `CaptureComplete`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,
@@ -70,8 +72,7 @@ Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 layout in the Editor only.
 
 Remaining gaps: the server grants no match rewards, so the result screen has no
-rewards row; Marissa has no model or portrait in the local 9.2 data; the base
-still shows black beyond parts of the crater terrain, and its alliance beam
-glow is hidden (it renders opaque); the enemy
+rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
+alliance beam glow is hidden (it renders opaque); the enemy
 defense timing still needs a full device fight comparison; no special-attack
 cinematic camera yet.

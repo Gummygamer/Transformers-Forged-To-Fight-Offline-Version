@@ -462,7 +462,33 @@ namespace StoryPort
                         renderer.material.SetColor("_base_col", new Color(.32f, .25f, .2f, 1f));
                 }
             FrameWorld(baseWorld, 1.3f);
+            CreateBaseSky();
             if (baseWorld != null) StartCoroutine(LoadBaseBuildings(baseWorld.transform));
+        }
+
+        void CreateBaseSky()
+        {
+            var texture = Resources.Load<Texture2D>("StoryPort/BaseSky");
+            var camera = Camera.main;
+            var shader = Shader.Find("Unlit/Texture");
+            if (texture == null || camera == null || shader == null) return;
+            var sky = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            sky.name = "9.2 Primordial Sky";
+            sky.transform.SetParent(camera.transform, false);
+            const float distance = 1000f;
+            float height = 2f * distance * Mathf.Tan(camera.fieldOfView * .5f * Mathf.Deg2Rad) * 1.05f;
+            sky.transform.localPosition = Vector3.forward * distance;
+            sky.transform.localScale = new Vector3(height * Mathf.Max(2.4f, camera.aspect), height, 1f);
+            var material = new Material(shader);
+            material.mainTexture = texture;
+            // The upper half of the source panorama carries the warm sky and
+            // distant mountains seen beyond the base crater.
+            material.mainTextureScale = new Vector2(1f, .5f);
+            material.mainTextureOffset = new Vector2(0f, .5f);
+            sky.GetComponent<Renderer>().sharedMaterial = material;
+            var collider = sky.GetComponent<Collider>();
+            if (collider != null) { if (Application.isPlaying) Destroy(collider); else DestroyImmediate(collider); }
+            worldRoots.Add(sky);
         }
 
         IEnumerator LoadBaseBuildings(Transform baseRoot)

@@ -28,6 +28,8 @@ namespace StoryPort.Editor
             var sky = Resources.Load<Material>("StoryPort/ChicagoDaySky");
             if (sky == null || sky.mainTexture == null)
                 throw new Exception("Missing converted 9.2 Chicago daylight sky");
+            if (Resources.Load<Texture2D>("StoryPort/BaseSky") == null)
+                throw new Exception("Missing converted 9.2 Primordial base sky");
             var road = Resources.Load<Material>("StoryPort/ChicagoRoad");
             if (road == null || road.mainTexture == null || road.shader == null || road.shader.name != "StoryPort/ChicagoRoad")
                 throw new Exception("Missing converted 9.2 Chicago asphalt material");
