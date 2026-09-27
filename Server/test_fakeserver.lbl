@@ -231,6 +231,14 @@ function test_custom_story_begin_without_team_preserves_saved_squad_across_navig
   ok_1
 end
 
+function test_standalone_begin_without_team_falls_back_to_default_squad(): boolean
+  intent: test
+  fakeserver.reset_saved_team()
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/" ++ gamedata.custom_story_standalone_qid(), "\{\}")
+  fakeserver.get_saved_team() == gamedata.default_team()
+end
+
 function test_challenge_begin_uses_authored_start_on_first_entry_part1(pos: Json, tile: Json): boolean
   intent: test
   jsonout.as_int(jsonout.obj_get(pos, "x")) == gamedata.quest_start_x_for(gamedata.challenge_qid()) and jsonout.as_int(jsonout.obj_get(pos, "y")) == gamedata.quest_start_y_for(gamedata.challenge_qid()) and jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and not jsonout.as_bool(jsonout.obj_get(tile, "hidden")) and jsonout.as_bool(jsonout.obj_get(tile, "start"))
@@ -546,6 +554,7 @@ function main_group_2(): integer
   intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry", test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry())
+  set failed = failed + report("test_standalone_begin_without_team_falls_back_to_default_squad", test_standalone_begin_without_team_falls_back_to_default_squad())
   set failed = failed + report("test_challenge_begin_uses_authored_start_on_first_entry", test_challenge_begin_uses_authored_start_on_first_entry())
   set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())

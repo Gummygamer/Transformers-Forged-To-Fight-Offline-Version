@@ -1661,7 +1661,7 @@ end
 
 function is_custom_story(qid: text): boolean
   intent: check whether the quest is one of the custom story acts
-  qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid()
+  qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid() or qid == gamedata.custom_story_standalone_qid()
 end
 
 function begin_position(qid: text): Position
