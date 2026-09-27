@@ -2526,6 +2526,13 @@ public function build_base_hero_details(req_heroes: a list of Json): Json
   jsonout.json_list(details)
 end
 
+public function build_payload_base_hero_detail(bid: text, rank: integer, level: integer): Json
+  intent: build one payload hero detail using payload-compatible stats
+  let stats: Stats = payload_base_stats(bid, rank, level)
+  let star: integer = roster_entry(bid).star
+  jsonout.json_obj(concat(base_detail_head_pairs(bid, rank, level, stats), base_detail_tail_pairs(bid, star)))
+end
+
 public function build_buffs_config(): Json
   intent: build
   jsonout.json_obj([jsonout.json_pair("groupings", jsonout.json_obj([jsonout.json_pair("floating_text_dmg", jsonout.json_obj([pair_bool("stackable", true), pair_bool("active_display", false)])), jsonout.json_pair("floating_text_heal", jsonout.json_obj([pair_bool("stackable", true), pair_bool("active_display", false)])), jsonout.json_pair("dmg_bleed", jsonout.json_obj([pair_bool("stackable", true), pair_bool("active_display", true)])), jsonout.json_pair("dmg_shock", jsonout.json_obj([pair_bool("stackable", true), pair_bool("active_display", true)])), jsonout.json_pair("dmg_burn", jsonout.json_obj([pair_bool("stackable", true), pair_bool("active_display", true)]))]))])
