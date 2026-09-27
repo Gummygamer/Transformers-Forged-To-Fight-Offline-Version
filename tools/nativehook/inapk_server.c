@@ -36,7 +36,7 @@
 
 typedef struct { uint32_t ko, kl, bo, bl; } Rec;
 typedef struct { const unsigned char *p; size_t n; uint32_t count, eo, pc, po, dfo, dfl, port; } Blob;
-typedef struct { char qid[64]; int x, y, pending, completed; int cleared_count; char cleared[16][32]; } Position;
+typedef struct { char qid[64]; int x, y, pending, completed; int cleared_count; char cleared[16][32]; float health[TEAM_SIZE_MAX]; } Position;
 typedef struct { unsigned char *p; size_t n, cap; } Out;
 typedef struct { char bid[TEAM_SIZE_MAX][64]; int count; } Team;
 typedef struct { const char *token; const unsigned char *p; size_t n; } TemplateArg;
@@ -180,9 +180,21 @@ static int contains_bytes(const unsigned char *s, size_t n, const char *needle) 
     for(i=0;i+l<=n;i++) if(!memcmp(s+i,needle,l)) return 1;
     return 0;
 }
+static const char *json_value(const char *s, const char *end, const char *want);
+static float json_float(const char *s, const char *end, const char *want, float def);
+static float hero_health_in_report(const char *body, const char *end, const char *bid) {
+    const char *hero=json_value(body,end,bid), *hero_end=json_object_end(hero,end);
+    if(hero_end){float hp=json_float(hero,hero_end,"hp",json_float(hero,hero_end,"health",json_float(hero,hero_end,"currentHealth",-1.0f)));if(hp>1.0f&&hp<=100.0f)hp/=100.0f;if(hp>=0.0f&&hp<=1.0f)return hp;}
+    for(const char *p=body;p<end;p++){if(*p!='{')continue;const char *obj_end=json_object_end(p,end);char id[64]="";if(!obj_end)continue;if((json_string(p,obj_end,"bid",id,sizeof id)||json_string(p,obj_end,"character",id,sizeof id)||json_string(p,obj_end,"id",id,sizeof id))&&!strcmp(id,bid)){float hp=json_float(p,obj_end,"hp",json_float(p,obj_end,"health",json_float(p,obj_end,"currentHealth",-1.0f)));if(hp>1.0f&&hp<=100.0f)hp/=100.0f;if(hp>=0.0f&&hp<=1.0f)return hp;}p=obj_end-1;}
+    return -1.0f;
+}
 static int json_int(const char *s, const char *end, const char *want, int def) {
     const char *p=s; size_t wl=strlen(want);
     while(p<end){const char*q=strstr(p,"\"");char *stop; long v;if(!q||q>=end)break;q++;if((size_t)(end-q)<wl+1||memcmp(q,want,wl)||q[wl]!='\"'){p=q;continue;}q+=wl+1;while(q<end&&isspace((unsigned char)*q))q++;if(q>=end||*q!=':'){p=q;continue;}q++;while(q<end&&isspace((unsigned char)*q))q++;errno=0;v=strtol(q,&stop,10);if(stop==q||errno)return def;return (int)v;}return def;
+}
+static float json_float(const char *s, const char *end, const char *want, float def) {
+    const char *p=s; size_t wl=strlen(want);
+    while(p<end){const char*q=strstr(p,"\"");char *stop;float v;if(!q||q>=end)break;q++;if((size_t)(end-q)<wl+1||memcmp(q,want,wl)||q[wl]!='\"'){p=q;continue;}q+=wl+1;while(q<end&&isspace((unsigned char)*q))q++;if(q>=end||*q!=':'){p=q;continue;}q++;while(q<end&&isspace((unsigned char)*q))q++;errno=0;v=strtof(q,&stop);if(stop==q||errno)return def;return v;}return def;
 }
 static int list_has(const unsigned char *s, size_t n, const char *id) { size_t l=strlen(id), i=0; while(i<n){size_t j=i;while(j<n&&s[j]!='\n')j++;if(j-i==l&&!memcmp(s+i,id,l))return 1;i=j+1;}return 0; }
 static int team_from_lines(const unsigned char *s, size_t n, Team *team) {
@@ -247,6 +259,8 @@ static void persist_quest_state_locked(void) {
         int k;
         fprintf(f,"Q|%s|%d|%d|%d|%d|",g_pos[i].qid,g_pos[i].x,g_pos[i].y,g_pos[i].pending,g_pos[i].completed);
         for(k=0;k<g_pos[i].cleared_count;k++)fprintf(f,"%s%s",k?";":"",g_pos[i].cleared[k]);
+        fputc('|',f);
+        for(k=0;k<TEAM_SIZE_MAX;k++)fprintf(f,"%s%.4f",k?",":"",g_pos[i].health[k]);
         fputc('\n',f);
     }
     if(fflush(f)||fclose(f)){unlink(tmp);return;}
@@ -289,6 +303,9 @@ static void load_quest_state(void) {
             char cleared[STATE_PATH_MAX]="";
             memset(&loaded,0,sizeof loaded);
             if(sscanf(line+2,"%63[^|]|%d|%d|%d|%d|%4095[^\n]",loaded.qid,&loaded.x,&loaded.y,&loaded.pending,&loaded.completed,cleared)<5)continue;
+            for(int h=0;h<TEAM_SIZE_MAX;h++)loaded.health[h]=1.0f;
+            char *health_sep=strchr(cleared,'|');
+            if(health_sep){char *part=health_sep+1;*health_sep=0;for(int h=0;h<TEAM_SIZE_MAX&&*part;h++){char *next=strchr(part,',');if(next)*next=0;loaded.health[h]=(float)atof(part);if(loaded.health[h]<0.0f)loaded.health[h]=0.0f;if(loaded.health[h]>1.0f)loaded.health[h]=1.0f;if(!next)break;part=next+1;}}
             if(!safe_id(loaded.qid)||loaded.x<0||loaded.y<0)continue;
             if(cleared[0]) {
                 char *part=cleared;
@@ -319,6 +336,9 @@ static int squad_is_storable(const char bids[][64], int count) {
     if(!roster)return 0;
     for(i=0;i<count;i++)if(!safe_id(bids[i])||!list_has(roster,rn,bids[i]))return 0;
     return 1;
+}
+static void position_health_init(Position *position) {
+    int i; for(i=0;i<TEAM_SIZE_MAX;i++)position->health[i]=1.0f;
 }
 
 static void store_saved_team(const char bids[][64], int count, int invalid) {
@@ -361,10 +381,15 @@ static int render_cleared(Out *o, const Position *p) {
     for(i=0;i<p->cleared_count;i++) { int x=0,y=1; if(sscanf(p->cleared[i],"%d,%d",&x,&y)!=2)continue; if(i&&!out_add(o,",",1))return 0; if(!out_add(o,"{\"x\":",5)||!out_int(o,x)||!out_add(o,",\"y\":",5)||!out_int(o,y)||!out_add(o,"}",1))return 0; }
     return out_add(o,"]",1);
 }
-static int render_qteam(Out *o, const Team *team) {
+static int render_member_health(Out *o, const unsigned char *s, size_t n, float health) {
+    size_t at=0; char value[32]; int vn=snprintf(value,sizeof value,"%.4f",health);
+    while(at<n){size_t key=at;while(key+4<=n&&memcmp(s+key,"\"hp\"",4))key++;if(key+4>n)return out_add(o,s+at,n-at);size_t p=key+4;while(p<n&&isspace(s[p]))p++;if(p>=n||s[p++]!=':'){if(!out_add(o,s+at,key+4-at))return 0;at=key+4;continue;}while(p<n&&isspace(s[p]))p++;size_t end=p;if(end<n&&(s[end]=='-'||s[end]=='+'))end++;while(end<n&&(isdigit(s[end])||s[end]=='.'||s[end]=='e'||s[end]=='E'||s[end]=='+'||s[end]=='-'))end++;if(end==p){if(!out_add(o,s+at,key+4-at))return 0;at=key+4;continue;}if(!out_add(o,s+at,p-at)||!out_add(o,value,(size_t)vn))return 0;at=end;return at>=n?1:out_add(o,s+at,n-at);}
+    return 1;
+}
+static int render_qteam(Out *o, const Team *team, const Position *position) {
     int i; char key[96]; const unsigned char *v; size_t n;
     if(!out_add(o,"{",1))return 0;
-    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@questmember:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,v,n))return 0; }
+    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@questmember:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!render_member_health(o,v,n,position->health[i]))return 0; }
     return out_add(o,"}",1);
 }
 static int render_ateam(Out *o, const Team *team) {
@@ -399,19 +424,41 @@ static const char *path_last(const char *p) { const char *x=strrchr(p,'/'); retu
 static int has_suffix(const char *p, const char *s) { size_t a=strlen(p),b=strlen(s);return a>=b&&!memcmp(p+a-b,s,b); }
 static int has_suffix_trim_slashes(const char *p, const char *s) { char trimmed[4096]; size_t n=strlen(p); while(n&&p[n-1]=='/')n--;if(n>=sizeof trimmed)return 0;memcpy(trimmed,p,n);trimmed[n]=0;return has_suffix(trimmed,s); }
 static void resolve_match(const char *body, const char *end) {
-    char outcome[64]="", submitted[64]="", qid[64]; const char *results=json_value(body,end,"results"), *results_end;
+    char outcome[64]="", submitted[64]="", qid[64]; Team team; int have_team=resolve_team(&team); const char *results=json_value(body,end,"results"), *results_end;
     results_end=json_object_end(results,end);
     if(!results_end || !json_string(results,results_end,"result",outcome,sizeof outcome)) json_string(body,end,"result",outcome,sizeof outcome);
-    if(strcasecmp(outcome,"WON")) return;
     json_string(body,end,"qid",submitted,sizeof submitted);
     normalize_qid(submitted,qid);
     pthread_mutex_lock(&g_pos_lock);
     for(int i=0;i<16;i++) if(g_pos[i].qid[0] && g_pos[i].pending &&
         (!submitted[0] || !strcmp(g_pos[i].qid,qid))) {
-        g_pos[i].pending=0; g_pos[i].completed=1; cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);
+        if(have_team)for(int h=0;h<team.count;h++){
+            float hp=hero_health_in_report(body,end,team.bid[h]);if(hp>=0.0f)g_pos[i].health[h]=hp;
+        }
+        if(!strcasecmp(outcome,"WON")){g_pos[i].pending=0;g_pos[i].completed=1;cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);}
     }
     persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
+}
+static int contains_case(const char *s, const char *needle) {
+    size_t n=strlen(needle); if(!n)return 1;
+    for(;*s;s++)if(!strncasecmp(s,needle,n))return 1;
+    return 0;
+}
+static const unsigned char *repair_heroes(const char *p, const char *body, const char *end, Out *o, size_t *outn) {
+    char qid[64], raw[64], target[64]=""; Team team; int have_team=resolve_team(&team); const char *slash=strrchr(p,'/'); int slot=-1, all=0, changed=0;
+    if(!slash||(!contains_case(body,"repair")&&!contains_case(body,"heal")&&!contains_case(body,"health")))return NULL;
+    snprintf(raw,sizeof raw,"%.63s",slash+1);normalize_qid(raw,qid);
+    if(!json_string(body,end,"bid",target,sizeof target)&&!json_string(body,end,"hero",target,sizeof target)&&!json_string(body,end,"character",target,sizeof target))all=1;
+    pthread_mutex_lock(&g_pos_lock);
+    for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
+    if(slot>=0&&have_team){for(int h=0;h<team.count;h++)if(all||!strcmp(target,team.bid[h])){g_pos[slot].health[h]=1.0f;changed=1;}if(changed)persist_quest_state_locked();}
+    pthread_mutex_unlock(&g_pos_lock);
+    if(!changed)return NULL;
+    static const char response[]="{\"error\":null,\"result\":{\"success\":true,\"usedConsumableCount\":1}}";
+    if(!out_add(o,response,sizeof response-1))return NULL;
+    *outn=o->n;
+    return o->p;
 }
 static const unsigned char *dynamic(const char *method, const char *p, const char *query, const char *body, size_t bn, Out *o, size_t *outn) {
     char key[256], tid[64]="", bid[64]="", mid[64], qid[64], uid[64]="1000000000001", now[32]; const unsigned char *v; size_t n; const char *end=body+bn;
@@ -450,6 +497,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         v=lookup("@herodata:close",&n);if(!v||!out_add(o,v,n))return NULL; Out compact=*o; o->p=NULL;o->n=o->cap=0; v=json_default_spaces(compact.p,compact.n,o,outn);free(compact.p);return v;
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
+    if(!strcmp(method,"POST")&&strstr(p,"/quests/use/")){v=repair_heroes(p,body,end,o,outn);if(v)return v;}
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
     if(strstr(p,"/quests/quest-begin/")) {
         Team team; Position snapshot={0}; Out qteam={0},cleared={0};
@@ -462,7 +510,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         pthread_mutex_lock(&g_pos_lock);
         for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
         if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){
-            slot=i; snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);
+            slot=i; memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);
             g_pos[i].x=x;g_pos[i].y=y;break;
         }
         if(slot>=0){snapshot=g_pos[slot];persist_quest_state_locked();}
@@ -470,7 +518,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         if(slot<0)return NULL;
         snprintf(posx,sizeof posx,"%d",snapshot.x);snprintf(posy,sizeof posy,"%d",snapshot.y);
         snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);
-        if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_cleared(&cleared,&snapshot)){
+        if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team,&snapshot)||!render_cleared(&cleared,&snapshot)){
             free(qteam.p);free(cleared.p);return NULL;
         }
         args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};
@@ -494,7 +542,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         snprintf(qid,sizeof qid,"%.63s",seg);lx=strtol(xs,&ep,10);if(*ep)lx=1;ly=strtol(ys,&ep,10);if(*ep){lx=1;ly=0;}dx=(int)lx;dy=(int)ly;
         pthread_mutex_lock(&g_pos_lock);
         for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
-        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
+        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
         if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
         snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
         if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}
@@ -518,7 +566,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         pthread_mutex_unlock(&g_pos_lock);
         if(v){
             Team team;Out qteam={0},ateam={0},cleared={0};TemplateArg args[6]; char nextx[16],nexty[16];
-            if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)||!render_cleared(&cleared,&snapshot)){
+            if(!resolve_team(&team)||!render_qteam(&qteam,&team,&snapshot)||!render_ateam(&ateam,&team)||!render_cleared(&cleared,&snapshot)){
                 free(qteam.p);free(ateam.p);free(cleared.p);return NULL;
             }
             args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};
