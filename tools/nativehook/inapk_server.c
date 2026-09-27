@@ -185,7 +185,18 @@ static float json_float(const char *s, const char *end, const char *want, float 
 static float hero_health_in_report(const char *body, const char *end, const char *bid) {
     const char *hero=json_value(body,end,bid), *hero_end=json_object_end(hero,end);
     if(hero_end){float hp=json_float(hero,hero_end,"hp",json_float(hero,hero_end,"health",json_float(hero,hero_end,"currentHealth",-1.0f)));if(hp>1.0f&&hp<=100.0f)hp/=100.0f;if(hp>=0.0f&&hp<=1.0f)return hp;}
-    for(const char *p=body;p<end;p++){if(*p!='{')continue;const char *obj_end=json_object_end(p,end);char id[64]="";if(!obj_end)continue;if((json_string(p,obj_end,"bid",id,sizeof id)||json_string(p,obj_end,"character",id,sizeof id)||json_string(p,obj_end,"id",id,sizeof id))&&!strcmp(id,bid)){float hp=json_float(p,obj_end,"hp",json_float(p,obj_end,"health",json_float(p,obj_end,"currentHealth",-1.0f)));if(hp>1.0f&&hp<=100.0f)hp/=100.0f;if(hp>=0.0f&&hp<=1.0f)return hp;}p=obj_end-1;}
+    /* QuestsMatchResults posts the active fighter as player_N_stats, identified
+       by char. hp_percent is already normalized; older payloads can derive it
+       from hp_remaining / hp_start. */
+    for(int player=0;player<2;player++){
+        char key[32], id[64]="";const char *stats,*stats_end;float hp;
+        snprintf(key,sizeof key,"player_%d_stats",player);stats=json_value(body,end,key);stats_end=json_object_end(stats,end);
+        if(!stats_end||!json_string(stats,stats_end,"char",id,sizeof id)||strcmp(id,bid))continue;
+        hp=json_float(stats,stats_end,"hp_percent",-1.0f);
+        if(hp<0.0f){float remaining=json_float(stats,stats_end,"hp_remaining",-1.0f);float start=json_float(stats,stats_end,"hp_start",0.0f);if(remaining>=0.0f&&start>0.0f)hp=remaining/start;}
+        if(hp>1.0f&&hp<=100.0f)hp/=100.0f;
+        if(hp>=0.0f&&hp<=1.0f)return hp;
+    }
     return -1.0f;
 }
 static int json_int(const char *s, const char *end, const char *want, int def) {
