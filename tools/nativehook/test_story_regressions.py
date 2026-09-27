@@ -42,9 +42,16 @@ def move(dx, qid=QID, dy=0):
     return request(f"/quests/quest-movedir/{qid}-0/{dx}/{dy}", {})
 
 
-def resolve(outcome, qid=QID):
-    request("/matches/resolve-match/quests_fight",
-            {"qid": qid + "-0", "results": {"result": outcome}})
+def resolve(outcome, qid=QID, game_stats=None):
+    body = {"qid": qid + "-0", "results": {"result": outcome}}
+    if game_stats is not None:
+        body["game_stats"] = game_stats
+    request("/matches/resolve-match/quests_fight", body)
+
+
+def assert_health(instance, bid, expected):
+    team = instance["progression"]["users"][UID]["team"]
+    assert abs(team[bid]["hp"] - expected) < 0.0001, team
 
 
 def assert_squad(result):
@@ -93,9 +100,12 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert list(first["teamData"]["heroes"]) == TEAM
         resolve("LOST")
         assert move(1)["progression"]["currentBattleId"] == "bludgeon_gs_rd20"
-        resolve("WON")
+        resolve("WON", game_stats={"player_0_stats": {
+            "char": TEAM[0], "hp_percent": 0.42,
+        }})
         cleared = move(0)
         assert_safe(cleared, 1)
+        assert abs(cleared["progression"]["users"][UID]["team"][TEAM[0]]["hp"] - 0.42) < 0.0001
         assert {"x": 1, "y": 1} in cleared["progression"]["cleared"]
         assert_safe(move(-1), 0)
         assert_safe(move(1), 1)
@@ -107,6 +117,7 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         start()
         resumed = begin()
         assert_squad(resumed)
+        assert_health(resumed, TEAM[0], 0.42)
         assert {"x": 1, "y": 1} in resumed["cleared"]
         assert {"x": 2, "y": 1} in resumed["cleared"]
         assert_safe(move(0), 1)

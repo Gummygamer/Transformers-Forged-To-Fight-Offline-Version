@@ -435,7 +435,7 @@ static const char *path_last(const char *p) { const char *x=strrchr(p,'/'); retu
 static int has_suffix(const char *p, const char *s) { size_t a=strlen(p),b=strlen(s);return a>=b&&!memcmp(p+a-b,s,b); }
 static int has_suffix_trim_slashes(const char *p, const char *s) { char trimmed[4096]; size_t n=strlen(p); while(n&&p[n-1]=='/')n--;if(n>=sizeof trimmed)return 0;memcpy(trimmed,p,n);trimmed[n]=0;return has_suffix(trimmed,s); }
 static void resolve_match(const char *body, const char *end) {
-    char outcome[64]="", submitted[64]="", qid[64]; Team team; int have_team=resolve_team(&team); const char *results=json_value(body,end,"results"), *results_end;
+    char outcome[64]="", submitted[64]="", qid[64]; Team team; int have_team=resolve_team(&team), matched=0; const char *results=json_value(body,end,"results"), *results_end;
     results_end=json_object_end(results,end);
     if(!results_end || !json_string(results,results_end,"result",outcome,sizeof outcome)) json_string(body,end,"result",outcome,sizeof outcome);
     json_string(body,end,"qid",submitted,sizeof submitted);
@@ -443,11 +443,14 @@ static void resolve_match(const char *body, const char *end) {
     pthread_mutex_lock(&g_pos_lock);
     for(int i=0;i<16;i++) if(g_pos[i].qid[0] && g_pos[i].pending &&
         (!submitted[0] || !strcmp(g_pos[i].qid,qid))) {
+        matched++;
         if(have_team)for(int h=0;h<team.count;h++){
-            float hp=hero_health_in_report(body,end,team.bid[h]);if(hp>=0.0f)g_pos[i].health[h]=hp;
+            float hp=hero_health_in_report(body,end,team.bid[h]);
+            if(hp>=0.0f){g_pos[i].health[h]=hp;logmsg("quest-health saved qid=%s hero=%s hp=%.4f",g_pos[i].qid,team.bid[h],hp);}
         }
         if(!strcasecmp(outcome,"WON")){g_pos[i].pending=0;g_pos[i].completed=1;cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);}
     }
+    if(!matched)logmsg("quest-health ignored submitted=%s normalized=%s outcome=%s team=%d",submitted,qid,outcome,have_team?team.count:0);
     persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
 }
@@ -588,6 +591,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
             args[4]=(TemplateArg){"%POSX%",(const unsigned char*)nextx,strlen(nextx)};
             args[5]=(TemplateArg){"%POSY%",(const unsigned char*)nexty,strlen(nexty)};
             logmsg("quest-move qid=%s pos=%d,%d pending=%d cleared=%d squad=%d lead=%s",qid,nx,ny,snapshot.pending,snapshot.cleared_count,team.count,team.bid[0]);
+            for(int h=0;h<team.count;h++)logmsg("quest-health returned qid=%s hero=%s hp=%.4f",qid,team.bid[h],snapshot.health[h]);
             v=template_spaced(o,v,n,args,6,outn);free(qteam.p);free(ateam.p);free(cleared.p);return v;
         }
         return NULL;
