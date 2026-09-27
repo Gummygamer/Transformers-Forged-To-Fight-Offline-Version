@@ -447,6 +447,7 @@ static void resolve_match(const char *body, const char *end) {
         if(have_team)for(int h=0;h<team.count;h++){
             float hp=hero_health_in_report(body,end,team.bid[h]);
             if(hp>=0.0f){g_pos[i].health[h]=hp;logmsg("quest-health saved qid=%s hero=%s hp=%.4f",g_pos[i].qid,team.bid[h],hp);}
+            else logmsg("quest-health missing qid=%s hero=%s",g_pos[i].qid,team.bid[h]);
         }
         if(!strcasecmp(outcome,"WON")){g_pos[i].pending=0;g_pos[i].completed=1;cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);}
     }
