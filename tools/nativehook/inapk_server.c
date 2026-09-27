@@ -378,6 +378,20 @@ static int resolve_team(Team *team) {
     pthread_mutex_unlock(&g_pos_lock);
     return 1;
 }
+float tftf_quest_fighter_health(const char *bid) {
+    Team team;
+    float health=-1.0f;
+    if(!bid||!bid[0]||!resolve_team(&team))return health;
+    pthread_mutex_lock(&g_pos_lock);
+    for(int i=0;i<16&&health<0.0f;i++)if(g_pos[i].qid[0]&&g_pos[i].pending){
+        for(int h=0;h<team.count;h++)if(!strcmp(team.bid[h],bid)){
+            health=g_pos[i].health[h];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_pos_lock);
+    return health;
+}
 static int cleared_has(const Position *p, int x, int y) {
     char key[32]; int i; snprintf(key,sizeof key,"%d,%d",x,y);
     for(i=0;i<p->cleared_count;i++)if(!strcmp(p->cleared[i],key))return 1;

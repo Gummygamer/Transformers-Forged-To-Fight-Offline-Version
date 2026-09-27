@@ -109,6 +109,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <pthread.h>
@@ -238,7 +239,36 @@ static void* hook_3(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* 
         fix_blueprint_tags(bp2);
         flog("FIXFIGHT empty=%p bp1=%p bp2=%p", g_empty_tags, bp1, bp2);
     );
-    return H[3].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    void* result=H[3].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({
+        if(PLAUSIBLE(a0)&&PLAUSIBLE(a1)&&*(int32_t*)((uintptr_t)a1+0x80)==0&&PLAUSIBLE(a3)){
+            void* bp=*(void**)((uintptr_t)a3+OFF_FIGHTERDATA_BP);
+            void* name=PLAUSIBLE(bp)?*(void**)((uintptr_t)bp+0x8):NULL;
+            if(PLAUSIBLE(name)){
+                int32_t length=*(int32_t*)((uintptr_t)name+0x8);
+                if(length>0&&length<64){
+                    char bid[64]; int valid=1;
+                    const uint16_t* chars=(const uint16_t*)((uintptr_t)name+0xC);
+                    for(int i=0;i<length;i++){
+                        if(chars[i]<32||chars[i]>126){valid=0;break;}
+                        bid[i]=(char)chars[i];
+                    }
+                    bid[length]=0;
+                    if(valid){
+                        float saved=tftf_quest_fighter_health(bid);
+                        if(saved>=0.0f&&saved<=1.0f){
+                            float (*get_health)(void*,void*)=(void*)(g_base+0x99A340);
+                            void (*set_health)(void*,float,void*)=(void*)(g_base+0x99A358);
+                            float before=get_health(a0,NULL);
+                            if(isfinite(before)&&before>saved+0.001f)set_health(a0,saved,NULL);
+                            flog("QHP combat hero=%s saved=%.4f initialized=%.4f final=%.4f",bid,saved,before,get_health(a0,NULL));
+                        }
+                    }
+                }
+            }
+        }
+    });
+    return result;
 }
 
 // HashSet<T>..ctor(this,collection,comparer): substitute the shared empty string[]

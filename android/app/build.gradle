@@ -27,8 +27,8 @@ android {
         applicationId = "com.gummygamer.apkpatcher"
         minSdk = 26
         targetSdk = 35
-        versionCode = (project.findProperty("hermesVersionCode") ?: "4").toInteger()
-        versionName = project.findProperty("hermesVersionName") ?: "1.3"
+        versionCode = (project.findProperty("hermesVersionCode") ?: "22").toInteger()
+        versionName = project.findProperty("hermesVersionName") ?: "2.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

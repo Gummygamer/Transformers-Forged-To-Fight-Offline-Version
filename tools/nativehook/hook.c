@@ -2412,6 +2412,23 @@ void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
              obj_ok(bp2)?*(int32_t*)((uintptr_t)bp2+0xAC):-1, obj_ok(at2)?*(int32_t*)((uintptr_t)at2+0x28):-1,t2a,t2b);
     });
     void* r = H[56].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    /* QuestUserHero.hp reaches the map UI, but combat initializes its own
+       PlayerAttributes at full health. Carry the server's saved fraction into
+       the local fighter after Init has created its health resource. */
+    PROTECT({
+        int player_idx = obj_ok(a1) ? *(int32_t*)((uintptr_t)a1+0xF4) : -1;
+        if(player_idx==0 && obj_ok(a0) && g_p0_bot_id[0]) {
+            float saved=tftf_quest_fighter_health(g_p0_bot_id);
+            if(saved>=0.0f && saved<=1.0f) {
+                float (*get_health)(void*,void*)=(void*)(g_base+0xDAC698);
+                void (*set_health)(void*,float,void*)=(void*)(g_base+0xDAC6B0);
+                float before=get_health(a0,NULL);
+                if(isfinite(before) && before>saved+0.001f)set_health(a0,saved,NULL);
+                flog("QHP combat hero=%s saved=%.4f initialized=%.4f final=%.4f",
+                     g_p0_bot_id,saved,before,get_health(a0,NULL));
+            }
+        }
+    });
     return r;
 }
 // slot 57 FIXHS: HashSet<T>..ctor(this=a0, collection=a1, comparer=a2). The (IEnumerable,
