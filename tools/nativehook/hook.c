@@ -544,6 +544,7 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     // Server/fakeserver.lbl in the same paired state, so the null is client-side state, not a
     // response field. Dump every Parameters field Init touches before the original runs.
     { 0xF19D60, "PVPPLDIAG", 2, 0 }, // 166 PVPPlayerContestantItem.Init -> dump Parameters before the NRE
+    { 0xE3D610, "QHP preview", 2, 0 }, // 167 PrefightScreenData.GetTeamMemberHealth
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -4287,6 +4288,30 @@ void* hook_166(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     });
     return H[166].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+static float hook_167(void* self, int index, void* method){
+    float health=((float (*)(void*,int,void*))H[167].orig)(self,index,method);
+    PROTECT({
+        void* team=fld_p(self,0x30);
+        int selected=index<0&&obj_ok(self)?*(int32_t*)((uintptr_t)self+0x20):index;
+        if(obj_ok(team)&&selected>=0&&selected<5){
+            void* (*get_bid)(void*,int,void*)=(void*)(g_base+0x10E160C);
+            char bid[80];
+            if(read_str(get_bid(team,selected,NULL),bid,sizeof bid)){
+                float saved=tftf_quest_fighter_health(bid);
+                if(saved>=0.0f&&saved<=1.0f&&isfinite(health)){
+                    int (*get_max)(void*,int,void*)=(void*)(g_base+0x10E1A30);
+                    int maximum=get_max(team,selected,NULL);
+                    float target=health>1.5f&&maximum>1?(float)maximum*saved:saved;
+                    if(health>target+0.001f){
+                        flog("QHP preview hero=%s original=%.1f max=%d saved=%.4f final=%.1f",bid,health,maximum,saved,target);
+                        health=target;
+                    }
+                }
+            }
+        }
+    });
+    return health;
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -4304,7 +4329,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
     hook_145,hook_146,hook_147,hook_148,hook_149,hook_150,
     hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158,
-    hook_159,hook_160,hook_161,hook_162,hook_163,hook_164,hook_165,hook_166 };
+    hook_159,hook_160,hook_161,hook_162,hook_163,hook_164,hook_165,hook_166,(void*)hook_167 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;

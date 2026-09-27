@@ -192,6 +192,7 @@ static struct { uint32_t rva; const char* tag; fn8 orig; } H[] = {
     { 0x8DD448,  "FORCECHAPSD", 0 },  // 9  a64 0xD14470   ChapterPanel.SetData
     { 0x12B082C, "FIXWRAPMI",   0 },  // 10 a64 0x152B570  SafeAction.<Wrap>b__0<object>
     { 0x907DD8,  "SETACTFIX",   0 },  // 11 a64 0xD35130   PlayerInput.QueuedAction.SetAction
+    { 0xA4903C,  "QHP preview",  0 },  // 12 a64 0xE3D610  PrefightScreenData.GetTeamMemberHealth
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -355,8 +356,45 @@ static void* hook_11(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void*
     return r;
 }
 
+static float hook_12(void* self, int index, void* method){
+    float health=((float (*)(void*,int,void*))H[12].orig)(self,index,method);
+    PROTECT({
+        void* team=PLAUSIBLE(self)?*(void**)((uintptr_t)self+0x18):NULL;
+        int selected=index<0&&PLAUSIBLE(self)?*(int32_t*)((uintptr_t)self+0x10):index;
+        if(PLAUSIBLE(team)&&selected>=0&&selected<5){
+            void* (*get_bid)(void*,int,void*)=(void*)(g_base+0xD8E5CC);
+            void* name=get_bid(team,selected,NULL);
+            if(PLAUSIBLE(name)){
+                int32_t length=*(int32_t*)((uintptr_t)name+0x8);
+                if(length>0&&length<64){
+                    char bid[64]; int valid=1;
+                    const uint16_t* chars=(const uint16_t*)((uintptr_t)name+0xC);
+                    for(int i=0;i<length;i++){
+                        if(chars[i]<32||chars[i]>126){valid=0;break;}
+                        bid[i]=(char)chars[i];
+                    }
+                    bid[length]=0;
+                    if(valid){
+                        float saved=tftf_quest_fighter_health(bid);
+                        if(saved>=0.0f&&saved<=1.0f&&isfinite(health)){
+                            int (*get_max)(void*,int,void*)=(void*)(g_base+0xD8EAD8);
+                            int maximum=get_max(team,selected,NULL);
+                            float target=health>1.5f&&maximum>1?(float)maximum*saved:saved;
+                            if(health>target+0.001f){
+                                flog("QHP preview hero=%s original=%.1f max=%d saved=%.4f final=%.1f",bid,health,maximum,saved,target);
+                                health=target;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    return health;
+}
+
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,
-                            hook_6,hook_7,hook_8,hook_9,hook_10,hook_11 };
+                            hook_6,hook_7,hook_8,hook_9,hook_10,hook_11,(void*)hook_12 };
 
 // ---------------------------------------------------------------------------
 // A32 inline-hook engine
