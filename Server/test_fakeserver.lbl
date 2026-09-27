@@ -164,13 +164,11 @@ function test_tutorial_branches_block_live_and_complete(): boolean
   blocked == "\{\"err\": \"unavailable\", \"error\": \"unavailable\", \"retry\": false, \"fatal\": false, \"result\": \{\}\}" and contains_text(live, "\"s\": \"started\"") and contains_text(complete, "\"s\": \"completed\"") and fakeserver.dynamic("/tutorial/start-tutorial", "") == ""
 end
 
-function test_tutorial_login_starts_intro_once_then_reports_complete(): boolean
+function test_tutorial_login_reports_complete_for_fresh_and_returning_accounts(): boolean
   intent: test
-  fakeserver.reset_tutorial_login()
   let first: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
-  let first_branches: Json = jsonout.obj_get(first, "branches")
   let second: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
-  jsonout.as_int(jsonout.obj_get(first, "s")) == 1 and jsonout.as_text(jsonout.obj_get(first, "current_bid")) == "FTEIntroQuest" and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(first_branches, "FTEIntroQuest"), "s")) == 1 and jsonout.as_int(jsonout.obj_get(second, "s")) == 2 and jsonout.as_text(jsonout.obj_get(second, "current_bid")) == "FTEComplete"
+  jsonout.as_int(jsonout.obj_get(first, "s")) == 2 and jsonout.as_text(jsonout.obj_get(first, "current_bid")) == "FTEComplete" and jsonout.as_int(jsonout.obj_get(second, "s")) == 2 and jsonout.as_text(jsonout.obj_get(second, "current_bid")) == "FTEComplete"
 end
 
 function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part1(detail: Json, active: Json, custom_user: Json, moved: Json): boolean
@@ -270,11 +268,10 @@ end
 
 function test_quest_active_does_not_preload_custom_story(): boolean
   intent: test
-  fakeserver.reset_tutorial_login()
   fakeserver.reset_quest_positions()
   let intro: Json = jsonout.obj_get(result(fakeserver.dynamic("/tutorial/get-login-data", "")), "FTE")
   let active_result: Json = result(fakeserver.resolve_response("GET", "/quests/quest-active?categories.0=PvE").body)
-  jsonout.as_int(jsonout.obj_get(intro, "s")) == 1 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEIntroQuest" and jsonout.type_name(active_result) == "object"
+  jsonout.as_int(jsonout.obj_get(intro, "s")) == 2 and jsonout.as_text(jsonout.obj_get(intro, "current_bid")) == "FTEComplete" and jsonout.type_name(active_result) == "object"
 end
 
 function test_custom_story_set_is_first_without_removing_template_set(): boolean
@@ -540,7 +537,7 @@ function main_group_1(): integer
   set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
   set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
-  set failed = failed + report("test_tutorial_login_starts_intro_once_then_reports_complete", test_tutorial_login_starts_intro_once_then_reports_complete())
+  set failed = failed + report("test_tutorial_login_reports_complete_for_fresh_and_returning_accounts", test_tutorial_login_reports_complete_for_fresh_and_returning_accounts())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
   failed
 end

@@ -123,34 +123,6 @@ function state_file(): text
   path_join(log_dir(), ".fakeserver-state")
 end
 
-function tutorial_state_file(): text
-  intent: get
-  path_join(log_dir(), ".fakeserver-tutorial")
-end
-
-public function reset_tutorial_login(): nothing
-  intent: reset
-  create_dir(log_dir())
-  write_file(tutorial_state_file(), "0")
-end
-
-function tutorial_login_seen(): boolean
-  intent: check
-  -- `and` does not short-circuit, so read_file must be guarded by a nested if rather
-  -- than by the left-hand operand. On a fresh clone Server/logs/ is gitignored and the
-  -- state file does not exist, so the unguarded read aborted the server mid-session.
-  if file_exists(tutorial_state_file()) then
-  trim(read_file(tutorial_state_file())) == "1"
-else
-  false
-end
-end
-
-public function tutorial_login_started_response(): text
-  intent: encode
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 1), pair_text("current_bid", "FTEIntroQuest"), jsonout.json_pair("branches", jsonout.json_obj([jsonout.json_pair("FTEIntroQuest", jsonout.json_obj([pair_int("s", 1)]))]))]))]))
-end
-
 public function tutorial_login_completed_response(): text
   intent: encode
   compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))]))]))
@@ -158,13 +130,10 @@ end
 
 function tutorial_login_response(): text
   intent: encode
-  if tutorial_login_seen() then
+  -- The offline server has no Tutorial quest data. Reporting FTEIntroQuest on a
+  -- fresh account sends the client into FTEQuestStartState, which indexes an
+  -- unavailable quest and crashes. Match the phone host and mark FTE complete.
   tutorial_login_completed_response()
-else
-  create_dir(log_dir())
-  write_file(tutorial_state_file(), "1")
-  tutorial_login_started_response()
-end
 end
 
 public function block_tutorials(): a list of text

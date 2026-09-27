@@ -97,11 +97,10 @@ function start_harness(base: text, harness: text, payload: text, port: integer):
   intent: start
   let out: text = path_join(base, "out.log")
   let err: text = path_join(base, "err.log")
-  let marker: text = path_join(base, "tutorial-seen")
   let quest_state: text = path_join(base, "quest-state")
   write_file(out, "")
   write_file(err, "")
-  let started: a mapping from text to text = shell_exec("nohup env TFTF_TUTORIAL_STATE_FILE=" ++ marker ++ " TFTF_QUEST_STATE_FILE=" ++ quest_state ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let started: a mapping from text to text = shell_exec("nohup env TFTF_QUEST_STATE_FILE=" ++ quest_state ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
   let pid: text = trim(command_output(started))
   let deadline: integer = current_time_ms() + 10000
   mutable ready: boolean = false
@@ -217,7 +216,7 @@ end
 
 function payload_tutorial_checks_part3(one: text, complete: HttpReply, tutorial: HttpReply, first_login: HttpReply): boolean
   intent: test
-  expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json"))) and expect("tutorial first login", first_login.body, fakeserver.tutorial_login_started_response())
+  expect("tutorial complete", complete.body, fakeserver.dynamic("/tutorial/complete-tutorial", one)) and expect("tutorial start", tutorial.body, read_file(path_join(fakeserver.resp_dir(), "POST__tutorial_start-tutorial.json"))) and expect("tutorial first login", first_login.body, fakeserver.tutorial_login_completed_response())
 end
 
 function payload_tutorial_checks_part4(second_login: HttpReply): boolean
@@ -505,8 +504,6 @@ function test_payload_server_matches_fake_server(base: text, harness: text, payl
   intent: test
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  fakeserver.reset_tutorial_login()
-  shell_exec("rm -f -- " ++ path_join(base, "tutorial-seen"))
   let started: HarnessStart = start_harness(base, harness, payload, port)
   if started.error != "" then
     stop_harness(started.pid)

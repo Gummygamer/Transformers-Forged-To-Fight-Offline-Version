@@ -564,16 +564,15 @@ function check_tutorial_templates_step3(payload: Payload, completed: text, start
   for key in ["@tutorial:completed-nobid", "@tutorial:started-nobid"] do
     if detail == "" and (not contains_text(entry_body(payload, key), "%TID%") or contains_text(entry_body(payload, key), "%BID%")) then set detail = "tutorial no-bid tokens differ: " ++ key end
   end
-  fakeserver.reset_tutorial_login()
   detail
 end
 
 function check_tutorial_templates_step4(payload: Payload, completed: text, started: text, first_login: text, completed_login: text, detail_in: text): text
   intent: check
   mutable detail: text = detail_in
-  if detail == "" and first_login != entry_body(payload, "@tutorial:login-first") then set detail = "first tutorial login template differs" end
-  if detail == "" and completed_login != entry_body(payload, "@tutorial:login-completed") then set detail = "completed tutorial login template differs" end
-  if detail == "" and (not contains_text(first_login, "\"s\":1") or not contains_text(first_login, "\"current_bid\":\"FTEIntroQuest\"")) then set detail = "dynamic first tutorial login is not the started intro branch" end
+  if detail == "" and first_login != entry_body(payload, "@tutorial:login-completed") then set detail = "fresh tutorial login template differs" end
+  if detail == "" and completed_login != entry_body(payload, "@tutorial:login-completed") then set detail = "subsequent tutorial login template differs" end
+  if detail == "" and (not contains_text(first_login, "\"s\":2") or not contains_text(first_login, "\"current_bid\":\"FTEComplete\"")) then set detail = "fresh tutorial login is not completed" end
   if detail == "" and (not contains_text(completed_login, "\"s\":2") or not contains_text(completed_login, "\"current_bid\":\"FTEComplete\"")) then set detail = "dynamic subsequent tutorial login is not completed" end
   detail
 end

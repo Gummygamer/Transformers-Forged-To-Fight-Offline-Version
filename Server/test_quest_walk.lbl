@@ -416,7 +416,6 @@ function main(): nothing
   let port: integer = find_port()
   create_dir(base)
   reset_state()
-  fakeserver.reset_tutorial_login()
   if port == 0 then
     shell_exec("rm -rf -- " ++ base)
     reset_state()

@@ -305,8 +305,7 @@ function tutorial_templates(): Entries
   let c: Entries = add(b, "@tutorial:started", started)
   let d: Entries = add(c, "@tutorial:started-nobid", started_nobid)
   let e: Entries = add(d, "@tutorial:error", blocked)
-  let f: Entries = add(e, "@tutorial:login-first", fakeserver.tutorial_login_started_response())
-  add(f, "@tutorial:login-completed", fakeserver.tutorial_login_completed_response())
+  add(e, "@tutorial:login-completed", fakeserver.tutorial_login_completed_response())
 end
 
 record MoveSet
