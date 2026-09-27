@@ -617,11 +617,11 @@ public function obj_keys(node: Json): a list of text
   intent: get
   match node
     when JObj { pairs } then
-      mutable result: a list of text = []
+      mutable keys: a list of text = []
       for pair in pairs do
-        set result = append(result, pair.k)
+        set keys = append(keys, pair.k)
       end
-      result
+      keys
     otherwise then
       fail("obj_keys expected object")
       []
@@ -631,8 +631,7 @@ end
 public function obj_keys_count(node: Json): integer
   intent: get
   match node
-    when JObj { pairs } then
-      length(pairs)
+    when JObj { pairs } then length(pairs)
     otherwise then
       fail("obj_keys_count expected object")
       0
