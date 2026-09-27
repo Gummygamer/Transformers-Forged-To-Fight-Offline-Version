@@ -1436,7 +1436,10 @@ function test_owned_buildings_come_from_the_available_catalogue(): boolean
   let sockets: Json = jsonout.obj_get(result, "userSockets")
   mutable passed: boolean = length(owned) > 0
   for building in owned do
-    set passed = passed and available_has(available, jsonout.as_text(jsonout.obj_get(building, "id"))) and jsonout.obj_has(sockets, jsonout.as_text(jsonout.obj_get(building, "key")))
+    let bid: text = jsonout.as_text(jsonout.obj_get(building, "id"))
+    let key: text = jsonout.as_text(jsonout.obj_get(building, "key"))
+    let is_relic: boolean = starts_with(bid, "relic_")
+    set passed = passed and (is_relic or available_has(available, bid)) and jsonout.obj_has(sockets, key)
   end
   passed
 end

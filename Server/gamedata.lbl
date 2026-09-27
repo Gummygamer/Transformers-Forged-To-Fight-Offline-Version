@@ -2228,7 +2228,7 @@ end
 
 function base_active_template(): Json
   intent: load the authored base active response json template
-  let base_active_path: text = path_join(resp_dir(), "GET__base_active.json")
+  let base_active_path: text = path_join(resp_dir(), "_base_active.json")
   let resp: Json = jsonout.parse_json(read_file(base_active_path))
   jsonout.obj_get(resp, "result")
 end
