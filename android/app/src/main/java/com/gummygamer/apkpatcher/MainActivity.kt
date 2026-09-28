@@ -40,6 +40,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var chkKeepOther: MaterialCheckBox
     private lateinit var txtArmv7Warning: TextView
 
+    // Frame rate
+    private lateinit var radioFps60: MaterialRadioButton
+    private lateinit var radioFps30: MaterialRadioButton
+
     // Server
     private lateinit var radioBundled: MaterialRadioButton
     private lateinit var radioSeparate: MaterialRadioButton
@@ -161,6 +165,8 @@ class MainActivity : AppCompatActivity() {
         radioArmv7 = findViewById(R.id.radioArmv7)
         chkKeepOther = findViewById(R.id.chkKeepOther)
         txtArmv7Warning = findViewById(R.id.txtArmv7Warning)
+        radioFps60 = findViewById(R.id.radioFps60)
+        radioFps30 = findViewById(R.id.radioFps30)
         radioBundled = findViewById(R.id.radioBundled)
         radioSeparate = findViewById(R.id.radioSeparate)
         txtBundledNote = findViewById(R.id.txtBundledNote)
@@ -213,6 +219,13 @@ class MainActivity : AppCompatActivity() {
 
         chkKeepOther.setOnCheckedChangeListener { _, checked ->
             viewModel.setKeepOtherAbi(checked)
+        }
+
+        radioFps60.setOnCheckedChangeListener { _, checked ->
+            if (checked) viewModel.setTargetFps(PatchRequest.FPS_60)
+        }
+        radioFps30.setOnCheckedChangeListener { _, checked ->
+            if (checked) viewModel.setTargetFps(PatchRequest.FPS_30)
         }
 
         radioBundled.setOnCheckedChangeListener { _, checked ->
@@ -284,6 +297,13 @@ class MainActivity : AppCompatActivity() {
             radioArmv7.isChecked = true
         }
         chkKeepOther.isChecked = s.keepOtherAbi
+
+        // Frame rate
+        if (s.targetFps == PatchRequest.FPS_60 && !radioFps60.isChecked) {
+            radioFps60.isChecked = true
+        } else if (s.targetFps == PatchRequest.FPS_30 && !radioFps30.isChecked) {
+            radioFps30.isChecked = true
+        }
 
         // Armv7 warning
         val showArmv7Warn = s.abi == PatchRequest.ARMV7 && s.patchedIl2cppUri.isBlank() && !s.autoPatchIl2cpp
