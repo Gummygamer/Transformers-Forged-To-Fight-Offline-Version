@@ -80,6 +80,7 @@ namespace StoryPort
         bool pendingEncounter;
         bool enemyBusy;
         bool playerBusy;
+        bool specialShotActive;
         bool paused;
         bool queuedAttack;
         string queuedAttackState;
@@ -1568,6 +1569,8 @@ namespace StoryPort
                 if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome + enemyActor.transform.right * (defense == StoryPortEnemyDefense.Action.Dodge ? .7f : -.5f), .2f));
             }
             PlayState(playerAnimator, state);
+            if (state.StartsWith("Special", StringComparison.Ordinal))
+                StartCoroutine(SpecialShot(playerActor, enemyActor, state == "SpecialAttack03" ? 1f : .58f));
             int step = AttackStep(state);
             Combat(playerKey, "attack_" + step);
             if (playerActor != null && enemyActor != null)
@@ -1633,6 +1636,51 @@ namespace StoryPort
             yield return new WaitForSeconds(.9f);
             yield return StartCoroutine(WinnerShot(playerActor, playerName));
             StartCoroutine(ResolveWin());
+        }
+
+        // Special-attack cinematic: the camera cuts in low beside the attacker, then
+        // swings across to the target as the hit lands and eases back to the fight shot.
+        IEnumerator SpecialShot(GameObject attacker, GameObject target, float duration)
+        {
+            var camera = Camera.main;
+            if (camera == null || attacker == null || target == null || specialShotActive) yield break;
+            var home = camera.transform.position;
+            var homeRotation = camera.transform.rotation;
+            var homeFov = camera.fieldOfView;
+            var from = attacker.transform.position;
+            var to = target.transform.position;
+            var axis = (to - from); axis.y = 0f;
+            if (axis.sqrMagnitude < .01f) yield break;
+            axis.Normalize();
+            var side = Vector3.Cross(Vector3.up, axis);
+            if (Vector3.Dot(side, home - from) < 0f) side = -side;
+            var startPos = from - axis * 1.6f + side * 2.6f + Vector3.up * 1.6f;
+            var startFocus = from + axis * 1.2f + Vector3.up * 2.6f;
+            var endPos = to - axis * 4.2f + side * 3.4f + Vector3.up * 2.4f;
+            var endFocus = to + Vector3.up * 2.8f;
+            specialShotActive = true;
+            float t = 0f;
+            float total = Mathf.Max(.5f, duration);
+            while (t < total && screen == "fight" && camera != null)
+            {
+                t += Time.deltaTime;
+                float k = Mathf.Clamp01(t / total);
+                float swing = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((k - .45f) / .35f));
+                float blend = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / .18f)) * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((k - .82f) / .18f)));
+                var pos = Vector3.Lerp(startPos, endPos, swing);
+                var focus = Vector3.Lerp(startFocus, endFocus, swing);
+                camera.transform.position = Vector3.Lerp(home, pos, blend);
+                camera.transform.rotation = Quaternion.Slerp(homeRotation, Quaternion.LookRotation(focus - pos), blend);
+                camera.fieldOfView = Mathf.Lerp(homeFov, 30f, blend);
+                yield return null;
+            }
+            if (camera != null)
+            {
+                camera.transform.position = home;
+                camera.transform.rotation = homeRotation;
+                camera.fieldOfView = homeFov;
+            }
+            specialShotActive = false;
         }
 
         // Knockout shot from the reference: the camera closes in on the winner
@@ -1795,6 +1843,7 @@ namespace StoryPort
             for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
                 PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack0" + hit);
+                if (special) StartCoroutine(SpecialShot(enemyActor, playerActor, 1f));
                 int enemyStep = special ? 6 : hit;
                 Combat(enemyKey, "attack_" + enemyStep);
                 // The first swing telegraphs; follow-ups come faster.
@@ -2497,6 +2546,10 @@ namespace StoryPort
 
         void CameraShake(float amount)
         {
+            // The special shot owns the camera until it returns to the fight view.
+            // A hit shake here would otherwise race the cinematic and can leave the
+            // camera at the shake's stale starting position.
+            if (specialShotActive) return;
             var camera = Camera.main;
             if (camera != null) StartCoroutine(Shake(camera.transform, amount));
         }

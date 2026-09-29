@@ -74,5 +74,6 @@ layout in the Editor only.
 Remaining gaps: the server grants no match rewards, so the result screen has no
 rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
 alliance beam glow is hidden (it renders opaque); the enemy
-defense timing still needs a full device fight comparison; no special-attack
-cinematic camera yet.
+defense timing still needs a full device fight comparison; the special-attack
+cinematic camera (attacker close-up, swing to target, return) is an approximation
+not yet checked frame-by-frame against the ~2:48 reference footage.
