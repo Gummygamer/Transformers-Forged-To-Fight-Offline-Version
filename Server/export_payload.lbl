@@ -592,11 +592,8 @@ end
 function write_value(blob: integer, offset: integer, value: text): integer
   intent: write
   if offset % 4 != 0 then fail("payload value offset is not aligned") end
-  let data: integer = bytes_from_text(value)
-  bytes_write_bytes(blob, offset, data)
-  let next: integer = offset + padded(bytes_length(data))
-  bytes_free(data)
-  next
+  let value_length: integer = bytes_write_text(blob, offset, value)
+  offset + padded(value_length)
 end
 
 function prefixes(): Prefixes
