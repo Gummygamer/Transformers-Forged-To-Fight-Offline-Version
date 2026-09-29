@@ -60,6 +60,14 @@ def find_nav_font(converted_project: Path, explicit: Path | None,
     raise FileNotFoundError("Missing local 9.2 navigation font; pass --nav-font /path/to/Tecnica_Bold_116.ttf")
 
 
+def copy_localization_catalogs(source: Path, target: Path) -> None:
+    """Replace prepared catalogs from tracked source, removing stale locales."""
+    if target.exists():
+        shutil.rmtree(target)
+    if source.is_dir():
+        shutil.copytree(source, target)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--converted-project", type=Path, required=True)
@@ -217,6 +225,12 @@ def main() -> None:
             shutil.rmtree(target)
         if origin.exists():
             shutil.copytree(origin, target)
+
+    # Story text catalogs are tracked source, not converted art: replace the
+    # prepared copy so removed languages do not linger.
+    localization_source = args.source / "Assets" / "Resources" / "StoryPort" / "Localization"
+    localization_target = raw_art / "Localization"
+    copy_localization_catalogs(localization_source, localization_target)
 
     packages = args.project / "Packages"
     packages.mkdir(parents=True, exist_ok=True)

@@ -21,6 +21,7 @@ namespace StoryPort
         int dialogueIndex;
         Action dialogueDone;
         GameObject dialogueLeft, dialogueRight;
+        Text dialogueHint, dialogueSkipLabel, dialogueLanguageLabel;
         readonly HashSet<string> dialoguesSeen = new HashSet<string>();
         static readonly string[] ActDescriptions =
         {
@@ -37,10 +38,34 @@ namespace StoryPort
 
         readonly string[] rosterKeys =
         {
-            "fte_optimus_gs_t3", "bumblebee_gs_kabam", "ironhide_cin_rotf", "jazz_gs_twm05", "bludgeon_gs_rd20"
+            "fte_optimus_gs_t3", "bumblebee_gs_kabam", "ironhide_cin_rotf", "jazz_gs_twm05", "bludgeon_gs_rd20",
+            "fte_stars_gs_t3", "mirage_gs_deluxe2016", "kickback_gs_kabam"
         };
-        readonly string[] rosterNames = { "Optimus Prime", "Bumblebee", "Ironhide", "Jazz", "Bludgeon" };
+        readonly string[] rosterNames =
+        {
+            "Optimus Prime", "Bumblebee", "Ironhide", "Jazz", "Bludgeon", "Starscream", "Mirage", "Kickback"
+        };
+        // Cosmetic paint schemes: tint multiplied into the bot's materials.
+        static readonly string[] SkinNames = { "Classic", "Frost", "Ember", "Shadow" };
+        static readonly Color[] SkinTints =
+        {
+            Color.white, new Color(.62f, .86f, 1.25f), new Color(1.3f, .68f, .5f), new Color(.45f, .45f, .55f)
+        };
+        // UI accent themes used for team markers and roster highlights.
+        static readonly string[] ThemeNames = { "Autobot Blue", "Decepticon Purple", "Energon Green", "Gold" };
+        static readonly Color[] ThemeColors =
+        {
+            new Color(.2f, .7f, .91f), new Color(.68f, .38f, .9f), new Color(.3f, .85f, .4f), new Color(.95f, .75f, .15f)
+        };
+        int uiTheme;
         readonly List<int> squad = new List<int> { 0, 1 };
+        // Loading-page tips {label, text}; the reference cycles them between screens.
+        static readonly string[][] LoadingTips =
+        {
+            new[] { "COMBAT TIP", "Keep an eye on your opponent's SPECIAL METER. They are more dangerous while they can activate a SPECIAL ATTACK!" },
+            new[] { "FORGE XP", "Bots carry their Forge XP forward. The higher their Forge Level, the more Forge XP they provide." },
+        };
+        int loadingTipIndex;
         readonly List<GameObject> worldRoots = new List<GameObject>();
 
         string serverUrl;
@@ -76,6 +101,11 @@ namespace StoryPort
         Image[] specialSegmentFills;
         int selectedBot;
         bool requestBusy;
+        bool squadStatsLoading;
+        string squadStatsRequestKey = "";
+        string squadStatsKey = "";
+        string squadStatsLoadedKey = "";
+        string squadStatsFailedKey = "";
         bool guarding;
         bool pendingEncounter;
         bool enemyBusy;
@@ -129,6 +159,7 @@ namespace StoryPort
         void Awake()
         {
             serverUrl = PlayerPrefs.GetString("storyport.server", DefaultServer).TrimEnd('/');
+            uiTheme = Mathf.Clamp(PlayerPrefs.GetInt("storyport.theme", 0), 0, ThemeColors.Length - 1);
             storyNodes = ActNodeLabels[0].Split('|');
             Application.targetFrameRate = 60;
             Screen.orientation = ScreenOrientation.LandscapeLeft;
@@ -416,6 +447,11 @@ namespace StoryPort
             var logo = SpriteImage(content, "Title Logo", "UI/tff_logo_en", new Vector2(.28f, .61f), new Vector2(.72f, .91f), false);
             if (logo != null) logo.preserveAspect = true;
             ActionButton("TAP TO START", "", () => { Show("loading"); StartCoroutine(LoadBase()); }, .37f, .24f, .26f, .14f, true);
+            // Story dialogue follows this choice; it is saved and shared with the dialogue screen.
+            var language = Button(content, "Language", () => { StoryLocalization.CycleLocale(); Show("title"); }, new Vector2(.02f, .03f), new Vector2(.2f, .11f));
+            SetButtonSkin(language, "button_tab");
+            language.GetComponentInChildren<Text>().text = StoryLocalization.NativeName(StoryLocalization.Locale);
+            language.GetComponentInChildren<Text>().fontSize = 13;
         }
 
         IEnumerator LoadBase()
@@ -434,8 +470,10 @@ namespace StoryPort
             backgroundArt = black;
             var collage = SpriteImage(content, "Loading Collage", "UI/bot_roster", new Vector2(.3f, .3f), new Vector2(.7f, 1.05f), true);
             if (collage != null) collage.raycastTarget = false;
-            LabelAt(content, "Loading Tip", "Bots carry their Forge XP forward. The higher their Forge Level, the more Forge XP they provide.", 14,
-                TextAnchor.MiddleCenter, new Color(.85f, .88f, .92f), new Vector2(.12f, .2f), new Vector2(.88f, .27f));
+            // Each loading page shows the next tip, its label in gold as in the footage.
+            var tip = LoadingTips[loadingTipIndex++ % LoadingTips.Length];
+            LabelAt(content, "Loading Tip", "<color=#F5B921>" + tip[0] + ":</color> " + tip[1], 15,
+                TextAnchor.MiddleCenter, new Color(.85f, .88f, .92f), new Vector2(.1f, .18f), new Vector2(.9f, .27f));
             var spinner = SpriteImage(content, "Loading Mark", "UI/icon_loading", new Vector2(.9f, .06f), new Vector2(.965f, .17f), true);
             if (spinner != null) spinner.raycastTarget = false;
             LabelAt(content, "Loading Label", "LOADING...", 11, TextAnchor.MiddleCenter, Color.white, new Vector2(.88f, .02f), new Vector2(.985f, .07f));
@@ -1127,7 +1165,8 @@ namespace StoryPort
                 camera.transform.LookAt(new Vector3(cam[3], cam[4], cam[5]));
             }
             var selected = Mathf.Clamp(selectedBot, 0, rosterKeys.Length - 1);
-            var player = SpawnBot(rosterKeys[selected], new Vector3(squadForStory ? -3.1f : 0f, 0, 0), 150f, .88f);
+            if (squadForStory) LoadSquadStatsIfNeeded(rosterKeys[selected]);
+            var player = SpawnBot(rosterKeys[selected], new Vector3(squadForStory ? -3.1f : 0f, 0, 0), 150f, 1.16f, true);
             if (player != null)
             {
                 worldRoots.Add(player);
@@ -1135,7 +1174,7 @@ namespace StoryPort
             }
             if (squadForStory)
             {
-                var opponent = SpawnBot(enemyKey, new Vector3(3.5f, 0, 0), 215f, .88f);
+                var opponent = SpawnBot(enemyKey, new Vector3(3.5f, 0, 0), 215f, 1.16f);
                 if (opponent != null)
                 {
                     worldRoots.Add(opponent);
@@ -1147,30 +1186,64 @@ namespace StoryPort
             var title = LabelAt(content, "Bot Selection Title", squadForStory ? "SELECT YOUR BOT" : "BOT ROSTER", 26,
                 TextAnchor.MiddleCenter, Color.white, new Vector2(.34f, .88f), new Vector2(.66f, .98f));
             title.fontStyle = FontStyle.Bold;
-            // Team column down the left edge; tapping a portrait focuses that bot.
-            for (int i = 0; i < rosterKeys.Length; i++)
+            // Three large team slots stay visible in the pre-fight screen. An
+            // empty slot previews the next unassigned bot when tapped; the
+            // center ADD button confirms it. The general roster keeps the full list.
+            int visibleSlots = squadForStory ? 3 : rosterKeys.Length;
+            for (int i = 0; i < visibleSlots; i++)
             {
-                int index = i;
-                float y = .745f - i * .152f;
-                var tile = Button(content, "Choose " + rosterNames[i], () => FocusBot(index),
-                    new Vector2(.004f, y), new Vector2(.084f, y + .135f));
-                SetButtonSkin(tile, i == selected ? "frame_selection" : "frame_button");
+                int index = squadForStory
+                    ? (i < squad.Count ? squad[i] : (i == squad.Count && !squad.Contains(selected) ? selected : -1))
+                    : i;
+                bool emptySlot = index < 0;
+                float y = squadForStory ? .68f - i * .18f : .77f - i * .105f;
+                int capturedIndex = index;
+                var tile = Button(content, emptySlot ? "Add Team Bot" : "Choose " + rosterNames[index],
+                    emptySlot ? (Action)(() => FocusBot(FirstAvailableBot())) : () => FocusBot(capturedIndex),
+                    new Vector2(.004f, y), new Vector2(.084f, y + (squadForStory ? .16f : .095f)));
+                if (emptySlot && FirstAvailableBot() < 0) tile.GetComponent<Button>().interactable = false;
+                SetButtonSkin(tile, index == selected ? "frame_selection" : "frame_button");
                 tile.GetComponentInChildren<Text>().text = "";
-                var portrait = SpriteImage(tile.transform, "Bot Portrait", "Portraits/" + PortraitFor(rosterKeys[i]),
-                    new Vector2(.13f, .09f), new Vector2(.87f, .91f), true);
-                if (portrait != null) portrait.raycastTarget = false;
-                var teamBar = MakeImage(tile.transform, "Team Marker", squad.Contains(i) ? new Color(.2f, .7f, .91f) : new Color(.15f, .2f, .26f),
-                    new Vector2(.1f, -.06f), new Vector2(.9f, .02f));
-                teamBar.raycastTarget = false;
+                if (emptySlot)
+                {
+                    var add = LabelAt(tile.transform, "Add Bot Mark", "+", 34, TextAnchor.MiddleCenter,
+                        new Color(.75f, .88f, .94f), new Vector2(.05f, .05f), new Vector2(.95f, .95f));
+                    add.raycastTarget = false;
+                }
+                else
+                {
+                    var portrait = SpriteImage(tile.transform, "Bot Portrait", "Portraits/" + PortraitFor(rosterKeys[index]),
+                        new Vector2(.08f, .06f), new Vector2(.92f, .94f), true);
+                    if (portrait != null) portrait.raycastTarget = false;
+                    var teamBar = MakeImage(tile.transform, "Team Marker", squad.Contains(index) ? ThemeColors[uiTheme] : new Color(.15f, .2f, .26f),
+                        new Vector2(.1f, -.06f), new Vector2(.9f, .02f));
+                    teamBar.raycastTarget = false;
+                }
             }
             LabelAt(content, "Team Count", "TEAM  " + squad.Count + " / 3", 11, TextAnchor.MiddleLeft,
-                new Color(.51f, .86f, .95f), new Vector2(.004f, .885f), new Vector2(.09f, .93f));
+                Color.Lerp(ThemeColors[uiTheme], Color.white, .35f), new Vector2(.004f, .885f), new Vector2(.09f, .93f));
+            var skinButton = Button(content, "Bot Skin", () => CycleSkin(selected), new Vector2(.27f, .2f), new Vector2(.44f, .265f));
+            SetButtonSkin(skinButton, "button_tab");
+            skinButton.GetComponentInChildren<Text>().text = "SKIN: " + SkinNames[SkinIndex(rosterKeys[selected])].ToUpperInvariant();
+            var themeButton = Button(content, "UI Theme", CycleTheme, new Vector2(.56f, .2f), new Vector2(.73f, .265f));
+            SetButtonSkin(themeButton, "button_tab");
+            themeButton.GetComponentInChildren<Text>().text = "UI: " + ThemeNames[uiTheme].ToUpperInvariant();
+            themeButton.GetComponentInChildren<Text>().color = ThemeColors[uiTheme];
 
-            // Names sit under each bot, health as a thin blue track.
-            LabelAt(content, "Selected Bot Name", rosterNames[selected].ToUpperInvariant(), 20, TextAnchor.MiddleLeft,
-                Color.white, new Vector2(.14f, .8f), new Vector2(.4f, .87f)).fontStyle = FontStyle.Bold;
-            HealthBar(content, "Selected Bot Health", new Vector2(.14f, .78f), new Vector2(.4f, .795f), 1f,
-                new Color(.2f, .7f, .91f));
+            // Put the matchup values in the open center between the two large
+            // character renders, matching the pre-fight selection screen.
+            var playerRating = StoryPortCombatRules.Rating(playerMaxHealth, playerAttack);
+            var enemyRating = StoryPortCombatRules.Rating(enemyMaxHealth, enemyAttack);
+            LabelAt(content, "Selected Bot Name", rosterNames[selected], 21, TextAnchor.MiddleCenter,
+                Color.white, new Vector2(.27f, .475f), new Vector2(.44f, .525f)).fontStyle = FontStyle.Bold;
+            LabelAt(content, "Selected Bot Rating", playerRating.ToString(), 28, TextAnchor.MiddleCenter,
+                Color.white, new Vector2(.27f, .425f), new Vector2(.44f, .475f)).fontStyle = FontStyle.Bold;
+            LabelAt(content, "Selected Bot Health Value", ((int)playerHealth).ToString("N0") + "/" + ((int)playerMaxHealth).ToString("N0"), 17,
+                TextAnchor.MiddleCenter, Color.white, new Vector2(.27f, .345f), new Vector2(.44f, .385f));
+            HealthBar(content, "Selected Bot Health", new Vector2(.27f, .325f), new Vector2(.44f, .345f),
+                playerMaxHealth > 0 ? playerHealth / playerMaxHealth : 1f, new Color(.08f, .72f, .96f));
+            LabelAt(content, "Selected Bot Attack", ((int)playerAttack).ToString(), 17, TextAnchor.MiddleCenter,
+                new Color(.86f, .9f, .94f), new Vector2(.27f, .285f), new Vector2(.44f, .325f));
             var teamButton = Button(content, "Team Selection", () => ToggleBot(selected),
                 new Vector2(.42f, .04f), new Vector2(.58f, .11f));
             SetButtonSkin(teamButton, squad.Contains(selected) ? "button_tab_active" : "button_tab");
@@ -1185,10 +1258,16 @@ namespace StoryPort
                 var middle = MakeImage(match.transform, "Matchup Warning", new Color(.95f, .75f, .15f), new Vector2(.35f, 0), new Vector2(.68f, 1));
                 var hard = MakeImage(match.transform, "Matchup Danger", new Color(.9f, .25f, .2f), new Vector2(.68f, 0), new Vector2(1, 1));
                 match.raycastTarget = middle.raycastTarget = hard.raycastTarget = false;
-                LabelAt(content, "Opponent Name", enemyName.ToUpperInvariant(), 20, TextAnchor.MiddleRight,
-                    Color.white, new Vector2(.66f, .8f), new Vector2(.92f, .87f)).fontStyle = FontStyle.Bold;
-                HealthBar(content, "Opponent Health", new Vector2(.66f, .78f), new Vector2(.92f, .795f), 1f,
-                    new Color(.2f, .7f, .91f));
+                LabelAt(content, "Opponent Name", enemyName, 21, TextAnchor.MiddleCenter,
+                    Color.white, new Vector2(.56f, .475f), new Vector2(.73f, .525f)).fontStyle = FontStyle.Bold;
+                LabelAt(content, "Opponent Rating", enemyRating.ToString(), 28, TextAnchor.MiddleCenter,
+                    Color.white, new Vector2(.56f, .425f), new Vector2(.73f, .475f)).fontStyle = FontStyle.Bold;
+                LabelAt(content, "Opponent Health Value", ((int)enemyHealth).ToString("N0") + "/" + ((int)enemyMaxHealth).ToString("N0"), 17,
+                    TextAnchor.MiddleCenter, Color.white, new Vector2(.56f, .345f), new Vector2(.73f, .385f));
+                HealthBar(content, "Opponent Health", new Vector2(.56f, .325f), new Vector2(.73f, .345f),
+                    enemyMaxHealth > 0 ? enemyHealth / enemyMaxHealth : 1f, new Color(.08f, .72f, .96f));
+                LabelAt(content, "Opponent Attack", ((int)enemyAttack).ToString(), 17, TextAnchor.MiddleCenter,
+                    new Color(.86f, .9f, .94f), new Vector2(.56f, .285f), new Vector2(.73f, .325f));
 
                 var repair = Button(content, "Repair", null, new Vector2(.06f, .02f), new Vector2(.2f, .095f));
                 repair.GetComponentInChildren<Text>().text = "REPAIR";
@@ -1208,6 +1287,55 @@ namespace StoryPort
                 ActionButton("SAVE ROSTER", "", SaveRoster, .8f, .02f, .19f, .1f, true);
                 ActionButton("BACK TO BASE", "", () => Show("base"), .09f, .885f, .16f, .075f, false);
             }
+        }
+
+        int FirstAvailableBot()
+        {
+            for (int i = 0; i < rosterKeys.Length; i++)
+                if (!squad.Contains(i)) return i;
+            return -1;
+        }
+
+        void LoadSquadStatsIfNeeded(string selectedKey)
+        {
+            int playerRank, playerLevel, opponentRank, opponentLevel;
+            ReadRankLevel(lastQuestJson, selectedKey, out playerRank, out playerLevel);
+            ReadRankLevel(lastQuestJson, enemyKey, out opponentRank, out opponentLevel);
+            string key = selectedKey + ":" + playerRank + ":" + playerLevel + "|" + enemyKey + ":" + opponentRank + ":" + opponentLevel;
+            if (!Application.isPlaying || key == squadStatsLoadedKey || key == squadStatsFailedKey) return;
+            // Record the currently displayed matchup even when another request is
+            // still in flight. Its response must not overwrite this selection.
+            squadStatsKey = key;
+            if (squadStatsLoading) return;
+            StartCoroutine(LoadSquadStats(key, selectedKey, playerRank, playerLevel, opponentRank, opponentLevel));
+        }
+
+        IEnumerator LoadSquadStats(string key, string selectedKey, int playerRank, int playerLevel, int opponentRank, int opponentLevel)
+        {
+            squadStatsLoading = true;
+            squadStatsRequestKey = key;
+            string body = "{\"heroes\":[{\"bid\":\"" + selectedKey + "\",\"rank\":" + playerRank + ",\"level\":" + playerLevel +
+                "},{\"bid\":\"" + enemyKey + "\",\"rank\":" + opponentRank + ",\"level\":" + opponentLevel + "}]}";
+            string response = "";
+            yield return StartCoroutine(Post("/bcg/getBaseHeroData", body, json => response = json));
+            // The selected bot or encounter may have changed while the request
+            // was outstanding. Discard stale data and let the redraw request the
+            // currently selected matchup once this request has released the slot.
+            if (!string.IsNullOrEmpty(response) && key == squadStatsKey && key == squadStatsRequestKey)
+            {
+                playerMaxHealth = ReadStat(response, selectedKey, "max_hp", playerMaxHealth);
+                playerAttack = ReadStat(response, selectedKey, "attack", playerAttack);
+                enemyMaxHealth = ReadStat(response, enemyKey, "max_hp", enemyMaxHealth);
+                enemyAttack = ReadStat(response, enemyKey, "attack", enemyAttack);
+                playerHealth = playerMaxHealth;
+                enemyHealth = enemyMaxHealth;
+                squadStatsLoadedKey = key;
+                squadStatsFailedKey = "";
+            }
+            else if (key == squadStatsKey) squadStatsFailedKey = key;
+            squadStatsLoading = false;
+            squadStatsRequestKey = "";
+            if (screen == "squad") Show("squad");
         }
 
         // Dark blue-black technical panel backdrop used behind bot selection.
@@ -1316,21 +1444,27 @@ namespace StoryPort
             UpdateFightHud();
         }
 
-        // Big "FIGHT!" call at the start of each fight; the enemy waits for it.
+        // "READY" then "FIGHT!" call at the start of each fight; the enemy waits for both.
         IEnumerator FightIntro(Transform hud)
         {
             nextEnemyTurn = Time.time + 3.4f;
-            var label = LabelAt(hud, "Fight Call", "FIGHT!", 64, TextAnchor.MiddleCenter, Color.white, new Vector2(.3f, .42f), new Vector2(.7f, .62f));
+            var label = LabelAt(hud, "Fight Call", "READY", 64, TextAnchor.MiddleCenter, Color.white, new Vector2(.3f, .42f), new Vector2(.7f, .62f));
             label.fontStyle = FontStyle.BoldAndItalic;
             label.raycastTarget = false;
             label.gameObject.AddComponent<Outline>().effectColor = new Color(.05f, .25f, .45f, .9f);
-            float t = 0f;
-            while (t < 1.3f && label != null)
+            string[] calls = { "READY", "FIGHT!" };
+            foreach (var call in calls)
             {
-                t += Time.deltaTime;
-                label.transform.localScale = Vector3.one * Mathf.Lerp(1.6f, 1f, Mathf.Clamp01(t * 5f));
-                label.color = new Color(1f, 1f, 1f, Mathf.Clamp01((1.3f - t) * 3f));
-                yield return null;
+                if (label == null) yield break;
+                label.text = call;
+                float t = 0f;
+                while (t < 1.2f && label != null)
+                {
+                    t += Time.deltaTime;
+                    label.transform.localScale = Vector3.one * Mathf.Lerp(1.6f, 1f, Mathf.Clamp01(t * 5f));
+                    label.color = new Color(1f, 1f, 1f, Mathf.Clamp01((1.2f - t) * 3f));
+                    yield return null;
+                }
             }
             if (label != null) Destroy(label.gameObject);
         }
@@ -1409,7 +1543,7 @@ namespace StoryPort
                         renderer.sharedMaterial = roadMaterial;
                 }
             }
-            playerActor = SpawnBot(playerKey, new Vector3(-2.55f, 0, -5.5f), 90f, .72f);
+            playerActor = SpawnBot(playerKey, new Vector3(-2.55f, 0, -5.5f), 90f, .72f, true);
             enemyActor = SpawnBot(enemyKey, new Vector3(2.55f, 0, -5.5f), 270f, .72f);
             if (playerActor != null) worldRoots.Add(playerActor);
             if (enemyActor != null) worldRoots.Add(enemyActor);
@@ -1479,9 +1613,47 @@ namespace StoryPort
             Debug.Log("StoryPort applied its mobile PBR shader to " + converted + " Chicago stage materials");
         }
 
-        GameObject SpawnBot(string key, Vector3 position, float yaw, float scale)
+        int SkinIndex(string key)
         {
-            var prefabName = key == "fte_optimus_gs_t3" ? "optimusprime_gs_v" : key;
+            return Mathf.Clamp(PlayerPrefs.GetInt("storyport.skin." + key, 0), 0, SkinTints.Length - 1);
+        }
+
+        void CycleSkin(int botIndex)
+        {
+            var key = rosterKeys[botIndex];
+            PlayerPrefs.SetInt("storyport.skin." + key, (SkinIndex(key) + 1) % SkinTints.Length);
+            PlayerPrefs.Save();
+            Show(squadForStory ? "squad" : "roster");
+        }
+
+        void CycleTheme()
+        {
+            uiTheme = (uiTheme + 1) % ThemeColors.Length;
+            PlayerPrefs.SetInt("storyport.theme", uiTheme);
+            PlayerPrefs.Save();
+            Show(squadForStory ? "squad" : "roster");
+        }
+
+        // Tints per-instance copies of the bot's materials; shared assets stay untouched.
+        void ApplySkin(GameObject actor, int skin)
+        {
+            if (skin <= 0) return;
+            var tint = SkinTints[skin];
+            foreach (var renderer in actor.GetComponentsInChildren<Renderer>(true))
+            {
+                var materials = renderer.materials;
+                foreach (var material in materials)
+                {
+                    var property = material.HasProperty("_BaseColor") ? "_BaseColor" : material.HasProperty("_Color") ? "_Color" : null;
+                    if (property != null) material.SetColor(property, material.GetColor(property) * tint);
+                }
+            }
+        }
+
+        GameObject SpawnBot(string key, Vector3 position, float yaw, float scale, bool applySkin = false)
+        {
+            var prefabName = key == "fte_optimus_gs_t3" ? "optimusprime_gs_v" :
+                key == "fte_stars_gs_t3" ? "starscream_gs" : key;
             var prefab = Resources.Load<GameObject>("StoryPort/Bots/" + prefabName);
             if (prefab == null && key.Contains("stars")) prefab = Resources.Load<GameObject>("StoryPort/Bots/starscream_gs");
             if (prefab == null && key.Contains("ironhide")) prefab = Resources.Load<GameObject>("StoryPort/Bots/ironhide_cin_rotf");
@@ -1505,6 +1677,7 @@ namespace StoryPort
                 for (int i = 1; i < renderers.Length; i++) visualBounds.Encapsulate(renderers[i].bounds);
                 actor.transform.position += Vector3.up * -visualBounds.min.y;
             }
+            if (applySkin) ApplySkin(actor, SkinIndex(key));
             var animators = actor.GetComponentsInChildren<Animator>(true);
             foreach (var animator in animators) animator.applyRootMotion = false;
             return actor;
@@ -1950,6 +2123,7 @@ namespace StoryPort
                     playerHp = 100;
                     enemyHp = 100;
                     playerMana = enemyMana = 0;
+                    selectedBot = squad[0];
                     playerKey = rosterKeys[squad[0]];
                     playerName = rosterNames[squad[0]];
                     squadForStory = true;
@@ -2291,15 +2465,33 @@ namespace StoryPort
             var speaker = LabelAt(content, "Dialogue Speaker", "", 16, TextAnchor.MiddleLeft, new Color(.55f, .8f, .95f), new Vector2(.01f, .135f), new Vector2(.6f, .185f));
             speaker.fontStyle = FontStyle.Bold;
             var text = LabelAt(content, "Dialogue Line", "", 22, TextAnchor.UpperLeft, new Color(.92f, .33f, .27f), new Vector2(.01f, -.02f), new Vector2(.99f, .135f));
-            LabelAt(content, "Dialogue Continue", "TAP ANYWHERE TO CONTINUE  >", 11, TextAnchor.MiddleCenter, new Color(.7f, .75f, .8f), new Vector2(.3f, -.09f), new Vector2(.7f, -.04f));
+            dialogueHint = LabelAt(content, "Dialogue Continue", "", 11, TextAnchor.MiddleCenter, new Color(.7f, .75f, .8f), new Vector2(.3f, -.09f), new Vector2(.7f, -.04f));
             var advance = Button(content, "Dialogue Advance", () => AdvanceDialogue(speaker, text), new Vector2(-.03f, -.1f), new Vector2(1.03f, 1.1f));
             advance.GetComponent<Image>().color = new Color(0, 0, 0, 0);
             advance.GetComponentInChildren<Text>().text = "";
             advance.transform.SetAsFirstSibling();
             var skip = Button(content, "Dialogue Skip", FinishDialogue, new Vector2(.9f, 1.02f), new Vector2(.99f, 1.09f));
             SetButtonSkin(skip, "button_tab");
-            skip.GetComponentInChildren<Text>().text = "SKIP";
-            ShowDialogueLine(speaker, text);
+            dialogueSkipLabel = skip.GetComponentInChildren<Text>();
+            // Switching language mid-dialogue redraws the current line in place: same
+            // index, speakers and continuation, so nothing restarts or is skipped.
+            var language = Button(content, "Dialogue Language", () =>
+            {
+                StoryLocalization.CycleLocale();
+                RefreshDialogueLanguage(speaker, text);
+            }, new Vector2(.01f, 1.02f), new Vector2(.2f, 1.09f));
+            SetButtonSkin(language, "button_tab");
+            dialogueLanguageLabel = language.GetComponentInChildren<Text>();
+            dialogueLanguageLabel.fontSize = 13;
+            RefreshDialogueLanguage(speaker, text, true);
+        }
+
+        void RefreshDialogueLanguage(Text speaker, Text text, bool cue = false)
+        {
+            dialogueHint.text = StoryLocalization.Ui("ID_STORY_UI_TAP_CONTINUE", "TAP ANYWHERE TO CONTINUE") + "  >";
+            dialogueSkipLabel.text = StoryLocalization.Ui("ID_STORY_UI_SKIP", "SKIP");
+            dialogueLanguageLabel.text = StoryLocalization.NativeName(StoryLocalization.Locale);
+            ShowDialogueLine(speaker, text, cue);
         }
 
         GameObject SpawnSpeaker(string character, float x, float yaw)
@@ -2319,12 +2511,12 @@ namespace StoryPort
             ShowDialogueLine(speaker, text);
         }
 
-        void ShowDialogueLine(Text speaker, Text text)
+        void ShowDialogueLine(Text speaker, Text text, bool cue = true)
         {
             var line = dialogueLines[dialogueIndex];
             speaker.text = SpeakerName(line.character).ToUpperInvariant();
-            text.text = line.line;
-            Cue(line.inShadow ? "text_in_corrupt" : "text_in", .6f);
+            text.text = line.Text;
+            if (cue) Cue(line.inShadow ? "text_in_corrupt" : "text_in", .6f);
             // The speaking side is lit; the other side (and a shadowed speaker) is dark.
             bool rightSpeaks = line.side == "right";
             ShadeSpeaker(dialogueLeft, rightSpeaks || (!rightSpeaks && line.inShadow));

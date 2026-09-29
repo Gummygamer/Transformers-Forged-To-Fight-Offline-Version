@@ -23,8 +23,15 @@ namespace StoryPort
     {
         public string character;
         public string side;
+        // Server text: English, or the English member of a locale map.
         public string line;
+        // Catalog key for this line, and the server's per-locale map when it sent one.
+        public string key;
+        public Dictionary<string, string> translations;
         public bool inShadow;
+
+        // The line in the player's selected language, falling back to English.
+        public string Text { get { return StoryLocalization.Resolve(key, line, translations); } }
     }
 
     // The server owns the route. Keeping its parser independent of the screen
@@ -83,14 +90,38 @@ namespace StoryPort
             if (string.IsNullOrEmpty(setId)) return lines;
             var table = ReadValue(detailJson, "dialogueTable");
             foreach (var entry in SplitArray(ReadValue(table, setId)))
+            {
+                // "line" is a plain string, or an object of locale -> text.
+                string raw = ReadValue(entry, "line");
+                var translations = raw.StartsWith("{", StringComparison.Ordinal) ? ReadStringMap(raw) : null;
+                string english = translations != null
+                    ? (translations.ContainsKey("en") ? translations["en"] : "")
+                    : ReadString(entry, "line");
                 lines.Add(new DialogueLine
                 {
                     character = ReadString(entry, "character"),
                     side = ReadString(entry, "side"),
-                    line = ReadString(entry, "line"),
+                    line = english,
+                    key = StoryLocalization.KeyFor(setId, lines.Count),
+                    translations = translations,
                     inShadow = ReadValue(entry, "inShadow") == "true"
                 });
+            }
             return lines;
+        }
+
+        // A flat JSON object of string values, e.g. {"en":"Hello","de":"Hallo"}.
+        static Dictionary<string, string> ReadStringMap(string json)
+        {
+            var map = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (Match pair in Regex.Matches(json, "\"((?:[^\"\\\\]|\\\\.)*)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""))
+            {
+                string key = pair.Groups[1].Value;
+                string value = pair.Groups[2].Value;
+                try { value = Regex.Unescape(value); } catch (ArgumentException) { }
+                map[key] = value;
+            }
+            return map;
         }
 
         public static string ReadString(string json, string key)

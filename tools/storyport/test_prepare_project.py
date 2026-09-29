@@ -6,7 +6,35 @@ import unittest
 
 from PIL import Image
 
-from prepare_project import extract_atlas_sprites, find_nav_font
+from prepare_project import copy_localization_catalogs, extract_atlas_sprites, find_nav_font
+
+
+class LocalizationCopyTests(unittest.TestCase):
+    def test_copy_replaces_prepared_catalogs_and_removes_stale_locales(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            target = root / "prepared/Localization"
+            source.mkdir()
+            target.mkdir(parents=True)
+            (source / "dialogue_en.txt").write_text("hello\n", encoding="utf-8")
+            (target / "dialogue_old.txt").write_text("stale\n", encoding="utf-8")
+
+            copy_localization_catalogs(source, target)
+
+            self.assertEqual([path.name for path in target.iterdir()], ["dialogue_en.txt"])
+            self.assertEqual((target / "dialogue_en.txt").read_text(encoding="utf-8"), "hello\n")
+
+    def test_missing_source_removes_all_prepared_catalogs(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "prepared/Localization"
+            target.mkdir(parents=True)
+            (target / "dialogue_old.txt").write_text("stale\n", encoding="utf-8")
+
+            copy_localization_catalogs(root / "missing", target)
+
+            self.assertFalse(target.exists())
 
 
 class AtlasExtractionTests(unittest.TestCase):

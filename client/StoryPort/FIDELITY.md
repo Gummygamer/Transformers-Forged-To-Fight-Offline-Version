@@ -9,7 +9,7 @@ map links, teams, and fight results. The video supplies screen composition, anim
 | --- | --- | --- |
 | 0:07 | Loading | Full game artwork, logo, loading status |
 | 0:30 | Base | Authored rocky base terrain and buildings; seven navigation tabs below the resource bar |
-| 1:30 | Bot selection | One large selected bot at left, one large opponent at right, vertical team portraits, health and rating in the centre, Fight action |
+| 1:30 | Bot selection | Large selected bot at left and opponent at right; three tall team portraits at the left edge; names and ratings face each other around VS; each side shows current/max health and attack below; green FIGHT button at lower right |
 | 2:48 | Fight | Chicago stage, animated 3D bots, portraits and health at top, touch combat |
 | 12:06 | Story missions | Narrow act artwork panels flanking a compact blue chapter and encounter grid |
 
@@ -63,6 +63,14 @@ the full Act I and Act II route):
 - The seven base navigation icons use the original 9.2 button glyphs from the
   local Tecnica font. `prepare_project.py` copies that font into the ignored
   Unity project; the Editor base preview confirms their placement.
+- The 1:30 pre-fight screen uses the selected and opponent bots' server health,
+  attack, and derived rating in the center column. The local preview falls back
+  to placeholder stats until `/bcg/getBaseHeroData` responds.
+- Loading pages (0:07, ~1:36) cycle tips with a gold label ("COMBAT TIP", "FORGE XP"),
+  as the footage does. The footage's "HEAVY ATTACKS" tip is omitted because the port has
+  no hold-to-heavy control. The footage's Edit Squad screen (~1:04) is not built: the
+  port has no locked-slot or squad-tab data, so those details remain a gap. The
+  current squad selector supports up to three bots from the eight-bot roster.
 - The base uses the local 9.2 Primordial sky panorama behind its 3D crater;
   the Editor preview no longer shows black gaps beyond the terrain.
 

@@ -12,6 +12,7 @@ namespace StoryPort.Editor
         public static void Run()
         {
             CheckStoryRoute();
+            CheckStoryLocalization();
             CheckEnemyDefense();
             AssetDatabase.Refresh();
             CheckNavigationFont();
@@ -98,6 +99,62 @@ namespace StoryPort.Editor
                 }
             if (!foundPackedSurface)
                 throw new Exception("Converted 9.2 bot roughness was reset to zero");
+        }
+
+        static void CheckStoryLocalization()
+        {
+            const string detail = "{\"dialogueTable\":{\"intro\":[" +
+                "{\"inShadow\":false,\"character\":\"a\",\"side\":\"left\",\"line\":\"Hello, {0}!\"}," +
+                "{\"inShadow\":true,\"character\":\"b\",\"side\":\"right\",\"line\":\"Second\"}," +
+                "{\"inShadow\":false,\"character\":\"a\",\"side\":\"left\",\"line\":{\"en\":\"Third\",\"fr\":\"Troisi\\u00e8me\",\"de\":\"\"}}," +
+                "{\"inShadow\":false,\"character\":\"b\",\"side\":\"right\",\"line\":\"\"}]}}";
+            string saved = null;
+            var catalogs = new System.Collections.Generic.Dictionary<string, string>
+            {
+                { "de", "# comment\nID_STORY_INTRO_001\tHallo, {0}!\\nZeile\nID_STORY_INTRO_002\t\nID_STORY_INTRO_001\tduplicate\r\n" },
+                { "fr", "ID_STORY_INTRO_003\tCatalogue français\n" },
+                { "en", "ID_STORY_INTRO_002\tEnglish catalog\nID_STORY_INTRO_004\tEnglish catalog fallback\n" },
+                { "ja", "ID_STORY_INTRO_001\t\u3053\u3093\u306b\u3061\u306f\nID_STORY_UI_SKIP\t\u30b9\u30ad\u30c3\u30d7\n" }
+            };
+            StoryLocalization.ConfigureForTests(
+                locale => { string text; return catalogs.TryGetValue(locale, out text) ? text : null; },
+                () => saved ?? "", value => saved = value);
+            try
+            {
+                var lines = StoryRouteData.ReadDialogue(detail, "intro");
+                if (lines.Count != 4 || lines[0].character != "a" || lines[1].side != "right" || !lines[1].inShadow)
+                    throw new Exception("Localized dialogue lost order, speaker, or side");
+                if (lines[0].key != "ID_STORY_INTRO_001" || lines[2].key != "ID_STORY_INTRO_003")
+                    throw new Exception("Dialogue keys are not set id plus position");
+                if (StoryLocalization.Locale != "en" || lines[0].Text != "Hello, {0}!")
+                    throw new Exception("English dialogue changed");
+                StoryLocalization.SetLocale("de");
+                if (saved != "de" || lines[0].Text != "Hallo, {0}!\nZeile")
+                    throw new Exception("German switch did not apply to a line read before it");
+                if (lines[1].Text != "Second") throw new Exception("Empty translation did not fall back to English");
+                if (lines[2].Text != "Third") throw new Exception("Empty locale-map entry did not fall back to English");
+                if (lines[3].Text != "English catalog fallback") throw new Exception("English catalog did not provide the final fallback");
+                StoryLocalization.SetLocale("fr");
+                if (lines[2].Text != "Troisi\u00e8me" || lines[0].Text != "Hello, {0}!")
+                    throw new Exception("Server locale map or catalog fallback resolved wrongly");
+                StoryLocalization.SetLocale("ja");
+                if (lines[0].Text != "\u3053\u3093\u306b\u3061\u306f" || StoryLocalization.Ui("ID_STORY_UI_SKIP", "SKIP") != "\u30b9\u30ad\u30c3\u30d7")
+                    throw new Exception("Japanese dialogue or chrome did not resolve");
+                StoryLocalization.SetLocale("xx");
+                if (StoryLocalization.Locale != "en" || saved != "en" || lines[0].Text != "Hello, {0}!")
+                    throw new Exception("Unknown locale did not fall back to English");
+                if (StoryLocalization.Ui("ID_STORY_UI_SKIP", "SKIP") != "SKIP")
+                    throw new Exception("Missing chrome key returned a raw key or blank");
+                // A new session reads the saved choice, ignoring unknown saved values.
+                saved = "pt_BR"; StoryLocalization.ResetCache();
+                if (StoryLocalization.Locale != "pt") throw new Exception("Saved language was not restored");
+                saved = "zz"; StoryLocalization.ResetCache();
+                if (StoryLocalization.Normalize(saved) != null || StoryLocalization.Normalize(StoryLocalization.Locale) == null)
+                    throw new Exception("Unknown saved language was accepted instead of using the device fallback");
+                if (StoryLocalization.Locales.Length != StoryLocalization.NativeNames.Length)
+                    throw new Exception("Language list and native names differ");
+            }
+            finally { StoryLocalization.ConfigureForTests(null, null, null); }
         }
 
         static void CheckStoryRoute()

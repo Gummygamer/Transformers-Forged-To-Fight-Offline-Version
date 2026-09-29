@@ -15,3 +15,22 @@ the existing external server. Combat controls and hit resolution run locally.
 `Editor/StoryPortAssetSetup.cs` scans locally converted assets and creates
 Resources aliases for scene prefabs, terrain meshes/materials, and the requested
 bot models. Converted assets and aliases are not checked into Git.
+
+## Story dialogue language
+
+Story dialogue follows the player's saved language (`PlayerPrefs` key
+`storyport.language`; first run uses the device language, else English). The title
+screen and the dialogue screen each have a language button; switching on the
+dialogue screen redraws the current line without changing its position.
+
+The server still sends English in each line's `line` string. A `line` object of
+`{"en": ..., "<locale>": ...}` is also accepted. Other languages come from UTF-8
+catalogs in `Assets/Resources/StoryPort/Localization/dialogue_<locale>.txt`, one
+`KEY<TAB>text` per line (`#` comments; `\n`, `\t`, `\\` escapes). Keys are
+`ID_STORY_<SET ID UPPERCASED>_<NNN>` with a 1-based line number, for example
+`ID_STORY_CUSTOM_OPENING_INTRO_001`. Screen chrome uses `ID_STORY_UI_TAP_CONTINUE`
+and `ID_STORY_UI_SKIP`. Supported locales: `en zh-CN zh-TW pt fr it de es ru ko ja
+tr ar id th no nl`. A line resolves as the server's locale entry, then the selected
+catalog, then server English, then the English catalog; empty entries and unknown
+locales count as missing. `tools/storyport/prepare_project.py` copies the catalogs
+into the prepared Unity project.

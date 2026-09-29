@@ -1,0 +1,46 @@
+# Story dialogue catalog for it. UTF-8 KEY<TAB>text; blank values use English fallback.
+# 11 translated story lines; blank values deliberately fall back to English in StoryLocalization.Resolve.
+ID_STORY_ARRIVAL_INTRO_001	I sensori rilevano una testa di ponte fredda più avanti. Qualunque cosa sia atterrata qui si sta già muovendo.
+ID_STORY_ARRIVAL_INTRO_002	La marea ci ha portato qui. La marea ti seppellirà.
+ID_STORY_ARRIVAL_INTRO_003	Poi teniamo questa linea e la teniamo insieme.
+ID_STORY_MIDPOINT_RALLY_001	A metà del crinale continuano ad arrivare. Questo è un luogo di sosta, non una pattuglia.
+ID_STORY_MIDPOINT_RALLY_002	Ogni passo che fai viene registrato. Ogni passo che fai viene contato.
+ID_STORY_MIDPOINT_RALLY_003	Poi lo percorriamo fino alla fine. Scintilla fissa, protezione più alta.
+ID_STORY_FINAL_STAND_001	Hai fatto tutta questa strada solo per incontrare la forma del tuo finale.
+ID_STORY_FINAL_STAND_002	Abbiamo fatto molta strada per porre fine a tutto questo. Fermati o cadi.
+ID_STORY_SHORE_SECURED_001	La riva è tranquilla. Registra le coordinate e porta a casa i feriti.
+ID_STORY_SHORE_SECURED_002	Silenzio oggi. Torneremo prima che faccia di nuovo rumore.
+ID_STORY_CUSTOM_OPENING_INTRO_001	Sono Optimus Prime... leader degli Autobot. Abbiamo rilevato strani segnali energetici che minacciano la stabilità di questo settore.
+ID_STORY_CUSTOM_OPENING_INTRO_002	
+ID_STORY_CUSTOM_OPENING_INTRO_003	
+ID_STORY_CUSTOM_OPENING_INTRO_004	
+ID_STORY_CUSTOM_OPENING_INTRO_005	
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	
+ID_STORY_CUSTOM_ACT2_INTRO_001	
+ID_STORY_CUSTOM_ACT2_INTRO_002	
+ID_STORY_CUSTOM_ACT2_INTRO_003	
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	
+ID_STORY_UI_TAP_CONTINUE	Tocca per continuare
+ID_STORY_UI_SKIP	Salta
