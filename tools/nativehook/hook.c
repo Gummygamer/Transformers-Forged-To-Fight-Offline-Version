@@ -4478,12 +4478,29 @@ static void poke32(uintptr_t rva, uint32_t word){
     LOG("poked 0x%lx : %08x -> %08x", (long)rva, old, word);
 }
 
+/* Global framerate patch block for the APK patcher. Placed in .data; size fixed and known so
+ * the patcher can find it by scanning. Keep FPS_PATCH_MARKER in sync with FpsConfigPatch.kt.
+ * Default is 60 FPS; the patcher can rewrite the target to 30. */
+#define FPS_PATCH_MARKER "TFTF-FPS-CFG-1"
+#define FPS_PATCH_MARKER_LEN 16
+
+typedef struct {
+    char marker[FPS_PATCH_MARKER_LEN];
+    uint32_t target_fps;  // 60 or 30 (default 60)
+} TFTFFpsConfig;
+
+__attribute__((used, section(".data")))
+static volatile TFTFFpsConfig g_fps_config = {
+    .marker = FPS_PATCH_MARKER,
+    .target_fps = 60
+};
+
 static fn8 orig_set_targetFrameRate = NULL;
 static void* hooked_set_targetFrameRate(void* fps, void* m, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
     int req_fps = (int)(intptr_t)fps;
-    LOG("Application.set_targetFrameRate: req=%d -> forcing 60", req_fps);
+    LOG("Application.set_targetFrameRate: req=%d -> forcing %u", req_fps, g_fps_config.target_fps);
     if (orig_set_targetFrameRate) {
-        return orig_set_targetFrameRate((void*)(intptr_t)60, m, a2, a3, a4, a5, a6, a7);
+        return orig_set_targetFrameRate((void*)(intptr_t)g_fps_config.target_fps, m, a2, a3, a4, a5, a6, a7);
     }
     return NULL;
 }
@@ -5241,13 +5258,24 @@ static void* installer(void* arg){
     // branch rewrite out of the runtime installer matters on ARM-translation emulators:
     // BlueStacks can cache the original instruction before an in-memory poke is visible.
 
-    // 60 FPS UNLOCK:
-    // 1) PerformanceManager..cctor (@0xDA5168): default targetFrameRate 60 (was 30) & vSyncCount 0 (was 2)
-    poke32(0xDA52E0, 0x52800780);   // mov w0, #60
-    poke32(0xDA52F8, 0x2A1F03E0);   // mov w0, wzr (vSyncCount = 0)
-
+    // FRAME RATE CONFIGURATION:
+    // When target_fps == 60, apply the 60 FPS unlock:
+    // 1) PerformanceManager..cctor (@0xDA5168): default targetFrameRate 60 & vSyncCount 0
     // 2) PerformanceManager.ApplyOnce (@0xDA65DC): unconditionally branch to _60NoVSync (0xDA6724)
-    poke32(0xDA6700, 0x14000009);   // b 0xDA6724
+    // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
+    // When target_fps == 30, keep the stock game framerate behaviour.
+    int r1 = 0, r2 = 0;
+    if (g_fps_config.target_fps == 60) {
+        poke32(0xDA52E0, 0x52800780);   // mov w0, #60
+        poke32(0xDA52F8, 0x2A1F03E0);   // mov w0, wzr (vSyncCount = 0)
+        poke32(0xDA6700, 0x14000009);   // b 0xDA6724
+
+        r1 = inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
+        r2 = inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
+        LOG("targetFrameRate: 60 FPS unlock applied");
+    } else {
+        LOG("targetFrameRate: maintaining stock %u FPS", g_fps_config.target_fps);
+    }
 
     // UNLOCK_EVENT_BUTTON:
     // 1) LevelLock.get_Locked (@0xF0C820): force return 0 (unlocked).
@@ -5261,10 +5289,6 @@ static void* installer(void* arg){
     // uncompleted tutorial state returns true and ret-exits before ProcessQuestModeClick.
     poke32(0xEA8E30, 0x2A1F03E0);   // mov w0, wzr (return false)
     poke32(0xEA8E34, 0xD65F03C0);   // ret
-
-    // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
-    int r1 = inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
-    int r2 = inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
     int r3 = inline_hook((void*)(g_base + 0x1121538), (void*)hooked_RefreshDisplay, &orig_RefreshDisplay);
     int r4 = inline_hook((void*)(g_base + 0xC1C0F0), (void*)hooked_ShouldDisplayStatModifier, &orig_ShouldDisplayStatModifier);
     int r5 = inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);

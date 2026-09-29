@@ -35,6 +35,7 @@ data class UiState(
     val serverPort: Int = 8080,
     val scheme: String = "http",
     val keepOtherAbi: Boolean = false,
+    val targetFps: Int = PatchRequest.FPS_60,
     val arenaRelayHost: String = "",
     val arenaRelayPort: Int = ArenaConfigPatch.DEFAULT_PORT,
     val patchedIl2cppUri: String = "",
@@ -182,6 +183,11 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         revalidate()
     }
 
+    fun setTargetFps(fps: Int) {
+        _uiState.update { it.copy(targetFps = fps) }
+        revalidate()
+    }
+
     fun setPatchedIl2cpp(uri: String, displayName: String) {
         _uiState.update { it.copy(patchedIl2cppUri = uri, patchedIl2cppName = displayName) }
         revalidate()
@@ -237,7 +243,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         val steps = listOf(
             "1. read source APK",
             "2. validate source APK contents (${s.abi})",
-            "3. load hook library (${if (s.serverMode == PatchRequest.BUNDLED) "bundled 127.0.0.1:${s.serverPort}" else "separate ${s.scheme}://${s.serverHost}:${s.serverPort}"}${if (s.arenaRelayHost.isNotBlank()) ", live Arena relay ${s.arenaRelayHost}:${s.arenaRelayPort}" else ""})",
+            "3. load hook library (${s.targetFps} FPS, ${if (s.serverMode == PatchRequest.BUNDLED) "bundled 127.0.0.1:${s.serverPort}" else "separate ${s.scheme}://${s.serverHost}:${s.serverPort}"}${if (s.arenaRelayHost.isNotBlank()) ", live Arena relay ${s.arenaRelayHost}:${s.arenaRelayPort}" else ""})",
             "4. prepare patched libil2cpp (${if (s.autoPatchIl2cpp) "auto-patch" else if (s.patchedIl2cppUri.isNotBlank()) "user-supplied" else "none"})",
             "5. build patched APK (drop signatures${if (!s.keepOtherAbi) ", drop other ABI" else ""})",
             "6. sign APK (v2 scheme, ${if (s.keystoreUri.isNotBlank()) "user keystore" else "generated PKCS12"})",
@@ -259,6 +265,7 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         sourceApkUri = s.sourceApkUri,
         outputName = s.outputName,
         abi = s.abi,
+        targetFps = s.targetFps,
         serverMode = s.serverMode,
         serverHost = s.serverHost,
         serverPort = s.serverPort,

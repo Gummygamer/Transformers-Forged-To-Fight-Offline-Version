@@ -57,7 +57,10 @@ data class PatchRequest(
     val arenaRelayHost: String = "",
 
     /** UDP port of the live Arena relay. */
-    val arenaRelayPort: Int = ArenaConfigPatch.DEFAULT_PORT
+    val arenaRelayPort: Int = ArenaConfigPatch.DEFAULT_PORT,
+
+    /** Target frame rate: 60 (default, unlocked) or 30 (original game). */
+    val targetFps: Int = FPS_60
 ) {
     /** Validate the request returns a list of user-facing error/warning messages. */
     fun validate(): ValidationResult {
@@ -109,6 +112,14 @@ data class PatchRequest(
             warnings += "32-bit-only output drops the arm64 libraries; enable keeping the other ABI if you need both architectures."
         }
 
+        if (targetFps != FPS_30 && targetFps != FPS_60) {
+            errors += "Target framerate must be 30 or 60 FPS."
+        }
+
+        if (abi == ARMV7 && targetFps == FPS_60) {
+            warnings += "60 FPS unlock is only available for 64-bit (arm64-v8a); 32-bit builds run at original 30 FPS."
+        }
+
         return ValidationResult(errors, warnings)
     }
 
@@ -117,6 +128,8 @@ data class PatchRequest(
         const val ARMV7 = "armeabi-v7a"
         const val BUNDLED = "bundled"
         const val SEPARATE = "separate"
+        const val FPS_60 = 60
+        const val FPS_30 = 30
     }
 }
 

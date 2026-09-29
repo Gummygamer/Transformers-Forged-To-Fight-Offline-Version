@@ -101,8 +101,10 @@ class PatcherEngine(context: Context) {
                 // Step 3: Load hook library
                 checkCancelled()
                 reportStep(onStep, onLog, 3, steps.size, "loading hook library")
-                val hookData = withArenaSession(
-                    loadHookAsset(request.abi, request.serverMode == PatchRequest.BUNDLED), request, onLog)
+                val hookData = withFramerate(
+                    withArenaSession(
+                        loadHookAsset(request.abi, request.serverMode == PatchRequest.BUNDLED), request, onLog),
+                    request, onLog)
 
                 // Step 4: Extract and/or patch libil2cpp
                 checkCancelled()
@@ -281,6 +283,16 @@ class PatcherEngine(context: Context) {
         if (!result.isSuccess) throw IOException(result.error)
         onLog(LogLine("Live Arena netcode enabled: UDP ${request.arenaRelayHost.trim()}:${request.arenaRelayPort}"))
         return result.data!!
+    }
+
+    /** Configures target framerate in the hook (60 FPS or 30 FPS). */
+    private fun withFramerate(hook: ByteArray, request: PatchRequest, onLog: (LogLine) -> Unit): ByteArray {
+        if (request.abi != PatchRequest.ARM64) return hook
+        val result = FpsConfigPatch.patch(hook, request.targetFps)
+        if (result.patched) {
+            onLog(LogLine(result.message))
+        }
+        return result.data
     }
 
     // ---- libil2cpp handling ----
