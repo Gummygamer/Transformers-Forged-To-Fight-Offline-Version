@@ -1,0 +1,254 @@
+use fakeserver
+use export_payload
+
+record HttpReply
+  status: text
+  body: text
+  headers: text
+end
+
+record HarnessStart
+  pid: text
+  error: text
+end
+
+function command_output(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stdout"), "")
+end
+
+function command_error(result: a mapping from text to text): text
+  intent: get
+  unwrap_or(get(result, "stderr"), "")
+end
+
+function command_failed(result: a mapping from text to text): boolean
+  intent: check
+  unwrap_or(get(result, "exit_code"), -1) != 0
+end
+
+function find_port(): integer
+  intent: find
+  mutable port: integer = 0
+  mutable attempts: integer = 0
+  while attempts < 20 and port == 0 do
+    let candidate: integer = 21000 + random_int(38000)
+    let probe: a mapping from text to text = shell_exec("ss -ltn | grep -c ':" ++ to_text(candidate) ++ " ' || true")
+    if trim(command_output(probe)) == "0" then set port = candidate end
+    set attempts = attempts + 1
+  end
+  port
+end
+
+function start_harness(base: text, harness: text, payload: text, port: integer): HarnessStart
+  intent: start
+  let out: text = path_join(base, "out.log")
+  let err: text = path_join(base, "err.log")
+  let quest_state: text = path_join(base, "quest-state")
+  write_file(out, "")
+  write_file(err, "")
+  let started: a mapping from text to text = shell_exec("nohup env TFTF_QUEST_STATE_FILE=" ++ quest_state ++ " " ++ harness ++ " " ++ payload ++ " > " ++ out ++ " 2> " ++ err ++ " & echo $!")
+  let pid: text = trim(command_output(started))
+  let deadline: integer = current_time_ms() + 10000
+  mutable ready: boolean = false
+  while not ready and current_time_ms() < deadline do
+    if file_exists(out) and contains_text(read_file(out), "listening " ++ to_text(port)) then
+      set ready = true
+    else
+      shell_exec("sleep 0.1")
+    end
+  end
+  if ready and pid != "" then
+    HarnessStart { pid: pid, error: "" }
+  else
+    HarnessStart { pid: pid, error: "native harness did not start: " ++ if file_exists(err) then read_file(err) else "no stderr log" end }
+  end
+end
+
+function harness_alive(pid: text): boolean
+  intent: check
+  let probe: a mapping from text to text = shell_exec("kill -0 " ++ pid ++ " 2>/dev/null && echo alive || echo dead")
+  trim(command_output(probe)) == "alive"
+end
+
+function stop_harness(pid: text): nothing
+  intent: stop
+  if pid != "" then shell_exec("kill " ++ pid ++ " 2>/dev/null; sleep 0.3; kill -9 " ++ pid ++ " 2>/dev/null; true") end
+end
+
+function reply_file(path: text): text
+  intent: read
+  if file_exists(path) then read_file(path) else "" end
+end
+
+function request_command(base: text, method: text, body: text, has_body: boolean): text
+  intent: build the curl command line and stage the request body
+  let request_body: text = path_join(base, "req.bin")
+  mutable command: text = "curl -sS --http1.1 --max-time 10 -D " ++ path_join(base, "resp.hdr") ++ " -o " ++ path_join(base, "resp.bin") ++ " -w \"%\{http_code\}\""
+  if method == "POST" then
+    set command = command ++ " -X POST"
+    if has_body then
+      write_file(request_body, body)
+      set command = command ++ " --data-binary @" ++ request_body
+    end
+  end
+  command
+end
+
+function request(base: text, port: integer, method: text, path: text, body: text, has_body: boolean): HttpReply
+  intent: request
+  let response: text = path_join(base, "resp.bin")
+  let headers: text = path_join(base, "resp.hdr")
+  write_file(response, "")
+  write_file(headers, "")
+  let command: text = request_command(base, method, body, has_body)
+  let ran: a mapping from text to text = shell_exec(command ++ " '" ++ "http://127.0.0.1:" ++ to_text(port) ++ path ++ "'")
+  if command_failed(ran) then print("[!] " ++ method ++ " " ++ path ++ ": " ++ command_error(ran)) end
+  HttpReply { status: trim(command_output(ran)), body: reply_file(response), headers: reply_file(headers) }
+end
+
+function compile_harness(base: text, root: text, output: text): boolean
+  intent: compile
+  let built: a mapping from text to text = shell_exec("timeout 300 cc -std=c11 -O1 -Wall -Wextra -o " ++ output ++ " " ++ path_join(root, "tools/nativehook/inapk_server_main.c") ++ " " ++ path_join(root, "tools/nativehook/inapk_server.c") ++ " -lpthread")
+  if command_failed(built) then
+    print(command_error(built))
+    false
+  else
+    true
+  end
+end
+
+function check(label: text, condition: boolean, detail: text): boolean
+  intent: report
+  if condition then
+    print("[ok] " ++ label)
+    true
+  else
+    print("[!] " ++ label ++ ": " ++ detail)
+    false
+  end
+end
+
+function use_body_for(bid: text): text
+  intent: build the actual client wire shape (ItemUseHelpers/GameStoreAPI.UseItems)
+  "\{\"api\":6,\"nonce\":\"x\",\"items\":[\{\"version_id\":\"repair_kit_v1\",\"item_name\":\"Repair Kit\",\"context\":\{\"bid\":\"" ++ bid ++ "\"\}\}]\}"
+end
+
+function seed_pending_fight(base: text, port: integer, hp_percent: text): nothing
+  intent: seed
+  request(base, port, "POST", "/quests/quest-movedir/1.1.1-0/1/0", "\{\}", true)
+  request(base, port, "POST", "/matches/resolve-match/quests_fight",
+    "\{\"qid\":\"1.1.1-0\",\"results\":\{\"result\":\"LOST\"\},\"game_stats\":\{\"player_0_stats\":\{\"char\":\"optimusprime_cin_tf\",\"hp_percent\":" ++ hp_percent ++ "\}\}\}",
+    true)
+end
+
+function setup_squad(base: text, port: integer): nothing
+  intent: seed
+  request(base, port, "POST", "/bcg/setSavedTeam",
+    "\{\"teamID\":\"0\",\"heroes\":[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\"]\}",
+    true)
+  request(base, port, "POST", "/quests/quest-begin/1.1.1",
+    "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\",\"tm2\":\"megatron_gs_leader2015\"\}",
+    true)
+end
+
+function check_gamestore_use(base: text, port: integer, pid: text): boolean
+  intent: test
+  seed_pending_fight(base, port, "0.2")
+  let used: HttpReply = request(base, port, "POST", "/gamestore/use", use_body_for("optimusprime_cin_tf"), true)
+  let ok_1: boolean = check("gamestore/use status", used.status == "200", used.status)
+  let ok_2: boolean = check("gamestore/use body has null error", contains_text(used.body, "\"error\":null"), used.body)
+  let ok_3: boolean = check("gamestore/use body has redeemers", contains_text(used.body, "\"redeemers\""), used.body)
+  let ok_4: boolean = check("harness alive after gamestore/use", harness_alive(pid), "harness died")
+  let after: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\}", true)
+  let ok_5: boolean = check("hp restored to 1.0 after repair", contains_text(after.body, "\"hp\": 1") or contains_text(after.body, "\"hp\":1"), after.body)
+  ok_1 and ok_2 and ok_3 and ok_4 and ok_5
+end
+
+function check_quests_use(base: text, port: integer, pid: text): boolean
+  intent: test
+  seed_pending_fight(base, port, "0.15")
+  let quest_use: HttpReply = request(base, port, "POST", "/quests/use/1.1.1-0", use_body_for("optimusprime_cin_tf"), true)
+  let ok_1: boolean = check("quests/use status", quest_use.status == "200", quest_use.status)
+  let ok_2: boolean = check("quests/use success body", contains_text(quest_use.body, "\"success\":true"), quest_use.body)
+  let ok_3: boolean = check("harness alive after quests/use", harness_alive(pid), "harness died")
+  ok_1 and ok_2 and ok_3
+end
+
+function malformed_bodies(): a list of text
+  intent: list adversarial bodies that must never crash the server
+  [
+    "not json at all",
+    "\{\}",
+    "\{\"items\":[]\}",
+    "\{\"items\":\"nope\"\}",
+    "\{\"items\":[\{\"version_id\":\"x\"\}]\}",
+    "\{\"items\":[\{\"context\":\{\}\}]\}",
+    "\{\"items\":[\{\"context\":\{\"bid\":\"\"\}\}]\}",
+    "\{\"items\":[\{\"context\":\{\"bid\":\"not_on_team\"\}\}]\}"
+  ]
+end
+
+function send_malformed_bodies(base: text, port: integer): nothing
+  intent: test
+  let bodies: a list of text = malformed_bodies()
+  mutable index: integer = 0
+  while index < length(bodies) do
+    let body: text = unwrap_or(get(bodies, index), "\{\}")
+    request(base, port, "POST", "/gamestore/use", body, true)
+    request(base, port, "POST", "/quests/use/1.1.1-0", body, true)
+    set index = index + 1
+  end
+end
+
+function check_malformed_bodies(base: text, port: integer, pid: text): boolean
+  intent: test
+  send_malformed_bodies(base, port)
+  check("harness alive after malformed bodies", harness_alive(pid), "harness died")
+end
+
+function run_checks(base: text, port: integer, started: HarnessStart): boolean
+  intent: run every repair-endpoint check against the started native server
+  setup_squad(base, port)
+  let ok_1: boolean = check_gamestore_use(base, port, started.pid)
+  let ok_2: boolean = check_quests_use(base, port, started.pid)
+  let ok_3: boolean = check_malformed_bodies(base, port, started.pid)
+  ok_1 and ok_2 and ok_3
+end
+
+function run_with_harness(base: text, harness: text, payload: text, port: integer): nothing
+  intent: run
+  let started: HarnessStart = start_harness(base, harness, payload, port)
+  if started.error != "" then
+    print("[!] " ++ started.error)
+    exit_process(1)
+  else
+    let ok: boolean = run_checks(base, port, started)
+    stop_harness(started.pid)
+    if ok then print("ALL PASS") else print("FAILURES PRESENT") end
+    if not ok then exit_process(1) end
+  end
+end
+
+function main(): nothing
+  intent: run
+  let base: text = "/tmp/tftf-repair-verify-" ++ random_hex(8)
+  create_dir(base)
+  let root: text = path_join(fakeserver.here(), "..")
+  let harness: text = path_join(base, "harness")
+  let port: integer = find_port()
+  if not compile_harness(base, root, harness) or port == 0 then
+    print("[!] setup failed")
+    shell_exec("rm -rf -- " ++ base)
+    exit_process(1)
+  else
+    let payload: text = path_join(base, to_text(port) ++ ".bin")
+    let blob: integer = export_payload.build_payload(port)
+    write_file_bytes(payload, blob)
+    bytes_free(blob)
+    run_with_harness(base, harness, payload, port)
+    shell_exec("rm -rf -- " ++ base)
+  end
+end
+
+main()

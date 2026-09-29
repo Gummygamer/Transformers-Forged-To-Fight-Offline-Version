@@ -444,21 +444,60 @@ static void resolve_match(const char *body, const char *end) {
     persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
 }
-static int contains_case(const char *s, const char *needle) {
-    size_t n=strlen(needle); if(!n)return 1;
-    for(;*s;s++)if(!strncasecmp(s,needle,n))return 1;
-    return 0;
+/* GameStoreUseOrder.toHashTable() serializes each use as an item plus a
+   context object. Keep the target scoped to that item's context; searching
+   the whole request for "bid" can associate unrelated fields. */
+static int json_use_targets(const char *body, const char *end, char bids[][64], int *count) {
+    const char *items=json_value(body,end,"items"), *q; int n=0;
+    *count=0;
+    if(!items||items>=end||*items!='[')return 0;
+    q=items+1;
+    while(q<end) {
+        const char *item_end, *context, *context_end; char version[128], name[128], bid[64];
+        while(q<end&&(isspace((unsigned char)*q)||*q==','))q++;
+        if(q>=end||*q==']')break;
+        if(*q!='{')return 0;
+        item_end=json_object_end(q,end); if(!item_end)return 0;
+        version[0]=name[0]=bid[0]=0;
+        json_string(q,item_end,"version_id",version,sizeof version);
+        json_string(q,item_end,"item_name",name,sizeof name);
+        context=json_value(q,item_end,"context");
+        context_end=json_object_end(context,item_end);
+        if((version[0]||name[0]||json_value(q,item_end,"version_id")||json_value(q,item_end,"item_name"))&&context_end&&json_string(context,context_end,"bid",bid,sizeof bid)&&safe_id(bid)) {
+            int duplicate=0;
+            for(int i=0;i<n;i++)if(!strcmp(bids[i],bid))duplicate=1;
+            if(!duplicate&&n<TEAM_SIZE_MAX)snprintf(bids[n++],sizeof bids[0],"%s",bid);
+        }
+        q=item_end;
+    }
+    *count=n;
+    return 1;
+}
+static int apply_repair_targets(const char *body, const char *end, const char *qid) {
+    char bids[TEAM_SIZE_MAX][64]; int count=0,changed=0,have_qid=qid&&qid[0]; Team team;
+    if(!json_use_targets(body,end,bids,&count)||count==0||!resolve_team(&team))return 0;
+    pthread_mutex_lock(&g_pos_lock);
+    for(int i=0;i<16;i++)if(g_pos[i].qid[0]&&g_pos[i].pending&&(!have_qid||!strcmp(g_pos[i].qid,qid))) {
+        for(int h=0;h<team.count;h++)for(int b=0;b<count;b++)if(!strcmp(team.bid[h],bids[b])) {
+            g_pos[i].health[h]=1.0f; changed=1;
+        }
+    }
+    if(changed)persist_quest_state_locked();
+    pthread_mutex_unlock(&g_pos_lock);
+    return 1;
+}
+static const unsigned char *use_game_store_items(const char *body, const char *end, Out *o, size_t *outn) {
+    apply_repair_targets(body,end,NULL);
+    static const char response[]="{\"error\":null,\"result\":{\"redeemers\":[]}}";
+    if(!out_add(o,response,sizeof response-1))return NULL;
+    *outn=o->n;
+    return o->p;
 }
 static const unsigned char *repair_heroes(const char *p, const char *body, const char *end, Out *o, size_t *outn) {
-    char qid[64], raw[64], target[64]=""; Team team; int have_team=resolve_team(&team); const char *slash=strrchr(p,'/'); int slot=-1, all=0, changed=0;
-    if(!slash||(!contains_case(body,"repair")&&!contains_case(body,"heal")&&!contains_case(body,"health")))return NULL;
+    char qid[64], raw[64]; const char *slash=strrchr(p,'/');
+    if(!slash)return NULL;
     snprintf(raw,sizeof raw,"%.63s",slash+1);normalize_qid(raw,qid);
-    if(!json_string(body,end,"bid",target,sizeof target)&&!json_string(body,end,"hero",target,sizeof target)&&!json_string(body,end,"character",target,sizeof target))all=1;
-    pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
-    if(slot>=0&&have_team){for(int h=0;h<team.count;h++)if(all||!strcmp(target,team.bid[h])){g_pos[slot].health[h]=1.0f;changed=1;}if(changed)persist_quest_state_locked();}
-    pthread_mutex_unlock(&g_pos_lock);
-    if(!changed)return NULL;
+    if(!apply_repair_targets(body,end,qid))return NULL;
     static const char response[]="{\"error\":null,\"result\":{\"success\":true,\"usedConsumableCount\":1}}";
     if(!out_add(o,response,sizeof response-1))return NULL;
     *outn=o->n;
@@ -478,6 +517,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         args[0]=(TemplateArg){"%UID%",(const unsigned char*)uid,strlen(uid)};args[1]=(TemplateArg){"%NOW%",(const unsigned char*)now,strlen(now)};
         if(!v||!out_template_args(o,v,n,args,2))return NULL;*outn=o->n;return o->p;
     }
+    if(!strcmp(method,"POST")&&has_suffix_trim_slashes(p,"/gamestore/use"))return use_game_store_items(body,end,o,outn);
     if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
     if(strstr(p,"/base/active")) { snprintf(key,sizeof key,"%s /base/active",method); v=lookup(key,outn); return v?v:lookup("GET /base/active",outn); }
     if(has_suffix(p,"/tutorial/get-login-data")) {
