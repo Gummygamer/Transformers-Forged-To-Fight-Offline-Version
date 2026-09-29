@@ -267,6 +267,40 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
 
         print("PASS: act3 quest isolation")
 
+        # An enemy that shares a blueprint with a benched team bot must not
+        # zero that bot's health: only player_0_stats (the player) reports it.
+        stop()
+        if state_path.exists():
+            state_path.unlink()
+        start()
+        shared = ["jazz_gs_twm05", "grimlock_gs_mp08", "soundwave_gs"]
+        request("/bcg/setSavedTeam", {"teamID": "0", "heroes": shared})
+        begin({"setId": "custom_story_act1"}, qid=ACT3_QID)
+        assert move(1, ACT3_QID, 0)["progression"]["currentBattleId"] == "jazz_gs_twm05"
+        resolve("WON", ACT3_QID, game_stats={
+            "player_0_stats": {"char": shared[1], "hp_percent": 0.6},
+            "player_1_stats": {"char": shared[0], "hp_percent": 0},
+        })
+        stop()
+        start()
+        resumed = begin(qid=ACT3_QID)
+        assert_health(resumed, shared[0], 1.0)
+        assert_health(resumed, shared[1], 0.6)
+        assert_health(resumed, shared[2], 1.0)
+        # The same bot fighting its own blueprint still reports its own health.
+        assert move(1, ACT3_QID, -1)["progression"]["currentBattleId"] == "grindor_cin_rotf"
+        resolve("WON", ACT3_QID, game_stats={
+            "player_0_stats": {"char": shared[0], "hp_percent": 0.3},
+            "player_1_stats": {"char": "grindor_cin_rotf", "hp_percent": 0},
+        })
+        stop()
+        start()
+        resumed = begin(qid=ACT3_QID)
+        assert_health(resumed, shared[0], 0.3)
+        assert_health(resumed, shared[1], 0.6)
+
+        print("PASS: enemy sharing a team bot's blueprint leaves that bot's health intact")
+
     finally:
         if process is not None and process.poll() is None:
             stop()

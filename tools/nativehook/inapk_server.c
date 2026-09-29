@@ -184,13 +184,16 @@ static float json_float(const char *s, const char *end, const char *want, float 
 static float hero_health_in_report(const char *body, const char *end, const char *bid) {
     const char *hero=json_value(body,end,bid), *hero_end=json_object_end(hero,end);
     if(hero_end){float hp=json_float(hero,hero_end,"hp",json_float(hero,hero_end,"health",json_float(hero,hero_end,"currentHealth",-1.0f)));if(hp>1.0f&&hp<=100.0f)hp/=100.0f;if(hp>=0.0f&&hp<=1.0f)return hp;}
-    /* QuestsMatchResults posts the active fighter as player_N_stats, identified
-       by char. hp_percent is already normalized; older payloads can derive it
-       from hp_remaining / hp_start. */
-    for(int player=0;player<2;player++){
-        char key[32], id[64]="";const char *stats,*stats_end;float hp;
-        snprintf(key,sizeof key,"player_%d_stats",player);stats=json_value(body,end,key);stats_end=json_object_end(stats,end);
-        if(!stats_end||!json_string(stats,stats_end,"char",id,sizeof id)||strcmp(id,bid))continue;
+    /* QuestsMatchResults posts the player's active fighter as player_0_stats,
+       identified by char; player_1_stats is the enemy. Only the player slot may
+       update team health: an enemy that shares a blueprint with a team bot
+       would otherwise report its own 0 health for that bot. hp_percent is
+       already normalized; older payloads can derive it from
+       hp_remaining / hp_start. */
+    {
+        char id[64]="";const char *stats,*stats_end;float hp;
+        stats=json_value(body,end,"player_0_stats");stats_end=json_object_end(stats,end);
+        if(!stats_end||!json_string(stats,stats_end,"char",id,sizeof id)||strcmp(id,bid))return -1.0f;
         hp=json_float(stats,stats_end,"hp_percent",-1.0f);
         if(hp<0.0f){float remaining=json_float(stats,stats_end,"hp_remaining",-1.0f);float start=json_float(stats,stats_end,"hp_start",0.0f);if(remaining>=0.0f&&start>0.0f)hp=remaining/start;}
         if(hp>1.0f&&hp<=100.0f)hp/=100.0f;
