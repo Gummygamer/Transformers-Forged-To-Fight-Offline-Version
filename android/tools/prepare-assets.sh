@@ -5,6 +5,7 @@ ANDROID_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="$(cd "$ANDROID_DIR/.." && pwd)"
 PORT="${1:-8080}"
 FORCE_ASSETS="${TFTF_FORCE_ASSETS:-0}"
+ASSET_WORKERS="${HERMES_ASSET_WORKERS:-4}"
 ASSET_DIR="$ANDROID_DIR/app/src/main/assets"
 PVPHOST_ASSET_DIR="$ANDROID_DIR/pvphost/src/main/assets"
 
@@ -38,6 +39,10 @@ if ! command -v legible >/dev/null 2>&1; then
   echo "error: legible is required to generate the offline payload" >&2
   exit 1
 fi
+[[ "$ASSET_WORKERS" =~ ^[1-8]$ ]] || {
+  echo "error: HERMES_ASSET_WORKERS must be an integer from 1 to 8" >&2
+  exit 1
+}
 
 mkdir -p "$ASSET_DIR"
 
@@ -73,7 +78,45 @@ if [ "$FORCE_ASSETS" = "1" ] ||
 fi
 cp "$ROOT_DIR/tools/nativehook/libdothook.so" "$ASSET_DIR/libdothook-arm64.bin"
 cp "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" "$ASSET_DIR/libdothook-armv7.bin"
-legible run "$ROOT_DIR/Server/export_payload.lbl" --out "$ASSET_DIR/tftf_payload.bin" --listen-port "$PORT"
+PAYLOAD_TEMP_DIR="$(mktemp -d)"
+cleanup_payload_temp() { rm -rf "$PAYLOAD_TEMP_DIR"; }
+trap cleanup_payload_temp EXIT
+worker_pids=()
+for shard_kind in quests heroes; do
+  for ((shard_index = 0; shard_index < ASSET_WORKERS; shard_index++)); do
+    legible run "$ROOT_DIR/Server/export_payload.lbl" \
+      --out "$PAYLOAD_TEMP_DIR/$shard_kind-$shard_index.json" \
+      --shard-kind "$shard_kind" \
+      --shard-index "$shard_index" \
+      --shard-count "$ASSET_WORKERS" &
+    worker_pids+=("$!")
+  done
+done
+legible run "$ROOT_DIR/Server/export_payload.lbl" \
+  --out "$PAYLOAD_TEMP_DIR/static.json" \
+  --shard-kind static \
+  --shard-index 0 \
+  --shard-count 1 &
+worker_pids+=("$!")
+worker_failed=0
+for worker_pid in "${worker_pids[@]}"; do
+  if ! wait "$worker_pid"; then worker_failed=1; fi
+done
+if [ "$worker_failed" -ne 0 ]; then
+  echo "error: a parallel payload-export worker failed" >&2
+  exit 1
+fi
+shard_args=(--shard-input "$PAYLOAD_TEMP_DIR/static.json")
+for shard_kind in quests heroes; do
+  for ((shard_index = 0; shard_index < ASSET_WORKERS; shard_index++)); do
+    shard_args+=(--shard-input "$PAYLOAD_TEMP_DIR/$shard_kind-$shard_index.json")
+  done
+done
+python3 "$ROOT_DIR/Server/assemble_payload.py" \
+  --server-root "$ROOT_DIR/Server" \
+  --out "$ASSET_DIR/tftf_payload.bin" \
+  --listen-port "$PORT" \
+  "${shard_args[@]}"
 
 # The PvP host app serves the same blob (export_payload ignores the port when
 # building bodies), so copy it rather than generating a second one.

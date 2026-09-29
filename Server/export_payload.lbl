@@ -6,12 +6,21 @@ use server_paths
 
 record Entries
   keys: a list of text
-  bodies: a mapping from text to text
+  bodies: a list of text
 end
 
 record Batch
   keys: a list of text
   bodies: a list of text
+end
+
+record ExportOptions
+  output: text
+  shard_kind: text
+  shard_index: integer
+  shard_count: integer
+  shard_paths: a list of text
+  port: integer
 end
 
 record Payload
@@ -47,7 +56,7 @@ function responses(): text
 end
 
 function read_response(name: text): text
-  intent: read a canned response file with line endings normalised to LF
+  intent: replace CRLF with LF when reading a response file
   -- The payload is size-checked to the byte against a fixed constant. Git
   -- checkouts with core.autocrlf=true (the Windows default) rewrite these
   -- text files with CRLF endings, which would inflate the payload and trip
@@ -67,7 +76,7 @@ function fail(message: text): nothing
 end
 
 function count_occurrences(haystack: text, needle: text): integer
-  intent: count
+  intent: split haystack by needle and count matching segments
   -- split is native and counts non-overlapping matches left to right, exactly
   -- like the scan it replaces. The old per-character substring loop was
   -- quadratic and dominated the export: replace_exact runs it on every
@@ -88,34 +97,112 @@ end
 
 function add(entries: Entries, key: text, body: text): Entries
   intent: build
-  if has_key(entries.bodies, key) then
+  if contains(entries.keys, key) then
     fail("duplicate payload key: " ++ key)
     entries
   else
-    Entries { keys: append(entries.keys, key), bodies: put(entries.bodies, key, body) }
+    Entries { keys: append(entries.keys, key), bodies: append(entries.bodies, body) }
   end
 end
 
--- Builders accumulate into plain local lists: appending to a list held only by
--- one local is in place, whereas threading an Entries record through add()
--- copied every body collected so far on every call (quadratic in payload size).
--- The lookup map is built once, here, which also rejects duplicate keys.
+function entry_from_row(row: text): Batch
+  intent: decode
+  let pieces: a list of text = split(row, "\t")
+  let key: text = unwrap_or(get(pieces, 0), "")
+  mutable body_parts: a list of text = []
+  mutable index: integer = 1
+  while index < length(pieces) do
+    set body_parts = append(body_parts, unwrap_or(get(pieces, index), ""))
+    set index = index + 1
+  end
+  Batch { keys: [key], bodies: [join(body_parts, "\t")] }
+end
+
+function merge_sorted_rows(left: a list of text, right: a list of text): a list of text
+  intent: merge left_row and right_row in order
+  mutable merged: a list of text = []
+  mutable left_index: integer = 0
+  mutable right_index: integer = 0
+  while left_index < length(left) and right_index < length(right) do
+    let left_row: text = unwrap_or(get(left, left_index), "")
+    let right_row: text = unwrap_or(get(right, right_index), "")
+    if left_row <= right_row then
+      set merged = append(merged, left_row)
+      set left_index = left_index + 1
+    else
+      set merged = append(merged, right_row)
+      set right_index = right_index + 1
+    end
+  end
+  while left_index < length(left) do
+    set merged = append(merged, unwrap_or(get(left, left_index), ""))
+    set left_index = left_index + 1
+  end
+  while right_index < length(right) do
+    set merged = append(merged, unwrap_or(get(right, right_index), ""))
+    set right_index = right_index + 1
+  end
+  merged
+end
+
+function sort_entry_rows(rows: a list of text): a list of text
+  intent: sort payload rows by key
+  if length(rows) <= 1 then rows
+  else
+    let middle: integer = length(rows) / 2
+    mutable left: a list of text = []
+    mutable right: a list of text = []
+    mutable index: integer = 0
+    while index < length(rows) do
+      if index < middle then
+        set left = append(left, unwrap_or(get(rows, index), ""))
+      else
+        set right = append(right, unwrap_or(get(rows, index), ""))
+      end
+      set index = index + 1
+    end
+    merge_sorted_rows(sort_entry_rows(left), sort_entry_rows(right))
+  end
+end
+
+-- Keep key/body pairs together while sorting. Building a large mapping one
+-- entry at a time made export quadratic on the full hero and quest payload.
 function finish(keys: a list of text, bodies: a list of text): Entries
   intent: build
-  mutable table: a mapping from text to text = {}
+  mutable rows: a list of text = []
   mutable index: integer = 0
   while index < length(keys) do
     let key: text = unwrap_or(get(keys, index), "")
-    if has_key(table, key) then fail("duplicate payload key: " ++ key) end
-    set table = put(table, key, unwrap_or(get(bodies, index), ""))
+    let body: text = unwrap_or(get(bodies, index), "")
+    set rows = append(rows, key ++ "\t" ++ body)
     set index = index + 1
   end
-  Entries { keys: keys, bodies: table }
+  let sorted_rows: a list of text = sort_entry_rows(rows)
+  mutable sorted_keys: a list of text = []
+  mutable sorted_bodies: a list of text = []
+  mutable previous: text = ""
+  for row in sorted_rows do
+    let entry: Batch = entry_from_row(row)
+    let key: text = unwrap_or(get(entry.keys, 0), "")
+    if key == previous then fail("duplicate payload key: " ++ key) end
+    set sorted_keys = append(sorted_keys, key)
+    set sorted_bodies = append(sorted_bodies, unwrap_or(get(entry.bodies, 0), ""))
+    set previous = key
+  end
+  Entries { keys: sorted_keys, bodies: sorted_bodies }
 end
 
 function body_for(entries: Entries, key: text): text
   intent: get
-  unwrap_or(get(entries.bodies, key), "")
+  mutable index: integer = 0
+  mutable body: text = ""
+  while index < length(entries.keys) and body == "" do
+    if unwrap_or(get(entries.keys, index), "") == key then
+      set body = unwrap_or(get(entries.bodies, index), "")
+    end
+    set index = index + 1
+  end
+  body
 end
 
 function route_from_response(name: text): text
@@ -299,7 +386,7 @@ function tutorial_templates(): Entries
   let started_nobid: text = replace(fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"FTE\"\}"), "\"FTE\"", "\"%TID%\"")
   let blocked: text = fakeserver.dynamic("/tutorial/start-tutorial", "\{\"tid\":\"ShieldTutorial\"\}")
   if normal == "" or nobid == "" or started == "" or started_nobid == "" or blocked == "" then fail("fakeserver did not produce tutorial template") end
-  let empty: Entries = Entries { keys: [], bodies: {} }
+  let empty: Entries = Entries { keys: [], bodies: [] }
   let a: Entries = add(empty, "@tutorial:completed", normal)
   let b: Entries = add(a, "@tutorial:completed-nobid", nobid)
   let c: Entries = add(b, "@tutorial:started", started)
@@ -445,14 +532,26 @@ function quest_entries(set_id: text, qid: text): Batch
   merge_batches([own, quest_moves_for(qid)])
 end
 
-function add_quests(): Batch
+function add_quests_shard(shard_index: integer, shard_count: integer): Batch
   intent: build
+  if shard_count < 1 or shard_index < 0 or shard_index >= shard_count then fail("invalid quest shard index/count") end
+  let pairs: a list of text = mission_pairs()
   mutable quests: a list of Batch = []
-  for pair in mission_pairs() do
-    let parts: a list of text = split(pair, "\t")
-    set quests = append(quests, quest_entries(unwrap_or(get(parts, 0), ""), unwrap_or(get(parts, 1), "")))
+  mutable pair_index: integer = 0
+  while pair_index < length(pairs) do
+    if pair_index % shard_count == shard_index then
+      let pair: text = unwrap_or(get(pairs, pair_index), "")
+      let parts: a list of text = split(pair, "\t")
+      set quests = append(quests, quest_entries(unwrap_or(get(parts, 0), ""), unwrap_or(get(parts, 1), "")))
+    end
+    set pair_index = pair_index + 1
   end
   merge_batches(quests)
+end
+
+function add_quests(): Batch
+  intent: build
+  add_quests_shard(0, 1)
 end
 
 function single_batch(key: text, body: text): Batch
@@ -465,8 +564,12 @@ function merge_batches(batches: a list of Batch): Batch
   mutable keys: a list of text = []
   mutable bodies: a list of text = []
   for batch in batches do
-    set keys = concat(keys, batch.keys)
-    set bodies = concat(bodies, batch.bodies)
+    mutable index: integer = 0
+    while index < length(batch.keys) do
+      set keys = append(keys, unwrap_or(get(batch.keys, index), ""))
+      set bodies = append(bodies, unwrap_or(get(batch.bodies, index), ""))
+      set index = index + 1
+    end
   end
   Batch { keys: keys, bodies: bodies }
 end
@@ -506,22 +609,45 @@ function tutorial_entries(): Batch
   Batch { keys: tutorials.keys, bodies: bodies }
 end
 
+function hero_level_shard(bid: text, rank: integer, shard_index: integer, shard_count: integer, item_index: integer): Batch
+  intent: build
+  mutable keys: a list of text = []
+  mutable bodies: a list of text = []
+  mutable level: integer = 1
+  mutable index: integer = item_index
+  while level <= 30 do
+    if index % shard_count == shard_index then
+      set keys = append(keys, "@hero:" ++ bid ++ ":" ++ to_text(rank) ++ ":" ++ to_text(level))
+      set bodies = append(bodies, detail_for(bid, rank, level))
+    end
+    set index = index + 1
+    set level = level + 1
+  end
+  Batch { keys: keys, bodies: bodies }
+end
+
+
+function add_heroes_shard(shard_index: integer, shard_count: integer): Batch
+  intent: build
+  if shard_count < 1 or shard_index < 0 or shard_index >= shard_count then fail("invalid hero shard index/count") end
+  mutable batches: a list of Batch = if shard_index == 0 then [Batch { keys: ["@herodata:open", "@herodata:close"], bodies: ["\{\"error\":null,\"result\":[", "]\}"] }] else [] end
+  mutable item_index: integer = 0
+  for bid in sort_text(gamedata.owned()) do
+    for rank in [1, 2, 3, 4, 5] do
+      let level_batch: Batch = hero_level_shard(bid, rank, shard_index, shard_count, item_index)
+      set batches = append(batches, level_batch)
+      set item_index = item_index + 30
+    end
+  end
+  if shard_index == 0 then
+    set batches = append(batches, single_batch("@hero:*:1:1", detail_for("__unknown_bid__", 1, 1)))
+  end
+  merge_batches(batches)
+end
 
 function add_heroes(): Batch
   intent: build
-  mutable keys: a list of text = ["@herodata:open", "@herodata:close"]
-  mutable bodies: a list of text = ["\{\"error\":null,\"result\":[", "]\}"]
-  for bid in sort_text(gamedata.owned()) do
-    for rank in [1, 2, 3, 4, 5] do
-      mutable level: integer = 1
-      while level <= 30 do
-        set keys = append(keys, "@hero:" ++ bid ++ ":" ++ to_text(rank) ++ ":" ++ to_text(level))
-        set bodies = append(bodies, detail_for(bid, rank, level))
-        set level = level + 1
-      end
-    end
-  end
-  Batch { keys: append(keys, "@hero:*:1:1"), bodies: append(bodies, detail_for("__unknown_bid__", 1, 1)) }
+  add_heroes_shard(0, 1)
 end
 
 function team_members(): a list of text
@@ -576,11 +702,56 @@ function add_team_entries(): Batch
   merge_batches([roster_entries(), quest_member_entries(members), saved_hero_entries(members)])
 end
 
-function build_entries(listen_port: integer): Entries
+function static_entries(): Batch
+  intent: build
+  let base: Batch = single_batch("GET /base/active", envelope(gamedata.build_base_active()))
+  merge_batches([response_file_entries(), base, refresh_entries(), tutorial_entries(), add_team_entries()])
+end
+
+function text_array_json(values: a list of text): Json
+  intent: encode
+  mutable items: a list of Json = []
+  for value in values do set items = append(items, jsonout.json_text(value)) end
+  jsonout.json_list(items)
+end
+
+function batch_json(batch: Batch): text
+  intent: encode
+  jsonout.encode_compact(jsonout.json_obj([
+    jsonout.json_pair("keys", text_array_json(batch.keys)),
+    jsonout.json_pair("bodies", text_array_json(batch.bodies))
+  ]))
+end
+
+function text_array_from_json(value: Json): a list of text
+  intent: decode
+  mutable items: a list of text = []
+  for item in jsonout.list_items(value) do set items = append(items, jsonout.as_text(item)) end
+  items
+end
+
+function batch_from_json(source: text, path: text): Batch
+  intent: decode
+  let value: Json = jsonout.parse_json(source)
+  let keys: a list of text = text_array_from_json(jsonout.obj_get(value, "keys"))
+  let bodies: a list of text = text_array_from_json(jsonout.obj_get(value, "bodies"))
+  if length(keys) != length(bodies) then fail("payload shard key/body count mismatch: " ++ path) end
+  Batch { keys: keys, bodies: bodies }
+end
+
+function shard_batches(paths: a list of text): Batch
+  intent: merge
+  mutable batches: a list of Batch = []
+  for path in paths do set batches = append(batches, batch_from_json(read_file(path), path)) end
+  merge_batches(batches)
+end
+
+function build_entries(listen_port: integer, shard_paths: a list of text): Entries
   intent: build
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
   let base: Batch = single_batch("GET /base/active", envelope(gamedata.build_base_active()))
-  let all: Batch = merge_batches([response_file_entries(), base, add_quests(), refresh_entries(), tutorial_entries(), add_heroes(), add_team_entries()])
+  let heavy: Batch = if length(shard_paths) == 0 then merge_batches([add_quests(), add_heroes()]) else shard_batches(shard_paths) end
+  let all: Batch = merge_batches([response_file_entries(), base, heavy, refresh_entries(), tutorial_entries(), add_team_entries()])
   finish(all.keys, all.bodies)
 end
 
@@ -589,10 +760,21 @@ function padded(length: integer): integer
   length + 1 + ((4 - ((length + 1) % 4)) % 4)
 end
 
+function text_bytes_length(value: text): integer
+  intent: compute the UTF-8 byte length of text
+  let encoded: integer = bytes_from_text(value)
+  let result: integer = bytes_length(encoded)
+  bytes_free(encoded)
+  result
+end
+
 function write_value(blob: integer, offset: integer, value: text): integer
   intent: write
   if offset % 4 != 0 then fail("payload value offset is not aligned") end
-  let value_length: integer = bytes_write_text(blob, offset, value)
+  let encoded: integer = bytes_from_text(value)
+  let value_length: integer = bytes_length(encoded)
+  bytes_write_bytes(blob, offset, encoded)
+  bytes_free(encoded)
   offset + padded(value_length)
 end
 
@@ -614,14 +796,20 @@ end
 function payload_total(entries: Entries, keys: a list of text, pref: Prefixes): integer
   intent: compute
   mutable total: integer = 64 + 16 * length(keys) + 16 * length(pref.keys)
-  for key in keys do set total = total + padded(text_length(key)) + padded(text_length(body_for(entries, key))) end
+  mutable index: integer = 0
+  while index < length(keys) do
+    let key: text = unwrap_or(get(keys, index), "")
+    let body: text = unwrap_or(get(entries.bodies, index), "")
+    set total = total + padded(text_bytes_length(key)) + padded(text_bytes_length(body))
+    set index = index + 1
+  end
   mutable pindex: integer = 0
   while pindex < length(pref.keys) do
-    set total = total + padded(text_length(unwrap_or(get(pref.keys, pindex), ""))) + padded(text_length(unwrap_or(get(pref.bodies, pindex), "")))
+    set total = total + padded(text_bytes_length(unwrap_or(get(pref.keys, pindex), ""))) + padded(text_bytes_length(unwrap_or(get(pref.bodies, pindex), "")))
     set pindex = pindex + 1
   end
   let default_body: text = "\{\"error\":null,\"result\":\{\}\}"
-  total + padded(text_length(default_body))
+  total + padded(text_bytes_length(default_body))
 end
 
 function write_entries(blob: integer, entries: Entries, keys: a list of text, offset: integer): integer
@@ -629,15 +817,15 @@ function write_entries(blob: integer, entries: Entries, keys: a list of text, of
   mutable current: integer = offset
   mutable index: integer = 0
   for key in keys do
-    let body: text = body_for(entries, key)
+    let body: text = unwrap_or(get(entries.bodies, index), "")
     let key_offset: integer = current
     set current = write_value(blob, current, key)
     let body_offset: integer = current
     set current = write_value(blob, current, body)
     bytes_write_u32_le(blob, 64 + index * 16, key_offset)
-    bytes_write_u32_le(blob, 68 + index * 16, text_length(key))
+    bytes_write_u32_le(blob, 68 + index * 16, text_bytes_length(key))
     bytes_write_u32_le(blob, 72 + index * 16, body_offset)
-    bytes_write_u32_le(blob, 76 + index * 16, text_length(body))
+    bytes_write_u32_le(blob, 76 + index * 16, text_bytes_length(body))
     set index = index + 1
   end
   current
@@ -656,9 +844,9 @@ function write_prefixes(blob: integer, pref: Prefixes, prefix_offset: integer, o
     set current = write_value(blob, current, body)
     let row_offset: integer = prefix_offset + pindex * 16
     bytes_write_u32_le(blob, row_offset, key_offset)
-    bytes_write_u32_le(blob, row_offset + 4, text_length(key))
+    bytes_write_u32_le(blob, row_offset + 4, text_bytes_length(key))
     bytes_write_u32_le(blob, row_offset + 8, body_offset)
-    bytes_write_u32_le(blob, row_offset + 12, text_length(body))
+    bytes_write_u32_le(blob, row_offset + 12, text_bytes_length(body))
     set pindex = pindex + 1
   end
   current
@@ -680,11 +868,11 @@ function header(blob: integer, total: integer, port: integer, count: integer, pr
   bytes_write_u32_le(blob, 44, crc)
 end
 
-public function build_payload(listen_port: integer): integer
+public function build_payload_with_shards(listen_port: integer, shard_paths: a list of text): integer
   intent: build
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
-  let entries: Entries = build_entries(listen_port)
-  let keys: a list of text = sort_text(entries.keys)
+  let entries: Entries = build_entries(listen_port, shard_paths)
+  let keys: a list of text = entries.keys
   let pref: Prefixes = prefixes()
   if length(pref.keys) != length(pref.bodies) then fail("payload prefix key/body count mismatch") end
   let total: integer = payload_total(entries, keys, pref)
@@ -699,6 +887,11 @@ public function build_payload(listen_port: integer): integer
   if final_offset != total then fail("payload writer ended at " ++ to_text(final_offset) ++ " instead of " ++ to_text(total)) end
   header(blob, total, listen_port, length(keys), length(pref.keys), prefix_offset, default_offset)
   blob
+end
+
+public function build_payload(listen_port: integer): integer
+  intent: build
+  build_payload_with_shards(listen_port, [])
 end
 
 function payload_error(message: text): Payload
@@ -733,7 +926,7 @@ record Utf8Lead
 end
 
 function utf8_needed(first: integer): integer
-  intent: classify
+  intent: return -1, 0, 1, 2, or 3 from first-byte ranges
   if first <= 127 then 0
   else if first >= 194 and first <= 223 then 1
   else if first >= 224 and first <= 239 then 2
@@ -743,17 +936,17 @@ function utf8_needed(first: integer): integer
 end
 
 function utf8_second_low(first: integer): integer
-  intent: classify
+  intent: select 160 for first 224, 144 for first 240, or 128 otherwise
   if first == 224 then 160 else if first == 240 then 144 else 128 end
 end
 
 function utf8_second_high(first: integer): integer
-  intent: classify
+  intent: select 159 for first 237, 143 for first 244, or 191 otherwise
   if first == 237 then 159 else if first == 244 then 143 else 191 end
 end
 
 function utf8_lead(first: integer): Utf8Lead
-  intent: classify
+  intent: determine UTF-8 lead validity and continuation bounds
   let needed: integer = utf8_needed(first)
   if needed < 0 then Utf8Lead { valid: false, needed: 0, low: 128, high: 191 }
   else Utf8Lead { valid: true, needed: needed, low: utf8_second_low(first), high: utf8_second_high(first) }
@@ -916,31 +1109,73 @@ public function load_payload(blob: integer): Payload
   end
 end
 
-function main(): nothing
-  intent: run
-  let args: a list of text = get_args()
-  mutable output: text = ""
-  mutable port: integer = 8080
+function option_value(args: a list of text, option: text, fallback: text): text
+  intent: read
+  mutable value: text = fallback
   mutable index: integer = 1
   while index < length(args) do
-    let argument: text = unwrap_or(get(args, index), "")
-    if argument == "--out" then
-      set output = unwrap_or(get(args, index + 1), "")
-      set index = index + 1
-    else if argument == "--listen-port" then
-      set port = unwrap_or(to_integer(unwrap_or(get(args, index + 1), "")), 0)
-      set index = index + 1
+    if unwrap_or(get(args, index), "") == option then
+      set value = unwrap_or(get(args, index + 1), "")
     end
     set index = index + 1
   end
-  if output == "" then
-    print("usage: export_payload.lbl --out <path> [--listen-port <n>]")
+  value
+end
+
+function option_paths(args: a list of text): a list of text
+  intent: read
+  mutable paths: a list of text = []
+  mutable index: integer = 1
+  while index < length(args) do
+    if unwrap_or(get(args, index), "") == "--shard-input" then
+      set paths = append(paths, unwrap_or(get(args, index + 1), ""))
+    end
+    set index = index + 1
+  end
+  paths
+end
+
+function parse_options(args: a list of text): ExportOptions
+  intent: parse
+  ExportOptions {
+    output: option_value(args, "--out", ""),
+    shard_kind: option_value(args, "--shard-kind", ""),
+    shard_index: unwrap_or(to_integer(option_value(args, "--shard-index", "0")), -1),
+    shard_count: unwrap_or(to_integer(option_value(args, "--shard-count", "1")), 0),
+    shard_paths: option_paths(args),
+    port: unwrap_or(to_integer(option_value(args, "--listen-port", "8080")), 0)
+  }
+end
+
+function write_shard(options: ExportOptions): nothing
+  intent: write
+  if options.shard_kind != "quests" and options.shard_kind != "heroes" and options.shard_kind != "static" then fail("unknown shard kind: " ++ options.shard_kind) end
+  let batch: Batch = if options.shard_kind == "quests" then add_quests_shard(options.shard_index, options.shard_count) else if options.shard_kind == "heroes" then add_heroes_shard(options.shard_index, options.shard_count) else static_entries() end
+  write_file(options.output, batch_json(batch))
+  print("wrote " ++ options.output ++ ": " ++ to_text(length(batch.keys)) ++ " shard entries")
+end
+
+function write_full_payload(options: ExportOptions): nothing
+  intent: write
+  let blob: integer = build_payload_with_shards(options.port, options.shard_paths)
+  write_file_bytes(options.output, blob)
+  print("wrote " ++ options.output ++ ": " ++ to_text(bytes_length(blob)) ++ " bytes, " ++ to_text(bytes_read_u32_le(blob, 20)) ++ " entries, " ++ to_text(bytes_read_u32_le(blob, 28)) ++ " prefixes, port " ++ to_text(bytes_read_u32_le(blob, 16)))
+  bytes_free(blob)
+end
+
+function main(): nothing
+  intent: run
+  let args: a list of text = get_args()
+  let options: ExportOptions = parse_options(args)
+  if options.output == "" then
+    print("usage: export_payload.lbl --out <path> [--listen-port <n>] [--shard-kind quests|heroes|static --shard-index i --shard-count n] [--shard-input <json> ...]")
     exit_process(2)
   end
-  let blob: integer = build_payload(port)
-  write_file_bytes(output, blob)
-  print("wrote " ++ output ++ ": " ++ to_text(bytes_length(blob)) ++ " bytes, " ++ to_text(bytes_read_u32_le(blob, 20)) ++ " entries, " ++ to_text(bytes_read_u32_le(blob, 28)) ++ " prefixes, port " ++ to_text(bytes_read_u32_le(blob, 16)))
-  bytes_free(blob)
+  if options.shard_kind != "" then
+    write_shard(options)
+  else
+    write_full_payload(options)
+  end
 end
 
 main()
