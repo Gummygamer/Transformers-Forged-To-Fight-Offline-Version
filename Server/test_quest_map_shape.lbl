@@ -55,7 +55,7 @@ end
 function main(): nothing
   intent: test quest map dimensions against the client square grid contract
   mutable failed: integer = 0
-  for qid in ["1.1.1", gamedata.custom_story_qid(), gamedata.custom_story_act2_qid(), gamedata.custom_story_act3_qid(), gamedata.challenge_qid()] do
+  for qid in ["1.1.1", gamedata.custom_story_qid(), gamedata.custom_story_act2_qid(), gamedata.custom_story_act3_qid(), gamedata.custom_story_standalone_qid(), gamedata.custom_story_motormaster_qid(), gamedata.challenge_qid()] do
     if map_shape_valid(qid) then print("[ok] map shape " ++ qid)
     else print("[!] map shape " ++ qid) set failed = failed + 1 end
   end
