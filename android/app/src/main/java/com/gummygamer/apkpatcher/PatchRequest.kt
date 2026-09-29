@@ -60,7 +60,13 @@ data class PatchRequest(
     val arenaRelayPort: Int = ArenaConfigPatch.DEFAULT_PORT,
 
     /** Target frame rate: 60 (default, unlocked) or 30 (original game). */
-    val targetFps: Int = FPS_60
+    val targetFps: Int = FPS_60,
+
+    /** Optional ZIP containing complete localized catalogs in locales/<locale>.json. */
+    val localizationCatalogUri: String = "",
+
+    /** Locale to activate in the packaged catalog set. */
+    val gameLocale: String = "en"
 ) {
     /** Validate the request returns a list of user-facing error/warning messages. */
     fun validate(): ValidationResult {
@@ -114,6 +120,14 @@ data class PatchRequest(
 
         if (targetFps != FPS_30 && targetFps != FPS_60) {
             errors += "Target framerate must be 30 or 60 FPS."
+        }
+
+        if (LocalizationCatalog.canonicalize(gameLocale) == null) {
+            errors += "Game language must be one of the supported languages."
+        }
+        val canonicalGameLocale = LocalizationCatalog.canonicalize(gameLocale)
+        if (localizationCatalogUri.isBlank() && canonicalGameLocale != "en") {
+            errors += "Select a complete localization catalog ZIP before choosing a non-English game language."
         }
 
         if (abi == ARMV7 && targetFps == FPS_60) {

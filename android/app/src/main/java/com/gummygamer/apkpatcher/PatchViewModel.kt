@@ -47,6 +47,9 @@ data class UiState(
     val keyPassword: String = "",
     val keyAlias: String = "patcher",
     val offerInstall: Boolean = true,
+    val localizationCatalogUri: String = "",
+    val localizationCatalogName: String = "",
+    val gameLocale: String = "en",
 
     // --- validation ---
     val validationErrors: List<String> = emptyList(),
@@ -78,6 +81,11 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val prefs = application.getSharedPreferences("patcher_state", 0)
+        _uiState.update { it.copy(
+            localizationCatalogUri = prefs.getString("localization_catalog_uri", "") ?: "",
+            localizationCatalogName = prefs.getString("localization_catalog_name", "") ?: "",
+            gameLocale = prefs.getString("game_locale", "en") ?: "en"
+        ) }
         // Accept an artifact produced by the previous cache-based build so an app
         // upgrade does not strand a successful patch before the user exports it.
         val legacyPath = File(application.cacheDir, "patched_apks").listFiles()
@@ -222,6 +230,22 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(offerInstall = offer) }
     }
 
+    fun setLocalizationCatalog(uri: String, displayName: String) {
+        getApplication<Application>().getSharedPreferences("patcher_state", 0).edit()
+            .putString("localization_catalog_uri", uri).putString("localization_catalog_name", displayName).apply()
+        _uiState.update { it.copy(localizationCatalogUri = uri, localizationCatalogName = displayName) }
+        revalidate()
+    }
+
+    fun clearLocalizationCatalog() = setLocalizationCatalog("", "")
+
+    fun setGameLocale(locale: String) {
+        getApplication<Application>().getSharedPreferences("patcher_state", 0).edit()
+            .putString("game_locale", locale).apply()
+        _uiState.update { it.copy(gameLocale = locale) }
+        revalidate()
+    }
+
     // ---- Validation + preview ----
 
     private fun revalidate() {
@@ -279,7 +303,9 @@ class PatchViewModel(application: Application) : AndroidViewModel(application) {
         keyAlias = s.keyAlias,
         offerInstall = s.offerInstall,
         arenaRelayHost = s.arenaRelayHost,
-        arenaRelayPort = s.arenaRelayPort
+        arenaRelayPort = s.arenaRelayPort,
+        localizationCatalogUri = s.localizationCatalogUri,
+        gameLocale = s.gameLocale
     )
 
     // ---- Execute ----

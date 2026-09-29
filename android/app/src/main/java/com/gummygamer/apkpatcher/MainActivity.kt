@@ -33,6 +33,10 @@ class MainActivity : AppCompatActivity() {
     // Source APK
     private lateinit var btnSelectSource: MaterialButton
     private lateinit var txtSourceName: TextView
+    private lateinit var btnSelectLocalization: MaterialButton
+    private lateinit var btnClearLocalization: MaterialButton
+    private lateinit var txtLocalizationCatalog: TextView
+    private lateinit var dropGameLocale: android.widget.AutoCompleteTextView
 
     // Architecture
     private lateinit var radioArm64: MaterialRadioButton
@@ -123,6 +127,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val selectLocalizationLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val name = queryDisplayName(uri) ?: "localization-catalog.zip"
+            viewModel.setLocalizationCatalog(uri.toString(), name)
+            persistReadPermission(uri, "localization catalog")
+        }
+    }
+
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.android.package-archive")
     ) { uri: Uri? ->
@@ -161,6 +175,10 @@ class MainActivity : AppCompatActivity() {
     private fun bindViews() {
         btnSelectSource = findViewById(R.id.btnSelectSource)
         txtSourceName = findViewById(R.id.txtSourceName)
+        btnSelectLocalization = findViewById(R.id.btnSelectLocalization)
+        btnClearLocalization = findViewById(R.id.btnClearLocalization)
+        txtLocalizationCatalog = findViewById(R.id.txtLocalizationCatalog)
+        dropGameLocale = findViewById(R.id.dropGameLocale)
         radioArm64 = findViewById(R.id.radioArm64)
         radioArmv7 = findViewById(R.id.radioArmv7)
         chkKeepOther = findViewById(R.id.chkKeepOther)
@@ -203,11 +221,31 @@ class MainActivity : AppCompatActivity() {
         // Scheme dropdown
         val schemes = arrayOf("http", "https")
         dropScheme.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, schemes))
+        val locales = LocalizationCatalog.supportedLocales.map { locale ->
+            val label = when (locale) {
+                "ar" -> "Arabic"; "de" -> "German"; "en" -> "English"; "es" -> "Spanish"
+                "fr" -> "French"; "id" -> "Indonesian"; "it" -> "Italian"; "ja" -> "Japanese"
+                "ko" -> "Korean"; "nl" -> "Dutch"; "no" -> "Norwegian"; "pt" -> "Portuguese"
+                "ru" -> "Russian"; "th" -> "Thai"; "tr" -> "Turkish"; "zh-CN" -> "Chinese (Simplified)"
+                else -> "Chinese (Traditional)"
+            }
+            "$label ($locale)"
+        }
+        dropGameLocale.setAdapter(ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, locales))
     }
 
     private fun setupListeners() {
         btnSelectSource.setOnClickListener {
             selectSourceLauncher.launch(arrayOf("application/vnd.android.package-archive", "application/octet-stream"))
+        }
+        btnSelectLocalization.setOnClickListener {
+            selectLocalizationLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+        }
+        btnClearLocalization.setOnClickListener {
+            viewModel.clearLocalizationCatalog()
+        }
+        dropGameLocale.setOnItemClickListener { _, _, position, _ ->
+            viewModel.setGameLocale(LocalizationCatalog.supportedLocales[position])
         }
 
         radioArm64.setOnCheckedChangeListener { _, checked ->
@@ -289,6 +327,11 @@ class MainActivity : AppCompatActivity() {
     private fun renderState(s: UiState) {
         // Source APK
         txtSourceName.text = if (s.sourceApkName.isNotBlank()) s.sourceApkName else "No APK selected"
+        txtLocalizationCatalog.text = if (s.localizationCatalogName.isNotBlank()) s.localizationCatalogName else getString(R.string.no_localization_catalog)
+        btnClearLocalization.isVisible = s.localizationCatalogUri.isNotBlank()
+        val localeIndex = LocalizationCatalog.supportedLocales.indexOf(s.gameLocale).coerceAtLeast(0)
+        val localeLabel = dropGameLocale.adapter?.getItem(localeIndex)?.toString() ?: s.gameLocale
+        if (dropGameLocale.text.toString() != localeLabel) dropGameLocale.setText(localeLabel, false)
 
         // Architecture
         if (s.abi == PatchRequest.ARM64 && !radioArm64.isChecked) {
@@ -376,6 +419,9 @@ class MainActivity : AppCompatActivity() {
         // Buttons
         val isRunning = s.engineState == PatcherState.RUNNING
         btnBuild.isEnabled = !isRunning && s.validationErrors.isEmpty() && s.sourceApkUri.isNotBlank()
+        btnSelectLocalization.isEnabled = !isRunning
+        btnClearLocalization.isEnabled = !isRunning
+        dropGameLocale.isEnabled = !isRunning
         btnCancel.isEnabled = isRunning
         btnExport.isVisible = s.engineState == PatcherState.SUCCEEDED && s.outputFilePath.isNotBlank()
         btnInstall.isVisible = s.engineState == PatcherState.SUCCEEDED && s.outputFilePath.isNotBlank()

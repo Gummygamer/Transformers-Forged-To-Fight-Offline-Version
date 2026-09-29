@@ -227,6 +227,31 @@ The Android patcher performs the complete patch-and-install workflow on-device:
 | Live Arena relay (arm64) | Optional host + UDP port written into the hook's session block; blank keeps the async Arena |
 | Install (adb) | PackageInstaller session handoff |
 
+## Localization catalog ZIP contract
+
+The patcher accepts a user-selected ZIP containing exactly one JSON catalog for every
+supported locale: `ar`, `de`, `en`, `es`, `fr`, `id`, `it`, `ja`, `ko`, `nl`, `no`,
+`pt`, `ru`, `th`, `tr`, `zh-CN`, and `zh-TW`. Each entry is named
+`locales/<locale>.json` and contains a `meta` object plus a non-empty `strings` array
+of `{ "k": "stable-key", "v": "translation" }` objects. Keys and values must be
+strings; keys must be unique and non-empty. Every locale must have the same keys in
+the same order as English. Formatting placeholders and markup tags must match English.
+
+Catalog entries must be valid UTF-8 JSON. ZIP paths outside the exact catalog path
+pattern, duplicate canonical locale entries, malformed JSON/UTF-8, missing locales,
+empty strings, and archives over 32 MiB total or 4 MiB per catalog are rejected.
+`in` is accepted as an Indonesian ZIP/input alias for `id`; locale matching is
+case-insensitive and treats underscores as hyphens. Chinese script/region distinctions
+are retained (`zh-Hans`/`zh-CN`/`zh-SG` select `zh-CN`; `zh-Hant`/`zh-TW`/`zh-HK`
+select `zh-TW`). Selection resolves exact locale, base language, then English.
+
+The game language is selected explicitly in the patcher. The validated original JSON
+bytes are stored unchanged in the APK under `assets/tftf_localization/<locale>.json`,
+with the selected canonical locale in `assets/tftf_localization/active_locale.txt`.
+Existing files under that asset prefix are replaced to prevent duplicate catalogs.
+This defines the stable ZIP/package interface only; game runtime loading is pending.
+Translated catalogs are authored separately and are not included in this project change.
+
 The patch result is first written atomically into persistent app-private storage at
 `files/patched_apks/` (rather than the reclaimable cache). The result card identifies the
 saved artifact and provides **Save / Share** and **Install patched APK** actions. Save copies
