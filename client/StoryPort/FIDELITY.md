@@ -75,5 +75,7 @@ Remaining gaps: the server grants no match rewards, so the result screen has no
 rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
 alliance beam glow is hidden (it renders opaque); the enemy
 defense timing still needs a full device fight comparison; the special-attack
-cinematic camera (attacker close-up, swing to target, return) is an approximation
-not yet checked frame-by-frame against the ~2:48 reference footage.
+cinematic camera (attacker close-up, swing to target, return) is an approximation.
+In Unity 6.6.3f1 Play Mode, both player and enemy level-3 specials moved the camera and restored its
+fight position, rotation and field of view exactly. The shot framing still needs frame-by-frame
+comparison with the ~2:48 reference footage.
