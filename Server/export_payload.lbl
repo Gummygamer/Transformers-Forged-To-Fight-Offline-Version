@@ -267,21 +267,28 @@ function saved_team_template(): text
   let produced: text = fakeserver.dynamic("/bcg/setSavedTeam", jsonout.encode_spaced(request))
   fakeserver.reset_saved_team()
   if produced == "" then fail("fakeserver did not produce saved-team template") end
-  let body: text = jsonout.encode_compact(jsonout.parse_json(produced))
+  let value: Json = jsonout.parse_json(produced)
+  let user_data: Json = gamedata.build_user_data([])
+  let updates: Json = jsonout.obj_get(user_data, "updates")
+  let expected_active: integer = length(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")))
+  let body: text = jsonout.encode_compact(value)
   if count_occurrences(body, "%TID%") != 2 then fail("saved-team template: expected two teamID tokens") end
   let values: a list of text = team_values("1.1.1", [])
   let saved: text = unwrap_or(get(values, 0), "")
   let active: text = unwrap_or(get(values, 1), "")
   let one: text = replace_exact(body, saved, "%STEAM%", 1, "saved-team saved heroes")
-  replace_exact(one, active, "%ATEAM%", 6, "saved-team active heroes")
+  replace_exact(one, active, "%ATEAM%", expected_active, "saved-team active heroes")
 end
 
 function user_data_template(): text
   intent: build
   let values: a list of text = team_values("1.1.1", [])
-  let body: text = envelope(gamedata.build_user_data([]))
+  let user_data: Json = gamedata.build_user_data([])
+  let updates: Json = jsonout.obj_get(user_data, "updates")
+  let expected_active: integer = length(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")))
+  let body: text = envelope(user_data)
   let one: text = replace_exact(body, unwrap_or(get(values, 0), ""), "%STEAM%", 1, "user-data saved heroes")
-  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", 6, "user-data active heroes")
+  replace_exact(one, unwrap_or(get(values, 1), ""), "%ATEAM%", expected_active, "user-data active heroes")
 end
 
 function tutorial_templates(): Entries
@@ -582,14 +589,6 @@ function padded(length: integer): integer
   length + 1 + ((4 - ((length + 1) % 4)) % 4)
 end
 
-function text_bytes_length(value: text): integer
-  intent: get
-  let data: integer = bytes_from_text(value)
-  let result: integer = bytes_length(data)
-  bytes_free(data)
-  result
-end
-
 function write_value(blob: integer, offset: integer, value: text): integer
   intent: write
   if offset % 4 != 0 then fail("payload value offset is not aligned") end
@@ -618,14 +617,14 @@ end
 function payload_total(entries: Entries, keys: a list of text, pref: Prefixes): integer
   intent: compute
   mutable total: integer = 64 + 16 * length(keys) + 16 * length(pref.keys)
-  for key in keys do set total = total + padded(text_bytes_length(key)) + padded(text_bytes_length(body_for(entries, key))) end
+  for key in keys do set total = total + padded(text_length(key)) + padded(text_length(body_for(entries, key))) end
   mutable pindex: integer = 0
   while pindex < length(pref.keys) do
-    set total = total + padded(text_bytes_length(unwrap_or(get(pref.keys, pindex), ""))) + padded(text_bytes_length(unwrap_or(get(pref.bodies, pindex), "")))
+    set total = total + padded(text_length(unwrap_or(get(pref.keys, pindex), ""))) + padded(text_length(unwrap_or(get(pref.bodies, pindex), "")))
     set pindex = pindex + 1
   end
   let default_body: text = "\{\"error\":null,\"result\":\{\}\}"
-  total + padded(text_bytes_length(default_body))
+  total + padded(text_length(default_body))
 end
 
 function write_entries(blob: integer, entries: Entries, keys: a list of text, offset: integer): integer
@@ -639,9 +638,9 @@ function write_entries(blob: integer, entries: Entries, keys: a list of text, of
     let body_offset: integer = current
     set current = write_value(blob, current, body)
     bytes_write_u32_le(blob, 64 + index * 16, key_offset)
-    bytes_write_u32_le(blob, 68 + index * 16, text_bytes_length(key))
+    bytes_write_u32_le(blob, 68 + index * 16, text_length(key))
     bytes_write_u32_le(blob, 72 + index * 16, body_offset)
-    bytes_write_u32_le(blob, 76 + index * 16, text_bytes_length(body))
+    bytes_write_u32_le(blob, 76 + index * 16, text_length(body))
     set index = index + 1
   end
   current
@@ -660,9 +659,9 @@ function write_prefixes(blob: integer, pref: Prefixes, prefix_offset: integer, o
     set current = write_value(blob, current, body)
     let row_offset: integer = prefix_offset + pindex * 16
     bytes_write_u32_le(blob, row_offset, key_offset)
-    bytes_write_u32_le(blob, row_offset + 4, text_bytes_length(key))
+    bytes_write_u32_le(blob, row_offset + 4, text_length(key))
     bytes_write_u32_le(blob, row_offset + 8, body_offset)
-    bytes_write_u32_le(blob, row_offset + 12, text_bytes_length(body))
+    bytes_write_u32_le(blob, row_offset + 12, text_length(body))
     set pindex = pindex + 1
   end
   current
