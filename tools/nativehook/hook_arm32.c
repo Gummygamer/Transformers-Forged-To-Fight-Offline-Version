@@ -173,8 +173,9 @@ static strnew_t g_strnew = NULL;
 static arraynew_t g_arraynew = NULL;
 static void* g_empty_tags = NULL;   // shared empty string[] (see hook.c slot 57)
 static fn8 g_dialogue_deserialize_orig = NULL;
-// DialogueEntry.get_line is a tiny auto-property getter the overlay never calls, so the
-// translation is applied to the <line> backing field (+0x20) after Deserialize.
+// DialogueEntry.get_line is a tiny auto-property getter the overlay never calls.
+// Hook Deserialize instead and replace the <line> backing field (+0x20) after the
+// original has populated it, before the entry is returned to the dialogue display path.
 
 static int dialogue_string_equals_utf8(void* managed, const char* utf8){
     uintptr_t p = (uintptr_t)managed;

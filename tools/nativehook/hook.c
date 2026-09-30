@@ -124,8 +124,9 @@ static uintptr_t g_base;            // libil2cpp base (set in installer)
 static strnew_t g_strnew = NULL;    // il2cpp_string_new (dlsym'd in installer)
 static fn8 g_dialogue_deserialize_orig = NULL;
 static const uint32_t RVA_LOCALIZER_GET_CURRENT = 0x127CD10;
-// DialogueEntry.get_line is an 8-byte auto-property getter the overlay never calls, so the
-// translation is applied to the <line> backing field once the entry has been deserialized.
+// DialogueEntry.get_line is an 8-byte auto-property getter the overlay never calls.
+// Hook Deserialize instead and replace the <line> backing field after the original has
+// populated it, before the entry is returned to the dialogue display path.
 static const uint32_t RVA_DIALOGUE_ENTRY_DESERIALIZE = 0x145D748;
 static const uint32_t OFFSET_DIALOGUE_ENTRY_LINE = 0x38;
 static arraynew_t g_arraynew = NULL; // il2cpp_array_new (dlsym'd in installer)

@@ -242,6 +242,12 @@ no translation-file input in the patcher. Run `./tools/prepare-assets.sh 8080` f
 `android/` before a debug build when refreshing native hook assets; release builds do
 this automatically.
 
+From the repository root, run
+`TFTF_PATCHER_APK=android/app/build/outputs/apk/release/app-release-unsigned.apk python3 tools/nativehook/test_dialogue_localization.py`
+after a release build to check all bundled translations, both native dialogue
+deserializers, language slots, and English fallbacks. Use the signed APK path if
+release signing is configured.
+
 The patch result is first written atomically into persistent app-private storage at
 `files/patched_apks/` (rather than the reclaimable cache). The result card identifies the
 saved artifact and provides **Save / Share** and **Install patched APK** actions. Save copies
