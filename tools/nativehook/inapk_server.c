@@ -49,6 +49,10 @@ static pthread_mutex_t g_conn_lock = PTHREAD_MUTEX_INITIALIZER;
 static Position g_pos[16];
 static char g_saved_team[TEAM_SIZE_MAX][64];
 static int g_saved_team_count;
+/* Keep the local consumables in the same small state file as quest progress so
+   they survive app and server restarts without another persistence service. */
+static const char *g_consumable_ids[] = { "repair_kit", "team_repair_kit", "revive_kit" };
+static int g_consumable_counts[] = { 3, 1, 1 };
 static int g_connections;
 static int g_started;
 static int g_state_loaded;
@@ -252,6 +256,7 @@ static void persist_quest_state_locked(void) {
         for(k=0;k<TEAM_SIZE_MAX;k++)fprintf(f,"%s%.4f",k?",":"",g_pos[i].health[k]);
         fputc('\n',f);
     }
+    for(i=0;i<3;i++)fprintf(f,"I|%s|%d\n",g_consumable_ids[i],g_consumable_counts[i]);
     if(fflush(f)||fclose(f)){unlink(tmp);return;}
     if(rename(tmp,path))unlink(tmp);
 }
@@ -309,6 +314,13 @@ static void load_quest_state(void) {
             slot=-1;
             for(int k=0;k<16;k++)if(!g_pos[k].qid[0]){slot=k;break;}
             if(slot>=0)g_pos[slot]=loaded;
+        } else if(!strncmp(line,"I|",2)){
+            char id[64]; int count=-1;
+            if(sscanf(line+2,"%63[^|]|%d",id,&count)==2 && count>=0){
+                for(int i=0;i<3;i++)if(!strcmp(id,g_consumable_ids[i])){
+                    g_consumable_counts[i]=count;break;
+                }
+            }
         }
     }
     pthread_mutex_unlock(&g_pos_lock);
@@ -441,7 +453,13 @@ static void resolve_match(const char *body, const char *end) {
             if(hp>=0.0f){g_pos[i].health[h]=hp;logmsg("quest-health saved qid=%s hero=%s hp=%.4f",g_pos[i].qid,team.bid[h],hp);}
             else logmsg("quest-health missing qid=%s hero=%s",g_pos[i].qid,team.bid[h]);
         }
-        if(!strcasecmp(outcome,"WON")){g_pos[i].pending=0;g_pos[i].completed=1;cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);}
+        if(!strcasecmp(outcome,"WON")){
+            int first_clear=!cleared_has(&g_pos[i],g_pos[i].x,g_pos[i].y);
+            g_pos[i].pending=0;g_pos[i].completed=1;cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);
+            /* First-time encounter clears fund the repair loop; revisiting a
+               cleared tile cannot be used to farm consumables. */
+            if(first_clear&&g_consumable_counts[0]<999)g_consumable_counts[0]++;
+        }
     }
     if(!matched)logmsg("quest-health ignored submitted=%s normalized=%s outcome=%s team=%d",submitted,qid,outcome,have_team?team.count:0);
     persist_quest_state_locked();
@@ -476,23 +494,59 @@ static int json_use_targets(const char *body, const char *end, char bids[][64], 
     *count=n;
     return 1;
 }
-static int apply_repair_targets(const char *body, const char *end, const char *qid) {
+static int consumable_index(const char *name) {
+    for(int i=0;i<3;i++)if(!strcmp(name,g_consumable_ids[i]))return i;
+    if(!strcmp(name,"Repair Kit"))return 0;
+    if(!strcmp(name,"Team Repair Kit"))return 1;
+    if(!strcmp(name,"Revive"))return 2;
+    return -1;
+}
+static int apply_repair_targets(const char *body, const char *end, const char *qid, int item) {
     char bids[TEAM_SIZE_MAX][64]; int count=0,changed=0,have_qid=qid&&qid[0]; Team team;
-    if(!json_use_targets(body,end,bids,&count)||count==0||!resolve_team(&team))return 0;
+    if(item<0||item>2||!json_use_targets(body,end,bids,&count)||count==0||!resolve_team(&team))return 0;
     pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16;i++)if(g_pos[i].qid[0]&&g_pos[i].pending&&(!have_qid||!strcmp(g_pos[i].qid,qid))) {
-        for(int h=0;h<team.count;h++)for(int b=0;b<count;b++)if(!strcmp(team.bid[h],bids[b])) {
-            g_pos[i].health[h]=1.0f; changed=1;
+    for(int i=0;i<16;i++)if(g_pos[i].qid[0]&&(!have_qid||!strcmp(g_pos[i].qid,qid))) {
+        for(int h=0;h<team.count;h++) {
+            int selected=item==1;
+            for(int b=0;b<count;b++)if(!strcmp(team.bid[h],bids[b]))selected=1;
+            if(!selected)continue;
+            if(item==2) {
+                if(g_pos[i].health[h]<=0.0f){g_pos[i].health[h]=0.5f;changed=1;}
+            } else if(g_pos[i].health[h]>0.0f && g_pos[i].health[h]<1.0f) {
+                float amount=item==0?0.30f:0.20f;
+                g_pos[i].health[h]+=amount;
+                if(g_pos[i].health[h]>1.0f)g_pos[i].health[h]=1.0f;
+                changed=1;
+            }
         }
     }
     if(changed)persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
-    return 1;
+    return changed;
 }
 static const unsigned char *use_game_store_items(const char *body, const char *end, Out *o, size_t *outn) {
-    apply_repair_targets(body,end,NULL);
-    static const char response[]="{\"error\":null,\"result\":{\"redeemers\":[]}}";
-    if(!out_add(o,response,sizeof response-1))return NULL;
+    const char *items=json_value(body,end,"items"), *item_end;
+    char item_name[128]="", bids[TEAM_SIZE_MAX][64]; int count=0, idx;
+    const char *q;
+    if(!items||*items!='[')return NULL;
+    q=items+1;while(q<end&&isspace((unsigned char)*q))q++;
+    if(q>=end||*q!='{')return NULL;
+    item_end=json_object_end(q,end);
+    if(!item_end||!json_string(q,item_end,"item_name",item_name,sizeof item_name))return NULL;
+    idx=consumable_index(item_name);
+    if(idx<0||!json_use_targets(body,end,bids,&count)||!count)return NULL;
+    pthread_mutex_lock(&g_pos_lock);
+    if(g_consumable_counts[idx]<=0){pthread_mutex_unlock(&g_pos_lock);static const char empty[]="{\"error\":\"nsf\",\"result\":null}";if(!out_add(o,empty,sizeof empty-1))return NULL;*outn=o->n;return o->p;}
+    pthread_mutex_unlock(&g_pos_lock);
+    if(!apply_repair_targets(body,end,NULL,idx))return NULL;
+    pthread_mutex_lock(&g_pos_lock);
+    if(g_consumable_counts[idx]<=0){pthread_mutex_unlock(&g_pos_lock);return NULL;}
+    g_consumable_counts[idx]--;
+    persist_quest_state_locked();
+    pthread_mutex_unlock(&g_pos_lock);
+    static const char *redeemers[]={"\"redeemers\":[{\"t\":\"hth\",\"q\":30}]","\"redeemers\":[{\"t\":\"hth\",\"q\":20}]","\"redeemers\":[{\"t\":\"rvv\",\"q\":50}]"};
+    char response[160];int n=snprintf(response,sizeof response,"{\"error\":null,\"result\":{%s}}",redeemers[idx]);
+    if(n<=0||(size_t)n>=sizeof response||!out_add(o,response,(size_t)n))return NULL;
     *outn=o->n;
     return o->p;
 }
@@ -500,11 +554,39 @@ static const unsigned char *repair_heroes(const char *p, const char *body, const
     char qid[64], raw[64]; const char *slash=strrchr(p,'/');
     if(!slash)return NULL;
     snprintf(raw,sizeof raw,"%.63s",slash+1);normalize_qid(raw,qid);
-    if(!apply_repair_targets(body,end,qid))return NULL;
+    char bids[TEAM_SIZE_MAX][64]; int count=0;
+    if(!json_use_targets(body,end,bids,&count)||count==0)return NULL;
+    /* Quest-use shares the item-count path with GameStore use, so both routes
+       consume the same persisted inventory and return the same redeemer. */
+    const char *items=json_value(body,end,"items"), *entry=items&&*items=='['?items+1:NULL;
+    char name[128]="";const char *entry_end=entry?json_object_end(entry,end):NULL;
+    int item=entry_end&&json_string(entry,entry_end,"item_name",name,sizeof name)?consumable_index(name):-1;
+    if(item<0)return NULL;
+    pthread_mutex_lock(&g_pos_lock);
+    if(g_consumable_counts[item]<=0){pthread_mutex_unlock(&g_pos_lock);static const char empty[]="{\"error\":\"nsf\",\"result\":null}";if(!out_add(o,empty,sizeof empty-1))return NULL;*outn=o->n;return o->p;}
+    pthread_mutex_unlock(&g_pos_lock);
+    if(!apply_repair_targets(body,end,qid,item))return NULL;
+    pthread_mutex_lock(&g_pos_lock);if(g_consumable_counts[item]<=0){pthread_mutex_unlock(&g_pos_lock);return NULL;}g_consumable_counts[item]--;persist_quest_state_locked();pthread_mutex_unlock(&g_pos_lock);
     static const char response[]="{\"error\":null,\"result\":{\"success\":true,\"usedConsumableCount\":1}}";
     if(!out_add(o,response,sizeof response-1))return NULL;
     *outn=o->n;
     return o->p;
+}
+static const unsigned char *inventory_response(Out *o, size_t *outn) {
+    char response[192];
+    int n;
+    pthread_mutex_lock(&g_pos_lock);
+    n=snprintf(response,sizeof response,
+        "{\"error\":null,\"result\":{\"repair_kit\":%d,\"team_repair_kit\":%d,\"revive_kit\":%d}}",
+        g_consumable_counts[0],g_consumable_counts[1],g_consumable_counts[2]);
+    pthread_mutex_unlock(&g_pos_lock);
+    if(n<=0||(size_t)n>=sizeof response||!out_add(o,response,(size_t)n))return NULL;
+    *outn=o->n;return o->p;
+}
+static const unsigned char *gamestore_refresh(Out *o, size_t *outn) {
+    static const char response[]="{\"updates\":[{\"name\":\"gamestore\",\"error\":\"\",\"check\":\"offline-1\",\"locHash\":\"\",\"refresh\":0,\"data\":{\"gamestore\":{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":{\"consumable\":[{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot.\",\"r\":[{\"t\":\"hth\",\"q\":30}],\"use_pve\":true},{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[{\"t\":\"hth\",\"q\":20}],\"use_pve\":true},{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[{\"t\":\"rvv\",\"q\":50}],\"use_pve\":true}]},\"setIdMap\":{}}},\"cache\":false}]}";
+    if(!out_add(o,response,sizeof response-1))return NULL;
+    *outn=o->n;return o->p;
 }
 static const unsigned char *dynamic(const char *method, const char *p, const char *query, const char *body, size_t bn, Out *o, size_t *outn) {
     char key[256], tid[64]="", bid[64]="", mid[64], qid[64], uid[64]="1000000000001", now[32]; const unsigned char *v; size_t n; const char *end=body+bn;
@@ -521,7 +603,8 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         if(!v||!out_template_args(o,v,n,args,2))return NULL;*outn=o->n;return o->p;
     }
     if(!strcmp(method,"POST")&&has_suffix_trim_slashes(p,"/gamestore/use"))return use_game_store_items(body,end,o,outn);
-    if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
+    if(!strcmp(method,"GET")&&has_suffix_trim_slashes(p,"/inventory"))return inventory_response(o,outn);
+    if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} if(query&&strstr(query,"gamestore"))return gamestore_refresh(o,outn);return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
     if(strstr(p,"/base/active")) { snprintf(key,sizeof key,"%s /base/active",method); v=lookup(key,outn); return v?v:lookup("GET /base/active",outn); }
     if(has_suffix(p,"/tutorial/get-login-data")) {
         return lookup("@tutorial:login-completed",outn);

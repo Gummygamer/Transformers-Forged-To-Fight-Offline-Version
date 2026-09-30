@@ -123,6 +123,39 @@ function state_file(): text
   path_join(log_dir(), ".fakeserver-state")
 end
 
+function inventory_file(): text
+  intent: keep offline consumable counts separate from quest position state
+  path_join(log_dir(), ".fakeserver-inventory")
+end
+
+function inventory_count(name: text): integer
+  intent: read a saved consumable count or its initial grant
+  if not file_exists(inventory_file()) then
+    if name == "repair_kit" then 3 else if name == "team_repair_kit" then 1 else if name == "revive_kit" then 1 else 0 end end end
+  else
+    mutable count: integer = 0
+    for line in split(read_file(inventory_file()), "\n") do
+      let fields: a list of text = split(line, "|")
+      if unwrap_or(get(fields, 0), "") == name then set count = unwrap_or(to_integer(unwrap_or(get(fields, 1), "0")), 0) end
+    end
+    count
+  end
+end
+
+function update_inventory_count(name: text, delta: integer): nothing
+  intent: persist one consumable use
+  create_dir(log_dir())
+  let repair: integer = inventory_count("repair_kit") + if name == "repair_kit" then delta else 0 end
+  let team: integer = inventory_count("team_repair_kit") + if name == "team_repair_kit" then delta else 0 end
+  let revive: integer = inventory_count("revive_kit") + if name == "revive_kit" then delta else 0 end
+  write_file(inventory_file(), "repair_kit|" ++ to_text(repair) ++ "\nteam_repair_kit|" ++ to_text(team) ++ "\nrevive_kit|" ++ to_text(revive) ++ "\n")
+end
+
+function inventory_response(): text
+  intent: return persisted item counts in the InventoryManager wire shape
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("repair_kit", jsonout.json_int(inventory_count("repair_kit"))), jsonout.json_pair("team_repair_kit", jsonout.json_int(inventory_count("team_repair_kit"))), jsonout.json_pair("revive_kit", jsonout.json_int(inventory_count("revive_kit")))]))
+end
+
 public function tutorial_login_completed_response(): text
   intent: encode
   compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))]))]))
@@ -968,6 +1001,44 @@ end
   found
 end
 
+function query_has_gamestore(path: text): boolean
+  intent: check whether gamestore was requested for refresh
+  let pieces: a list of text = split(path, "?")
+  let query: text = unwrap_or(get(pieces, 1), "")
+  mutable found: boolean = false
+  for item in split(query, "&") do
+    let pair: a list of text = split(item, "=")
+    let key: text = url_decode(unwrap_or(get(pair, 0), ""))
+    let value: text = url_decode(unwrap_or(get(pair, 1), ""))
+    if starts_with(key, "groups.") and ends_with(key, ".name") and starts_with(value, "gamestore") then set found = true end
+  end
+  found
+end
+
+function gamestore_data(): Json
+  intent: create the locally owned heal/revive consumable catalog
+  jsonout.parse_json("\{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":\{\"consumable\":[\{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot.\",\"r\":[\{\"t\":\"hth\",\"q\":30\}],\"use_pve\":true\},\{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[\{\"t\":\"hth\",\"q\":20\}],\"use_pve\":true\},\{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[\{\"t\":\"rvv\",\"q\":50\}],\"use_pve\":true\}]\},\"setIdMap\":\{\}}")
+end
+
+function use_game_store_response(btxt: text, quest_use: boolean): text
+  intent: spend an owned offline consumable and return the redeemer expected by the client
+  let req: Json = request_object(btxt)
+  let entries: a list of Json = json_list_or_empty(req, "items")
+  let entry: Json = unwrap_or(get(entries, 0), jsonout.json_obj([]))
+  let context: Json = if jsonout.obj_has(entry, "context") then jsonout.obj_get(entry, "context") else jsonout.json_obj([]) end
+  let bid: text = json_text_or(context, "bid", "")
+  let item_name: text = json_text_or(entry, "item_name", "")
+  let item: text = if item_name == "Repair Kit" or item_name == "repair_kit" then "repair_kit" else if item_name == "Team Repair Kit" or item_name == "team_repair_kit" then "team_repair_kit" else if item_name == "Revive" or item_name == "revive_kit" then "revive_kit" else "" end end end
+  let count: integer = inventory_count(item)
+  if item == "" or bid == "" then "\{\"error\":\"invalid\",\"result\":null}"
+  else if count <= 0 then "\{\"error\":\"nsf\",\"result\":null}"
+  else
+    update_inventory_count(item, -1)
+    let redeemer: Json = jsonout.json_obj([pair_text("t", if item == "revive_kit" then "rvv" else "hth" end), pair_int("q", if item == "repair_kit" then 30 else if item == "team_repair_kit" then 20 else 50 end end)])
+    compact_envelope(jsonout.json_obj(concat(if quest_use then [pair_bool("success", true), pair_int("usedConsumableCount", 1)] else [] end, [jsonout.json_pair("redeemers", jsonout.json_list([redeemer]))])))
+  end end
+end
+
 public function query_value(path: text, name: text): text
   intent: get
   let pieces: a list of text = split(path, "?")
@@ -1585,7 +1656,10 @@ end
 
 function grouprefresh_response(path: text): text
   intent: encode the group refresh with the missions config update when it was requested
-  let updates: a list of Json = if query_has_missionsconfig(path) then [gamedata.build_missions_autorefresh_update()] else [] end
+  mutable updates: a list of Json = if query_has_missionsconfig(path) then [gamedata.build_missions_autorefresh_update()] else [] end
+  if query_has_gamestore(path) then
+    set updates = append(updates, jsonout.json_obj([pair_text("name", "gamestore"), pair_text("error", ""), pair_text("check", "offline-1"), pair_text("locHash", ""), pair_int("refresh", 0), jsonout.json_pair("data", gamestore_data()), pair_bool("cache", false)]))
+  end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
 end
 
@@ -1628,6 +1702,10 @@ function static_dynamic(path: text, p: text, btxt: text): text
     compact_envelope(gamedata.build_user_data(get_saved_team()))
   else if ends_with(p, "/autorefresh/grouprefresh") then
     grouprefresh_response(path)
+  else if ends_with(p, "/inventory") then
+    inventory_response()
+  else if ends_with(p, "/gamestore/use") then
+    use_game_store_response(btxt, false)
   else if ends_with(p, "/base/active") then
     compact_envelope(gamedata.build_base_active())
   else
@@ -1754,6 +1832,9 @@ function record_win(submitted: text): nothing
   let state: ServerState = load_state()
   mutable positions: a list of Position = []
   for position in state.positions do
+    let point: text = to_text(position.x) ++ "," ++ to_text(position.y)
+    let first_clear: boolean = position.pending and (submitted == "" or position.qid == normalize_qid(submitted)) and not contains(position.cleared, point)
+    if first_clear then update_inventory_count("repair_kit", 1) end
     set positions = append(positions, position_after_win(position, submitted))
   end
   save_state(ServerState { team: state.team, positions: positions })
@@ -1813,6 +1894,7 @@ function quest_dynamic(path: text, p: text, btxt: text): text
   if contains_text(p, "/quests/quest-begin/") then quest_begin_response(p, btxt)
   else if contains_text(p, "/quests/quest-movedir/") then movedir_response(p)
   else if contains_text(p, "/matches/resolve-match/") then resolve_match_response(path, btxt)
+  else if contains_text(p, "/quests/use/") then use_game_store_response(btxt, true)
   else if ends_with(p, "/bcg/setSavedTeam") then saved_team_response(path, btxt)
   else ""
   end
