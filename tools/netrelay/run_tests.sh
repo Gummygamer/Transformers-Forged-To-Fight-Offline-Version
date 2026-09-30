@@ -65,6 +65,9 @@ NDK_ROOT=${ANDROID_NDK_HOME:-$HOME/Android/Sdk/ndk}
 NDK_BIN=$(ls -d "$NDK_ROOT"/*/toolchains/llvm/prebuilt/*/bin 2>/dev/null | head -1)
 if [ -n "$NDK_BIN" ]; then
   echo "=== cross-compile the netcode for both ABIs ($NDK_BIN) ==="
+  REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+  DIALOGUE_HEADER_DIR="$REPO_ROOT/build/nativehook"
+  python3 "$REPO_ROOT/tools/nativehook/generate_dialogue_header.py" "$DIALOGUE_HEADER_DIR/dialogue_translations.generated.h"
   CC64="$NDK_BIN/aarch64-linux-android28-clang"
   CC32="$NDK_BIN/armv7a-linux-androideabi28-clang"
 
@@ -74,7 +77,7 @@ if [ -n "$NDK_BIN" ]; then
       && "$CC64" $CFLAGS -fPIC -c ../nativehook/arena.c -o /tmp/arena_arm64.o \
       && echo "[ok] arm64 netcode compiles clean" \
       || { echo "[!] arm64 netcode failed to compile"; FAIL=1; }
-    "$CC64" -shared -O2 -fPIC -Wl,-soname,libdothook.so \
+    "$CC64" -shared -O2 -fPIC -I "$DIALOGUE_HEADER_DIR" -Wl,-soname,libdothook.so \
       -DTFTF_ENABLE_ARENA=1 \
       -DTFTF_ARENA_DEFAULT_HOST='"192.0.2.10"' \
       -DTFTF_ARENA_DEFAULT_PORT=8777 \
@@ -103,7 +106,7 @@ if [ -n "$NDK_BIN" ]; then
     else
       echo "[ok] arena.c is refused on armeabi-v7a, as intended"
     fi
-    "$CC32" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o /tmp/libdothook_v7a_check.so \
+    "$CC32" -shared -O2 -fPIC -I "$DIALOGUE_HEADER_DIR" -Wl,-soname,libdothook.so -o /tmp/libdothook_v7a_check.so \
       ../nativehook/hook_arm32.c ../nativehook/inapk_server.c -llog \
       && echo "[ok] armeabi-v7a hook library links without the netcode" \
       || { echo "[!] armeabi-v7a hook library failed to link"; FAIL=1; }

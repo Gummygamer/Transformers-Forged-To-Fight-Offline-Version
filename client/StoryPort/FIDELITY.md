@@ -66,13 +66,26 @@ the full Act I and Act II route):
 - The 1:30 pre-fight screen uses the selected and opponent bots' server health,
   attack, and derived rating in the center column. The local preview falls back
   to placeholder stats until `/bcg/getBaseHeroData` responds.
-- Loading pages (0:07, ~1:36) cycle tips with a gold label ("COMBAT TIP", "FORGE XP"),
-  as the footage does. The footage's "HEAVY ATTACKS" tip is omitted because the port has
-  no hold-to-heavy control. The footage's Edit Squad screen (~1:04) is not built: the
+- Loading pages (0:07, ~1:36) cycle tips with a gold label ("COMBAT TIP", "HEAVY ATTACKS",
+  "FORGE XP"), as the footage does. The heavy tip now matches the local 9.2 text and
+  control: a right-side hold past 0.2 seconds fires one heavy attack, which breaks a
+  block. A tap remains light; a right swipe strikes medium in reach or advances from
+  farther away. Damage and meter come from the server's Heavy and Medium move values.
+  Unity 6.6.3f1 Editor checks cover these gestures, canceled holds, block breaks,
+  and server move values; the touch controls still need an on-device comparison.
+  The footage's Edit Squad screen (~1:04) is not built: the
   port has no locked-slot or squad-tab data, so those details remain a gap. The
   current squad selector supports up to three bots from the eight-bot roster.
 - The base uses the local 9.2 Primordial sky panorama behind its 3D crater;
   the Editor preview no longer shows black gaps beyond the terrain.
+- Mission cards use the local Tecnica font, taller artwork, and larger text,
+  compared with the 12:06 frame. Artwork crops UVs at the final card size;
+  immediate Editor captures and runtime use the same path without stretching.
+  The read-only `/quests/quest-map/<qid>` endpoint supplies enemy portraits
+  before starting a quest. All three authored maps were checked; fetching them
+  leaves the saved server state unchanged. Act III retains its fourth encounter.
+  The exact act-specific mission art is still missing: local loading art is
+  cropped around its subjects as a fallback. This remains a visual gap.
 
 Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 `CaptureDialogue`, `CaptureComplete`, `CaptureLoading` and `CaptureBase`. `SP_STAGE`, `SP_CAM`,

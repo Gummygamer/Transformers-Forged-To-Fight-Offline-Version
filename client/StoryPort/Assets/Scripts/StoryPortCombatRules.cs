@@ -61,6 +61,18 @@ namespace StoryPort
             return moves.TryGetValue(kind, out var move) ? move : moves["Light"];
         }
 
+        public static bool BreaksBlock(string animatorState)
+        {
+            return animatorState.StartsWith("Heavy", StringComparison.Ordinal);
+        }
+
+        public static float DefenseMultiplier(string animatorState, StoryPortEnemyDefense.Action defense)
+        {
+            if (defense == StoryPortEnemyDefense.Action.Dodge || defense == StoryPortEnemyDefense.Action.Sidestep) return 0f;
+            if (defense == StoryPortEnemyDefense.Action.Block && !BreaksBlock(animatorState)) return .1f;
+            return 1f;
+        }
+
         public float SpecialRatio(string botKey, int level)
         {
             level = Math.Max(1, Math.Min(3, level));

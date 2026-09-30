@@ -116,6 +116,7 @@
 #include <link.h>
 #include <dlfcn.h>
 #include "inapk_server.h"
+#include "dialogue_translations.generated.h"
 
 /* Android devices may use 16 KiB pages. Compute the complete page range
  * before mprotect instead of assuming a 4 KiB mask and a fixed 0x2000 span. */
@@ -171,6 +172,56 @@ typedef void* (*arraynew_t)(void*, size_t);
 static strnew_t g_strnew = NULL;
 static arraynew_t g_arraynew = NULL;
 static void* g_empty_tags = NULL;   // shared empty string[] (see hook.c slot 57)
+static fn8 g_dialogue_deserialize_orig = NULL;
+// DialogueEntry.get_line is a tiny auto-property getter the overlay never calls, so the
+// translation is applied to the <line> backing field (+0x20) after Deserialize.
+
+static int dialogue_string_equals_utf8(void* managed, const char* utf8){
+    uintptr_t p = (uintptr_t)managed;
+    if (!utf8 || p < 0x100000 || (p & 3)) return 0;
+    int32_t length = *(int32_t*)(p + 0x08);
+    if (length < 0 || length > 8192) return 0;
+    const uint16_t* chars = (const uint16_t*)(p + 0x0C);
+    int index = 0;
+    const unsigned char* bytes = (const unsigned char*)utf8;
+    while (*bytes) {
+        uint32_t cp;
+        if (*bytes < 0x80) cp = *bytes++;
+        else if ((*bytes & 0xE0) == 0xC0 && bytes[1]) { cp = ((*bytes & 0x1F) << 6) | (bytes[1] & 0x3F); bytes += 2; }
+        else if ((*bytes & 0xF0) == 0xE0 && bytes[1] && bytes[2]) { cp = ((*bytes & 0x0F) << 12) | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F); bytes += 3; }
+        else if ((*bytes & 0xF8) == 0xF0 && bytes[1] && bytes[2] && bytes[3]) { cp = ((*bytes & 0x07) << 18) | ((bytes[1] & 0x3F) << 12) | ((bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F); bytes += 4; }
+        else return 0;
+        if (cp <= 0xFFFF) {
+            if (index >= length || chars[index++] != cp) return 0;
+        } else {
+            cp -= 0x10000;
+            if (index + 1 >= length || chars[index++] != (uint16_t)(0xD800 + (cp >> 10)) || chars[index++] != (uint16_t)(0xDC00 + (cp & 0x3FF))) return 0;
+        }
+    }
+    return index == length;
+}
+
+static void* hooked_dialogue_entry_deserialize(void* self, void* builder, void* data, void* method, void* a4, void* a5, void* a6, void* a7){
+    void* result = g_dialogue_deserialize_orig ? g_dialogue_deserialize_orig(self, builder, data, method, a4, a5, a6, a7) : NULL;
+    uintptr_t entry = (uintptr_t)self;
+    if (entry < 0x100000 || (entry & 3) || !g_strnew || !g_base) return result;
+    void** line = (void**)(entry + 0x20);
+    void* original = *line;
+    if (!original) return result;
+    int language = ((int(*)(void*))((uintptr_t)g_base + 0xF7F3A4))(NULL);
+    if (language < 1 || language > 16) return result;
+    for (int i = 0; i < TFTF_DIALOGUE_TRANSLATION_COUNT; ++i) {
+        if (dialogue_string_equals_utf8(original, g_tftf_dialogue_translations[i].source)) {
+            const char* translated = tftf_dialogue_locale_text(&g_tftf_dialogue_translations[i], language);
+            if (translated && translated[0]) {
+                void* replacement = g_strnew(translated);
+                if (replacement) *line = replacement;
+            }
+            break;
+        }
+    }
+    return result;
+}
 
 // Managed pointers are 4-byte aligned here, not 8.
 #define PLAUSIBLE(p) ((uintptr_t)(p) >= 0x100000 && !((uintptr_t)(p) & 3))
@@ -553,6 +604,10 @@ static void* installer(void* arg){
     int ok = 0;
     for (int i = 0; i < NH; i++)
         if (inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig, H[i].tag) == 0) ok++;
+    int dialogue_hook = inline_hook((void*)(g_base + 0x11BBE08),
+                                   (void*)hooked_dialogue_entry_deserialize,
+                                   &g_dialogue_deserialize_orig, "DIALOGUE_LOCALE");
+    LOG("localized dialogue lookup hook=%d current-language-rva=0xF7F3A4", dialogue_hook);
     LOG("install done (%d/%d hooks)", ok, NH);
     // FIXSYN is applied directly to libil2cpp by patch_il2cpp.lbl so translated
     // runtimes cannot cache the original null-throw instruction.

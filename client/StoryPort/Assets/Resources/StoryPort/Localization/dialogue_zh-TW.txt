@@ -1,46 +1,46 @@
 # Story dialogue catalog for zh-TW. UTF-8 KEY<TAB>text; blank values use English fallback.
-# 42 translated story lines; blank values deliberately fall back to English in StoryLocalization.Resolve.
-ID_STORY_ARRIVAL_INTRO_001	感應器讀取到前方有一個寒冷的灘頭堡。 無論落在這裡的是甚麼，都已經在移動了。
-ID_STORY_ARRIVAL_INTRO_002	潮水把我們帶進來 潮水會埋葬你。
-ID_STORY_ARRIVAL_INTRO_003	然後我們守住這條線，並把它團結在一起。
-ID_STORY_MIDPOINT_RALLY_001	上到山脊的一半，他們還在繼續前來。 這裡是集結地，不是巡邏隊。
-ID_STORY_MIDPOINT_RALLY_002	系統會記錄你完成的每個步驟。 你踏出的每一步都會被計算在內。
-ID_STORY_MIDPOINT_RALLY_003	然後我們走到最後 穩定的火種，更高的守衛。
-ID_STORY_FINAL_STAND_001	你一路攀登只是為了迎合你自己結局的形狀
-ID_STORY_FINAL_STAND_002	我們爬了很長一段路來結束這一切。 退下或摔倒。
-ID_STORY_SHORE_SECURED_001	海岸很安靜。 記錄座標，然後把受傷的人帶回家。
-ID_STORY_SHORE_SECURED_002	今天很安靜。我們會在聲音再次響起之前回來。
-ID_STORY_CUSTOM_OPENING_INTRO_001	我是柯博文...博派的領袖。 我們偵測到威脅這個區域穩定的奇怪能量信號。
-ID_STORY_CUSTOM_OPENING_INTRO_002	在威脅日益加劇的壓力下，情況迫使我們緊急降落在這個孤立的區域。
-ID_STORY_CUSTOM_OPENING_INTRO_003	警告：偵測到未知的雷達幹擾...導航系統被強行幹擾！
-ID_STORY_CUSTOM_OPENING_INTRO_004	無處可逃，柯博文...你的時間到了，最後的清算已經到來！
-ID_STORY_CUSTOM_OPENING_INTRO_005	霧影暗丈？原來你是這次伏擊的幕後黑手...讓我們看看你的勇氣是否符合你的傲慢！
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	霧影暗丈倒下了。
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	太好了，我們繼續吧
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	天王星！我應該知道狂派空軍司令部是幕後黑手。
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	你對霧影暗丈的勝利...是意料之中的。 現在面對狂派艦隊的真正力量吧！
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	那我們來完成這件事吧。 博派，飛上天空！
-ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	電訊掃描了一個被稱為天王星的狂派，儘管他的簽名與我們以前遇到的任何敵人都大不相同。 感覺他好像是從另一個次元穿越過來的，從跡象來看，更多的威脅正在向我們逼近
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	感測器在前方發現一處冰冷的灘頭陣地。無論降落在這裡的是什麼，它已經在行動了。
+ID_STORY_ARRIVAL_INTRO_002	潮水把我們帶到了這裡。潮水也將把你們掩埋。
+ID_STORY_ARRIVAL_INTRO_003	那麼我們就守住這條防線，並且團結一致地守住。
+ID_STORY_MIDPOINT_RALLY_001	才到山脊的一半，他們還在不斷湧來。這是集結地，不是巡邏。
+ID_STORY_MIDPOINT_RALLY_002	你的每一步都被記錄。你的每一步都被計數。
+ID_STORY_MIDPOINT_RALLY_003	那我們就一路走到底。穩住火種，提高防禦。
+ID_STORY_FINAL_STAND_001	你爬了這麼遠，只是為了見到自己終結的模樣。
+ID_STORY_FINAL_STAND_002	我們爬了很長的路來結束這一切。投降，否則倒下。
+ID_STORY_SHORE_SECURED_001	海岸很平靜。記錄座標，把傷員送回家。
+ID_STORY_SHORE_SECURED_002	今天很平靜。在再次喧囂之前，我們會回來的。
+ID_STORY_CUSTOM_OPENING_INTRO_001	我是柯博文……博派的領袖。我們偵測到威脅這一區域穩定的奇怪能量訊號。
+ID_STORY_CUSTOM_OPENING_INTRO_002	在不斷增長的威脅重壓之下，情勢迫使我們在這片孤立區域緊急迫降。
+ID_STORY_CUSTOM_OPENING_INTRO_003	警告：偵測到未知雷達干擾……導航系統正被強行干擾！
+ID_STORY_CUSTOM_OPENING_INTRO_004	無處可逃，柯博文……你的時間到了，最終的清算已經來臨！
+ID_STORY_CUSTOM_OPENING_INTRO_005	霧影暗丈？！原來你就是這場伏擊的幕後黑手……讓我們看看你的勇氣是否配得上你的傲慢！
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	霧影暗丈已倒下。
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	太好了。我們繼續前進。
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	紅蜘蛛！我早該想到狂派空軍指揮部就在幕後。
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	你擊敗霧影暗丈……在意料之中。現在來面對狂派艦隊真正的力量吧！
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	那就讓我們結束這一切。博派，升空！
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran 掃描到一名代號為紅蜘蛛的狂派，但他的訊號與我們以往遇到的任何敵人都截然不同。感覺他像是從另一個維度穿越而來，從跡象判斷，還有更多威脅正朝我們而來
 ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	鐵皮！你背叛了自己的同類？
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	這與陣營無關，柯博文。 而是看誰真正有勇氣領導
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	然後我們用舊的方式解決這個問題。 沒有排名，沒有徽章，只有火花。
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	鐵皮已經死了。
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	非常好的進展。我們一定會找出我們在哪個星球上--這肯定是一個未知的世界，但我感覺到它充滿了能量晶體能量。 我們一定會弄清楚這些傢夥來自哪個次元或世界
-ID_STORY_CUSTOM_ACT2_INTRO_001	掃描器找到了維修我們星艦的重要資源。
-ID_STORY_CUSTOM_ACT2_INTRO_002	明白，帶路並確保他們的安全。
-ID_STORY_CUSTOM_ACT2_INTRO_003	當然，我們出發吧。 我們肯定會面臨許多戰鬥，但在這些戰鬥中我們必須小心。
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	這與派系無關，柯博文。這是要看看到底誰有真正的膽量來領導。
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	那我們就用老辦法解決。沒有軍階，沒有徽章——只有火種。
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	鐵皮死了。
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	太好了，進展非常出色。我們一定會弄清楚自己在哪顆星球上——這肯定是個未知的世界，但我感覺這裡充滿了能量塊的能量。我們也一定會查明這些傢伙來自哪個維度或世界
+ID_STORY_CUSTOM_ACT2_INTRO_001	掃描儀發現了修復我們飛船所需的重要資源。
+ID_STORY_CUSTOM_ACT2_INTRO_002	明白，帶路並確保它們的安全。
+ID_STORY_CUSTOM_ACT2_INTRO_003	當然，出發吧。我們一定會面臨許多戰鬥，但在這些戰鬥中我們必須小心。
 ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	你是誰？你會死的！
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	出現吧。
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	指揮官，巡弋者在沙塵暴中看到了天王星。
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	我不是狂派，我是天王星！追王者！ ！ ！ ！
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	哎呀，事情變得更糟了。
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	更糟？甚麼意思？ 當我準備好時，我會砸你！
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	我有更多關於天王星的情報。 他在前面，據我所知，他正在準備某種裝置來增強他的部隊...
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	啊啊啊巡弋者說得太多了！ 但你太遲了，博派！ 有了這種力量，天空將屬於我，密卡登終於會向我的上級領導鞠躬！
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	指揮官，你來處理手頭的任務。 我會調查他的裝置並回報
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	我有一些壞消息。 天王星以某種方式操縱了一個裝置來修改他的能力。
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	沒錯！有了這種力量，天空將屬於我，密卡登最終會向我的領導屈服！ 你完蛋了，柯博文！
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	指揮官，你在戰鬥中分散了他的注意力。 我會想辦法把這項技術帶回基地進行分析
-ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	在不斷增加的時間壓力下，任務的緊迫性正在顯著升級，技術遙測證實，我們正在進行的敵對遭遇正在實現我們最糟糕的恐懼和威脅
-ID_STORY_UI_TAP_CONTINUE	輕觸以繼續
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	現身吧。
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	指揮官，警車在沙塵暴中看到了紅蜘蛛。
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	我不是狂派。我是紅蜘蛛！搜索者之王！！！！
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	哎呀，情況變得更糟了。
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	更糟？你什麼意思？！我準備好就砸爛你！
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	我有更多關於紅蜘蛛的情報。他就在前方，據我所知，他正在準備某種裝置來增強他的部隊……
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	啊啊啊啊啊警車話太多了！但你們來晚了，博派！有了這股力量，天空將屬於我，密卡登終將臣服於我卓越的領導！
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	指揮官，你去處理眼前的任務。我去調查他的裝置並回報
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	我有個壞消息。紅蜘蛛不知怎麼裝配了一個能改變他力量的裝置。
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	沒錯！有了這股力量，天空將屬於我，密卡登終將臣服於我的領導！你完蛋了，柯博文！
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	指揮官，你在戰鬥中分散他的注意力。我看看能否把這項技術帶回基地進行分析
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	在不斷增加的時間壓力下，任務的緊迫性顯著上升，技術遙測資料證實，我們持續不斷的敵對遭遇正在將我們最糟糕的恐懼和威脅化為現實
+ID_STORY_UI_TAP_CONTINUE	點擊繼續
 ID_STORY_UI_SKIP	跳過

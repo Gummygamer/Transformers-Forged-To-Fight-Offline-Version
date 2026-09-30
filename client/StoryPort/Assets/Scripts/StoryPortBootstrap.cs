@@ -17,6 +17,7 @@ namespace StoryPort
         static readonly string[] ActTitles = { "BLUDGEON'S AMBUSH", "RESOURCE SCANNERS", "BLUDGEON'S RECKONING" };
         // Raw quest-detail per act; holds the server's dialogueTable.
         readonly string[] actDetails = new string[3];
+        readonly StoryRouteData[] actRoutes = new StoryRouteData[3];
         List<DialogueLine> dialogueLines;
         int dialogueIndex;
         Action dialogueDone;
@@ -63,6 +64,7 @@ namespace StoryPort
         static readonly string[][] LoadingTips =
         {
             new[] { "COMBAT TIP", "Keep an eye on your opponent's SPECIAL METER. They are more dangerous while they can activate a SPECIAL ATTACK!" },
+            new[] { "HEAVY ATTACKS", "PRESS and HOLD the RIGHT SIDE of the screen to use a heavy attack and BREAK your opponent's BLOCK!" },
             new[] { "FORGE XP", "Bots carry their Forge XP forward. The higher their Forge Level, the more Forge XP they provide." },
         };
         int loadingTipIndex;
@@ -96,6 +98,7 @@ namespace StoryPort
         int hitsLanded, hitsReceived, highestChain;
         int enemySpecialLevel;
         readonly StoryPortCombatRules rules = new StoryPortCombatRules();
+        readonly StoryPortFightGesture fightGesture = new StoryPortFightGesture();
         Text playerRatingText, enemyRatingText;
         Image specialHex;
         Image[] specialSegmentFills;
@@ -116,14 +119,12 @@ namespace StoryPort
         string queuedAttackState;
         int queuedAttackDamage;
         int queuedAttackCharge;
-        bool touchTracking;
+        int fightTouchFingerId = -1;
         bool squadForStory;
         float nextEnemyTurn;
         float evadeUntil;
-        float touchBeganAt;
         int lightCombo;
         int comboHits;
-        Vector2 touchStart;
         float lastPlayerHit;
         float lastEnemyDefense;
         Sprite uiButtonSprite;
@@ -183,7 +184,12 @@ namespace StoryPort
                 var description = ExtractJsonString(response, "description");
                 if (!string.IsNullOrEmpty(title)) ActTitles[i] = title.ToUpperInvariant();
                 if (!string.IsNullOrEmpty(description)) ActDescriptions[i] = description;
+                string mapResponse = "";
+                yield return StartCoroutine(Get("/quests/quest-map/" + ActQids[i], json => mapResponse = json));
+                var route = StoryRouteData.Parse(mapResponse, ActQids[i]);
+                if (route.hasMap) actRoutes[i] = route;
             }
+            if (screen == "story") Show("story");
         }
 
         void BuildCamera()
@@ -385,6 +391,12 @@ namespace StoryPort
             if (pauseOverlay != null) Destroy(pauseOverlay);
             pauseOverlay = null;
             screen = next;
+            if (next != "fight")
+            {
+                fightGesture.Cancel();
+                fightTouchFingerId = -1;
+                guarding = false;
+            }
             notice = "";
             if (backgroundArt != null) Destroy(backgroundArt);
             backgroundArt = null;
@@ -436,6 +448,7 @@ namespace StoryPort
         static int AttackStep(string state)
         {
             if (state.StartsWith("Special", StringComparison.Ordinal)) return 6;
+            if (state.StartsWith("Heavy", StringComparison.Ordinal)) return 5;
             if (state.StartsWith("Medium", StringComparison.Ordinal)) return 4;
             int step;
             return int.TryParse(state.Substring(state.Length - 1), out step) ? Mathf.Clamp(step, 1, 3) : 1;
@@ -662,74 +675,77 @@ namespace StoryPort
         void StoryScreen()
         {
             TechBackdrop();
-            var header = LabelAt(content, "Story Missions Header", "STORY MISSIONS", 25, TextAnchor.MiddleCenter, Color.white,
-                new Vector2(.28f, .9f), new Vector2(.72f, 1f));
-            header.fontStyle = FontStyle.Bold;
-            LabelAt(content, "Story Missions Subtitle", "Gain XP, Energon, and upgrade materials while unraveling the mysteries of New Quintessa!", 13,
-                TextAnchor.MiddleCenter, Color.white, new Vector2(.15f, .84f), new Vector2(.85f, .9f));
+            var header = StoryLabelAt(content, "Story Missions Header", "STORY MISSIONS", 32, TextAnchor.MiddleCenter, Color.white,
+                new Vector2(.28f, .96f), new Vector2(.72f, 1.035f));
+            header.fontStyle = FontStyle.Normal;
+            StoryLabelAt(content, "Story Missions Subtitle", "Gain XP, Energon, and upgrade materials while unraveling the mysteries of New Quintessa!", 24,
+                TextAnchor.MiddleCenter, Color.white, new Vector2(.08f, .92f), new Vector2(.92f, .97f));
 
             // Selected act at the left, the other acts as narrow cards at the right, as in the footage.
-            StoryActBanner(actIndex, new Vector2(.004f, .04f), new Vector2(.155f, .8f), true);
+            StoryActBanner(actIndex, new Vector2(.004f, .05f), new Vector2(.205f, .9f), true);
             var others = new List<int>();
             for (int i = 0; i < ActQids.Length; i++) if (i != actIndex) others.Add(i);
             for (int i = 0; i < others.Count; i++)
-                StoryActBanner(others[i], new Vector2(.7f + i * .152f, .04f), new Vector2(.848f + i * .152f, .8f), false);
+                StoryActBanner(others[i], new Vector2(.72f + i * .25f, .05f), new Vector2(.925f + i * .25f, .9f), false);
 
-            var chapter = Button(content, "Chapter 1", OpenStoryMap, new Vector2(.165f, .42f), new Vector2(.285f, .8f));
+            var chapter = Button(content, "Chapter 1", OpenStoryMap, new Vector2(.217f, .475f), new Vector2(.32f, .9f));
             chapter.GetComponent<Image>().sprite = null;
             chapter.GetComponent<Image>().color = new Color(.1f, .48f, .82f, 1f);
             chapter.GetComponentInChildren<Text>().text = "";
-            LabelAt(chapter.transform, "Chapter Number", "Chapter 1", 12, TextAnchor.MiddleLeft, new Color(.85f, .95f, 1f),
+            StoryLabelAt(chapter.transform, "Chapter Number", "Chapter 1", 24, TextAnchor.MiddleLeft, new Color(.85f, .95f, 1f),
                 new Vector2(.08f, .78f), new Vector2(.95f, .95f)).raycastTarget = false;
-            var chapterName = LabelAt(chapter.transform, "Chapter Name", ActTitles[actIndex], 14, TextAnchor.UpperLeft, Color.white,
+            var chapterName = StoryLabelAt(chapter.transform, "Chapter Name", ActTitles[actIndex], 24, TextAnchor.UpperLeft, Color.white,
                 new Vector2(.08f, .5f), new Vector2(.95f, .78f));
-            chapterName.fontStyle = FontStyle.Bold; chapterName.raycastTarget = false;
-            LabelAt(chapter.transform, "Chapter Action", "ENTER STORY BOARD", 10, TextAnchor.MiddleLeft, new Color(.85f, .98f, 1f),
+            chapterName.fontStyle = FontStyle.Normal; chapterName.raycastTarget = false;
+            StoryLabelAt(chapter.transform, "Chapter Action", "ENTER STORY BOARD", 18, TextAnchor.MiddleLeft, new Color(.85f, .98f, 1f),
                 new Vector2(.08f, .3f), new Vector2(.95f, .48f)).raycastTarget = false;
             var chapterBar = MakeImage(chapter.transform, "Chapter Track", new Color(.03f, .1f, .2f, .9f), new Vector2(.08f, .16f), new Vector2(.92f, .24f));
             chapterBar.raycastTarget = false;
-            var bossPreview = Panel(content, "Chapter Boss Backdrop", new Color(.02f, .04f, .08f, .95f), new Vector2(.165f, .04f), new Vector2(.285f, .4f));
+            var bossPreview = Panel(content, "Chapter Boss Backdrop", new Color(.02f, .04f, .08f, .95f), new Vector2(.217f, .05f), new Vector2(.32f, .405f));
             bossPreview.GetComponent<Image>().raycastTarget = false;
 
             var routeLabels = ActNodeLabels[actIndex].Split('|');
             var routeBosses = new List<string>();
-            if (currentQid == ActQids[actIndex] && storyMapNodes.Count > 0)
+            var previewNodes = actRoutes[actIndex] != null ? actRoutes[actIndex].nodes :
+                currentQid == ActQids[actIndex] ? storyMapNodes : null;
+            string finalBoss = "";
+            if (previewNodes != null && previewNodes.Count > 0)
             {
                 var serverLabels = new List<string>();
-                foreach (var node in storyMapNodes)
+                foreach (var node in previewNodes)
                     if (!string.IsNullOrEmpty(node.boss))
                     {
                         serverLabels.Add(string.IsNullOrEmpty(node.label) ? DisplayName(node.boss) : node.label);
                         routeBosses.Add(node.boss);
+                        if (node.isFinal) finalBoss = node.boss;
                     }
                 if (serverLabels.Count > 0) routeLabels = serverLabels.ToArray();
             }
             if (routeBosses.Count > 0)
             {
-                var bossArt = SpriteImage(bossPreview.transform, "Chapter Boss", "Portraits/" + PortraitFor(routeBosses[routeBosses.Count - 1]),
-                    new Vector2(.05f, .05f), new Vector2(.95f, .95f), true);
-                if (bossArt != null) bossArt.raycastTarget = false;
+                if (string.IsNullOrEmpty(finalBoss)) finalBoss = routeBosses[routeBosses.Count - 1];
+                StoryActArtwork(bossPreview.transform, "Portraits/" + PortraitFor(finalBoss), .5f);
             }
             for (int i = 0; i < routeLabels.Length; i++)
             {
                 int column = i % 3, row = i / 3;
-                float x = .295f + column * .134f;
-                float y = row == 0 ? .42f : .04f;
-                var tile = Button(content, "Route Tile " + (i + 1), OpenStoryMap, new Vector2(x, y), new Vector2(x + .126f, y + .38f));
+                float x = .33f + column * .109f;
+                float y = row == 0 ? .475f : .05f;
+                var tile = Button(content, "Route Tile " + (i + 1), OpenStoryMap, new Vector2(x, y), new Vector2(x + .102f, row == 0 ? .9f : .405f));
                 tile.GetComponent<Image>().sprite = null;
                 tile.GetComponent<Image>().color = i == 0 ? new Color(.1f, .48f, .82f, 1f) : new Color(.08f, .3f, .5f, 1f);
                 tile.GetComponentInChildren<Text>().text = "";
                 if (i < routeBosses.Count)
                 {
-                    var bossPortrait = SpriteImage(tile.transform, "Encounter Boss", "Portraits/" + PortraitFor(routeBosses[i]), new Vector2(.31f, .44f), new Vector2(.69f, .88f), true);
+                    var bossPortrait = SpriteImage(tile.transform, "Encounter Boss", "Portraits/" + PortraitFor(routeBosses[i]), new Vector2(.2f, .48f), new Vector2(.8f, .9f), true);
                     if (bossPortrait != null) bossPortrait.raycastTarget = false;
                 }
-                var frame = SpriteImage(tile.transform, "Encounter Frame", "UI/frame_selection", new Vector2(.28f, .4f), new Vector2(.72f, .92f), true);
+                var frame = SpriteImage(tile.transform, "Encounter Frame", "UI/frame_selection", new Vector2(.15f, .44f), new Vector2(.85f, .94f), true);
                 if (frame != null) { frame.color = new Color(.75f, .8f, .85f, 1f); frame.raycastTarget = false; }
-                var icon = SpriteImage(tile.transform, "Encounter Icon", "UI/boss_icon", new Vector2(.14f, .38f), new Vector2(.3f, .52f), true);
+                var icon = SpriteImage(tile.transform, "Encounter Icon", "UI/boss_icon", new Vector2(.14f, .47f), new Vector2(.3f, .61f), true);
                 if (icon != null) icon.raycastTarget = false;
-                var label = LabelAt(tile.transform, "Encounter Name", (i + 1) + ". " + routeLabels[i], 12, TextAnchor.UpperLeft, new Color(.85f, .95f, 1f),
-                    new Vector2(.1f, .12f), new Vector2(.95f, .38f));
+                var label = StoryLabelAt(tile.transform, "Encounter Name", (i + 1) + ". " + routeLabels[i], 22, TextAnchor.UpperLeft, new Color(.85f, .95f, 1f),
+                    new Vector2(.1f, .12f), new Vector2(.95f, .43f));
                 label.raycastTarget = false;
                 if (i == 0)
                 {
@@ -739,14 +755,17 @@ namespace StoryPort
                 var track = MakeImage(tile.transform, "Encounter Track", new Color(.03f, .1f, .2f, .9f), new Vector2(.1f, .04f), new Vector2(.9f, .09f));
                 track.raycastTarget = false;
             }
-            // Empty encounter slots continue the grid downwards.
+            // The reference pairs each top-row mission card with a large enemy
+            // portrait beneath it. Use the server's bosses before entering a map.
             for (int i = routeLabels.Length; i < 6; i++)
             {
                 int column = i % 3, row = i / 3;
-                float x = .295f + column * .134f;
-                float y = row == 0 ? .42f : .04f;
-                var empty = Panel(content, "Empty Slot " + (i + 1), new Color(.02f, .04f, .08f, .9f), new Vector2(x, y), new Vector2(x + .126f, y + .38f));
+                float x = .33f + column * .109f;
+                float y = row == 0 ? .475f : .05f;
+                var empty = Panel(content, "Empty Slot " + (i + 1), new Color(.02f, .04f, .08f, .9f), new Vector2(x, y), new Vector2(x + .102f, row == 0 ? .9f : .405f));
                 empty.GetComponent<Image>().raycastTarget = false;
+                if (routeLabels.Length <= 3 && column < routeBosses.Count)
+                    StoryActArtwork(empty.transform, "Portraits/" + PortraitFor(routeBosses[column]), .5f);
             }
             var back = Button(content, "Back to Fight Modes", () => Show("fightmode"),
                 new Vector2(.004f, .9f), new Vector2(.06f, .995f));
@@ -764,21 +783,46 @@ namespace StoryPort
             var banner = Button(content, "Act Banner " + (index + 1), () => { actIndex = index; Show("story"); }, min, max);
             banner.GetComponent<Image>().color = new Color(.02f, .05f, .09f, 1f);
             string[] artworkNames = { "UI/planet_landscape", "UI/starscream_fight", "UI/fightstoryimglrg_hd" };
-            var artwork = SpriteImage(banner.transform, "9.2 Story Art", artworkNames[index], Vector2.zero, Vector2.one, false);
-            if (artwork != null) { artwork.raycastTarget = false; artwork.transform.SetAsFirstSibling(); }
+            // ActPanel's original image slot is 256x512. These local fallback images
+            // are 2:1 loading/fight art: crop around their subjects instead of stretching.
+            float[] artworkFocus = { .25f, .74f, .35f };
+            StoryActArtwork(banner.transform, artworkNames[index], artworkFocus[index]);
             var shade = Panel(banner.transform, "Banner Shade", new Color(.008f, .018f, .038f, .3f),
                 new Vector2(0, .25f), new Vector2(1, 1f));
             shade.GetComponent<Image>().raycastTarget = false;
-            LabelAt(banner.transform, "Act Number", "ACT " + Roman(index + 1), 11, TextAnchor.MiddleLeft, Color.white,
+            StoryLabelAt(banner.transform, "Act Number", "ACT " + Roman(index + 1), 26, TextAnchor.MiddleLeft, Color.white,
                 new Vector2(.08f, .88f), new Vector2(.93f, .97f)).raycastTarget = false;
-            LabelAt(banner.transform, "Act Description", ActDescriptions[index], 10, TextAnchor.UpperLeft,
+            StoryLabelAt(banner.transform, "Act Description", ActDescriptions[index], 26, TextAnchor.UpperLeft,
                 new Color(.9f, .93f, .96f), new Vector2(.08f, .5f), new Vector2(.93f, .88f)).raycastTarget = false;
             var track = MakeImage(banner.transform, "Act Track", new Color(.3f, .75f, .32f, 1f), new Vector2(.06f, .155f), new Vector2(.94f, .185f));
             track.raycastTarget = false;
             var play = MakeImage(banner.transform, "Act Play", new Color(.09f, .5f, .2f, 1f), new Vector2(.06f, .03f), new Vector2(.94f, .14f));
             play.raycastTarget = false;
-            LabelAt(play.transform, "Act Play Label", selected ? "ENTER" : "SELECT", 13, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.one).raycastTarget = false;
+            StoryLabelAt(play.transform, "Act Play Label", selected ? "ENTER" : "SELECT", 26, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.one).raycastTarget = false;
             banner.GetComponentInChildren<Text>().text = "";
+        }
+
+        Text StoryLabelAt(Transform parent, string name, string value, int size, TextAnchor align, Color color, Vector2 min, Vector2 max)
+        {
+            var text = LabelAt(parent, name, value, size, align, color, min, max);
+            // ActPanel and ChapterPanel both use the local TecnicaSelector font.
+            var font = Resources.Load<Font>("StoryPort/Fonts/tecnica_nav");
+            if (font != null) text.font = font;
+            return text;
+        }
+
+        void StoryActArtwork(Transform parent, string resource, float focusX)
+        {
+            var sprite = Resources.Load<Sprite>("StoryPort/" + resource);
+            if (sprite == null) return;
+            var artworkObject = new GameObject("9.2 Story Art", typeof(RectTransform), typeof(StoryActArtworkImage));
+            artworkObject.transform.SetParent(parent, false);
+            artworkObject.transform.SetAsFirstSibling();
+            var artwork = artworkObject.GetComponent<StoryActArtworkImage>();
+            Anchor(artwork.rectTransform, Vector2.zero, Vector2.one);
+            artwork.sprite = sprite;
+            artwork.focusX = focusX;
+            artwork.raycastTarget = false;
         }
 
         void MapScreen()
@@ -1382,6 +1426,8 @@ namespace StoryPort
             enemyBusy = false;
             playerBusy = false;
             queuedAttack = false;
+            fightGesture.Cancel();
+            fightTouchFingerId = -1;
             lightCombo = 0;
             comboHits = 0;
             lastPlayerHit = 0;
@@ -1751,7 +1797,7 @@ namespace StoryPort
                 Vector3 towardEnemy = (enemyActor.transform.position - playerActor.transform.position).normalized;
                 StartCoroutine(MoveActor(playerActor, playerHome + towardEnemy * .65f, .16f));
             }
-            yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
+            yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Heavy", StringComparison.Ordinal) ? .7f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
             if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
             var move = rules.MoveFor(state);
             bool specialMove = state.StartsWith("Special", StringComparison.Ordinal);
@@ -1759,19 +1805,22 @@ namespace StoryPort
             bool crit = !specialMove && UnityEngine.Random.value < move.CritChance;
             float dealt = playerAttack * share * (crit ? move.CritDamage : 1f) * UnityEngine.Random.Range(.95f, 1.05f);
             bool dodged = defense == StoryPortEnemyDefense.Action.Dodge || defense == StoryPortEnemyDefense.Action.Sidestep;
-            bool blocked = defense == StoryPortEnemyDefense.Action.Block;
-            if (dodged) dealt = 0f;
-            else if (blocked) dealt *= .1f;
+            bool blockBroken = defense == StoryPortEnemyDefense.Action.Block && StoryPortCombatRules.BreaksBlock(state);
+            bool blocked = defense == StoryPortEnemyDefense.Action.Block && !blockBroken;
+            dealt *= StoryPortCombatRules.DefenseMultiplier(state, defense);
+            if (blockBroken) SetBoolIfPresent(enemyAnimator, "Blocking", false);
             if (blocked) { PlayState(enemyAnimator, "BlockReact"); Combat(enemyKey, "block_react"); }
-            else if (!dodged && enemyAnimator != null) PlayState(enemyAnimator, specialMove ? state + "HitReaction" : "HitReactionLightLeftHigh");
+            else if (!dodged && enemyAnimator != null)
+                PlayState(enemyAnimator, specialMove ? state + "HitReaction" : state.StartsWith("Heavy", StringComparison.Ordinal) ? "HitReactionHeavyFront" : state.StartsWith("Medium", StringComparison.Ordinal) ? "HitReactionMediumLeftHigh" : "HitReactionLightLeftHigh");
             enemyHealth = Mathf.Max(0f, enemyHealth - dealt);
             SyncHealthPercent();
             if (dodged) SetNotice("DODGED");
             else
             {
+                if (blockBroken) SetNotice("BLOCK BROKEN");
                 ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, blocked ? new Color(.7f, .85f, 1f) : crit ? new Color(1f, .8f, .2f) : new Color(1f, .97f, .9f));
                 Combat(playerKey, "attack_hit_" + step);
-                if (!blocked) Combat(enemyKey, step >= 6 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
+                if (!blocked) Combat(enemyKey, step >= 5 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
             }
             if (enemyHp == 0) Combat(enemyKey, "knockout");
             if (!specialMove && !dodged)
@@ -1795,7 +1844,7 @@ namespace StoryPort
             UpdateFightHud();
             if (playerActor != null) yield return StartCoroutine(MoveActor(playerActor, playerHome, .16f));
             if (enemyActor != null && dodged) yield return StartCoroutine(MoveActor(enemyActor, enemyHome, .16f));
-            if (blocked) SetBoolIfPresent(enemyAnimator, "Blocking", false);
+            if (defense == StoryPortEnemyDefense.Action.Block) SetBoolIfPresent(enemyAnimator, "Blocking", false);
             playerBusy = false;
             if (enemyHp == 0) { StartCoroutine(ResolveWinAfterImpact()); yield break; }
             // A landed hit only staggers the enemy briefly; it keeps its own attack rhythm.
@@ -1937,6 +1986,8 @@ namespace StoryPort
         void TogglePause()
         {
             if (screen != "fight" || paused) return;
+            HandleGestureAction(fightGesture.Cancel());
+            fightTouchFingerId = -1;
             paused = true;
             Time.timeScale = 0f;
             pauseOverlay = Panel(content, "Pause Overlay", new Color(.005f, .015f, .03f, .86f), new Vector2(.29f, .25f), new Vector2(.71f, .76f));
@@ -2061,7 +2112,7 @@ namespace StoryPort
             enemyBusy = false;
             if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome, .18f));
             // Keep a held block; only drop a block the player has already released.
-            if (guarding && !touchTracking)
+            if (guarding && !fightGesture.Tracking)
             {
                 guarding = false;
                 PlayState(playerAnimator, "Idle");
@@ -2785,52 +2836,107 @@ namespace StoryPort
 
         void HandleFightTouch()
         {
-            if (Input.touchCount == 0) return;
-            var touch = Input.GetTouch(0);
+            if (Input.touchCount == 0)
+            {
+                if (fightGesture.Tracking) HandleGestureAction(fightGesture.Cancel());
+                fightTouchFingerId = -1;
+                return;
+            }
+            Touch touch = default(Touch);
+            bool found = false;
+            for (int i = 0; i < Input.touchCount; i++)
+            {
+                var candidate = Input.GetTouch(i);
+                if (fightTouchFingerId >= 0 ? candidate.fingerId == fightTouchFingerId : candidate.phase == TouchPhase.Began)
+                {
+                    touch = candidate;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                if (fightTouchFingerId >= 0)
+                {
+                    HandleGestureAction(fightGesture.Cancel());
+                    fightTouchFingerId = -1;
+                }
+                return;
+            }
             var point = new Vector2(touch.position.x / Screen.width, touch.position.y / Screen.height);
             if (touch.phase == TouchPhase.Began)
             {
                 if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.fingerId))
                 {
-                    touchTracking = false;
+                    HandleGestureAction(fightGesture.Cancel());
+                    fightTouchFingerId = -1;
                     return;
                 }
-                if (point.y > .72f || point.y < .18f) return;
-                touchTracking = true;
-                touchStart = point;
-                touchBeganAt = Time.time;
-                if (point.x < .3f)
-                {
+                HandleGestureAction(fightGesture.Begin(point, Time.time));
+                if (fightGesture.Tracking) fightTouchFingerId = touch.fingerId;
+            }
+            else if (touch.phase == TouchPhase.Moved || touch.phase == TouchPhase.Stationary)
+                HandleGestureAction(fightGesture.Move(point, Time.time));
+            else if (touch.phase == TouchPhase.Ended)
+            {
+                HandleGestureAction(fightGesture.End(point, Time.time));
+                fightTouchFingerId = -1;
+            }
+            else if (touch.phase == TouchPhase.Canceled)
+            {
+                HandleGestureAction(fightGesture.Cancel());
+                fightTouchFingerId = -1;
+            }
+        }
+
+        void HandleGestureAction(StoryPortFightGesture.Action action)
+        {
+            switch (action)
+            {
+                case StoryPortFightGesture.Action.Block:
                     guarding = true;
                     PlayState(playerAnimator, "Block");
                     UpdateFightHud();
-                }
-            }
-            else if (touch.phase == TouchPhase.Ended && touchTracking)
-            {
-                touchTracking = false;
-                var delta = point - touchStart;
-                if (touchStart.x < .3f)
-                {
+                    break;
+                case StoryPortFightGesture.Action.ReleaseBlock:
                     guarding = false;
-                    if (Mathf.Abs(delta.x) > .09f || Mathf.Abs(delta.y) > .09f) Dash(delta.x >= 0f);
-                    else PlayState(playerAnimator, "Idle");
+                    PlayState(playerAnimator, "Idle");
                     UpdateFightHud();
-                    return;
-                }
-                if (touchStart.x > .38f)
-                {
-                    if (Mathf.Abs(delta.x) > .12f)
-                        Dash(delta.x >= 0f);
-                    else if (Time.time - touchBeganAt >= .34f)
-                        PlayerAttack("MediumAttack01", 27, 10);
-                    else
-                    {
-                        lightCombo = (lightCombo % 3) + 1;
-                        PlayerAttack("LightAttack0" + lightCombo, 16 + (lightCombo == 3 ? 8 : 0), 7);
-                    }
-                }
+                    break;
+                case StoryPortFightGesture.Action.GuardForward:
+                case StoryPortFightGesture.Action.GuardBack:
+                    guarding = false;
+                    Dash(action == StoryPortFightGesture.Action.GuardForward);
+                    break;
+                case StoryPortFightGesture.Action.Heavy:
+                    PlayerAttack("HeavyAttack", 0, 0);
+                    break;
+                case StoryPortFightGesture.Action.Light:
+                    lightCombo = (lightCombo % 3) + 1;
+                    PlayerAttack("LightAttack0" + lightCombo, 0, 0);
+                    break;
+                case StoryPortFightGesture.Action.RightSwipe:
+                    AdvanceOrMediumAttack();
+                    break;
+                case StoryPortFightGesture.Action.LeftSwipe:
+                    Dash(false);
+                    break;
+                case StoryPortFightGesture.Action.Sidestep:
+                    PlayState(playerAnimator, "Dash");
+                    Combat(playerKey, "dodge", .7f);
+                    evadeUntil = Time.time + .72f;
+                    break;
             }
+        }
+
+        void AdvanceOrMediumAttack()
+        {
+            // The 9.2 right swipe dashes at range and becomes a medium strike in reach.
+            if (playerActor != null && enemyActor != null &&
+                Vector3.Distance(playerActor.transform.position, enemyActor.transform.position) > 5.8f)
+                Dash(true);
+            else
+                PlayerAttack("MediumAttack01", 0, 0);
         }
 
         Image SpriteImage(Transform parent, string name, string resource, Vector2 min, Vector2 max, bool fit)

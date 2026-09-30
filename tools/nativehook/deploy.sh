@@ -20,11 +20,14 @@ NDK="D:/Android/Sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/bi
 CLANG="$NDK/aarch64-linux-android28-clang.cmd"
 ADB="D:/Android/Sdk/platform-tools/adb.exe"; D="127.0.0.1:5555"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$HERE/../.." && pwd)"
+DIALOGUE_HEADER_DIR="$ROOT_DIR/build/nativehook"
+python3 "$HERE/generate_dialogue_header.py" "$DIALOGUE_HEADER_DIR/dialogue_translations.generated.h"
 PKG=com.kabam.bigrobot
 LOGF=/data/data/$PKG/files/dotkeys.log
 
 echo "[*] build"
-"$CLANG" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o "$HERE/libdothook.so" "$HERE/hook.c" -llog
+"$CLANG" -shared -O2 -fPIC -I "$DIALOGUE_HEADER_DIR" -Wl,-soname,libdothook.so -o "$HERE/libdothook.so" "$HERE/hook.c" -llog
 LIBDIR=$("$ADB" -s $D shell "ls -d /data/app/${PKG}*/lib/arm64" | tr -d '\r')
 echo "[*] deploy -> $LIBDIR (fresh cp forces libnb to re-run ctor)"
 "$ADB" -s $D shell am force-stop $PKG

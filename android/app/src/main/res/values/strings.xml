@@ -34,9 +34,4 @@
     <string name="apk_files">APK files</string>
     <string name="select_apk">Select source APK</string>
     <string name="select_apk_first">Select a source APK to begin.</string>
-    <string name="localization_heading">Localization catalog</string>
-    <string name="select_localization_catalog">Select catalog ZIP</string>
-    <string name="no_localization_catalog">No catalog selected (English only)</string>
-    <string name="clear_localization_catalog">Clear catalog</string>
-    <string name="game_language">Game language</string>
 </resources>

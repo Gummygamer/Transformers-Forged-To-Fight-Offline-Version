@@ -1,46 +1,46 @@
 # Story dialogue catalog for nl. UTF-8 KEY<TAB>text; blank values use English fallback.
-# 0 translated story lines; blank values deliberately fall back to English in StoryLocalization.Resolve.
-ID_STORY_ARRIVAL_INTRO_001	
-ID_STORY_ARRIVAL_INTRO_002	
-ID_STORY_ARRIVAL_INTRO_003	
-ID_STORY_MIDPOINT_RALLY_001	
-ID_STORY_MIDPOINT_RALLY_002	
-ID_STORY_MIDPOINT_RALLY_003	
-ID_STORY_FINAL_STAND_001	
-ID_STORY_FINAL_STAND_002	
-ID_STORY_SHORE_SECURED_001	
-ID_STORY_SHORE_SECURED_002	
-ID_STORY_CUSTOM_OPENING_INTRO_001	
-ID_STORY_CUSTOM_OPENING_INTRO_002	
-ID_STORY_CUSTOM_OPENING_INTRO_003	
-ID_STORY_CUSTOM_OPENING_INTRO_004	
-ID_STORY_CUSTOM_OPENING_INTRO_005	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	
-ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	
-ID_STORY_CUSTOM_ACT2_INTRO_001	
-ID_STORY_CUSTOM_ACT2_INTRO_002	
-ID_STORY_CUSTOM_ACT2_INTRO_003	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	
-ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	
-ID_STORY_UI_TAP_CONTINUE	
-ID_STORY_UI_SKIP	
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	Sensoren registreren een koud bruggenhoofd voor ons. Wat hier ook is geland, het beweegt al.
+ID_STORY_ARRIVAL_INTRO_002	Het getij heeft ons hierheen gebracht. Het getij zal jullie begraven.
+ID_STORY_ARRIVAL_INTRO_003	Dan houden we deze linie, en we houden hem samen.
+ID_STORY_MIDPOINT_RALLY_001	Halverwege de bergkam en ze blijven komen. Dit is een verzamelplaats, geen patrouille.
+ID_STORY_MIDPOINT_RALLY_002	Elke stap die je zet wordt vastgelegd. Elke stap die je zet wordt geteld.
+ID_STORY_MIDPOINT_RALLY_003	Dan lopen we het tot het einde. Vaste vonk, hogere dekking.
+ID_STORY_FINAL_STAND_001	Je bent helemaal hierheen geklommen om de vorm van je eigen einde te ontmoeten.
+ID_STORY_FINAL_STAND_002	We zijn een lange weg gegaan om hier een einde aan te maken. Geef je over of val.
+ID_STORY_SHORE_SECURED_001	De kust is stil. Noteer de coördinaten en breng de gewonden naar huis.
+ID_STORY_SHORE_SECURED_002	Vandaag is het stil. We zijn terug voordat het weer luid wordt.
+ID_STORY_CUSTOM_OPENING_INTRO_001	Ik ben Optimus Prime... leider van de Autobots. We hebben vreemde energiesignalen gedetecteerd die de stabiliteit van deze sector bedreigen.
+ID_STORY_CUSTOM_OPENING_INTRO_002	Onder het gewicht van groeiende dreigingen dwongen de omstandigheden ons tot een noodlanding in deze afgelegen zone.
+ID_STORY_CUSTOM_OPENING_INTRO_003	Waarschuwing: onbekende radarverstoring gedetecteerd... De navigatiesystemen worden geforceerd verstoord!
+ID_STORY_CUSTOM_OPENING_INTRO_004	Er is geen ontsnapping mogelijk, Optimus... Je tijd is om, en de laatste afrekening is aangebroken!
+ID_STORY_CUSTOM_OPENING_INTRO_005	Bludgeon?! Dus jij zit achter deze hinderlaag... Laten we zien of je moed opweegt tegen je arrogantie!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	Bludgeon is neer.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	Uitstekend. Laten we verdergaan.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	Starscream! Ik had moeten weten dat het Decepticon-luchtcommando hierachter zat.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	Je overwinning op Bludgeon was... verwacht. Sta nu oog in oog met de ware macht van de Decepticon-vloot!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	Laten we dit dan afmaken. Autobots, de lucht in!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran heeft een Decepticon gescand met de aanduiding Starscream, hoewel zijn signatuur enorm afweek van alle vijanden die we eerder hebben ontmoet. Het voelt alsof hij uit een alternatieve dimensie is overgestoken en, te oordelen naar de tekenen, komen er meer dreigingen onze kant op
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	Ironhide! Ben je tegen je eigen soort gekeerd?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	Het gaat niet om facties, Prime. Het gaat erom te zien wie echt het lef heeft om te leiden.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	Dan lossen we dit op op de ouderwetse manier. Geen rangen, geen insignes -- alleen vonken.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	Ironhide is dood.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	Geweldig, uitstekende vooruitgang. We komen er zeker achter op welke planeet we zijn -- het is beslist een onbekende wereld, maar ik voel dat hij boordevol Energon-energie zit. En we komen er vast achter uit welke dimensie of wereld deze kerels komen
+ID_STORY_CUSTOM_ACT2_INTRO_001	Scanners hebben vitale bronnen gevonden om ons schip te repareren.
+ID_STORY_CUSTOM_ACT2_INTRO_002	Begrepen, ga voorop en beveilig ze.
+ID_STORY_CUSTOM_ACT2_INTRO_003	Absoluut, laten we gaan. We zullen zeker veel gevechten voeren, maar we moeten voorzichtig zijn tijdens deze gevechten.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	Wie ben jij? Je zult sterven!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	Laat je zien.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	Commandant, Prowl zag Starscream door een zandstorm.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	Ik geen Decepticon. Ik Starscream! Koning Seeker!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	Oei, het is zojuist erger geworden.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	Erger? Wat jij bedoelen?! Ik jou pletten als ik klaar!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	Ik heb meer informatie over Starscream. Hij is vooruit en, voor zover ik kan opmaken, bereidt hij een soort apparaat voor om zijn troepen te versterken...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	AAAAAAHHH Prowl praat te veel! Maar jullie zijn te laat, Autobots! Met deze kracht zal de lucht van mij zijn, en Megatron zal zich eindelijk buigen voor mijn superieure leiderschap!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	Commandant, jij neemt de taak die voorligt voor je rekening. Ik onderzoek zijn apparaat en rapporteer terug
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	Ik heb slecht nieuws. Starscream heeft op de een of andere manier een apparaat in elkaar gezet dat zijn krachten aanpast.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	Klopt! Met deze kracht zal de lucht van mij zijn, en Megatron zal zich eindelijk buigen voor mijn leiderschap! Je bent erbij, Optimus!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	Commandant, leid hem af in het gevecht. Ik kijk wat ik kan doen om deze technologie naar de basis te brengen voor analyse
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	De urgentie van de missie neemt aanzienlijk toe onder de groeiende tijdsdruk, en technische telemetrie bevestigt dat onze voortdurende vijandige ontmoetingen onze ergste angsten en bedreigingen werkelijkheid maken
+ID_STORY_UI_TAP_CONTINUE	Tik om door te gaan
+ID_STORY_UI_SKIP	Overslaan

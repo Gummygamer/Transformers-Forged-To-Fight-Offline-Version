@@ -1,46 +1,46 @@
 # Story dialogue catalog for ar. UTF-8 KEY<TAB>text; blank values use English fallback.
-# 0 translated story lines; blank values deliberately fall back to English in StoryLocalization.Resolve.
-ID_STORY_ARRIVAL_INTRO_001	
-ID_STORY_ARRIVAL_INTRO_002	
-ID_STORY_ARRIVAL_INTRO_003	
-ID_STORY_MIDPOINT_RALLY_001	
-ID_STORY_MIDPOINT_RALLY_002	
-ID_STORY_MIDPOINT_RALLY_003	
-ID_STORY_FINAL_STAND_001	
-ID_STORY_FINAL_STAND_002	
-ID_STORY_SHORE_SECURED_001	
-ID_STORY_SHORE_SECURED_002	
-ID_STORY_CUSTOM_OPENING_INTRO_001	
-ID_STORY_CUSTOM_OPENING_INTRO_002	
-ID_STORY_CUSTOM_OPENING_INTRO_003	
-ID_STORY_CUSTOM_OPENING_INTRO_004	
-ID_STORY_CUSTOM_OPENING_INTRO_005	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	
-ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	
-ID_STORY_CUSTOM_ACT2_INTRO_001	
-ID_STORY_CUSTOM_ACT2_INTRO_002	
-ID_STORY_CUSTOM_ACT2_INTRO_003	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	
-ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	
-ID_STORY_UI_TAP_CONTINUE	
-ID_STORY_UI_SKIP	
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	تُظهر أجهزة الاستشعار رأس جسر شاطئي بارداً أمامنا. أيًّا كان ما هبط هنا فهو يتحرك بالفعل.
+ID_STORY_ARRIVAL_INTRO_002	المدّ هو من جاء بنا. والمدّ سيدفنكم.
+ID_STORY_ARRIVAL_INTRO_003	إذن نحن نصمد في هذا الخط، ونصمد فيه معاً.
+ID_STORY_MIDPOINT_RALLY_001	في منتصف الطريق إلى قمة التلة وما زالوا يتوافدون. هذه منطقة حشد وليست دورية.
+ID_STORY_MIDPOINT_RALLY_002	كل خطوة تخطوها مسجّلة. كل خطوة تخطوها محسوبة.
+ID_STORY_MIDPOINT_RALLY_003	إذن نمضي فيه حتى النهاية. شرارة ثابتة، ودفاع أعلى.
+ID_STORY_FINAL_STAND_001	لقد تسلقت كل هذه المسافة لتلقى شكل نهايتك.
+ID_STORY_FINAL_STAND_002	تسلقنا طريقاً طويلاً لننهي هذا. استسلم أو اسقط.
+ID_STORY_SHORE_SECURED_001	الشاطئ هادئ. سجّلوا الإحداثيات وأعيدوا الجرحى إلى ديارهم.
+ID_STORY_SHORE_SECURED_002	هادئ اليوم. سنعود قبل أن يعلو الضجيج من جديد.
+ID_STORY_CUSTOM_OPENING_INTRO_001	أنا أوبتيموس برايم... قائد الأوتوبوتس. لقد رصدنا إشارات طاقة غريبة تهدد استقرار هذا القطاع.
+ID_STORY_CUSTOM_OPENING_INTRO_002	تحت وطأة التهديدات المتزايدة، اضطرتنا الظروف إلى هبوط اضطراري في هذه المنطقة المعزولة.
+ID_STORY_CUSTOM_OPENING_INTRO_003	تحذير: رُصد تشويش رادار مجهول... أنظمة الملاحة تتعرض لتعطيل قسري!
+ID_STORY_CUSTOM_OPENING_INTRO_004	لا مفرّ يا أوبتيموس... انتهى وقتك، وحان الحساب الأخير!
+ID_STORY_CUSTOM_OPENING_INTRO_005	بلدجن؟! إذن أنت من يقف وراء هذا الكمين... لنرَ إن كانت شجاعتك تضاهي غرورك!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	سقط بلدجن.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	ممتاز. لننتقل إلى ما بعده.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	ستارسكريم! كان يجب أن أعلم أن قيادة الديسبتيكون الجوية وراء هذا.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	انتصارك على بلدجن كان... متوقعاً. الآن واجه القوة الحقيقية لأسطول الديسبتيكون!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	إذن لننهِ هذا. أوتوبوتس، إلى السماء!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	مسحت تيليتران ديسبتيكون يُدعى ستارسكريم، لكن بصمته اختلفت كثيراً عن أي أعداء واجهناهم سابقاً. يبدو كأنه عبر من بُعد آخر، وبحسب المؤشرات فإن تهديدات إضافية تتجه نحونا
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	آيرنهايد! هل انقلبت على بني جنسك؟
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	الأمر ليس عن الفصائل يا برايم. الأمر عن معرفة من يملك حقاً الجرأة على القيادة.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	إذن نحسم هذا بالطريقة القديمة. بلا رتب، بلا شارات -- فقط شرارات.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	آيرنهايد مات.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	رائع، تقدم ممتاز. سنكتشف بالتأكيد أي كوكب نحن عليه -- إنه بالتأكيد عالم مجهول، لكنني أشعر أنه مليء بطاقة الإنيرجون. وسنعرف بالتأكيد من أي بُعد أو عالم جاء هؤلاء
+ID_STORY_CUSTOM_ACT2_INTRO_001	وجدت الماسحات موارد حيوية لإصلاح سفينتنا.
+ID_STORY_CUSTOM_ACT2_INTRO_002	مفهوم، تقدّم وأمّنها.
+ID_STORY_CUSTOM_ACT2_INTRO_003	بالتأكيد، لننطلق. سنواجه بالتأكيد معارك كثيرة، لكن علينا الحذر خلال هذه القتالات.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	من أنت؟ ستموت!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	أظهر نفسك.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	أيها القائد، رأى بروول ستارسكريم عبر عاصفة ترابية.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	أنا مش ديسبتيكون. أنا ستارسكريم! ملك السيكرز!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	أوه أوه، ساءت الأمور للتو.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	أسوأ؟ إنت تقصد إيه؟! أنا أسحقك لما أكون جاهز!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	لدي معلومات أكثر عن ستارسكريم. إنه في الأمام، ومما استنتجته فهو يجهز جهازاً من نوع ما لتقوية قواته...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	آآآآآآه بروول يتكلم كثيراً! لكنكم تأخرتم أيها الأوتوبوتس! بهذه القوة ستكون السماء لي، وسينحني ميغاترون أخيراً لقيادتي الفائقة!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	أيها القائد، تولَّ المهمة التي بين يديك. سأحقق في جهازه وأعود بتقرير
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	لدي أخبار سيئة. لقد ركّب ستارسكريم بطريقة ما جهازاً يعدّل قدراته.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	هذا صحيح! بهذه القوة ستكون السماء لي، وسينحني ميغاترون أخيراً لقيادتي! لقد انتهيت يا أوبتيموس!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	أيها القائد، اشغله في المعركة. سأرى ما يمكنني فعله لإعادة هذه التقنية إلى القاعدة لتحليلها
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	تتصاعد إلحاحية المهمة بشكل كبير تحت ضغط الوقت المتزايد، وتؤكد القياسات التقنية أن مواجهاتنا العدائية المستمرة تحوّل أسوأ مخاوفنا وتهديداتنا إلى واقع
+ID_STORY_UI_TAP_CONTINUE	اضغط للمتابعة
+ID_STORY_UI_SKIP	تخطي

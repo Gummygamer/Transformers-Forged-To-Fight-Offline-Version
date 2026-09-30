@@ -1,46 +1,46 @@
 # Story dialogue catalog for th. UTF-8 KEY<TAB>text; blank values use English fallback.
-# 0 translated story lines; blank values deliberately fall back to English in StoryLocalization.Resolve.
-ID_STORY_ARRIVAL_INTRO_001	
-ID_STORY_ARRIVAL_INTRO_002	
-ID_STORY_ARRIVAL_INTRO_003	
-ID_STORY_MIDPOINT_RALLY_001	
-ID_STORY_MIDPOINT_RALLY_002	
-ID_STORY_MIDPOINT_RALLY_003	
-ID_STORY_FINAL_STAND_001	
-ID_STORY_FINAL_STAND_002	
-ID_STORY_SHORE_SECURED_001	
-ID_STORY_SHORE_SECURED_002	
-ID_STORY_CUSTOM_OPENING_INTRO_001	
-ID_STORY_CUSTOM_OPENING_INTRO_002	
-ID_STORY_CUSTOM_OPENING_INTRO_003	
-ID_STORY_CUSTOM_OPENING_INTRO_004	
-ID_STORY_CUSTOM_OPENING_INTRO_005	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	
-ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	
-ID_STORY_CUSTOM_ACT2_INTRO_001	
-ID_STORY_CUSTOM_ACT2_INTRO_002	
-ID_STORY_CUSTOM_ACT2_INTRO_003	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	
-ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	
-ID_STORY_UI_TAP_CONTINUE	
-ID_STORY_UI_SKIP	
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	เซนเซอร์ตรวจพบหัวหาดที่เย็นเยียบอยู่ข้างหน้า สิ่งที่ลงจอดที่นี่กำลังเคลื่อนไหวอยู่แล้ว
+ID_STORY_ARRIVAL_INTRO_002	กระแสน้ำนำเรามาที่นี่ กระแสน้ำจะฝังพวกเจ้า
+ID_STORY_ARRIVAL_INTRO_003	เช่นนั้นเราก็รักษาแนวนี้ไว้ และรักษาไว้ด้วยกัน
+ID_STORY_MIDPOINT_RALLY_001	มาถึงครึ่งทางของสันเขาแล้ว และพวกมันก็ยังคงมาเรื่อย ๆ นี่คือจุดรวมพล ไม่ใช่การลาดตระเวน
+ID_STORY_MIDPOINT_RALLY_002	ทุกก้าวที่เจ้าเดินถูกบันทึกไว้ ทุกก้าวที่เจ้าเดินถูกนับไว้
+ID_STORY_MIDPOINT_RALLY_003	เช่นนั้นเราก็เดินไปให้ถึงที่สุด ประกายที่มั่นคง การป้องกันที่สูงขึ้น
+ID_STORY_FINAL_STAND_001	เจ้าปีนขึ้นมาไกลขนาดนี้ก็เพียงเพื่อพบกับรูปร่างของจุดจบของตัวเอง
+ID_STORY_FINAL_STAND_002	เราปีนมาไกลเพื่อยุติเรื่องนี้ ยอมแพ้หรือล้มลง
+ID_STORY_SHORE_SECURED_001	ชายฝั่งเงียบสงบ บันทึกพิกัดแล้วพาผู้บาดเจ็บกลับบ้าน
+ID_STORY_SHORE_SECURED_002	วันนี้เงียบสงบ เราจะกลับมาก่อนที่เสียงจะดังอีกครั้ง
+ID_STORY_CUSTOM_OPENING_INTRO_001	ข้าคือออพติมัส ไพรม์... ผู้นำของออโตบอท เราตรวจพบสัญญาณพลังงานแปลก ๆ ที่คุกคามเสถียรภาพของเขตนี้
+ID_STORY_CUSTOM_OPENING_INTRO_002	ภายใต้แรงกดดันของภัยคุกคามที่เพิ่มขึ้น สถานการณ์บีบให้เราต้องลงจอดฉุกเฉินในเขตโดดเดี่ยวแห่งนี้
+ID_STORY_CUSTOM_OPENING_INTRO_003	คำเตือน: ตรวจพบการรบกวนเรดาร์ที่ไม่ทราบที่มา... ระบบนำทางถูกรบกวนโดยใช้กำลัง!
+ID_STORY_CUSTOM_OPENING_INTRO_004	ไม่มีทางหนีแล้ว ออพติมัส... เวลาของเจ้าหมดลงแล้ว และการชำระบัญชีครั้งสุดท้ายมาถึงแล้ว!
+ID_STORY_CUSTOM_OPENING_INTRO_005	บลัดเจียน?! ที่แท้เจ้าคือผู้อยู่เบื้องหลังการซุ่มโจมตีครั้งนี้... มาดูกันว่าความกล้าของเจ้าสมกับความหยิ่งผยองหรือไม่!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	บลัดเจียนล้มแล้ว
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	ยอดเยี่ยม ไปต่อกันเถอะ
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	สตาร์สครีม! ข้าน่าจะรู้ว่ากองบัญชาการทางอากาศของดีเซพติคอนอยู่เบื้องหลังเรื่องนี้
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	ชัยชนะของเจ้าเหนือบลัดเจียนนั้น... อยู่ในความคาดหมาย ตอนนี้จงเผชิญหน้ากับพลังที่แท้จริงของกองเรือดีเซพติคอน!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	เช่นนั้นก็จบเรื่องนี้กัน ออโตบอท ขึ้นสู่ท้องฟ้า!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	เทเลทรานสแกนพบดีเซพติคอนที่ถูกระบุว่าเป็นสตาร์สครีม แต่ลายเซ็นของเขาแตกต่างจากศัตรูทุกตนที่เราเคยเผชิญอย่างมาก รู้สึกราวกับเขาข้ามมาจากมิติอื่น และเมื่อพิจารณาจากสัญญาณ ภัยคุกคามเพิ่มเติมกำลังมุ่งหน้ามาหาเรา
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	ไอรอนไฮด์! เจ้าหันหลังให้พวกพ้องของตัวเองหรือ
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	นี่ไม่ใช่เรื่องของฝ่าย ไพรม์ นี่คือการดูว่าใครมีความกล้าพอที่จะเป็นผู้นำจริง ๆ
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	เช่นนั้นเราก็ตัดสินเรื่องนี้แบบโบราณ ไม่มียศ ไม่มีเครื่องหมาย -- มีแต่ประกาย
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	ไอรอนไฮด์ตายแล้ว
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	ยอดเยี่ยม ความก้าวหน้าที่ดีเลิศ เราจะต้องค้นพบแน่นอนว่าเราอยู่บนดาวดวงไหน -- แน่นอนว่าเป็นโลกที่ไม่รู้จัก แต่ข้ารู้สึกว่ามันเต็มไปด้วยพลังงานเอเนอร์ก้อน และเราจะต้องหาให้ได้ว่าพวกนี้มาจากมิติหรือโลกใด
+ID_STORY_CUSTOM_ACT2_INTRO_001	เครื่องสแกนพบทรัพยากรสำคัญสำหรับซ่อมแซมยานของเรา
+ID_STORY_CUSTOM_ACT2_INTRO_002	รับทราบ นำทางไปและรักษาความปลอดภัยให้พวกมัน
+ID_STORY_CUSTOM_ACT2_INTRO_003	แน่นอน ออกเดินทางกันเถอะ เราจะต้องเผชิญการต่อสู้มากมาย แต่เราต้องระมัดระวังระหว่างการต่อสู้เหล่านี้
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	เจ้าคือใคร? เจ้าจะต้องตาย!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	แสดงตัวออกมา
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	ผู้บัญชาการ พราวล์เห็นสตาร์สครีมผ่านพายุฝุ่น
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	ข้าไม่ใช่ดีเซพติคอน ข้าสตาร์สครีม! ราชาซีกเกอร์!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	โอ๊ะโอ สถานการณ์แย่ลงกว่าเดิมแล้ว
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	แย่กว่า? เจ้าหมายความว่าอย่างไร?! ข้าจะบดขยี้เจ้าเมื่อข้าพร้อม!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	ข้ามีข้อมูลเกี่ยวกับสตาร์สครีมเพิ่มเติม เขาอยู่ข้างหน้า และเท่าที่ข้ารวบรวมได้ เขากำลังเตรียมอุปกรณ์บางอย่างเพื่อเสริมกำลังพลของเขา...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	อ๊าาาาาา พราวล์พูดมากเกินไป! แต่พวกเจ้ามาช้าเกินไป ออโตบอท! ด้วยพลังนี้ ท้องฟ้าจะเป็นของข้า และเมกาทรอนจะก้มหัวให้การนำที่เหนือกว่าของข้าในที่สุด!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	ผู้บัญชาการ ท่านจัดการภารกิจตรงหน้าไป ข้าจะสืบสวนอุปกรณ์ของเขาและรายงานกลับ
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	ข้ามีข่าวร้าย สตาร์สครีมประกอบอุปกรณ์ที่เปลี่ยนแปลงพลังของเขาขึ้นมาได้อย่างใดอย่างหนึ่ง
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	ถูกต้อง! ด้วยพลังนี้ ท้องฟ้าจะเป็นของข้า และเมกาทรอนจะก้มหัวให้การนำของข้าในที่สุด! เจ้าจบสิ้นแล้ว ออพติมัส!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	ผู้บัญชาการ ท่านเบี่ยงเบนความสนใจเขาในการต่อสู้ ข้าจะดูว่าทำอะไรได้บ้างเพื่อนำเทคโนโลยีนี้กลับไปที่ฐานเพื่อวิเคราะห์
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	ความเร่งด่วนของภารกิจเพิ่มขึ้นอย่างมากภายใต้แรงกดดันด้านเวลาที่เพิ่มขึ้น และข้อมูลเทเลเมทรีทางเทคนิคยืนยันว่าการเผชิญหน้าอย่างเป็นปฏิปักษ์ที่ยังดำเนินอยู่ของเรากำลังทำให้ความกลัวและภัยคุกคามที่เลวร้ายที่สุดของเราเป็นจริง
+ID_STORY_UI_TAP_CONTINUE	แตะเพื่อดำเนินการต่อ
+ID_STORY_UI_SKIP	ข้าม

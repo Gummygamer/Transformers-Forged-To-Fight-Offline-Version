@@ -1675,6 +1675,12 @@ function quest_detail_response(p: text, btxt: text): text
   spaced_envelope(gamedata.build_quest_detail(qid, json_text_or(req, "setId", gamedata.quest_set_id_for(qid))))
 end
 
+function quest_map_preview_response(p: text): text
+  intent: return the authored quest map without beginning or changing a saved quest
+  let qid: text = last_segment(p)
+  compact_envelope(jsonout.json_obj([jsonout.json_pair(qid, jsonout.json_obj([jsonout.json_pair("map", gamedata.build_quest_map(qid))]))]))
+end
+
 function static_dynamic_second(path: text, p: text, btxt: text): text
   intent: encode the pvp, tutorial, base hero and quest detail endpoints
   if ends_with(p, "/matches/activate-match/pvp_fight") then
@@ -1687,6 +1693,8 @@ function static_dynamic_second(path: text, p: text, btxt: text): text
     base_hero_response(btxt)
   else if contains_text(p, "/quests/quest-detail/") then
     quest_detail_response(p, btxt)
+  else if contains_text(p, "/quests/quest-map/") then
+    quest_map_preview_response(p)
   else
     ""
   end

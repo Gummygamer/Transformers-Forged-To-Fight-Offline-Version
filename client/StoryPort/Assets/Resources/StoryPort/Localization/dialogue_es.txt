@@ -1,46 +1,46 @@
 # Story dialogue catalog for es. UTF-8 KEY<TAB>text; blank values use English fallback.
-# 0 translated story lines; blank values deliberately fall back to English in StoryLocalization.Resolve.
-ID_STORY_ARRIVAL_INTRO_001	
-ID_STORY_ARRIVAL_INTRO_002	
-ID_STORY_ARRIVAL_INTRO_003	
-ID_STORY_MIDPOINT_RALLY_001	
-ID_STORY_MIDPOINT_RALLY_002	
-ID_STORY_MIDPOINT_RALLY_003	
-ID_STORY_FINAL_STAND_001	
-ID_STORY_FINAL_STAND_002	
-ID_STORY_SHORE_SECURED_001	
-ID_STORY_SHORE_SECURED_002	
-ID_STORY_CUSTOM_OPENING_INTRO_001	
-ID_STORY_CUSTOM_OPENING_INTRO_002	
-ID_STORY_CUSTOM_OPENING_INTRO_003	
-ID_STORY_CUSTOM_OPENING_INTRO_004	
-ID_STORY_CUSTOM_OPENING_INTRO_005	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	
-ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	
-ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	
-ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	
-ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	
-ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	
-ID_STORY_CUSTOM_ACT2_INTRO_001	
-ID_STORY_CUSTOM_ACT2_INTRO_002	
-ID_STORY_CUSTOM_ACT2_INTRO_003	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	
-ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	
-ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	
-ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	
-ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	
-ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	
-ID_STORY_UI_TAP_CONTINUE	
-ID_STORY_UI_SKIP	
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	Los sensores detectan una cabeza de playa fría más adelante. Lo que haya aterrizado aquí ya se está moviendo.
+ID_STORY_ARRIVAL_INTRO_002	La marea nos trajo. La marea los enterrará.
+ID_STORY_ARRIVAL_INTRO_003	Entonces mantenemos esta línea, y la mantenemos juntos.
+ID_STORY_MIDPOINT_RALLY_001	A mitad de la cresta y siguen llegando. Esto es una zona de reunión, no una patrulla.
+ID_STORY_MIDPOINT_RALLY_002	Cada paso que das queda registrado. Cada paso que das es contado.
+ID_STORY_MIDPOINT_RALLY_003	Entonces lo recorremos hasta el final. Chispa firme, guardia en alto.
+ID_STORY_FINAL_STAND_001	Subiste todo este camino solo para encontrarte con la forma de tu propio final.
+ID_STORY_FINAL_STAND_002	Subimos mucho para terminar con esto. Ríndete o cae.
+ID_STORY_SHORE_SECURED_001	La orilla está en calma. Registren las coordenadas y lleven a los heridos a casa.
+ID_STORY_SHORE_SECURED_002	Hoy hay calma. Volveremos antes de que vuelva el ruido.
+ID_STORY_CUSTOM_OPENING_INTRO_001	Soy Optimus Prime... líder de los Autobots. Hemos detectado extrañas señales de energía que amenazan la estabilidad de este sector.
+ID_STORY_CUSTOM_OPENING_INTRO_002	Bajo el peso de amenazas crecientes, las circunstancias nos obligaron a un aterrizaje de emergencia en esta zona aislada.
+ID_STORY_CUSTOM_OPENING_INTRO_003	Advertencia: se detecta una interferencia de radar desconocida... ¡Los sistemas de navegación están siendo perturbados por la fuerza!
+ID_STORY_CUSTOM_OPENING_INTRO_004	No hay escapatoria, Optimus... ¡Tu tiempo se acabó y ha llegado el ajuste de cuentas final!
+ID_STORY_CUSTOM_OPENING_INTRO_005	¡¿Bludgeon?! Así que tú estás detrás de esta emboscada... ¡Veamos si tu valentía está a la altura de tu arrogancia!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	Bludgeon ha caído.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	Excelente. Sigamos adelante.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	¡Starscream! Debí suponer que el mando aéreo Decepticon estaba detrás de esto.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	Tu victoria sobre Bludgeon era... esperada. ¡Ahora enfréntate al verdadero poder de la flota Decepticon!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	Entonces terminemos con esto. ¡Autobots, al cielo!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran escaneó a un Decepticon designado como Starscream, aunque su firma era muy distinta a la de cualquier enemigo que hayamos enfrentado antes. Parece que cruzó desde una dimensión alternativa y, a juzgar por las señales, se dirigen hacia nosotros más amenazas
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	¡Ironhide! ¿Te has vuelto contra los tuyos?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	No se trata de facciones, Prime. Se trata de ver quién tiene realmente las agallas para liderar.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	Entonces lo resolvemos a la antigua. Sin rangos, sin insignias -- solo chispas.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	Ironhide está muerto.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	Genial, excelente progreso. Sin duda descubriremos en qué planeta estamos -- ciertamente es un mundo desconocido, pero siento que está lleno de energía de Energon. Y seguramente averiguaremos de qué dimensión o mundo vienen estos sujetos
+ID_STORY_CUSTOM_ACT2_INTRO_001	Los escáneres encontraron recursos vitales para reparar nuestra nave.
+ID_STORY_CUSTOM_ACT2_INTRO_002	Entendido, guía el camino y asegúralos.
+ID_STORY_CUSTOM_ACT2_INTRO_003	Por supuesto, en marcha. Seguramente enfrentaremos muchas batallas, pero debemos ser cuidadosos durante estos combates.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	¿Quién eres? ¡Vas a morir!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	Muéstrate.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	Comandante, Prowl vio a Starscream a través de una tormenta de polvo.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	Yo no Decepticon. ¡Yo Starscream! ¡Rey Seeker!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	Uh-oh, las cosas acaban de empeorar.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	¿Peor? ¡¿Qué tú decir?! ¡Yo aplastarte cuando yo listo!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	Tengo más información sobre Starscream. Está más adelante y, por lo que puedo deducir, está preparando algún tipo de dispositivo para fortalecer a sus fuerzas...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	¡AAAAAAHHH Prowl habla demasiado! ¡Pero llegan tarde, Autobots! Con este poder, los cielos serán míos, ¡y Megatron por fin se inclinará ante mi liderazgo superior!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	Comandante, encárgate de la tarea que tienes entre manos. Yo investigaré su dispositivo y te informaré
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	Tengo malas noticias. Starscream de alguna manera ha montado un dispositivo que modifica sus poderes.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	¡Así es! ¡Con este poder, los cielos serán míos y Megatron por fin se inclinará ante mi liderazgo! ¡Estás acabado, Optimus!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	Comandante, distráelo en combate. Veré qué puedo hacer para llevar esta tecnología a la base para su análisis
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	La urgencia de la misión aumenta considerablemente bajo la creciente presión del tiempo, y la telemetría técnica confirma que nuestros continuos encuentros hostiles están haciendo realidad nuestros peores temores y amenazas
+ID_STORY_UI_TAP_CONTINUE	Toca para continuar
+ID_STORY_UI_SKIP	Omitir

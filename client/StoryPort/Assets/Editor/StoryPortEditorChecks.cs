@@ -14,6 +14,8 @@ namespace StoryPort.Editor
             CheckStoryRoute();
             CheckStoryLocalization();
             CheckEnemyDefense();
+            CheckFightGestures();
+            CheckHeavyMove();
             AssetDatabase.Refresh();
             CheckNavigationFont();
             StoryPortAssetSetup.ImportLocalUiArt(false);
@@ -25,6 +27,7 @@ namespace StoryPort.Editor
                 if (Resources.Load<Sprite>("StoryPort/UI/" + name) == null)
                     throw new Exception("Missing imported 9.2 UI sprite: " + name);
             CheckBotMaterial();
+            CheckFightAnimations();
             CheckAudio();
             var sky = Resources.Load<Material>("StoryPort/ChicagoDaySky");
             if (sky == null || sky.mainTexture == null)
@@ -34,7 +37,66 @@ namespace StoryPort.Editor
             var road = Resources.Load<Material>("StoryPort/ChicagoRoad");
             if (road == null || road.mainTexture == null || road.shader == null || road.shader.name != "StoryPort/ChicagoRoad")
                 throw new Exception("Missing converted 9.2 Chicago asphalt material");
-            Debug.Log("StoryPort Editor checks passed: server route parser, 9.2 UI sprites, bot materials, audio, and Chicago environment");
+            Debug.Log("StoryPort Editor checks passed: server route and combat values, fight gestures, 9.2 art/audio, and Chicago environment");
+        }
+
+        static void CheckFightGestures()
+        {
+            var input = new StoryPortFightGesture();
+            var right = new Vector2(.7f, .4f);
+            if (input.Begin(right, 0f) != StoryPortFightGesture.Action.None ||
+                input.Move(right, .19f) != StoryPortFightGesture.Action.None ||
+                input.Move(right, .21f) != StoryPortFightGesture.Action.Heavy ||
+                input.Move(right, .4f) != StoryPortFightGesture.Action.None ||
+                input.End(right, .5f) != StoryPortFightGesture.Action.None)
+                throw new Exception("A held attack did not fire heavy exactly once");
+            input.Begin(right, 1f);
+            if (input.End(right, 1.12f) != StoryPortFightGesture.Action.Light)
+                throw new Exception("A short tap did not fire light");
+            input.Begin(right, 2f);
+            if (input.Move(new Vector2(.82f, .4f), 2.25f) != StoryPortFightGesture.Action.None ||
+                input.End(new Vector2(.82f, .4f), 2.3f) != StoryPortFightGesture.Action.RightSwipe)
+                throw new Exception("A right swipe was misread as a heavy hold");
+            input.Begin(right, 3f);
+            if (input.End(new Vector2(.57f, .4f), 3.12f) != StoryPortFightGesture.Action.LeftSwipe)
+                throw new Exception("A left swipe did not dodge");
+            if (input.Begin(new Vector2(.2f, .4f), 4f) != StoryPortFightGesture.Action.Block ||
+                input.Cancel() != StoryPortFightGesture.Action.ReleaseBlock || input.Guarding || input.Tracking ||
+                input.End(new Vector2(.2f, .4f), 4.5f) != StoryPortFightGesture.Action.None)
+                throw new Exception("A canceled block left the guard latched");
+            input.Begin(right, 5f);
+            if (input.Cancel() != StoryPortFightGesture.Action.None ||
+                input.Move(right, 5.5f) != StoryPortFightGesture.Action.None ||
+                input.End(right, 5.6f) != StoryPortFightGesture.Action.None)
+                throw new Exception("A canceled hold fired an attack");
+        }
+
+        static void CheckHeavyMove()
+        {
+            var rules = new StoryPortCombatRules();
+            rules.Load("{\"attackValues\":{\"Heavy\":{\"a\":1.37,\"m\":143,\"c\":0.13,\"d\":1.9}}}");
+            var heavy = rules.MoveFor("HeavyAttack");
+            if (Mathf.Abs(heavy.Share - 1.37f) > .001f || Mathf.Abs(heavy.Mana - 143f) > .001f ||
+                Mathf.Abs(heavy.CritChance - .13f) > .001f || Mathf.Abs(heavy.CritDamage - 1.9f) > .001f)
+                throw new Exception("Heavy attack lost server-authored move values");
+            if (StoryPortCombatRules.DefenseMultiplier("HeavyAttack", StoryPortEnemyDefense.Action.Block) != 1f ||
+                StoryPortCombatRules.DefenseMultiplier("MediumAttack01", StoryPortEnemyDefense.Action.Block) != .1f ||
+                StoryPortCombatRules.DefenseMultiplier("HeavyAttack", StoryPortEnemyDefense.Action.Dodge) != 0f)
+                throw new Exception("Heavy block break or dodge response changed");
+        }
+
+        static void CheckFightAnimations()
+        {
+            var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/Art92/AnimatorController/animator_char_fight.controller");
+            if (controller == null) throw new Exception("Missing converted 9.2 fight controller");
+            bool heavy = false, reaction = false;
+            foreach (var clip in controller.animationClips)
+            {
+                heavy |= clip.name == "char_attackHeavy";
+                reaction |= clip.name == "char_hitReaction_heavy_front";
+            }
+            if (!heavy || !reaction)
+                throw new Exception("Converted fight controller lacks heavy attack or block break reaction");
         }
 
         static void CheckEnemyDefense()

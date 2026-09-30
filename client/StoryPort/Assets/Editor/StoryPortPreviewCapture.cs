@@ -125,7 +125,22 @@ namespace StoryPort.Editor
             var client = new GameObject("StoryPort Preview").AddComponent<StoryPortBootstrap>();
             Invoke(client, "BuildCamera");
             Invoke(client, "BuildUI");
-            if (screen == "story") Invoke(client, "StoryScreen");
+            if (screen == "story")
+            {
+                var questFile = Environment.GetEnvironmentVariable("STORYPORT_PREVIEW_QUEST");
+                if (!string.IsNullOrEmpty(questFile))
+                {
+                    int act;
+                    int.TryParse(Environment.GetEnvironmentVariable("STORYPORT_PREVIEW_ACT"), out act);
+                    act = Mathf.Clamp(act, 0, 2);
+                    var qids = (string[])typeof(StoryPortBootstrap).GetField("ActQids", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+                    var routes = (StoryRouteData[])typeof(StoryPortBootstrap).GetField("actRoutes", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(client);
+                    routes[act] = StoryRouteData.Parse(File.ReadAllText(questFile), qids[act]);
+                    if (!routes[act].hasMap) throw new Exception("Story preview needs the server's quest-map response");
+                    Set(client, "actIndex", act);
+                }
+                Invoke(client, "StoryScreen");
+            }
             else if (screen == "squad")
             {
                 Set(client, "squadForStory", true);
@@ -181,7 +196,7 @@ namespace StoryPort.Editor
             var canvas = UnityEngine.Object.FindObjectOfType<Canvas>();
             if (camera == null || canvas == null) throw new Exception("Story preview did not create its camera and canvas");
             var statusBar = canvas.transform.Find("Root/Top Status Bar");
-            if (statusBar != null) statusBar.gameObject.SetActive(screen != "fight" && screen != "dialogue" && screen != "victory" && screen != "complete");
+            if (statusBar != null) statusBar.gameObject.SetActive(screen != "title" && screen != "loading" && screen != "fight" && screen != "dialogue" && screen != "victory" && screen != "complete");
             canvas.renderMode = RenderMode.ScreenSpaceCamera;
             canvas.worldCamera = camera;
             canvas.planeDistance = .3f;

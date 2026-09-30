@@ -45,6 +45,9 @@ fi
 }
 
 mkdir -p "$ASSET_DIR"
+NATIVEHOOK_BUILD_DIR="$ROOT_DIR/build/nativehook"
+DIALOGUE_HEADER="$NATIVEHOOK_BUILD_DIR/dialogue_translations.generated.h"
+python3 "$ROOT_DIR/tools/nativehook/generate_dialogue_header.py" "$DIALOGUE_HEADER"
 
 # Rebuild the embedded hooks whenever their sources changed. Copying an older
 # ignored .so here is otherwise an easy way to ship a patcher whose in-app
@@ -52,6 +55,7 @@ mkdir -p "$ASSET_DIR"
 ARM64_CLANG="$(find_toolchain_binary aarch64-linux-android28-clang || true)"
 ARMV7_CLANG="$(find_toolchain_binary armv7a-linux-androideabi21-clang || true)"
 if [ "$FORCE_ASSETS" = "1" ] ||
+   [ "$DIALOGUE_HEADER" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/hook.c" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/inapk_server.c" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/arena.c" -nt "$ROOT_DIR/tools/nativehook/libdothook.so" ] ||
@@ -61,18 +65,19 @@ if [ "$FORCE_ASSETS" = "1" ] ||
   # The arm64 hook always carries the live Arena netcode. It stays inert until the patcher writes a
   # session block (host/port/room) into the hook; an APK patched without one behaves exactly like
   # the async build. armeabi-v7a has no netcode (arena.h refuses it).
-  "$ARM64_CLANG" -shared -O2 -fPIC -Wl,-z,max-page-size=16384 \
+  "$ARM64_CLANG" -shared -O2 -fPIC -I "$NATIVEHOOK_BUILD_DIR" -Wl,-z,max-page-size=16384 \
     -DTFTF_ENABLE_ARENA=1 \
     -Wl,-soname,libdothook.so -o "$ROOT_DIR/tools/nativehook/libdothook.so" \
     "$ROOT_DIR/tools/nativehook/hook.c" "$ROOT_DIR/tools/nativehook/inapk_server.c" \
     "$ROOT_DIR/tools/nativehook/arena.c" "$ROOT_DIR/tools/nativehook/netclient.c" -llog
 fi
 if [ "$FORCE_ASSETS" = "1" ] ||
+   [ "$DIALOGUE_HEADER" -nt "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/hook_arm32.c" -nt "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ] ||
    [ "$ROOT_DIR/tools/nativehook/inapk_server.c" -nt "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ] ||
    [ ! -s "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" ]; then
   [ -n "$ARMV7_CLANG" ] || { echo "error: Android NDK clang is required to rebuild the armv7 hook" >&2; exit 1; }
-  "$ARMV7_CLANG" -shared -O2 -fPIC -Wall -Wextra -Wl,-z,max-page-size=16384 \
+  "$ARMV7_CLANG" -shared -O2 -fPIC -Wall -Wextra -I "$NATIVEHOOK_BUILD_DIR" -Wl,-z,max-page-size=16384 \
     -Wl,-soname,libdothook.so -o "$ROOT_DIR/tools/nativehook/libdothook-armeabi-v7a.so" \
     "$ROOT_DIR/tools/nativehook/hook_arm32.c" "$ROOT_DIR/tools/nativehook/inapk_server.c" -llog
 fi

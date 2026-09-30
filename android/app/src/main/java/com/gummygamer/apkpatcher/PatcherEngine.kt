@@ -98,13 +98,6 @@ class PatcherEngine(context: Context) {
                 reportStep(onStep, onLog, 2, steps.size, "validating source APK")
                 validateApkContents(sourceZip!!, request)
 
-                val localizationFiles = if (request.localizationCatalogUri.isNotBlank()) {
-                    val uri = Uri.parse(request.localizationCatalogUri)
-                    val stream = appContext.contentResolver.openInputStream(uri)
-                        ?: throw IOException("Unable to open the selected localization catalog ZIP")
-                    LocalizationCatalog.readZip(stream, request.gameLocale).files
-                } else emptyMap()
-
                 // Step 3: Load hook library
                 checkCancelled()
                 reportStep(onStep, onLog, 3, steps.size, "loading hook library")
@@ -121,7 +114,7 @@ class PatcherEngine(context: Context) {
                 // Step 5: Build patched APK
                 checkCancelled()
                 reportStep(onStep, onLog, 5, steps.size, "building patched APK")
-                buildPatchedApk(sourceZip!!, request, hookData, il2cppData, localizationFiles, unsignedFile!!, onLog)
+                buildPatchedApk(sourceZip!!, request, hookData, il2cppData, unsignedFile!!, onLog)
                 validateAndroidApkPackaging(unsignedFile!!)
 
                 // Step 6: Sign APK (v2 scheme)
@@ -374,7 +367,6 @@ class PatcherEngine(context: Context) {
         request: PatchRequest,
         hookData: ByteArray,
         il2cppData: ByteArray?,
-        localizationFiles: Map<String, ByteArray>,
         outputFile: File,
         onLog: (LogLine) -> Unit
     ): Long {
@@ -398,9 +390,6 @@ class PatcherEngine(context: Context) {
 
             // Drop existing payload if bundled mode (we add a fresh one)
             if (request.serverMode == PatchRequest.BUNDLED && entry.name == PAYLOAD_ASSET) continue
-            // Replace prior localization assets as a single validated catalog set.
-            if (LocalizationCatalog.replacesExistingAsset(entry.name)) continue
-
             val isPatchTarget = entry.name == METADATA_NAME ||
                     entry.name == SPARX_MANIFEST_NAME ||
                     entry.name == ENDPOINT_CONFIG_NAME
@@ -469,8 +458,6 @@ class PatcherEngine(context: Context) {
                 externalAttr = 0x81A40000L
             )
         }
-
-        LocalizationCatalog.writeAssets(writer, localizationFiles)
 
         // Log reachability stubs for bundled mode
         if (request.serverMode == PatchRequest.BUNDLED) {

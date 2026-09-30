@@ -22,6 +22,7 @@
 #include <time.h>
 #include <math.h>
 #include "inapk_server.h"
+#include "dialogue_translations.generated.h"
 #ifndef TFTF_ENABLE_ARENA
 #define TFTF_ENABLE_ARENA 0
 #endif
@@ -121,6 +122,12 @@ static int il2cpp_object_class(void* o, char* out, int cap){
 }
 static uintptr_t g_base;            // libil2cpp base (set in installer)
 static strnew_t g_strnew = NULL;    // il2cpp_string_new (dlsym'd in installer)
+static fn8 g_dialogue_deserialize_orig = NULL;
+static const uint32_t RVA_LOCALIZER_GET_CURRENT = 0x127CD10;
+// DialogueEntry.get_line is an 8-byte auto-property getter the overlay never calls, so the
+// translation is applied to the <line> backing field once the entry has been deserialized.
+static const uint32_t RVA_DIALOGUE_ENTRY_DESERIALIZE = 0x145D748;
+static const uint32_t OFFSET_DIALOGUE_ENTRY_LINE = 0x38;
 static arraynew_t g_arraynew = NULL; // il2cpp_array_new (dlsym'd in installer)
 // A shared, empty string[] used to fill blueprint.Tags (List<string> @0xB8) when the
 // login parser leaves it null. The offline getLoginData JSON carries no `tags` key
@@ -839,6 +846,55 @@ static int read_str(void* s, char* buf, int cap){
     buf[0]=0; uintptr_t p=(uintptr_t)s; if(p<0x100000 || (p&7)) return 0;
     int32_t len=*(int32_t*)(p+0x10); if(len<0||len>cap-1) return 0;
     uint16_t* ch=(uint16_t*)(p+0x14); int i; for(i=0;i<len;i++) buf[i]=(ch[i]<128)?(char)ch[i]:'?'; buf[len]=0; return 1;
+}
+
+// Compare an IL2CPP UTF-16 string to a UTF-8 catalog value without lossy ASCII
+// conversion. Catalog lookup is by the exact server-authored English line.
+static int dialogue_string_equals_utf8(void* managed, const char* utf8){
+    uintptr_t p = (uintptr_t)managed;
+    if (!utf8 || p < 0x100000 || (p & 7)) return 0;
+    int32_t length = *(int32_t*)(p + 0x10);
+    if (length < 0 || length > 8192) return 0;
+    const uint16_t* chars = (const uint16_t*)(p + 0x14);
+    int index = 0;
+    const unsigned char* bytes = (const unsigned char*)utf8;
+    while (*bytes) {
+        uint32_t cp;
+        if (*bytes < 0x80) cp = *bytes++;
+        else if ((*bytes & 0xE0) == 0xC0 && bytes[1]) { cp = ((*bytes & 0x1F) << 6) | (bytes[1] & 0x3F); bytes += 2; }
+        else if ((*bytes & 0xF0) == 0xE0 && bytes[1] && bytes[2]) { cp = ((*bytes & 0x0F) << 12) | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F); bytes += 3; }
+        else if ((*bytes & 0xF8) == 0xF0 && bytes[1] && bytes[2] && bytes[3]) { cp = ((*bytes & 0x07) << 18) | ((bytes[1] & 0x3F) << 12) | ((bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F); bytes += 4; }
+        else return 0;
+        if (cp <= 0xFFFF) {
+            if (index >= length || chars[index++] != cp) return 0;
+        } else {
+            cp -= 0x10000;
+            if (index + 1 >= length || chars[index++] != (uint16_t)(0xD800 + (cp >> 10)) || chars[index++] != (uint16_t)(0xDC00 + (cp & 0x3FF))) return 0;
+        }
+    }
+    return index == length;
+}
+
+static void* hooked_dialogue_entry_deserialize(void* self, void* builder, void* data, void* method){
+    void* result = g_dialogue_deserialize_orig ? g_dialogue_deserialize_orig(self, builder, data, method, NULL, NULL, NULL, NULL) : NULL;
+    uintptr_t entry = (uintptr_t)self;
+    if (entry < 0x100000 || (entry & 7) || !g_strnew || !g_base) return result;
+    void** line = (void**)(entry + OFFSET_DIALOGUE_ENTRY_LINE);
+    void* original = *line;
+    if (!original) return result;
+    int language = ((int(*)(void*))((uintptr_t)g_base + RVA_LOCALIZER_GET_CURRENT))(NULL);
+    if (language < 1 || language > 16) return result; // Unknown native locale keeps English.
+    for (int i = 0; i < TFTF_DIALOGUE_TRANSLATION_COUNT; ++i) {
+        if (dialogue_string_equals_utf8(original, g_tftf_dialogue_translations[i].source)) {
+            const char* translated = tftf_dialogue_locale_text(&g_tftf_dialogue_translations[i], language);
+            if (translated && translated[0]) {
+                void* replacement = g_strnew(translated);
+                if (replacement) *line = replacement;
+            }
+            break;
+        }
+    }
+    return result;
 }
 // slot 44 TEXPATH: HeroPortrait.LoadTexture(this=a0, path=a1) ; slot 50 SETPATH: set_baseTexturePath(this=a0,value=a1)
 // both: jp=30 -> log the a1 string.
@@ -5254,6 +5310,10 @@ static void* installer(void* arg){
     int ok = 0;
     for (int i = 0; i < NH; i++)
         if (inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig) == 0) ok++;
+    int dialogue_hook = inline_hook((void*)(g_base + RVA_DIALOGUE_ENTRY_DESERIALIZE),
+                                    (void*)hooked_dialogue_entry_deserialize,
+                                    &g_dialogue_deserialize_orig);
+    LOG("localized dialogue lookup hook=%d current-language-rva=0x%x", dialogue_hook, RVA_LOCALIZER_GET_CURRENT);
     // FIXSYN is now applied directly to libil2cpp by patch_il2cpp.lbl. Keeping this
     // branch rewrite out of the runtime installer matters on ARM-translation emulators:
     // BlueStacks can cache the original instruction before an in-memory poke is visible.
