@@ -21,6 +21,7 @@ including server setup, signing, installation, Wi-Fi, and USB operation, see
 - [What is in this package](#what-is-in-this-package)
 - [What is not in this package, and where to get it](#what-is-not-in-this-package-and-where-to-get-it)
 - [How to run what exists today](#how-to-run-what-exists-today)
+  - [Installing the Android patcher's output](#installing-the-android-patchers-output)
   - [Running on a non-rooted phone over Wi-Fi (no USB while playing)](#running-on-a-non-rooted-phone-over-wi-fi-no-usb-while-playing)
   - [Playing over a virtual LAN or tunnel](#playing-over-a-virtual-lan-or-tunnel)
   - [Online modes over the tunnel](#online-modes-over-the-tunnel)
@@ -308,6 +309,36 @@ root and writable system), the `legible` interpreter on the PC, and the items fr
 Install the `legible` interpreter separately when you need the server, payload, or
 reverse-engineering tools below. APK patching itself is provided by the Android patcher
 application described in `android/BUILD.md`.
+
+### Installing the Android patcher's output
+
+Use the Android patcher described in [`android/BUILD.md`](android/BUILD.md), then:
+
+1. Select the game APK you want to patch. The patcher reads this file; it does not patch an
+   already installed copy of the game. [📄 binary] (`PatcherEngine.kt:90-100`)
+2. Leave **Bundled server — self-contained, no PC needed** selected for the standalone setup.
+   This writes the bundled server address (`http://127.0.0.1:8080`) into the output. Choose
+   **Separate server running on a PC** only when you have that server running and reachable
+   from the phone; enter the PC's reachable address and matching port. `127.0.0.1` in this
+   mode means the phone itself. [📄 binary] (`PatchViewModel.kt:33-36`, `PatchRequest.kt:76-89`)
+3. Leave **Auto-patch libil2cpp from source APK** enabled, then tap **Build patched APK**.
+   Install the resulting APK when Android offers, or use **Install patched APK** / **Share / Save
+   patched APK** in the patcher. Opening the original downloaded game again does not install the
+   patched output. These are the patcher's defaults and install controls. [📄 binary]
+   (`PatchViewModel.kt:33-49`, `PatchViewModel.kt:341-344`, `activity_main.xml:614-624`)
+4. If Android reports a signature conflict, the installed game and generated APK were signed
+   with different keys. Uninstall the existing game only to resolve that install conflict,
+   then install the generated APK. Uninstalling erases the game's local data; it does not
+   repair a server connection. [⚠ inferred] The patcher reuses its generated signing key for later builds
+   on the same patcher installation. [📄 binary] (`InstallResultReceiver.kt:39-45`,
+   `KeystoreManager.kt:69-96`)
+
+If the generated game APK installs and still shows “connection is lost,” reinstalling it or
+removing the old copy does not by itself identify or fix the cause. Check which server mode was
+built and, for **Separate server**, confirm that the configured server is running and reachable
+from the phone. The reported Samsung device, source APK/version, patch settings, and build log
+are not available here, so this report does not establish a Samsung-specific cause. Share those
+details and the exact error/build log when asking for further diagnosis. [⚠ inferred]
 
 1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
    Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
