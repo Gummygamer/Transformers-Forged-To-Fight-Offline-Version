@@ -97,10 +97,30 @@ Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 layout in the Editor only.
 
 Remaining gaps: the server grants no match rewards, so the result screen has no
-rewards row; Marissa has no model or portrait in the local 9.2 data; the base's
-alliance beam glow is hidden (it renders opaque); the enemy
-defense timing still needs a full device fight comparison; the special-attack
+rewards row; Marissa has no model or portrait in the local 9.2 data; exact alliance
+beam appearance still needs a graphics-enabled base comparison; enemy defense timing
+still needs a full device fight comparison; the special-attack
 cinematic camera (attacker close-up, swing to target, return) is an approximation.
-In Unity 6.6.3f1 Play Mode, both player and enemy level-3 specials moved the camera and restored its
-fight position, rotation and field of view exactly. The shot framing still needs frame-by-frame
-comparison with the ~2:48 reference footage.
+The special shot is owned by `StoryPortSpecialShot`: one shot at a time, and whichever
+event ends it (the shot's own finish, a knockout, leaving the fight screen) restores the
+saved fight pose, lights and sky tint exactly once; a screen change no longer lets a stale
+shot overwrite the next screen's camera. Hit shakes share one base pose, so a shake in
+flight can no longer be saved as the fight camera and leave it offset. Damage, special
+ratios and meter are untouched.
+Specials now follow the reference footage (~2:52-2:55 of the saved capture; HUD stays lit):
+the world dims to a blue cast within ~0.15 s (key light, ambient and a sky tint layer),
+the camera pulls to a wide, low, side-on view of both bots (distance fitted to their
+separation, lens and aspect, so both stay in frame), a radial speed-line burst and the
+damage number land at the 0.7 s impact tick, and the dim lifts and the camera returns
+at 1.85 s. The earlier attacker close-up and 30 degree lens were removed.
+Knockout: "K.O." holds 1.5 s over the stricken bot with the HUD still up on a slow
+push-in, then the view cuts to a front shot of the winner for ~0.45 s before the result
+screen (the old "<NAME> WINS!" call and orbit are gone). Editor checks cover ownership,
+single restore, dim weights, framing at several aspects and the knockout timings.
+Not yet matched: the converted special clips run 2-7 s and are sped up to the 1.85 s
+timeline, so their pacing differs from the original; the burst is a UI speed-line
+approximation, not the original particle effect; the framing, dim strength and K.O.
+styling were set from frame sheets (about 0.3 s accuracy) and have not been compared
+frame by frame on a graphics-enabled device capture. Enemy defense timing
+(1 s reaction cooldown, weighted dodge/block/sidestep) is unchanged and still needs a
+full device fight comparison.

@@ -14,6 +14,7 @@ namespace StoryPort.Editor
             CheckStoryRoute();
             CheckStoryLocalization();
             CheckEnemyDefense();
+            CheckSpecialShot();
             CheckFightGestures();
             CheckHeavyMove();
             AssetDatabase.Refresh();
@@ -98,6 +99,81 @@ namespace StoryPort.Editor
             }
             if (!heavy || !reaction)
                 throw new Exception("Converted fight controller lacks heavy attack or block break reaction");
+        }
+
+        static void CheckSpecialShot()
+        {
+            if (Mathf.Abs(StoryPortSpecialTimeline.ImpactSeconds - .7f) > .001f ||
+                StoryPortSpecialTimeline.RecoverySeconds < 1.7f || StoryPortSpecialTimeline.RecoverySeconds > 2f ||
+                StoryPortSpecialTimeline.RecoverySeconds <= StoryPortSpecialTimeline.ImpactSeconds)
+                throw new Exception("Special hit and recovery must share the observed impact/release timeline");
+            if (Mathf.Abs(StoryPortSpecialTimeline.PlaybackSpeed(.8f) - 1f) > .001f ||
+                StoryPortSpecialTimeline.PlaybackSpeed(7f) <= 3f)
+                throw new Exception("Special animation playback does not account for converted clip lengths");
+            if (StoryPortSpecialTimeline.CanRunQueuedAttack(true, false, true, true, true) ||
+                StoryPortSpecialTimeline.CanRunQueuedAttack(true, true, false, true, true) ||
+                StoryPortSpecialTimeline.CanRunQueuedAttack(true, false, false, false, true) ||
+                StoryPortSpecialTimeline.CanRunQueuedAttack(true, false, false, true, false) ||
+                !StoryPortSpecialTimeline.CanRunQueuedAttack(true, false, false, true, true))
+                throw new Exception("A buffered attack escaped the special recovery or interruption gate");
+
+            var shot = new StoryPortSpecialShot();
+            var fight = new StoryPortSpecialShot.Pose { Position = new Vector3(1f, 2f, 3f), Rotation = Quaternion.Euler(10f, 20f, 0f), Fov = 52f };
+            int first = shot.Begin(fight);
+            if (first == 0 || !shot.Active || shot.Begin(fight) != 0)
+                throw new Exception("A second special shot took the camera from the first");
+            if (!shot.Owns(first) || shot.Owns(first + 1))
+                throw new Exception("Special shot ownership is wrong");
+            if (!shot.End(out var restored) || restored.Position != fight.Position || restored.Rotation != fight.Rotation || restored.Fov != fight.Fov)
+                throw new Exception("Ending a special shot did not return the fight pose");
+            // Knockout, a screen change and the shot's own finish can all end it; only the first restores.
+            if (shot.End(out restored) || shot.Active || shot.Owns(first))
+                throw new Exception("A special shot restored the camera twice or kept a stale owner");
+            int second = shot.Begin(fight);
+            if (second == 0 || second == first || shot.Owns(first))
+                throw new Exception("A stale special shot regained the camera after a new one began");
+            shot.End(out restored);
+
+            if (Mathf.Abs(StoryPortSpecialShot.Blend(0f, 1f)) > .001f || Mathf.Abs(StoryPortSpecialShot.Blend(1f, 1f)) > .001f ||
+                StoryPortSpecialShot.Blend(.5f, 1f) < .99f)
+                throw new Exception("Special shot blend must leave and return to the fight view");
+
+            // Dim darkens the world quickly, holds through the hits and lifts by the shot's end.
+            float total = StoryPortSpecialTimeline.RecoverySeconds;
+            if (StoryPortSpecialShot.Dim(0f, total) > .001f || StoryPortSpecialShot.Dim(total, total) > .001f ||
+                StoryPortSpecialShot.Dim(StoryPortSpecialTimeline.ImpactSeconds, total) < .99f)
+                throw new Exception("Special dim must be full at impact and clear at release");
+
+            // Reference framing: wide, low, side-on, both fighters visible; never a close-up.
+            var attacker = new Vector3(-2.2f, 0f, 0f);
+            var target = new Vector3(2.2f, 0f, 0f);
+            foreach (var aspect in new[] { 2.2f, 16f / 9f, 4f / 3f, 1f })
+            {
+                StoryPortSpecialShot.Frame(attacker, target, new Vector3(0f, 0f, -1f), 36f, aspect, .5f, out var position, out var focus);
+                if (position.z >= 0f || position.y > StoryPortSpecialShot.CameraHeight + .01f || position.y < 1f)
+                    throw new Exception("Special shot is not low and on the fight camera's side at aspect " + aspect);
+                float vertical = 36f * Mathf.Deg2Rad, horizontalHalf = Mathf.Atan(Mathf.Tan(vertical * .5f) * aspect);
+                var forward = (focus - position).normalized;
+                foreach (var fighter in new[] { attacker, target })
+                {
+                    var toFighter = fighter + Vector3.up * 2f - position;
+                    float yaw = Mathf.Abs(Vector3.SignedAngle(Vector3.ProjectOnPlane(forward, Vector3.up), Vector3.ProjectOnPlane(toFighter, Vector3.up), Vector3.up)) * Mathf.Deg2Rad;
+                    if (yaw > horizontalHalf)
+                        throw new Exception("A fighter left the special shot at aspect " + aspect);
+                }
+            }
+            StoryPortSpecialShot.Frame(attacker, target, new Vector3(0f, 0f, -1f), 36f, 2.2f, 0f, out var near, out _);
+            StoryPortSpecialShot.Frame(attacker, target, new Vector3(0f, 0f, 1f), 36f, 2.2f, 0f, out var flipped, out _);
+            if (near.z >= 0f || flipped.z <= 0f)
+                throw new Exception("Special shot ignored the fight camera's side");
+            if (StoryPortSpecialShot.FitDistance(4.4f, 36f, 2.2f) < StoryPortSpecialShot.MinDistance ||
+                StoryPortSpecialShot.FitDistance(20f, 36f, 1f) <= StoryPortSpecialShot.FitDistance(4.4f, 36f, 1f))
+                throw new Exception("Special shot distance does not grow with fighter separation");
+
+            // Observed K.O.: about 1.5 s hold, then a short winner cut.
+            if (Mathf.Abs(StoryPortSpecialTimeline.KnockoutHoldSeconds - 1.5f) > .3f ||
+                StoryPortSpecialTimeline.WinnerCloseUpSeconds <= 0f || StoryPortSpecialTimeline.WinnerCloseUpSeconds > 1f)
+                throw new Exception("Knockout hold or winner cut is off the observed timing");
         }
 
         static void CheckEnemyDefense()

@@ -121,6 +121,10 @@ namespace StoryPort.Editor
 
         static void Capture(string screen)
         {
+            // -nographics runs on the Null device and renders flat gray; a
+            // capture from it says nothing about the real scene.
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                throw new Exception("Preview capture needs a real graphics device; this editor is running on the Null device (-nographics)");
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             var client = new GameObject("StoryPort Preview").AddComponent<StoryPortBootstrap>();
             Invoke(client, "BuildCamera");

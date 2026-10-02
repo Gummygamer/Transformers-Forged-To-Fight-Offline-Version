@@ -113,7 +113,20 @@ namespace StoryPort
         bool pendingEncounter;
         bool enemyBusy;
         bool playerBusy;
-        bool specialShotActive;
+        readonly StoryPortSpecialShot specialShot = new StoryPortSpecialShot();
+        Animator specialPlayerAnimator;
+        Animator specialEnemyAnimator;
+        float specialPlayerOriginalSpeed = 1f;
+        float specialEnemyOriginalSpeed = 1f;
+        int shakesRunning;
+        Vector3 shakeBase;
+        // Scene dim during a special: key light, ambient and the sky's tint overlay.
+        Light dimKey;
+        Color dimKeyColor;
+        float dimKeyIntensity;
+        Color dimAmbient;
+        bool dimSaved;
+        Renderer skyDim;
         bool paused;
         bool queuedAttack;
         string queuedAttackState;
@@ -388,6 +401,8 @@ namespace StoryPort
         {
             Time.timeScale = 1f;
             paused = false;
+            // A special shot must never outlive the fight view it borrowed.
+            EndSpecialShot();
             if (pauseOverlay != null) Destroy(pauseOverlay);
             pauseOverlay = null;
             screen = next;
@@ -1619,6 +1634,24 @@ namespace StoryPort
             sky.transform.localRotation = Quaternion.identity;
             sky.transform.localScale = new Vector3(150f, height, 1f);
             sky.GetComponent<Renderer>().sharedMaterial = skyMaterial;
+            // The sky is unlit, so a special's scene dim needs its own tint layer.
+            var dimShader = Shader.Find("Sprites/Default");
+            if (dimShader != null)
+            {
+                var layer = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                layer.name = "Special Dim";
+                layer.transform.SetParent(sky.transform, false);
+                layer.transform.localPosition = new Vector3(0f, 0f, -.01f);
+                var layerCollider = layer.GetComponent<Collider>();
+                if (layerCollider != null)
+                {
+                    if (Application.isPlaying) Destroy(layerCollider);
+                    else DestroyImmediate(layerCollider);
+                }
+                skyDim = layer.GetComponent<Renderer>();
+                skyDim.sharedMaterial = new Material(dimShader) { color = new Color(.04f, .09f, .22f, 0f) };
+                skyDim.enabled = false;
+            }
             var collider = sky.GetComponent<Collider>();
             if (collider != null)
             {
@@ -1752,7 +1785,7 @@ namespace StoryPort
 
         void RunQueuedAttack()
         {
-            if (!queuedAttack || screen != "fight" || enemyHp <= 0 || enemyBusy || playerBusy) return;
+            if (!StoryPortSpecialTimeline.CanRunQueuedAttack(queuedAttack, enemyBusy, playerBusy, screen == "fight", enemyHp > 0)) return;
             string state = queuedAttackState;
             int damage = queuedAttackDamage;
             int charge = queuedAttackCharge;
@@ -1764,6 +1797,9 @@ namespace StoryPort
         {
             playerBusy = true;
             guarding = false;
+            bool specialMove = state.StartsWith("Special", StringComparison.Ordinal);
+            float specialStartedAt = -1f;
+            float originalAnimatorSpeed = playerAnimator != null ? playerAnimator.speed : 1f;
             Vector3 playerHome = playerActor != null ? playerActor.transform.position : Vector3.zero;
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
             // The original AI anticipates an incoming attack and weights dodge,
@@ -1785,8 +1821,23 @@ namespace StoryPort
                 if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome + enemyActor.transform.right * (defense == StoryPortEnemyDefense.Action.Dodge ? .7f : -.5f), .2f));
             }
             PlayState(playerAnimator, state);
-            if (state.StartsWith("Special", StringComparison.Ordinal))
-                StartCoroutine(SpecialShot(playerActor, enemyActor, state == "SpecialAttack03" ? 1f : .58f));
+            if (specialMove)
+            {
+                // CrossFade starts on the next animator update. Read that state's
+                // actual converted clip length before choosing its playback rate.
+                yield return null;
+                if (screen != "fight" || playerAnimator == null)
+                {
+                    playerBusy = false;
+                    yield break;
+                }
+                var specialState = playerAnimator.GetCurrentAnimatorStateInfo(0);
+                playerAnimator.speed = StoryPortSpecialTimeline.PlaybackSpeed(specialState.length, originalAnimatorSpeed);
+                specialPlayerAnimator = playerAnimator;
+                specialPlayerOriginalSpeed = originalAnimatorSpeed;
+                specialStartedAt = Time.time;
+                StartCoroutine(SpecialShot(playerActor, enemyActor));
+            }
             int step = AttackStep(state);
             Combat(playerKey, "attack_" + step);
             if (playerActor != null && enemyActor != null)
@@ -1794,10 +1845,14 @@ namespace StoryPort
                 Vector3 towardEnemy = (enemyActor.transform.position - playerActor.transform.position).normalized;
                 StartCoroutine(MoveActor(playerActor, playerHome + towardEnemy * .65f, .16f));
             }
-            yield return new WaitForSeconds(state == "SpecialAttack03" ? 1f : state.StartsWith("Special", StringComparison.Ordinal) ? .58f : state.StartsWith("Heavy", StringComparison.Ordinal) ? .7f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
-            if (enemyHp <= 0 || screen != "fight") { playerBusy = false; yield break; }
+            yield return new WaitForSeconds(specialMove ? StoryPortSpecialTimeline.ImpactSeconds : state.StartsWith("Heavy", StringComparison.Ordinal) ? .7f : state.StartsWith("Medium", StringComparison.Ordinal) ? .43f : .28f);
+            if (enemyHp <= 0 || screen != "fight")
+            {
+                if (specialMove && playerAnimator != null) playerAnimator.speed = originalAnimatorSpeed;
+                playerBusy = false;
+                yield break;
+            }
             var move = rules.MoveFor(state);
-            bool specialMove = state.StartsWith("Special", StringComparison.Ordinal);
             float share = specialMove ? rules.SpecialRatio(playerKey, AttackStepLevel(state)) : move.Share;
             bool crit = !specialMove && UnityEngine.Random.value < move.CritChance;
             float dealt = playerAttack * share * (crit ? move.CritDamage : 1f) * UnityEngine.Random.Range(.95f, 1.05f);
@@ -1816,6 +1871,7 @@ namespace StoryPort
             {
                 if (blockBroken) SetNotice("BLOCK BROKEN");
                 ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, blocked ? new Color(.7f, .85f, 1f) : crit ? new Color(1f, .8f, .2f) : new Color(1f, .97f, .9f));
+                if (specialMove && !blocked) ImpactBurst(enemyActor);
                 Combat(playerKey, "attack_hit_" + step);
                 if (!blocked) Combat(enemyKey, step >= 5 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
             }
@@ -1841,6 +1897,15 @@ namespace StoryPort
             UpdateFightHud();
             if (playerActor != null) yield return StartCoroutine(MoveActor(playerActor, playerHome, .16f));
             if (enemyActor != null && dodged) yield return StartCoroutine(MoveActor(enemyActor, enemyHome, .16f));
+            if (specialMove)
+            {
+                yield return new WaitForSeconds(Mathf.Max(0f, StoryPortSpecialTimeline.RecoverySeconds - (Time.time - specialStartedAt)));
+                if (playerAnimator != null)
+                {
+                    playerAnimator.speed = originalAnimatorSpeed;
+                    PlayState(playerAnimator, "Idle");
+                }
+            }
             if (defense == StoryPortEnemyDefense.Action.Block) SetBoolIfPresent(enemyAnimator, "Blocking", false);
             playerBusy = false;
             if (enemyHp == 0) { StartCoroutine(ResolveWinAfterImpact()); yield break; }
@@ -1852,87 +1917,189 @@ namespace StoryPort
         IEnumerator ResolveWinAfterImpact()
         {
             PlayState(enemyAnimator, "KnockoutLight");
-            yield return new WaitForSeconds(.9f);
             yield return StartCoroutine(WinnerShot(playerActor, playerName));
             StartCoroutine(ResolveWin());
         }
 
-        // Special-attack cinematic: the camera cuts in low beside the attacker, then
-        // swings across to the target as the hit lands and eases back to the fight shot.
-        IEnumerator SpecialShot(GameObject attacker, GameObject target, float duration)
+        // Special-attack cinematic from the reference: the world dims while the
+        // camera pulls to a wide, low, side-on view of both fighters, then eases
+        // back to the fight shot as the dim lifts.
+        IEnumerator SpecialShot(GameObject attacker, GameObject target)
         {
             var camera = Camera.main;
-            if (camera == null || attacker == null || target == null || specialShotActive) yield break;
-            var home = camera.transform.position;
-            var homeRotation = camera.transform.rotation;
-            var homeFov = camera.fieldOfView;
+            if (camera == null || attacker == null || target == null || specialShot.Active) yield break;
             var from = attacker.transform.position;
             var to = target.transform.position;
             var axis = (to - from); axis.y = 0f;
             if (axis.sqrMagnitude < .01f) yield break;
-            axis.Normalize();
-            var side = Vector3.Cross(Vector3.up, axis);
-            if (Vector3.Dot(side, home - from) < 0f) side = -side;
-            var startPos = from - axis * 1.6f + side * 2.6f + Vector3.up * 1.6f;
-            var startFocus = from + axis * 1.2f + Vector3.up * 2.6f;
-            var endPos = to - axis * 4.2f + side * 3.4f + Vector3.up * 2.4f;
-            var endFocus = to + Vector3.up * 2.8f;
-            specialShotActive = true;
+            // A hit shake in flight must not leak its offset into the saved fight pose.
+            var home = camera.transform.position;
+            if (shakesRunning > 0) home = shakeBase;
+            var homeRotation = camera.transform.rotation;
+            var homeFov = camera.fieldOfView;
+            int id = specialShot.Begin(new StoryPortSpecialShot.Pose { Position = home, Rotation = homeRotation, Fov = homeFov });
+            if (id == 0) yield break;
+            SaveSceneForDim();
             float t = 0f;
-            float total = Mathf.Max(.5f, duration);
-            while (t < total && screen == "fight" && camera != null)
+            float total = StoryPortSpecialTimeline.RecoverySeconds;
+            while (t < total && screen == "fight" && camera != null && specialShot.Owns(id) && attacker != null && target != null)
             {
                 t += Time.deltaTime;
-                float k = Mathf.Clamp01(t / total);
-                float swing = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((k - .45f) / .35f));
-                float blend = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / .18f)) * (1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((k - .82f) / .18f)));
-                var pos = Vector3.Lerp(startPos, endPos, swing);
-                var focus = Vector3.Lerp(startFocus, endFocus, swing);
+                float blend = StoryPortSpecialShot.Blend(t, total);
+                StoryPortSpecialShot.Frame(attacker.transform.position, target.transform.position, home - from, homeFov, camera.aspect,
+                    t / total, out var pos, out var focus);
                 camera.transform.position = Vector3.Lerp(home, pos, blend);
                 camera.transform.rotation = Quaternion.Slerp(homeRotation, Quaternion.LookRotation(focus - pos), blend);
-                camera.fieldOfView = Mathf.Lerp(homeFov, 30f, blend);
+                ApplySceneDim(StoryPortSpecialShot.Dim(t, total));
                 yield return null;
             }
-            if (camera != null)
-            {
-                camera.transform.position = home;
-                camera.transform.rotation = homeRotation;
-                camera.fieldOfView = homeFov;
-            }
-            specialShotActive = false;
+            // Another owner (knockout, screen change) may already have restored it.
+            if (specialShot.Owns(id)) EndSpecialShot();
         }
 
-        // Knockout shot from the reference: the camera closes in on the winner
-        // under a "<NAME> WINS!" call before the result screen.
+        void SaveSceneForDim()
+        {
+            if (dimSaved) return;
+            dimSaved = true;
+            dimKey = FindObjectOfType<Light>();
+            if (dimKey != null) { dimKeyColor = dimKey.color; dimKeyIntensity = dimKey.intensity; }
+            dimAmbient = RenderSettings.ambientLight;
+        }
+
+        // Darkens the world toward a blue cast; the HUD is a canvas and stays lit.
+        void ApplySceneDim(float weight)
+        {
+            if (!dimSaved) return;
+            if (dimKey != null)
+            {
+                dimKey.color = Color.Lerp(dimKeyColor, new Color(.45f, .6f, 1f), weight * .7f);
+                dimKey.intensity = dimKeyIntensity * (1f - .55f * weight);
+            }
+            RenderSettings.ambientLight = Color.Lerp(dimAmbient, dimAmbient * new Color(.25f, .35f, .6f), weight);
+            if (skyDim != null)
+            {
+                skyDim.enabled = weight > .001f;
+                skyDim.sharedMaterial.color = new Color(.04f, .09f, .22f, .62f * weight);
+            }
+        }
+
+        void RestoreSceneDim()
+        {
+            if (!dimSaved) return;
+            dimSaved = false;
+            if (dimKey != null) { dimKey.color = dimKeyColor; dimKey.intensity = dimKeyIntensity; }
+            RenderSettings.ambientLight = dimAmbient;
+            if (skyDim != null) skyDim.enabled = false;
+            dimKey = null;
+        }
+
+        // Radiating speed lines at the struck bot, as on the reference's special hits.
+        void ImpactBurst(GameObject target)
+        {
+            if (target == null || uiRoot == null || Camera.main == null) return;
+            StartCoroutine(ImpactBurstRoutine(target.transform.position + Vector3.up * 2.6f));
+        }
+
+        IEnumerator ImpactBurstRoutine(Vector3 world)
+        {
+            const int lines = 16;
+            var root = new GameObject("Impact Burst", typeof(RectTransform)).GetComponent<RectTransform>();
+            root.SetParent(uiRoot, false);
+            root.anchorMin = root.anchorMax = Vector2.zero;
+            var rays = new RectTransform[lines];
+            var angles = new float[lines];
+            var lengths = new float[lines];
+            for (int i = 0; i < lines; i++)
+            {
+                angles[i] = (i + UnityEngine.Random.Range(-.3f, .3f)) * 360f / lines;
+                lengths[i] = UnityEngine.Random.Range(90f, 190f);
+                var image = MakeImage(root, "Ray", new Color(1f, .97f, .85f, .95f), new Vector2(.5f, .5f), new Vector2(.5f, .5f));
+                image.raycastTarget = false;
+                rays[i] = image.rectTransform;
+                rays[i].pivot = new Vector2(0f, .5f);
+                rays[i].localRotation = Quaternion.Euler(0f, 0f, angles[i]);
+            }
+            float t = 0f;
+            const float duration = .38f;
+            while (t < duration && root != null)
+            {
+                t += Time.deltaTime;
+                var camera = Camera.main;
+                if (camera == null) break;
+                float k = Mathf.Clamp01(t / duration);
+                float scale = canvas != null ? canvas.scaleFactor : 1f;
+                root.anchoredPosition = (Vector2)camera.WorldToScreenPoint(world) / scale;
+                for (int i = 0; i < lines; i++)
+                {
+                    float near = 24f + k * 70f;
+                    float length = lengths[i] * Mathf.Sin(Mathf.Clamp01(k * 1.4f) * Mathf.PI * .5f) * (1f - k * .5f);
+                    rays[i].anchoredPosition = new Vector2(Mathf.Cos(angles[i] * Mathf.Deg2Rad), Mathf.Sin(angles[i] * Mathf.Deg2Rad)) * near;
+                    rays[i].sizeDelta = new Vector2(length, 3f);
+                    var image = rays[i].GetComponent<Image>();
+                    image.color = new Color(1f, .97f, .85f, 1f - k);
+                }
+                yield return null;
+            }
+            if (root != null) Destroy(root.gameObject);
+        }
+
+        // Restores the fight camera exactly once, whatever ended the shot.
+        void EndSpecialShot()
+        {
+            bool restoreCamera = specialShot.End(out var pose);
+            RestoreSceneDim();
+            if (specialPlayerAnimator != null) specialPlayerAnimator.speed = specialPlayerOriginalSpeed;
+            if (specialEnemyAnimator != null) specialEnemyAnimator.speed = specialEnemyOriginalSpeed;
+            specialPlayerAnimator = null;
+            specialEnemyAnimator = null;
+            if (!restoreCamera) return;
+            var camera = Camera.main;
+            if (camera == null) return;
+            camera.transform.position = pose.Position;
+            camera.transform.rotation = pose.Rotation;
+            camera.fieldOfView = pose.Fov;
+        }
+
+        // Knockout sequence from the reference: "K.O." holds over the stricken bot
+        // with the HUD still up, then the view cuts to a brief front shot of the
+        // winner before the result screen.
         IEnumerator WinnerShot(GameObject winner, string winnerName)
         {
             var camera = Camera.main;
             if (camera == null || winner == null) yield break;
+            // A knockout during a special hands the camera back before the hold.
+            EndSpecialShot();
             Cue("enemy_killed", .7f);
-            var hud = content != null ? content.Find("Fight HUD") : null;
-            if (hud != null) hud.gameObject.SetActive(false);
-            var label = LabelAt(content, "Winner Call", winnerName.ToUpperInvariant() + " WINS!", 40, TextAnchor.MiddleCenter, Color.white, new Vector2(.2f, .8f), new Vector2(.8f, .95f));
-            label.fontStyle = FontStyle.BoldAndItalic;
+            var loser = winner == playerActor ? enemyActor : playerActor;
+            var label = LabelAt(content, "Knockout Call", "K.O.", 72, TextAnchor.MiddleCenter, Color.white, new Vector2(.3f, .6f), new Vector2(.7f, .86f));
+            label.fontStyle = FontStyle.Bold;
             label.raycastTarget = false;
-            label.gameObject.AddComponent<Outline>().effectColor = new Color(.05f, .25f, .45f, .9f);
+            label.gameObject.AddComponent<Outline>().effectColor = new Color(.05f, .25f, .6f, .9f);
             var start = camera.transform.position;
             var startRotation = camera.transform.rotation;
-            var focus = winner.transform.position + Vector3.up * 3.2f;
-            var toCamera = (start - winner.transform.position);
-            toCamera.y = 0f;
-            var end = focus + toCamera.normalized * 5.5f + Vector3.up * .3f;
+            var lean = loser != null ? loser.transform.position + Vector3.up * 2f : winner.transform.position + Vector3.up * 2f;
             float t = 0f;
-            while (t < 2.2f)
+            float hold = StoryPortSpecialTimeline.KnockoutHoldSeconds;
+            while (t < hold)
             {
                 t += Time.deltaTime;
-                float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / .8f));
-                // Slow orbit after the push-in.
-                var orbit = Quaternion.AngleAxis(Mathf.Max(0f, t - .8f) * 8f, Vector3.up);
-                camera.transform.position = Vector3.Lerp(start, focus + orbit * (end - focus), k);
-                camera.transform.rotation = Quaternion.Slerp(startRotation, Quaternion.LookRotation(focus - camera.transform.position), k);
+                // A slow push toward the stricken bot under the call.
+                float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / hold)) * .22f;
+                var position = Vector3.Lerp(start, lean, k);
+                camera.transform.position = position;
+                camera.transform.rotation = Quaternion.Slerp(startRotation, Quaternion.LookRotation(lean - position), k * 2f);
                 yield return null;
             }
             if (label != null) Destroy(label.gameObject);
+            var hud = content != null ? content.Find("Fight HUD") : null;
+            if (hud != null) hud.gameObject.SetActive(false);
+            // Cut to the winner from the front.
+            var focus = winner.transform.position + Vector3.up * 3.2f;
+            var front = winner.transform.forward; front.y = 0f;
+            if (front.sqrMagnitude < .01f) front = Vector3.back;
+            camera.transform.position = focus + front.normalized * 5.5f + Vector3.up * .3f;
+            camera.transform.rotation = Quaternion.LookRotation(focus - camera.transform.position);
+            yield return new WaitForSeconds(StoryPortSpecialTimeline.WinnerCloseUpSeconds);
         }
 
         void Dash()
@@ -2063,12 +2230,25 @@ namespace StoryPort
             SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "");
             for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
+                float specialStartedAt = -1f;
+                float originalEnemyAnimatorSpeed = enemyAnimator != null ? enemyAnimator.speed : 1f;
                 PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack0" + hit);
-                if (special) StartCoroutine(SpecialShot(enemyActor, playerActor, 1f));
+                if (special)
+                {
+                    yield return null;
+                    if (screen != "fight" || enemyAnimator == null || playerHp <= 0) break;
+                    var specialState = enemyAnimator.GetCurrentAnimatorStateInfo(0);
+                    enemyAnimator.speed = StoryPortSpecialTimeline.PlaybackSpeed(specialState.length, originalEnemyAnimatorSpeed);
+                    specialEnemyAnimator = enemyAnimator;
+                    specialEnemyOriginalSpeed = originalEnemyAnimatorSpeed;
+                    specialStartedAt = Time.time;
+                    StartCoroutine(SpecialShot(enemyActor, playerActor));
+                }
                 int enemyStep = special ? 6 : hit;
                 Combat(enemyKey, "attack_" + enemyStep);
                 // The first swing telegraphs; follow-ups come faster.
-                yield return new WaitForSeconds(special ? 1f : hit == 1 ? .5f : .32f);
+                yield return new WaitForSeconds(special ? StoryPortSpecialTimeline.ImpactSeconds : hit == 1 ? .5f : .32f);
+                if (screen != "fight") { enemyBusy = false; yield break; }
                 if (playerHp <= 0 || enemyHp <= 0) break;
                 var enemyMove = rules.MoveFor("LightAttack0" + hit);
                 float raw = enemyAttack * (special ? rules.SpecialRatio(enemyKey, enemySpecialLevel) : enemyMove.Share) * UnityEngine.Random.Range(.95f, 1.05f);
@@ -2078,6 +2258,7 @@ namespace StoryPort
                 playerHealth = Mathf.Max(0f, playerHealth - taken);
                 SyncHealthPercent();
                 if (damage > 0) ShowDamageNumber(damage, playerActor, guarding ? new Color(.7f, .85f, 1f) : new Color(1f, .45f, .4f));
+                if (special && damage > 0 && !guarding) ImpactBurst(playerActor);
                 if (guarding) Combat(playerKey, "block_react");
                 else if (damage > 0)
                 {
@@ -2100,9 +2281,14 @@ namespace StoryPort
                 {
                     PlayState(playerAnimator, "KnockoutLight");
                     Combat(playerKey, "knockout");
-                    yield return new WaitForSeconds(.8f);
                     yield return StartCoroutine(WinnerShot(enemyActor, enemyName));
                     Show("defeat");
+                }
+                if (special)
+                {
+                    yield return new WaitForSeconds(Mathf.Max(0f, StoryPortSpecialTimeline.RecoverySeconds - (Time.time - specialStartedAt)));
+                    if (enemyAnimator != null) enemyAnimator.speed = originalEnemyAnimatorSpeed;
+                    if (screen == "fight" && enemyHp > 0) PlayState(enemyAnimator, "Idle");
                 }
                 if (evaded) break;
             }
@@ -2787,23 +2973,25 @@ namespace StoryPort
         void CameraShake(float amount)
         {
             // The special shot owns the camera until it returns to the fight view.
-            // A hit shake here would otherwise race the cinematic and can leave the
-            // camera at the shake's stale starting position.
-            if (specialShotActive) return;
+            if (specialShot.Active) return;
             var camera = Camera.main;
             if (camera != null) StartCoroutine(Shake(camera.transform, amount));
         }
 
         IEnumerator Shake(Transform camera, float amount)
         {
-            Vector3 home = camera.position;
+            // Overlapping shakes share one base so none restores another's offset.
+            if (shakesRunning == 0) shakeBase = camera.position;
+            shakesRunning++;
             float end = Time.time + .13f;
-            while (Time.time < end)
+            while (Time.time < end && camera != null && !specialShot.Active)
             {
-                camera.position = home + UnityEngine.Random.insideUnitSphere * amount;
+                camera.position = shakeBase + UnityEngine.Random.insideUnitSphere * amount;
                 yield return null;
             }
-            camera.position = home;
+            shakesRunning--;
+            // A special that began mid-shake has already saved the base pose.
+            if (camera != null && shakesRunning == 0 && !specialShot.Active) camera.position = shakeBase;
         }
 
         void Backdrop(string resource, float alpha = 1)
