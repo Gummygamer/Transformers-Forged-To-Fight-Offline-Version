@@ -78,6 +78,10 @@ the full Act I and Act II route):
   current squad selector supports up to three bots from the eight-bot roster.
 - The base uses the local 9.2 Primordial sky panorama behind its 3D crater;
   the Editor preview no longer shows black gaps beyond the terrain.
+- The alliance-help beam now uses its converted 9.2 emission gradient,
+  blue-violet tint and additive transparent material instead of being hidden.
+  The Editor check verifies its renderer, material and texture; a
+  graphics-enabled base comparison is still needed to judge exact brightness.
 - Mission cards use the local Tecnica font, taller artwork, and larger text,
   compared with the 12:06 frame. Artwork crops UVs at the final card size;
   immediate Editor captures and runtime use the same path without stretching.

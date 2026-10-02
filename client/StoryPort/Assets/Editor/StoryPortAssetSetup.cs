@@ -372,6 +372,11 @@ namespace StoryPort.Editor
             var sourcePath = AssetDatabase.GetAssetPath(source);
             if (!string.IsNullOrEmpty(sourcePath) && convertedMaterials.TryGetValue(sourcePath, out var existing)) return existing;
 
+            // The alliance help beam uses the game's additive particle material,
+            // not the opaque surface path used by terrain and buildings.
+            if (source.name.Equals("fx_m_alliance_beam_a", StringComparison.OrdinalIgnoreCase))
+                return ConvertAllianceBeamMaterial(source, sourcePath);
+
             var shader = Shader.Find("StoryPort/EBPBR");
             if (shader == null) shader = source.shader != null && source.shader.name.IndexOf("Sky", StringComparison.OrdinalIgnoreCase) >= 0
                 ? Shader.Find("Unlit/Texture")
@@ -512,6 +517,58 @@ namespace StoryPort.Editor
                 AssetDatabase.CreateAsset(converted, destination);
                 convertedMaterials[sourcePath] = converted;
             }
+            return converted;
+        }
+
+        static Material ConvertAllianceBeamMaterial(Material source, string sourcePath)
+        {
+            var shader = Shader.Find("StoryPort/AllianceBeam");
+            if (shader == null)
+            {
+                Debug.LogWarning("StoryPort: AllianceBeam shader is missing; leaving the source material unchanged");
+                return source;
+            }
+
+            var converted = new Material(shader) { name = source.name + "_StoryPort" };
+            var emissive = ReadTextureProperty(source, sourcePath, "_emissive_tex");
+            if (emissive == null)
+            {
+                foreach (var guid in AssetDatabase.FindAssets("fx_t_gradient_l2r t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+                {
+                    var path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (Path.GetFileNameWithoutExtension(path) != "fx_t_gradient_l2r") continue;
+                    emissive = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                    break;
+                }
+            }
+            converted.SetTexture("_EmissionTex", emissive);
+            CopyTextureTransform(source, converted, "_emissive_tex", "_EmissionTex");
+
+            Color tint;
+            if (!TryReadSerializedColor(sourcePath, "_TintColor", out tint)) tint = source.GetColor("_TintColor");
+            Color emissionColor;
+            if (!TryReadSerializedColor(sourcePath, "_emissive_intensity_col", out emissionColor))
+                emissionColor = new Color(.17647058f, .5414929f, 1f, .05882353f);
+            converted.SetColor("_TintColor", tint);
+            converted.SetColor("_EmissionColor", emissionColor);
+            // The source material stores intensity in the color alpha and an
+            // overbright range. Cap their product to avoid carrying the game's
+            // extreme particle value straight into a desktop/mobile shader.
+            float overbright = ReadFloatProperty(source, sourcePath, "_emissive_overbright_range", 1f);
+            converted.SetFloat("_EmissionBoost", Mathf.Clamp(emissionColor.a * overbright, 0f, 4f));
+            converted.renderQueue = 3100;
+
+            if (!string.IsNullOrEmpty(sourcePath))
+            {
+                var guid = AssetDatabase.AssetPathToGUID(sourcePath);
+                var destination = ResourcesRoot + "/Materials/" + guid + ".mat";
+                var stale = AssetDatabase.LoadAssetAtPath<Material>(destination);
+                if (stale != null) AssetDatabase.DeleteAsset(destination);
+                AssetDatabase.CreateAsset(converted, destination);
+                convertedMaterials[sourcePath] = converted;
+            }
+            if (emissive == null)
+                Debug.LogWarning("StoryPort: local alliance beam emission texture is missing");
             return converted;
         }
 

@@ -578,9 +578,6 @@ namespace StoryPort
                 instance.transform.localPosition = new Vector3((x - 2) * layout[0], 0f, (2 - y) * layout[0]);
                 instance.transform.localRotation = Quaternion.identity;
                 instance.transform.localScale = Vector3.one * layout[1];
-                // The beam columns are additive glow meshes; opaque they read as white slabs.
-                foreach (var renderer in instance.GetComponentsInChildren<Renderer>(true))
-                    if (renderer.name.IndexOf("beam_column", StringComparison.OrdinalIgnoreCase) >= 0) renderer.enabled = false;
             }
             FrameBaseCrater(baseRoot);
         }

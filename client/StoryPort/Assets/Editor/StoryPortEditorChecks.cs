@@ -34,6 +34,7 @@ namespace StoryPort.Editor
                 throw new Exception("Missing converted 9.2 Chicago daylight sky");
             if (Resources.Load<Texture2D>("StoryPort/BaseSky") == null)
                 throw new Exception("Missing converted 9.2 Primordial base sky");
+            CheckAllianceBeam();
             var road = Resources.Load<Material>("StoryPort/ChicagoRoad");
             if (road == null || road.mainTexture == null || road.shader == null || road.shader.name != "StoryPort/ChicagoRoad")
                 throw new Exception("Missing converted 9.2 Chicago asphalt material");
@@ -161,6 +162,41 @@ namespace StoryPort.Editor
                 }
             if (!foundPackedSurface)
                 throw new Exception("Converted 9.2 bot roughness was reset to zero");
+        }
+
+        static void CheckAllianceBeam()
+        {
+            var building = Resources.Load<GameObject>("StoryPort/Buildings/alliance_help");
+            if (building == null) throw new Exception("Missing converted 9.2 alliance help building");
+            int beamRenderers = 0;
+            bool convertedBeamFound = false;
+            foreach (var renderer in building.GetComponentsInChildren<Renderer>(true))
+            {
+                if (renderer.name.IndexOf("beam_column", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                beamRenderers++;
+                if (!renderer.enabled) throw new Exception("Alliance beam renderer was disabled");
+                bool rendererHasConvertedBeam = false;
+                foreach (var material in renderer.sharedMaterials)
+                {
+                    if (material == null || material.shader == null || material.shader.name != "StoryPort/AllianceBeam") continue;
+                    if (material.GetTexture("_EmissionTex") == null ||
+                        material.GetTexture("_EmissionTex").name != "fx_t_gradient_l2r")
+                        throw new Exception("Alliance beam lost its converted 9.2 emission gradient");
+                    if (material.renderQueue != 3100 || material.GetFloat("_EmissionBoost") <= 0f ||
+                        material.GetFloat("_EmissionBoost") > 4f)
+                        throw new Exception("Alliance beam blend queue or bounded emission strength is invalid");
+                    Color tint = material.GetColor("_TintColor");
+                    if (tint.a <= 0f || tint.b <= tint.r)
+                        throw new Exception("Alliance beam lost its authored blue-violet tint");
+                    rendererHasConvertedBeam = true;
+                    convertedBeamFound = true;
+                    break;
+                }
+                if (!rendererHasConvertedBeam)
+                    throw new Exception("Alliance beam renderer has no transparent additive material");
+            }
+            if (beamRenderers == 0) throw new Exception("Converted alliance help prefab has no beam_column renderer");
+            if (!convertedBeamFound) throw new Exception("Converted alliance help prefab has no transparent beam material");
         }
 
         static void CheckStoryLocalization()
