@@ -71,6 +71,15 @@ namespace StoryPort.Editor
                 input.Move(right, 5.5f) != StoryPortFightGesture.Action.None ||
                 input.End(right, 5.6f) != StoryPortFightGesture.Action.None)
                 throw new Exception("A canceled hold fired an attack");
+
+            // The visible attack hex spans normalized y=.035-.175; previously
+            // the gesture's .18 lower bound made the entire control inert.
+            var attackHex = new Vector2(.92f, .1f);
+            if (input.Begin(attackHex, 6f) != StoryPortFightGesture.Action.None ||
+                input.End(attackHex, 6.12f) != StoryPortFightGesture.Action.Light)
+                throw new Exception("A tap on the visible lower-right attack hex did not attack");
+            if (input.Begin(new Vector2(.92f, .02f), 7f) != StoryPortFightGesture.Action.None || input.Tracking)
+                throw new Exception("A touch below the fight control area started a gesture");
         }
 
         static void CheckHeavyMove()

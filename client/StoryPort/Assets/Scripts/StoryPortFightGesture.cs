@@ -20,7 +20,10 @@ namespace StoryPort
         public Action Begin(Vector2 point, float time)
         {
             Cancel();
-            if (point.y < .18f || point.y > .72f) return Action.None;
+            // The attack hex occupies the bottom-right HUD strip (.035-.175 in
+            // normalized screen coordinates), so taps there must use the same
+            // gesture mapping as the central attack area.
+            if (point.y < .035f || point.y > .72f) return Action.None;
             Tracking = true;
             start = point;
             startedAt = time;
