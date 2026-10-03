@@ -2400,7 +2400,11 @@ function movedir_state(step: MoveStep, team: a list of text): Json
   intent: build the results, progression and team data for a step
   let results: a list of Json = movedir_results(step)
   let progression: Json = movedir_progression(step, team)
-  jsonout.json_obj([jsonout.json_pair("results", jsonout.json_list(results)), jsonout.json_pair("progression", progression), jsonout.json_pair("teamData", build_active_team(step.qid ++ "-0", resolve_quest_team(step.qid, team)))])
+  -- QuestsManager forwards teamData to BCG.UpdateUserData, which consumes
+  -- updates.activeTeams. Keep the direct team fields for existing consumers.
+  let active: Json = build_active_team(step.qid ++ "-0", resolve_quest_team(step.qid, team))
+  let data: Json = jsonout.obj_set(active, "updates", jsonout.json_obj([jsonout.json_pair("activeTeams", jsonout.json_list([active]))]))
+  jsonout.json_obj([jsonout.json_pair("results", jsonout.json_list(results)), jsonout.json_pair("progression", progression), jsonout.json_pair("teamData", data)])
 end
 
 function build_quest_movedir_state(qid: text, offx: integer, offy: integer, start_x: integer, start_y: integer, team: a list of text, completed: boolean): Json

@@ -4838,23 +4838,6 @@ static void* hooked_HudBuffWidget_Init(void* self, int id, int gridId, void* app
     return NULL;
 }
 
-static fn8 orig_UILabel_set_text = NULL;
-static void* hooked_UILabel_set_text(void* self, void* value, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
-    PROTECT({
-        char strBuf[256];
-        char hexBuf[128];
-        dump_il2cpp_string_hex(value, strBuf, sizeof(strBuf), hexBuf, sizeof(hexBuf));
-        void* font = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x1D0) : NULL;
-        void* ttfFont = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x1C8) : NULL;
-        LOG("KITGATE_UILABEL_SET_TEXT label=%p font=%p ttfFont=%p text='%s' hex=[%s]",
-            self, font, ttfFont, strBuf, hexBuf);
-    });
-    if (orig_UILabel_set_text) {
-        return orig_UILabel_set_text(self, value, a2, a3, a4, a5, a6, a7);
-    }
-    return NULL;
-}
-
 static fn8 orig_UILabel_TryLocalize = NULL;
 static void* hooked_UILabel_TryLocalize(void* self, void* value, void** replacement, void* a3, void* a4, void* a5, void* a6, void* a7){
     void* ret = NULL;
@@ -5369,7 +5352,10 @@ static void* installer(void* arg){
     int r18 = inline_hook((void*)(g_base + 0xEE8750),  (void*)hooked_BuffUtils_ParseParams, (fn8*)&orig_BuffUtils_ParseParams);
 
     int r19 = inline_hook((void*)(g_base + 0xC64264), (void*)hooked_HudBuffWidget_Init, &orig_HudBuffWidget_Init);
-    int r20 = inline_hook((void*)(g_base + 0x1B60DE0), (void*)hooked_UILabel_set_text, &orig_UILabel_set_text);
+    // UILabel.set_text is a 4-byte thunk immediately before UIInput.RestoreLabelPivot.
+    // inline_hook writes 16 bytes, so installing this diagnostic hook corrupts the
+    // adjacent method and crashes NumberInputBox (including the Repair popup).
+    int r20 = 0;
     int r21 = inline_hook((void*)(g_base + 0x1B65688), (void*)hooked_UILabel_TryLocalize, &orig_UILabel_TryLocalize);
     int r22 = inline_hook((void*)(g_base + 0xA5F51C), (void*)hooked_BCGStatModifierAppearance_ctor, &orig_BCGStatModifierAppearance_ctor);
     int r23 = inline_hook((void*)(g_base + 0xC65C70), (void*)hooked_HudBuffWidgetsContainer_Add, &orig_HudBuffWidgetsContainer_Add);

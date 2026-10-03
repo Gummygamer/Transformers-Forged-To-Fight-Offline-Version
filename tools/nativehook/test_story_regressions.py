@@ -2,7 +2,9 @@
 
 Usage: python3 tools/nativehook/test_story_regressions.py HARNESS PAYLOAD
 """
+from concurrent.futures import ThreadPoolExecutor
 import json
+import threading
 import os
 from pathlib import Path
 import subprocess
@@ -21,7 +23,7 @@ ACT3_QID = "2.3.1"
 UID = "1000000000001"
 
 
-def request(path, body=None):
+def request(path, body=None, allow_error=False):
     req = urllib.request.Request(
         f"http://127.0.0.1:{PORT}{path}",
         data=None if body is None else json.dumps(body).encode(),
@@ -29,6 +31,8 @@ def request(path, body=None):
     )
     with urllib.request.urlopen(req, timeout=5) as reply:
         decoded = json.load(reply)
+        if allow_error:
+            return decoded
         assert decoded["error"] is None, decoded
         return decoded["result"]
 
@@ -84,6 +88,15 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
 
     try:
         start()
+        refresh = request("/autorefresh/gamestore/refresh")
+        catalog = refresh["gamestore"]
+        assert catalog["version_id"] and len(catalog["items"]["consumable"]) == 3
+        grouped = request("/autorefresh/grouprefresh?groups.0.name=gamestore")
+        assert grouped["updates"][0]["gamestore"] == catalog
+        combined = request("/autorefresh/grouprefresh?groups.0.name=missionsconfig&groups.1.name=gamestore")
+        assert [update["name"] for update in combined["updates"]] == ["missionsconfig", "gamestore"]
+        assert combined["updates"][1]["gamestore"] == catalog
+        print("PASS: consumables load on direct and grouped refresh; combined refresh preserves missions")
         saved = request("/bcg/setSavedTeam", {"teamID": "0", "heroes": TEAM})
         active = {team["aid"]: team for team in saved["updates"]["activeTeams"]}
         assert list(active[QID + "-0"]["heroes"]) == TEAM
@@ -105,6 +118,9 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         }})
         cleared = move(0)
         assert_safe(cleared, 1)
+        updated_team = cleared["teamData"]["updates"]["activeTeams"][0]
+        assert updated_team["aid"] == QID + "-0"
+        assert abs(updated_team["heroes"][TEAM[0]]["hp"] - 0.42) < 0.0001
         assert abs(cleared["progression"]["users"][UID]["team"][TEAM[0]]["hp"] - 0.42) < 0.0001
         assert {"x": 1, "y": 1} in cleared["progression"]["cleared"]
         assert_safe(move(-1), 0)
@@ -300,6 +316,135 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert_health(resumed, shared[1], 0.6)
 
         print("PASS: enemy sharing a team bot's blueprint leaves that bot's health intact")
+
+        # Seed persisted injuries, then exercise the same routes and item ids
+        # used by the Android popup. Validate server health and resource counts.
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|2.1.1|1|1|1|0|0,1|0.5000,0.0000,0.3000,1.0000,1.0000\n"
+                              "I|repair_kit|3\nI|team_repair_kit|1\nI|revive_kit|1\n")
+        start()
+
+        def use(item, bid, route="quests", allow_error=False):
+            path = f"/quests/use/{QID}-0" if route == "quests" else "/gamestore/use"
+            reply = request(path, {"items": [{"version_id": "offline-1",
+                                             "item_name": item}],
+                                  "context": {"bid": bid}}, allow_error=True)
+            if allow_error:
+                return reply
+            assert reply["error"] is None, reply
+            health, inventory = reply["async"]
+            assert (health["component"], health["message"]) == ("BCGManager", "active-team-updated")
+            assert (inventory["component"], inventory["message"]) == ("InventoryManager", "update")
+            active = health["payload"]["result"]["updates"]["activeTeams"][0]
+            assert active["aid"] == QID + "-0"
+            progression = begin()["progression"]["users"][UID]["team"]
+            assert all(abs(active["heroes"][bot]["hp"] - progression[bot]["hp"]) < 0.0001 for bot in TEAM)
+            assert inventory["payload"] == [{"item": item, "quantity": request("/inventory")[item]}]
+            return reply["result"]
+
+        for route in ("quests", "gamestore"):
+            assert use("repair_kit", TEAM[1], route, True)["error"] == "invalid"
+            assert request("/inventory")["repair_kit"] == 3
+        assert use("repair_kit", TEAM[0])["usedConsumableCount"] == 1
+        assert_health(begin(), TEAM[0], 0.8)
+        assert request("/inventory")["repair_kit"] == 2
+        assert use("revive_kit", TEAM[1])["success"] is True
+        assert_health(begin(), TEAM[1], 0.5)
+        assert request("/inventory")["revive_kit"] == 0
+        assert use("repair_kit", TEAM[0], "gamestore")["redeemers"][0]["t"] == "hth"
+        assert_health(begin(), TEAM[0], 1.0)
+        for route in ("quests", "gamestore"):
+            assert use("repair_kit", TEAM[0], route, True)["error"] == "invalid"
+            assert request("/inventory")["repair_kit"] == 1
+        assert use("team_repair_kit", TEAM[0])["success"] is True
+        healed = begin()
+        assert_health(healed, TEAM[0], 1.0)
+        assert_health(healed, TEAM[1], 0.7)
+        assert_health(healed, TEAM[2], 0.5)
+        assert request("/inventory")["team_repair_kit"] == 0
+        assert use("repair_kit", TEAM[2])["success"] is True
+        assert_health(begin(), TEAM[2], 0.8)
+        for route in ("quests", "gamestore"):
+            assert use("repair_kit", TEAM[2], route, True)["error"] == "nsf"
+        stop()
+        start()
+        assert_health(begin(), TEAM[0], 1.0)
+        assert_health(begin(), TEAM[1], 0.7)
+        assert request("/inventory") == {"repair_kit": 0, "team_repair_kit": 0, "revive_kit": 0}
+        active = move(0)["teamData"]["heroes"]
+        assert abs(active[TEAM[1]]["hp"] - 0.7) < 0.0001
+        resolve("WON")
+        assert move(1)["progression"]["currentBattleId"] == "fte_stars_gs_t3"
+        print("PASS: repair, revive, team heal, full-health rejection, depletion, persistence and subsequent fight")
+
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|2.1.1|1|1|1|0|0,1|0.1000,0.0000,0.3000,1.0000,1.0000\n"
+                              "I|repair_kit|3\nI|team_repair_kit|1\nI|revive_kit|1\n")
+        start()
+        item = {"version_id": "offline-1", "item_name": "repair_kit"}
+        nested = {**item, "context": {"bid": TEAM[0]}}
+        request(f"/quests/use/{QID}-0", {"items": [nested]})
+        assert_health(begin(), TEAM[0], 0.4)
+        # Context may precede or follow items in the serialized request.
+        batch = {"context": {"bid": TEAM[0]}, "items": [item, item]}
+        assert request(f"/quests/use/{QID}-0", batch)["usedConsumableCount"] == 2
+        assert_health(begin(), TEAM[0], 1.0)
+        assert request("/inventory")["repair_kit"] == 0
+        assert request("/gamestore/use", batch, allow_error=True)["error"] == "nsf"
+        request(f"/quests/use/{QID}-0", {"items": [{"item_name": "team_repair_kit"}],
+                                           "context": {"aid": QID + "-0"}})
+        assert_health(begin(), TEAM[1], 0.0)
+        assert_health(begin(), TEAM[2], 0.5)
+        print("PASS: legacy item context, root context in either order, repeated orders and team use without a bot target")
+
+        # Invalid targets, malformed orders and absent quest state must be
+        # terminal errors without health/resource mutation, on either route.
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nI|repair_kit|1\nI|team_repair_kit|1\nI|revive_kit|1\n")
+        start()
+        assert use("repair_kit", TEAM[0], "gamestore", True)["error"] == "invalid"
+        assert request("/inventory")["repair_kit"] == 1
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|2.1.1|1|1|1|0|0,1|0.1000,0.1000,0.1000,1.0000,1.0000\n"
+                              "I|repair_kit|1\nI|team_repair_kit|1\nI|revive_kit|1\n")
+        start()
+        before = state_path.read_text()
+        malformed = [{}, {"items": []}, {"items": [None]},
+                     {"items": [{"item_name": "unknown"}]},
+                     {"items": [item], "context": {"bid": "unknown_bot"}},
+                     {"items": [item], "context": {"bid": "optimusprime_cin_tf"}}]
+        for path in (f"/quests/use/{QID}-0", "/gamestore/use"):
+            for body in malformed:
+                reply = request(path, body, allow_error=True)
+                assert reply == {"error": "invalid", "result": None}, reply
+                assert state_path.read_text() == before
+        print("PASS: missing quest, unknown/off-team targets and malformed/empty orders leave state intact")
+
+        # The two endpoints share the final kit. A rejected concurrent request
+        # must not heal another bot after the successful request spends it.
+        for attempt in range(12):
+            stop()
+            state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                                  "\nQ|2.1.1|1|1|1|0|0,1|0.1000,0.1000,0.1000,1.0000,1.0000\n"
+                                  "I|repair_kit|1\nI|team_repair_kit|1\nI|revive_kit|1\n")
+            start()
+            barrier = threading.Barrier(12)
+            def final_item(index):
+                barrier.wait(timeout=5)
+                route = f"/quests/use/{QID}-0" if index % 2 else "/gamestore/use"
+                return request(route, {"items": [item], "context": {"bid": TEAM[index % 3]}}, allow_error=True)
+            with ThreadPoolExecutor(max_workers=12) as pool:
+                replies = list(pool.map(final_item, range(12)))
+            assert sum(reply["error"] is None for reply in replies) == 1, replies
+            assert all(reply["error"] in (None, "nsf") for reply in replies), replies
+            hp = begin()["progression"]["users"][UID]["team"]
+            assert sorted(round(hp[bot]["hp"], 4) for bot in TEAM) == [0.1, 0.1, 0.4], hp
+            assert request("/inventory") == {"repair_kit": 0, "team_repair_kit": 1, "revive_kit": 1}
+        print("PASS: concurrent requests across both repair routes consume the final item and heal exactly once")
 
     finally:
         if process is not None and process.poll() is None:

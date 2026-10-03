@@ -318,7 +318,7 @@ function movedir_team_tokens(body: text, qid: text): text
   let lead: text = unwrap_or(get(gamedata.resolve_quest_team(qid, []), 0), "")
   let with_lead: text = replace_exact(body, "\"strongestHero\":\"" ++ lead ++ "\"", "\"strongestHero\":\"%LEAD%\"", 1, "movedir " ++ qid ++ " lead")
   let with_quest: text = replace_exact(with_lead, quest, "%QTEAM%", 1, "movedir " ++ qid ++ " quest team")
-  replace_exact(with_quest, active, "%ATEAM%", 1, "movedir " ++ qid ++ " active team")
+  replace_exact(with_quest, active, "%ATEAM%", 2, "movedir " ++ qid ++ " active team")
 end
 
 function movedir_template_state(qid: text, sx: integer, sy: integer, dx: integer, dy: integer, completed: boolean): text

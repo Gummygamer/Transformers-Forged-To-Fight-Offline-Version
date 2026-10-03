@@ -1048,15 +1048,24 @@ function use_game_store_response(btxt: text, quest_use: boolean): text
   let req: Json = request_object(btxt)
   let entries: a list of Json = json_list_or_empty(req, "items")
   let entry: Json = unwrap_or(get(entries, 0), jsonout.json_obj([]))
-  let context: Json = if jsonout.obj_has(entry, "context") then jsonout.obj_get(entry, "context") else jsonout.json_obj([]) end
+  let context: Json = if jsonout.obj_has(entry, "context") then jsonout.obj_get(entry, "context") else if jsonout.obj_has(req, "context") then jsonout.obj_get(req, "context") else jsonout.json_obj([]) end
   let bid: text = json_text_or(context, "bid", "")
   let item_name: text = json_text_or(entry, "item_name", "")
   let item: text = game_store_item(item_name)
-  if item == "" or bid == "" then "\{\"error\":\"invalid\",\"result\":null}"
-  else if inventory_count(item) <= 0 then "\{\"error\":\"nsf\",\"result\":null}"
+  let quantity: integer = length(entries)
+  mutable consistent: boolean = true
+  for used in entries do
+    if game_store_item(json_text_or(used, "item_name", "")) != item then set consistent = false end
+  end
+  if item == "" or quantity <= 0 or quantity > 999 or not consistent or (bid == "" and item != "team_repair_kit") or (item == "revive_kit" and quantity != 1) then "\{\"error\":\"invalid\",\"result\":null}"
+  else if inventory_count(item) < quantity then "\{\"error\":\"nsf\",\"result\":null}"
   else
-    update_inventory_count(item, -1)
-    compact_envelope(jsonout.json_obj(concat(if quest_use then [pair_bool("success", true), pair_int("usedConsumableCount", 1)] else [] end, [jsonout.json_pair("redeemers", jsonout.json_list([game_store_redeemer(item)]))])))
+    update_inventory_count(item, -quantity)
+    let redeemer: Json = game_store_redeemer(item)
+    let total: Json = jsonout.obj_set(redeemer, "q", jsonout.json_int(json_int_or(redeemer, "q", 0) * quantity))
+    let result: Json = jsonout.json_obj(concat(if quest_use then [pair_bool("success", true), pair_int("usedConsumableCount", quantity)] else [] end, [jsonout.json_pair("redeemers", jsonout.json_list([total]))]))
+    let inventory_update: Json = jsonout.json_obj([pair_text("component", "InventoryManager"), pair_text("channel", ""), pair_text("message", "update"), jsonout.json_pair("payload", jsonout.json_list([jsonout.json_obj([pair_text("item", item), pair_int("quantity", inventory_count(item))])]))])
+    jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result), jsonout.json_pair("async", jsonout.json_list([inventory_update]))]))
   end
 end
 
@@ -1679,7 +1688,7 @@ function grouprefresh_response(path: text): text
   intent: encode the group refresh with the missions config update when it was requested
   mutable updates: a list of Json = if query_has_missionsconfig(path) then [gamedata.build_missions_autorefresh_update()] else [] end
   if query_has_gamestore(path) then
-    set updates = append(updates, jsonout.json_obj([pair_text("name", "gamestore"), pair_text("error", ""), pair_text("check", "offline-1"), pair_text("locHash", ""), pair_int("refresh", 0), jsonout.json_pair("data", gamestore_data()), pair_bool("cache", false)]))
+    set updates = append(updates, jsonout.json_obj([pair_text("name", "gamestore"), pair_text("err", ""), pair_text("check", "offline-1"), pair_text("locCheck", ""), pair_int("refresh", 0), jsonout.json_pair("gamestore", gamestore_data()), pair_bool("cache", false)]))
   end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
 end
@@ -1729,6 +1738,8 @@ function static_dynamic(path: text, p: text, btxt: text): text
     tutorial_login_response()
   else if ends_with(p, "/bcg/getUserData") then
     compact_envelope(gamedata.build_user_data(get_saved_team()))
+  else if ends_with(p, "/autorefresh/gamestore/refresh") then
+    compact_envelope(jsonout.json_obj([pair_text("check", "offline-1"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("gamestore", gamestore_data())]))
   else if ends_with(p, "/autorefresh/grouprefresh") then
     grouprefresh_response(path)
   else if ends_with(p, "/inventory") then
