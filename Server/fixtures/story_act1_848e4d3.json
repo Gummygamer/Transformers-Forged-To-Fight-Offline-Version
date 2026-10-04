@@ -3902,7 +3902,129 @@
           "mfl": 0
         }
       },
-      "expire": 0
+      "expire": 0,
+      "updates": {
+        "activeTeams": [
+          {
+            "aid": "1.1.1-0",
+            "type": "PvE",
+            "modes": [
+              "PvE"
+            ],
+            "heroes": {
+              "optimusprime_cin_tf": {
+                "entity_type": "bot",
+                "bid": "optimusprime_cin_tf",
+                "rank": 1,
+                "level": 1,
+                "sig_lvl": 0,
+                "required_xp": 0,
+                "max_xp": 100,
+                "stamina": 100,
+                "stamina_ts": 0,
+                "stamina_full_ts": 0,
+                "stt": "",
+                "max_hp": 14375,
+                "attack": 765,
+                "rating": 757,
+                "rating_attack": 382,
+                "rating_hp": 7187,
+                "rating_attack_base": 382,
+                "rating_hp_base": 7187,
+                "special_attacks": 3,
+                "stat_mods": [
+                  "kit_bleed",
+                  "kit_shock",
+                  "kit_burn"
+                ],
+                "sig_mods": [],
+                "buff_mods": [],
+                "pvpb": {},
+                "exc": {},
+                "mana_gain": 1.0,
+                "mana_start": 0,
+                "flvl": 0,
+                "req_fxp": 0,
+                "max_fxp": 0,
+                "mfl": 0
+              },
+              "optimusprimal_bw_mp32": {
+                "entity_type": "bot",
+                "bid": "optimusprimal_bw_mp32",
+                "rank": 1,
+                "level": 1,
+                "sig_lvl": 0,
+                "required_xp": 0,
+                "max_xp": 100,
+                "stamina": 100,
+                "stamina_ts": 0,
+                "stamina_full_ts": 0,
+                "stt": "",
+                "max_hp": 14375,
+                "attack": 765,
+                "rating": 757,
+                "rating_attack": 382,
+                "rating_hp": 7187,
+                "rating_attack_base": 382,
+                "rating_hp_base": 7187,
+                "special_attacks": 3,
+                "stat_mods": [
+                  "kit_bleed",
+                  "kit_shock",
+                  "kit_burn"
+                ],
+                "sig_mods": [],
+                "buff_mods": [],
+                "pvpb": {},
+                "exc": {},
+                "mana_gain": 1.0,
+                "mana_start": 0,
+                "flvl": 0,
+                "req_fxp": 0,
+                "max_fxp": 0,
+                "mfl": 0
+              },
+              "megatron_gs_leader2015": {
+                "entity_type": "bot",
+                "bid": "megatron_gs_leader2015",
+                "rank": 1,
+                "level": 1,
+                "sig_lvl": 0,
+                "required_xp": 0,
+                "max_xp": 100,
+                "stamina": 100,
+                "stamina_ts": 0,
+                "stamina_full_ts": 0,
+                "stt": "",
+                "max_hp": 11500,
+                "attack": 850,
+                "rating": 617,
+                "rating_attack": 425,
+                "rating_hp": 5750,
+                "rating_attack_base": 425,
+                "rating_hp_base": 5750,
+                "special_attacks": 3,
+                "stat_mods": [
+                  "kit_bleed",
+                  "kit_shock",
+                  "kit_burn"
+                ],
+                "sig_mods": [],
+                "buff_mods": [],
+                "pvpb": {},
+                "exc": {},
+                "mana_gain": 1.0,
+                "mana_start": 0,
+                "flvl": 0,
+                "req_fxp": 0,
+                "max_fxp": 0,
+                "mfl": 0
+              }
+            },
+            "expire": 0
+          }
+        ]
+      }
     }
   }
 }
