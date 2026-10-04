@@ -13,6 +13,7 @@ namespace StoryPort
         AudioSource effects;
         string currentMusic = "";
         readonly Dictionary<string, AudioClip> uiClips = new Dictionary<string, AudioClip>();
+        readonly Dictionary<string, AudioClip> sharedClips = new Dictionary<string, AudioClip>();
         readonly Dictionary<string, Dictionary<string, List<AudioClip>>> soundSets = new Dictionary<string, Dictionary<string, List<AudioClip>>>();
 
         void Awake()
@@ -68,6 +69,53 @@ namespace StoryPort
             }
             if (options.Count == 0 || effects == null) return;
             effects.PlayOneShot(options[UnityEngine.Random.Range(0, options.Count)], volume);
+        }
+
+        // Dedicated special cues only exist for a small subset of the converted
+        // 9.2 roster. Do not substitute another fighter's recognizable weapon cue.
+        public void Special(string botKey, int level, bool impact, float volume = .8f)
+        {
+            if (level < 1 || level > 3) return;
+            string key = (botKey ?? "").ToLowerInvariant();
+            string stem = null;
+            string suffix = impact ? "_projectile_impact_" : "_projectile_fire_";
+            if (key.Contains("optimus_gs")) stem = "optimus_prime_gs";
+            else if (key.Contains("arcee")) stem = "arcee";
+            else if (key.Contains("ironhide")) stem = "ironhide";
+            else if (key.Contains("sideswipe") && level == 1) stem = "sideswipe_special_1";
+            else if (key.Contains("sharkticon") && level == 3 && !impact) stem = "sharkticon_special_3";
+            if (stem == null) return;
+
+            if (stem == "sharkticon_special_3")
+            {
+                PlayShared(stem, volume);
+                return;
+            }
+            if (stem == "sideswipe_special_1")
+            {
+                if (!impact) PlayShared(stem, volume);
+                else PlayShared(stem + "_hit_" + UnityEngine.Random.Range(1, 3), volume);
+                return;
+            }
+            // These character-specific projectile clips have authored variants;
+            // choose one per event to avoid a mechanical repeated sample.
+            string variant = new[] { "a", "b", "c", "d" }[UnityEngine.Random.Range(0, 4)];
+            PlayShared(stem + suffix + variant, volume);
+        }
+
+        public void KnockoutLanding(string botKey, float volume = .8f)
+        {
+            Combat(botKey, "body_fall_1", volume);
+        }
+
+        void PlayShared(string name, float volume)
+        {
+            if (!sharedClips.TryGetValue(name, out var clip))
+            {
+                clip = Resources.Load<AudioClip>("StoryPort/Audio/Char/Shared/" + name);
+                sharedClips[name] = clip;
+            }
+            if (clip != null && effects != null) effects.PlayOneShot(clip, volume);
         }
 
         public void Preload(string botKey) { Load(SoundSetFor(botKey)); }
