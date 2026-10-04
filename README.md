@@ -164,10 +164,13 @@ tools/
   hook/dothook.c              earlier hook variant, kept for reference
 re_notes/
   dump.cs                     locally generated IL2CPP type dump (ignored; see below)
-  decomp_out.c                decompiled bodies of key functions
   decompile_targets.txt       the offsets worth decompiling
   ASSET_INVENTORY.txt         inventory of asset identifiers in an operator-supplied app
 ```
+
+Ghidra decompilation output is generated locally under the ignored `il2cpp_out/`
+directory from the operator-supplied APK/library and the checked-in target list; generated
+decompiled source is not stored in this repository.
 
 `re_notes/dump.cs` is deliberately not versioned. Generate it locally from an entitled
 Kabam 9.2 APK with Il2CppDumper; it needs the matching

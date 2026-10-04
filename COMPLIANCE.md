@@ -17,6 +17,12 @@ it, `legible run Server/gamedata.lbl` regenerates two response files:
 `Server/fakeserver.lbl`'s dynamic `/bcg/getBaseHeroData` handler now computes hero stats
 from the same authored curve, so on-screen numbers stay consistent with the roster.
 
+The module catalog descriptions in `Server/mods_catalog.json` and `Server/gamedata.lbl`
+are newly AI-authored text for this project. They are generic gameplay summaries and were
+not transcribed or paraphrased from the game's module descriptions. Module names, catalog
+identifiers, categories, and asset references remain only as needed to identify the
+operator-supplied client's existing entries and assets.
+
 The special-attack-meter work adds only newly authored original values, invented for this
 revival and never transcribed from recovered Kabam data: `_MANA_GAIN_RATE = 1.0` for wire
 `mana_gain`; `attackValues[*].m` values of 50, 75, 120, and 55 for Light, Medium, Heavy,
