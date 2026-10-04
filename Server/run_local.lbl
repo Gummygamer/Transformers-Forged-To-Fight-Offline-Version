@@ -11,6 +11,16 @@ function https_port_from_env(): integer
   unwrap_or(to_integer(unwrap_or(env_get("HTTPS_PORT"), "8443")), 8443)
 end
 
+function has_argument(argument: text): boolean
+  intent: check
+  for item in get_args() do
+    if item == argument then
+  return true
+end
+  end
+  false
+end
+
 function non_loopback_ipv4_addresses(): text
   intent: get
   let listed: a mapping from text to text = shell_exec("hostname -I 2>/dev/null")
@@ -29,7 +39,6 @@ end
 function main(): nothing
   intent: serve
   create_dir(fakeserver.log_dir())
-  let command: text = unwrap_or(get(get_args(), 1), "")
   print("[*] Running the fake Sparx server on unprivileged host ports for adb reverse.")
   print("[*] The listener binds all interfaces (0.0.0.0), including physical LAN and tunnel adapters (Hamachi, ZeroTier, Tailscale, WireGuard).")
   let addresses: text = non_loopback_ipv4_addresses()
@@ -44,7 +53,8 @@ end
   print("[*] One listener per process. Run both:")
   print("      legible run Server/run_local.lbl            # HTTP  on $HTTP_PORT (default 8080)")
   print("      legible run Server/run_local.lbl --https    # HTTPS on $HTTPS_PORT (default 8443)")
-  if command == "--https" then
+  print("      add --mono-fte-assets to enable the temporary Mono FTE asset alias")
+  if has_argument("--https") then
   fakeserver.serve_https(https_port_from_env())
 else
   -- Only the HTTP process truncates the shared request log.

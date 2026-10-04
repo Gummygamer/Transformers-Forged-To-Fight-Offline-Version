@@ -12,6 +12,53 @@ For a complete native Windows 7 build of the 32-bit `armeabi-v7a` phone APK,
 including server setup, signing, installation, Wi-Fi, and USB operation, see
 [`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md).
 
+## Table of contents
+
+- [The other documents in this repository](#the-other-documents-in-this-repository)
+- [What actually works right now](#what-actually-works-right-now)
+- [What does not work, and why](#what-does-not-work-and-why)
+- [How the offline boot works](#how-the-offline-boot-works)
+- [What is in this package](#what-is-in-this-package)
+- [What is not in this package, and where to get it](#what-is-not-in-this-package-and-where-to-get-it)
+- [How to run what exists today](#how-to-run-what-exists-today)
+  - [Installing the Android patcher's output](#installing-the-android-patchers-output)
+  - [Running on a non-rooted phone over Wi-Fi (no USB while playing)](#running-on-a-non-rooted-phone-over-wi-fi-no-usb-while-playing)
+  - [Playing over a virtual LAN or tunnel](#playing-over-a-virtual-lan-or-tunnel)
+  - [Online modes over the tunnel](#online-modes-over-the-tunnel)
+  - [Optional live-fight relay for an arm64 separated-server APK](#optional-live-fight-relay-for-an-arm64-separated-server-apk)
+  - [Running on a non-rooted phone over USB](#running-on-a-non-rooted-phone-over-usb)
+  - [Legacy Legible APK builder (developer/reference)](#legacy-legible-apk-builder-developerreference)
+  - [Building for 32-bit ARM (armeabi-v7a)](#building-for-32-bit-arm-armeabi-v7a)
+- [The gotchas that will eat your time](#the-gotchas-that-will-eat-your-time)
+- [If you want to actually revive it: rebuilding the backend](#if-you-want-to-actually-revive-it-rebuilding-the-backend)
+- [STORY board: varied encounters and the Nemesis Prime boss](#story-board-varied-encounters-and-the-nemesis-prime-boss)
+
+## The other documents in this repository
+
+The rest of the repository's documentation is easy to miss, so here is the index:
+
+| document | what it covers |
+|---|---|
+| [`ABILITY_AUTHORING.md`](ABILITY_AUTHORING.md) | **Authoring abilities from the server.** The `statMods` wire format field by field, the complete trigger / condition / state / stat vocabularies, the effect-type registry recovered from both factories, and a recipe for building one end to end. Every claim is marked with how it is known — observed in a live fight, present in the served payload, read from the binary, or inferred — so you can tell settled mechanics from open questions at a glance. Start here if you want to design or add an ability. |
+| [`BOARD_AUTHORING.md`](BOARD_AUTHORING.md) | **Authoring story boards from the server.** Which parts of a board's appearance the server can name and which are baked into art: the questboard `theme` and `todIndex`, the per-encounter fight arena, the grid, and the prefab contract a theme library has to satisfy. Carries the same provenance marks as `ABILITY_AUTHORING.md`, plus the environment used and the steps to replicate it from a clean checkout. Start here if you want a quest to look different from the one before it. |
+| [`TECHNICAL_NOTES.md`](TECHNICAL_NOTES.md) | Client internals, patches and the reverse-engineering record. |
+| [`WINDOWS_7_ARMV7.md`](WINDOWS_7_ARMV7.md) | Native Windows 7 build of the 32-bit phone APK, end to end. |
+| [`COMPLIANCE.md`](COMPLIANCE.md) | What may and may not be added to this project, and the record of what each change contained. |
+| [`DECOMPILATION.md`](DECOMPILATION.md) | The dedicated decompilation track: a reproducible source-browsing workspace built from an operator-supplied APK. No APK, assemblies, native libraries or generated source enter Git. |
+| [`client/StoryPort/README.md`](client/StoryPort/README.md) | **StoryPort** — a clean Unity client for the local offline server, written fresh rather than ported from the game's executable code. Runtime code is versioned here; the Unity project and converted content stay under the ignored `build/`. See [`FIDELITY.md`](client/StoryPort/FIDELITY.md) for the reference-matching workflow. |
+| [`DOC_STYLE.md`](DOC_STYLE.md) | **How documentation in this repository is written.** Markdown is canonical, headings are strict, and every factual claim carries a mark showing whether it was observed in a running client, served, read from a binary, or inferred. Read it before adding a document. |
+| [`AGENTS.md`](AGENTS.md) | Rules for AI agents working in this repository. |
+
+The **2.0.2 Mono track** is a separate investigation from the 9.2 IL2CPP client path above,
+kept deliberately apart so evidence from one is not mistaken for the other:
+
+| document | what it covers |
+|---|---|
+| [`MONO_SERVER_CONTRACTS.md`](MONO_SERVER_CONTRACTS.md) | Server-facing facts recovered from the managed assemblies exported from the 2.0.2 Mono APK. |
+| [`MONO_SERVER_COMPARISON.md`](MONO_SERVER_COMPARISON.md) | A compatibility work-item inventory comparing the 2.0.2 Mono client against this offline server. A static comparison, not a runtime result. |
+| [`MONO_PACKAGING_PLAN.md`](MONO_PACKAGING_PLAN.md) | The 2.0.2 Mono substitution plan. A candidate has been packaged and installed for evidence; it is not a release artifact and makes no playability claim. |
+| [`MONO_STORY_FIGHT_SCRATCHPAD.md`](MONO_STORY_FIGHT_SCRATCHPAD.md) | Working handoff for the recompiled Mono client investigation. Its `Fresh-session update` section supersedes older status text above it. |
+
 
 ## What actually works right now
 
@@ -22,7 +69,7 @@ The scripted Optimus-versus-Starscream intro fight is playable through its light
 tutorial, with live 3D characters and combat controls.
 
 The local server also supplies a complete, authored STORY 1.1.1 loop: select a squad,
-enter the primordial board, move between reachable nodes, trigger the final boss,
+enter the board, move between reachable nodes, trigger the final boss,
 choose a bot on the native pre-fight screen, fight the Sharkticon, resolve a win, and
 return to the board. Movement from an encounter is gated on a submitted win, so a loss
 or quit reopens that same fight. The authored `Light`, `Medium`, `Heavy`, and `Ranged` attack rows
@@ -31,6 +78,18 @@ team selection, and battle model IDs are generated from the same original data s
 so combat uses the matching 3D mesh instead of a generic placeholder.
 Pre-mission squad selection exposes all five client slots; the initial saved squad remains
 the original three bots, leaving the fourth and fifth slots available to fill.
+The custom Bludgeon's Ambush story also advertises the same five-slot contract, so any
+robot in the supplied offline roster can replace the initial squad and carry into combat.
+The Karma Six special mission is served as a wheel challenge board — six spokes and 74
+combat nodes — reachable from the special-mission entry rather than the story chain.
+
+Board terrain is now server-authored rather than fixed: a quest names its questboard
+`theme` and time of day, and optionally varies the fight arena per encounter across the five
+shipped levels. Four themes are present in this build, so boards no longer all render as
+`primordial` at midday. Quests that do not author a terrain are unchanged. See
+[`BOARD_AUTHORING.md`](BOARD_AUTHORING.md); placing props and landmarks is still
+client-side and is not yet server-driven.
+
 During a STORY fight, the special-attack meter is no longer locked: it charges from landed
 and received hits, and a special attack can be fired for real damage. Every bot has all three
 special-meter segments available immediately.
@@ -77,14 +136,10 @@ Kabam.
 
 1. Native binary patches. The game is Unity IL2CPP, so the logic lives in a compiled ARM
    library, `libil2cpp.so`, not in editable script files. `patches/patch_il2cpp.lbl` rewrites
-   twelve functions in that library to get past the dead server checks: it defeats two
-   certificate pinning paths so our own TLS cert is accepted, forces the manager
-   registration block to run even though the live config is null, lets login succeed with
-   our local device session, and silences the subsystem fatal errors that would otherwise
-   pop the "failed to log in" dialog. Two more stub the Unity reachability getter and the
-   endpoint's connectivity check, so the client will talk to the bundled loopback server on a
-   phone with no Wi-Fi access point. The last four stub the profile-level padlock checks, so
-   game modes are never locked behind account level. It also re-injects a single dependency entry (see the
+   sixteen sites in that library to get past the dead server checks. These cover certificate
+   validation, manager registration, offline login, subsystem errors, loopback reachability,
+   profile-level locks, offline alliance-event gates, and the null synergy list encountered
+   after selecting a Story team. It also re-injects a single dependency entry (see the
    Gotchas section) so the runtime hook actually loads. The output is `libil2cpp.patched.so`.
 
 2. A fake Sparx server. `Server/fakeserver.lbl` stands in for Kabam's backend. It listens on
@@ -117,12 +172,22 @@ is how every screen in this build was brought up.
 
 ## What is in this package
 
+The dedicated `research/mono-decompilation` branch contains the full managed-client
+recovery workspace. See [`DECOMPILATION.md`](DECOMPILATION.md) for the reproducible export,
+per-assembly manifest, generated solution, and compilation audit. Generated assemblies and
+source stay under ignored `build/` paths.
+
 ```
 README.md                     this file
 COMPLIANCE.md                 copyright, trademark, and security boundaries for the project
 TECHNICAL_NOTES.md            the deeper technical reference: patches, recovered data shapes, findings
+ABILITY_AUTHORING.md          authoring abilities from the server: the statMods wire format
+BOARD_AUTHORING.md            authoring story boards: themes, times of day, fight arenas
+Server/data/
+  stat_modifiers.json         the ability rows served to the client
+  quest_terrain.json          per-quest board theme, time of day, and fight-arena policy
 patches/
-  patch_il2cpp.lbl            the twelve native patches plus the dependency re-injection
+  patch_il2cpp.lbl            the sixteen native patches plus the dependency re-injection
   abi_map.lbl                 translate arm64 addresses and field offsets to armeabi-v7a
   disasm_fn.lbl               helper: disassemble a function at an offset
   find_callers.lbl            helper: find callers of a function
@@ -130,6 +195,8 @@ patches/
 Server/
   fakeserver.lbl              the fake Sparx server (request synthesis, HTTP and HTTPS listeners)
   gamedata.lbl                hand-authored roster, battle balance, mission, and tuning data
+  data/                       static JSON tables gamedata.lbl loads (stat modifiers and appearances, buffs,
+                              missions config); edit these, not gamedata.lbl
   test_gamedata.lbl           verifies generated roster, combat, tuning, and mesh mappings
   gen_certs.sh                regenerate the TLS cert and CA (run this, see below)
   run_local.lbl               run the Legible plain-HTTP server on an unprivileged port
@@ -139,6 +206,7 @@ Server/
   iterate.sh                  quick restart and capture loop
   responses/                  one JSON file per endpoint the game calls
 tools/
+  index_il2cpp_dump.py        build a local type/method/field index from Il2CppDumper output
   provision_ldplayer.sh       one shot re-provision of the emulator to the working state
   setup_arm64.sh              toolchain setup notes
   apply_labels.lbl            build the portable Ghidra label input
@@ -193,6 +261,21 @@ The generated file is the complete type model of the game: every class, method, 
 field the client reads from the server. It is ignored by Git so it remains a local,
 reproducible analysis artifact.
 
+For native hook and patch work, turn that local dump into a machine-readable index instead
+of copying RVAs and offsets by hand:
+
+```bash
+python3 tools/index_il2cpp_dump.py /path/to/il2cpp_out/dump.cs \
+  --script-json /path/to/il2cpp_out/script.json \
+  --out build/analysis/9.2-index.json
+```
+
+The index records declaring types, field offsets and modifiers, method declarations and
+RVAs, source hashes, and the optional `script.json` method table. The output belongs under
+ignored `build/`. `tools/nativehook/managed_runtime.h` is the runtime half of the same
+approach: it discovers classes and fields through exported IL2CPP metadata APIs, then checks
+the reflected type and static/instance flags before a hook reads or writes them.
+
 
 ## What is not in this package, and where to get it
 
@@ -217,16 +300,48 @@ should generate your own.
 
 ## How to run what exists today
 
+For the supported unified APK patching flow, build and install the Android patcher by
+following [android/BUILD.md](android/BUILD.md). It performs source selection, ABI-aware
+auto-patching, bundled or separate-server configuration, signing, export, and optional
+installation on the device. The Legible commands below remain for the fake server,
+payload generation, emulator provisioning, and native/reverse-engineering workflows.
+
 You need the APK installed on an ARM translation capable emulator (LDPlayer 9 was used, with
 root and writable system), the `legible` interpreter on the PC, and the items from the section above.
 
-To get the `legible` interpreter and launch the [APK patcher GUI](#patching-the-apk-from-a-gui)
-without doing any of that setup by hand, run `./launch_linux.sh` (Linux) or
-`launch_windows.bat` (Windows) from the repository root. Either script installs `legible`
-and the build tools it needs (Rust via rustup, git, a C compiler) only if they are missing,
-then launches the GUI; re-running it later is fast because it finds `legible` already
-installed. This does not replace the manual steps below, which are still needed for
-everything the GUI does not cover (certs, the native hook, the emulator/device setup).
+Install the `legible` interpreter separately when you need the server, payload, or
+reverse-engineering tools below. APK patching itself is provided by the Android patcher
+application described in `android/BUILD.md`.
+
+### Installing the Android patcher's output
+
+Use the Android patcher described in [`android/BUILD.md`](android/BUILD.md), then:
+
+1. Select the game APK you want to patch. The patcher reads this file; it does not patch an
+   already installed copy of the game. [📄 binary] (`PatcherEngine.kt:90-100`)
+2. Leave **Bundled server — self-contained, no PC needed** selected for the standalone setup.
+   This writes the bundled server address (`http://127.0.0.1:8080`) into the output. Choose
+   **Separate server running on a PC** only when you have that server running and reachable
+   from the phone; enter the PC's reachable address and matching port. `127.0.0.1` in this
+   mode means the phone itself. [📄 binary] (`PatchViewModel.kt:33-36`, `PatchRequest.kt:76-89`)
+3. Leave **Auto-patch libil2cpp from source APK** enabled, then tap **Build patched APK**.
+   Install the resulting APK when Android offers, or use **Install patched APK** / **Share / Save
+   patched APK** in the patcher. Opening the original downloaded game again does not install the
+   patched output. These are the patcher's defaults and install controls. [📄 binary]
+   (`PatchViewModel.kt:33-49`, `PatchViewModel.kt:341-344`, `activity_main.xml:614-624`)
+4. If Android reports a signature conflict, the installed game and generated APK were signed
+   with different keys. Uninstall the existing game only to resolve that install conflict,
+   then install the generated APK. Uninstalling erases the game's local data; it does not
+   repair a server connection. [⚠ inferred] The patcher reuses its generated signing key for later builds
+   on the same patcher installation. [📄 binary] (`InstallResultReceiver.kt:39-45`,
+   `KeystoreManager.kt:69-96`)
+
+If the generated game APK installs and still shows “connection is lost,” reinstalling it or
+removing the old copy does not by itself identify or fix the cause. Check which server mode was
+built and, for **Separate server**, confirm that the configured server is running and reachable
+from the phone. The reported Samsung device, source APK/version, patch settings, and build log
+are not available here, so this report does not establish a Samsung-specific cause. Share those
+details and the exact error/build log when asking for further diagnosis. [⚠ inferred]
 
 1. Generate certs once: `bash Server/gen_certs.sh`. This is a **bash** script, not
    Python — run it with `bash` (or `./Server/gen_certs.sh` after `chmod +x`) in a
@@ -239,7 +354,7 @@ everything the GUI does not cover (certs, the native hook, the emulator/device s
 2. Build the patched library once: `legible run patches/patch_il2cpp.lbl path/to/original/libil2cpp.so --apply`.
    That patches the arm64 library; pass `--abi armeabi-v7a` for the 32-bit one (see below).
 3. Build the arm64 hook locally:
-   `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
+   `~/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -Wl,-soname,libdothook.so -o tools/nativehook/libdothook.so tools/nativehook/hook.c tools/nativehook/inapk_server.c -llog`.
    `tools/nativehook/deploy.sh` has historical Windows paths and is not the current command.
 4. Start the fake server on the PC: `legible run Server/fakeserver.lbl --https 443` and
    `legible run Server/fakeserver.lbl --http 80` (one process per listener). They need to be reachable
@@ -339,14 +454,78 @@ Store, Arenas, Special Missions, Alliance Missions, and Daily Missions immediate
    to use a different positive timeout; a player idle past it is no longer eligible for a new
    live pairing until the client next touches the Arena service.
 
+#### Hosting PvP from an Android phone
+
+The separate `TFTF PvP Host` app in `android/pvphost` can host Arena matchmaking without a
+PC. Build it with `./gradlew :pvphost:assembleDebug` after running
+`./tools/prepare-assets.sh 8080`, install it alongside the patcher, join the phone and
+players to the same trusted Wi-Fi or tunnel, and start the foreground host. Allow TCP 8080
+through the phone's network path/firewall. Use the app's exact client flags:
+
+```text
+--scheme http --server-host <IP> --server-port 8080
+```
+
+The app displays a complete `legible run Server/build_phone_apk.lbl` command and the
+equivalent patcher-app `Separate server` values. The host is intentionally HTTP-only and
+has no endpoint authentication, so anyone who can reach the port can register as a peer;
+use a trusted network. HTTPS/8443 and STORY board play are outside this app's scope. The
+bundled in-apk server remains loopback-only at `127.0.0.1:8080`; do not run it on the same
+device and port as the phone host. If 8080 is occupied, select another host port and pass
+that port to the client build.
+
+**Live Arena on the same Wi-Fi (no laptop).** While the host runs without a relay, it also
+runs a built-in UDP relay for the real-time Arena netcode on port `8777` (a Kotlin port of
+`tools/netrelay/netrelay.c`), and shows `Arena relay: UDP <phone-ip>:8777` next to the patcher
+hint. On every player's Patcher (arm64), set **Arena relay host** to the host phone's IP and
+**UDP port** to `8777` alongside the Separate-server values; leave the field blank to stay on
+the retail async Arena. Allow UDP 8777 through the phone's network path. If another app already
+holds UDP 8777 the host logs `Arena relay could not bind` and keeps serving HTTP, without live
+fights. With **Use a relay** on, the tunnel's combat bridge owns loopback `8777` instead and the
+LAN relay is not started.
+
+#### Internet tunnel in the PvP Host app
+
+For players on different networks, run the authenticated TLS relay from `tools/internetrelay`
+on a public server with a DNS certificate. The relay needs only its chosen TCP port exposed;
+it does not accept client-supplied destinations and it does not require either phone to accept
+inbound connections:
+
+```sh
+python3 -m tools.internetrelay --host 0.0.0.0 --port 4433 \
+  --cert /etc/tftf-relay/fullchain.pem --key /etc/tftf-relay/privkey.pem
+```
+
+Build and install the current `TFTF PvP Host` app. Enable **Use a relay**, enter the relay DNS
+name and port, leave the role as **Host**, generate an invitation, and start the service. Share
+the invitation text with exactly one other player through a private channel. On the other phone,
+enable the same relay settings, choose **Join**, paste the invitation, and start the service.
+Both apps show **Tunnel ready** before the game should be launched. Configure both game APKs to
+use the loopback endpoint shown by the app (normally `--server-host 127.0.0.1 --server-port
+8080`); the host app forwards its local server and the join app exposes the remote server on the
+same loopback address. The combat bridge likewise exposes loopback UDP `8777` for the optional
+live-fight hook.
+
+For the optional real-time Arena path, fill in **Arena relay host** in the patcher app's Separate
+server card (arm64 only) with `127.0.0.1` and UDP port `8777`: the shipped arm64 hook carries the
+live netcode and the patcher writes that session into it, so no per-device hook build is needed and
+each install names itself at runtime. Leave the field blank and the APK stays on the retail
+asynchronous Arena, where the client fights a local AI copy of the opponent's team. (The desktop
+route `Server/build_arena_hook.sh --internet --peer player-one` still works and bakes the session
+in at compile time.) Stopping the app, leaving a match, or
+losing the relay closes both channels. Start the service again to create a fresh connection;
+the invitation remains valid until the relay session expires. LAN hosting remains the default
+when **Use a relay** is off, and the relay is not bundled into the APK or Android app.
+
 Two limits are worth understanding before trying this.
 
-First, retail TFTF Arena is asynchronous by design. The client fights a local AI copy of the
-opponent's stored team; it has no realtime fight netcode. Relaying real-time input would require
-rewriting the IL2CPP fight simulation, which this project does not do. The genuinely reachable
-LAN path on an unmodified retail client is live presence, two-device matchmaking into a shared
-`matchID`, a live opponent team, and two-sided result reconciliation--not a frame-by-frame fight
-between phones.
+First, retail TFTF Arena is asynchronous by design: an unmodified client fights a local AI copy
+of the opponent's stored team. The normal APK path therefore remains the compatible async path:
+live presence, two-device matchmaking into a shared `matchID`, a live opponent team, and
+two-sided result reconciliation. For an arm64 separated-server APK, this project also provides
+an explicit opt-in native Arena relay hook. It relays fight input and health state over UDP while
+leaving normal offline APKs unchanged. It is a modified-client feature, not something a retail
+APK can discover or enable by itself.
 
 Second, `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP network surface.
 Device captures confirm `GET /pvp/get-login-data` and the team-accept request to
@@ -359,6 +538,31 @@ Finally, `POST /auth/login` identifies each device by `credentials.udid` and giv
 device-specific session token. Two phones therefore become separate peers automatically, and
 the manual `?peer=alice` curl workaround is no longer required. The `peer` query override
 remains available as a testing escape hatch.
+
+### Optional live-fight relay for an arm64 separated-server APK
+
+The shipped arm64 hook carries the live netcode and stays inert until a session is written into
+it, which the Patcher does when **Arena relay host** is filled in (host + UDP port; each install
+names itself at runtime). The relay it talks to can be any of:
+
+- **The PvP Host app (LAN, no laptop):** it runs the relay itself on UDP 8777 whenever it is
+  serving without a tunnel. Use the host phone's IP and port `8777`.
+- **The PvP Host app over the internet tunnel:** the combat bridge exposes loopback UDP `8777`;
+  use `127.0.0.1` and `8777`.
+- **`tools/netrelay/netrelay` on a PC** (UDP 8777 by default), using the PC's LAN or tunnel address.
+
+Developers can still bake the session in at compile time, one hook per device:
+
+```sh
+Server/build_arena_hook.sh --relay-host <host-lan-or-tunnel-address> --peer emulator-5554
+legible run Server/build_phone_apk.lbl <source.apk> build/emulator-arena-unsigned.apk --server-host <game-server-address> ...
+```
+
+The builder embeds the hook that is present at build time, so keep each resulting APK before
+building the next one. For a USB phone, the game API can still use its ordinary ADB-reverse
+setup, but the relay address must be a LAN or tunnel address reachable directly from both
+devices: ADB reverse forwards TCP only and cannot carry the UDP relay. The relay hook currently
+supports arm64 only.
 
 ### Running on a non-rooted phone over USB
 
@@ -397,51 +601,13 @@ reconnection.
 
 If it hangs at login, check the very first item in the Gotchas section before anything else.
 
-### Patching the APK from a GUI
+### Legacy Legible APK builder (developer/reference)
 
-From the repository root, launch the local browser UI with:
+The Android patcher is the supported way to patch and install a game APK. The
+Legible recipes in this section remain only for native/server development and
+regression fixtures; they are not a second end-user patching flow.
 
-```sh
-legible run tools/apk_patcher_gui/server.lbl
-```
-
-It prints a token-protected `http://127.0.0.1:<port>/` URL and opens it in the default
-browser. The GUI, planner, background worker, and tests are all Legible; Python is not
-required. Use `--port N` to choose a port instead of the default random free port, or
-`--no-browser` when working headlessly. Legible's HTTP listener binds all interfaces, so
-the GUI requires an unguessable per-launch token on every page and API request; keep the
-printed URL private.
-
-The page exposes the APK source and destination, signing keystore and passwords, and an
-optional install-to-device step. Choose `arm64-v8a` (64-bit, the default) or
-`armeabi-v7a` (32-bit), and choose whether to keep the other ABI's libraries. The server
-mode is either bundled (self-contained, no PC, fixed to `http` and `127.0.0.1`) or
-separate (a PC-hosted fake server, with a host, port, and `http`/`https` supplied by you).
-It also accepts a patched `libil2cpp.so` path, or can auto-patch one with
-`patches/patch_il2cpp.lbl`. The pristine-library field is optional: when it is empty or
-does not point to a file, the workflow extracts the selected ABI's stock `libil2cpp.so`
-directly from the source APK before patching it.
-
-Pressing **Build APK** runs the same pipeline documented below: native-hook compilation
-from `hook.c`/`hook_arm32.c` plus `inapk_server.c` when its default checkbox is enabled, optional
-`patch_il2cpp.lbl`, then `legible run Server/build_phone_apk.lbl`, then
-`zipalign -f -p 4`, then `apksigner sign` with the debug keystore, followed by
-`zipalign -c -p 4` and `apksigner verify --verbose` against the final signed APK, and
-optionally `adb install -r --no-incremental` followed by `adb shell pm path` to confirm
-the package is installed. Each command's output streams live into
-the page, and the build can be cancelled. **Build succeeded** means the final signed APK
-passed both Android signature and page-alignment checks.
-
-Before starting the multi-minute, multi-hundred-megabyte build, the UI catches a bundled
-server configured with `https` or a non-loopback host (that mode only accepts `http` plus
-`127.0.0.1`) and a 32-bit build with no patched `libil2cpp.so`. The latter is the failure
-described in the 32-bit section below: the APK installs cleanly, but `TFTFHOOK` never
-appears in the log and nothing listens on port 8080.
-
-The manual recipes below remain the ground truth and are the fallback if the GUI is not
-available.
-
-### Building a self-contained APK (bundled server, no PC)
+#### Building a self-contained APK (bundled server, no PC)
 
 Build, align, sign, and install an arm64 APK with the fake-server response payload embedded:
 
@@ -469,7 +635,7 @@ unchanged and remain the default.
 `--bundle-server` supports both `arm64-v8a` (the default and primary tested path) and
 `armeabi-v7a`. It requires plain HTTP on loopback: `--scheme https` and non-loopback
 `--server-host` values are rejected. The baked payload is a snapshot of the authored data at build
-time, so changing `Server/gamedata.lbl` requires rebuilding the APK. Its responses are the same
+time, so changing `Server/gamedata.lbl` or a table in `Server/data/` requires rebuilding the APK. Its responses are the same
 ones served by `Server/fakeserver.lbl`. For a recognised stock `libil2cpp.so`, the builder now
 applies the two offline reachability stubs before packaging; an unknown library hard-fails with a
 patch command instead of producing an APK that still requires Android networking.
@@ -528,7 +694,7 @@ were verified firing during that run.
 
 1. Patch the 32-bit library:
    `legible run patches/patch_il2cpp.lbl --abi armeabi-v7a path/to/lib/armeabi-v7a/libil2cpp.so --apply`.
-   All twelve sites apply to `armeabi-v7a`. Both reachability sites are ordinary IL2CPP method
+   All sixteen sites apply to `armeabi-v7a`. Both reachability sites are ordinary IL2CPP method
    addresses that `abi_map.lbl` maps directly: arm64 `0x1B462F4` to armv7 `0x1A0EA0C`, and arm64
    `0x1333E48` to armv7 `0x105ACFC`. A 32-bit bundled APK therefore no longer needs a network
    interface to be up, and its game modes are not padlocked by profile level.
@@ -537,7 +703,7 @@ were verified firing during that run.
    verified alias string and spare dynamic-table slot without moving code or changing any
    patch offset. Either route can be selected explicitly with `--needed patchelf` or
    `--needed inplace`.
-2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-soname,libdothook.so
+2. Build the hook: `armv7a-linux-androideabi21-clang -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -Wl,-soname,libdothook.so
    -o tools/nativehook/libdothook-armeabi-v7a.so tools/nativehook/hook_arm32.c tools/nativehook/inapk_server.c -llog`.
    Keep API level 21 for old 32-bit phones and `-Wl,-soname,libdothook.so` because
    `libil2cpp.so`'s `DT_NEEDED` names `libdothook.so`. The resulting `.so` is a local build
@@ -606,6 +772,10 @@ The arm64, armv7, and bundled outputs have been compared byte-for-byte with the 
 `Server/fakeserver.lbl` and `Server/run_local.lbl`: run
 `legible run Server/fakeserver.lbl --http 80` or `legible run Server/fakeserver.lbl --https 443`,
 or use `legible run Server/run_local.lbl` / `legible run Server/run_local.lbl --https`.
+For the recompiled Mono FTE client, append `--mono-fte-assets` to either command to enable
+the temporary response alias that maps the FTE opponent's `skywarp_gs_leader2015` asset
+fields to the APK-present `starscream_gs` assets. The alias is opt-in and is not applied to
+normal server runs.
 The TLS listener uses `Server/certs/server.pem` through Legible's `http_start_https`.
 Each Legible process holds one listener and has no threads, so HTTP and HTTPS run as two
 processes rather than Python's two threads; this is a design difference, not a port limitation.
@@ -615,8 +785,9 @@ verified; it remains recoverable from git history at commit `23950a3`, for examp
 The Python original `Server/gamedata.py` was removed once `Server/gamedata.lbl` was
 verified to regenerate `Server/responses/` byte-identically; it remains recoverable from
 git history at commit `23950a3`, for example `git show 23950a3:Server/gamedata.py`. With
-the Python gone, the committed artifacts are the oracle: `Server/responses/` and the baked
-payload (4,572,592 bytes, 9368 entries at listen port 8080).
+the Python gone, the committed artifacts are the oracle: `Server/responses/` and the generated
+payload. Its header records the total size, listen port, and entry count; tests validate those
+fields and the table bounds instead of relying on a fixed byte size.
 `Server/export_payload.lbl` now builds the byte-identical in-APK payload from the
 response data and Legible server modules: run
 `legible run Server/export_payload.lbl --out <file> [--listen-port N]`. Its Python

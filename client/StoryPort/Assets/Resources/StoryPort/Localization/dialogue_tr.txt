@@ -1,0 +1,46 @@
+# Story dialogue catalog for tr. UTF-8 KEY<TAB>text; blank values use English fallback.
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	Sensörler ileride soğuk bir sahil başı algılıyor. Buraya ne indiyse çoktan hareket ediyor.
+ID_STORY_ARRIVAL_INTRO_002	Gelgit bizi getirdi. Gelgit sizi gömecek.
+ID_STORY_ARRIVAL_INTRO_003	O zaman bu hattı tutarız, hem de birlikte tutarız.
+ID_STORY_MIDPOINT_RALLY_001	Sırtın yarısındayız ve hâlâ gelmeye devam ediyorlar. Bu bir toplanma alanı, devriye değil.
+ID_STORY_MIDPOINT_RALLY_002	Attığın her adım kaydediliyor. Attığın her adım sayılıyor.
+ID_STORY_MIDPOINT_RALLY_003	O zaman sonuna kadar yürürüz. Sabit kıvılcım, daha yüksek siper.
+ID_STORY_FINAL_STAND_001	Kendi sonunun şeklini görmek için bunca yolu tırmandın.
+ID_STORY_FINAL_STAND_002	Bunu bitirmek için uzun bir yol tırmandık. Teslim ol ya da yıkıl.
+ID_STORY_SHORE_SECURED_001	Kıyı sessiz. Koordinatları kaydedin ve yaralıları eve götürün.
+ID_STORY_SHORE_SECURED_002	Bugün sessiz. Yeniden gürültü çıkmadan geri döneceğiz.
+ID_STORY_CUSTOM_OPENING_INTRO_001	Ben Optimus Prime... Autobotların lideri. Bu sektörün istikrarını tehdit eden garip enerji sinyalleri tespit ettik.
+ID_STORY_CUSTOM_OPENING_INTRO_002	Artan tehditlerin ağırlığı altında, koşullar bizi bu ıssız bölgeye acil iniş yapmaya zorladı.
+ID_STORY_CUSTOM_OPENING_INTRO_003	Uyarı: Bilinmeyen radar karıştırması tespit edildi... Seyrüsefer sistemleri zorla bozuluyor!
+ID_STORY_CUSTOM_OPENING_INTRO_004	Kaçış yok, Optimus... Zamanın doldu ve son hesaplaşma geldi!
+ID_STORY_CUSTOM_OPENING_INTRO_005	Bludgeon?! Demek bu pusunun arkasındaki sensin... Bakalım cesaretin küstahlığına denk mi!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	Bludgeon yere serildi.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	Mükemmel. İlerleyelim.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	Starscream! Bunun arkasında Decepticon hava komutanlığının olduğunu bilmeliydim.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	Bludgeon karşısındaki zaferin... beklenen bir şeydi. Şimdi Decepticon filosunun gerçek gücüyle yüzleş!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	O zaman bunu bitirelim. Autobotlar, göğe yükselin!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran, Starscream olarak adlandırılan bir Decepticon taradı; ancak imzası daha önce karşılaştığımız hiçbir düşmana benzemiyordu. Sanki başka bir boyuttan geçmiş gibi ve işaretlere bakılırsa, bize doğru daha fazla tehdit geliyor
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	Ironhide! Kendi türüne mi sırt çevirdin?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	Bu hizipler meselesi değil, Prime. Önderlik edecek cesarete gerçekten kimin sahip olduğunu görmekle ilgili.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	O zaman bunu eski usulle çözeriz. Rütbe yok, rozet yok -- sadece kıvılcımlar.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	Ironhide öldü.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	Harika, mükemmel ilerleme. Hangi gezegende olduğumuzu kesinlikle öğreneceğiz -- burası kesinlikle bilinmeyen bir dünya ama Energon enerjisiyle dolu olduğunu hissediyorum. Ve bu adamların hangi boyuttan ya da dünyadan geldiğini de mutlaka çözeceğiz
+ID_STORY_CUSTOM_ACT2_INTRO_001	Tarayıcılar gemimizi onarmak için hayati kaynaklar buldu.
+ID_STORY_CUSTOM_ACT2_INTRO_002	Anlaşıldı, yolu göster ve onları güvene al.
+ID_STORY_CUSTOM_ACT2_INTRO_003	Kesinlikle, harekete geçelim. Muhtemelen birçok savaşla karşılaşacağız ama bu çatışmalarda dikkatli olmalıyız.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	Sen kimsin? Öleceksin!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	Kendini göster.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	Komutan, Prowl Starscream'i bir toz fırtınasının ardından gördü.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	Ben Decepticon değil. Ben Starscream! Kral Seeker!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	Aman, işler daha da kötüleşti.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	Daha kötü mü? Ne demek istiyor sen?! Ben hazır olunca seni ezmek!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	Starscream hakkında daha fazla istihbaratım var. İlerideymiş ve anladığım kadarıyla güçlerini artırmak için bir tür cihaz hazırlıyor...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	AAAAAAHHH Prowl çok konuşuyor! Ama çok geç kaldınız, Autobotlar! Bu güçle gökyüzü benim olacak ve Megatron sonunda üstün liderliğime boyun eğecek!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	Komutan, sen eldeki göreve bak. Ben onun cihazını inceleyip rapor vereceğim
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	Kötü haberlerim var. Starscream bir şekilde güçlerini değiştiren bir cihaz kurmuş.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	Doğru! Bu güçle gökyüzü benim olacak ve Megatron sonunda liderliğime boyun eğecek! Sonun geldi, Optimus!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	Komutan, savaşta onun dikkatini dağıt. Bu teknolojiyi analiz için üsse ulaştırmak için elimden geleni yapacağım
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	Artan zaman baskısı altında görevin aciliyeti önemli ölçüde tırmanıyor ve teknik telemetri, süregelen düşmanca karşılaşmalarımızın en büyük korkularımızı ve tehditlerimizi gerçeğe dönüştürdüğünü doğruluyor
+ID_STORY_UI_TAP_CONTINUE	Devam etmek için dokun
+ID_STORY_UI_SKIP	Geç

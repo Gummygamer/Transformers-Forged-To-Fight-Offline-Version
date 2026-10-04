@@ -34,6 +34,39 @@ function run_command(command: text): nothing
   end
 end
 
+record GhidraJob
+  analyze: text
+  project_dir: text
+  project_name: text
+  binary: text
+  script_path: text
+end
+
+function job_prefix(job: GhidraJob): text
+  intent: build the analyzeHeadless invocation prefix
+  job.analyze ++ " " ++ job.project_dir ++ " " ++ job.project_name
+end
+
+function run_labels(job: GhidraJob): nothing
+  intent: apply labels through Ghidra
+  let root: a mapping from text to text = json_parse(read_file("il2cpp_out/script.json"))
+  write_file("il2cpp_out/labels.tsv", apply_labels.build_labels_tsv(root))
+  run_command(job_prefix(job) ++ " -import " ++ job.binary ++ " -preScript LightAnalyze.java -postScript ApplyLabels.java -scriptPath " ++ job.script_path)
+end
+
+function run_xrefs(job: GhidraJob): nothing
+  intent: find cross references through Ghidra
+  write_file("il2cpp_out/xref_targets.norm.tsv", find_xrefs.prepare_targets(read_file("il2cpp_out/xref_targets.txt")))
+  run_command(job_prefix(job) ++ " -process " ++ basename(job.binary) ++ " -noanalysis -postScript FindXrefs.java -scriptPath " ++ job.script_path)
+  write_file("il2cpp_out/xrefs_out.txt", find_xrefs.format_xrefs(read_file("il2cpp_out/xrefs_raw.tsv")))
+end
+
+function run_decompile(job: GhidraJob): nothing
+  intent: decompile targets through Ghidra
+  write_file("il2cpp_out/decompile_targets.norm.txt", decompile_targets.prepare_targets(read_file("il2cpp_out/decompile_targets.txt")))
+  run_command(job_prefix(job) ++ " -process " ++ basename(job.binary) ++ " -noanalysis -postScript DecompileTargets.java -scriptPath " ++ job.script_path)
+end
+
 function main(): nothing
   intent: run Ghidra workflow step
   let arguments: a list of text = get_args()
@@ -44,24 +77,13 @@ function main(): nothing
     print("ghidra_run: analyzeHeadless not found; set GHIDRA_HOME to a Ghidra installation")
     exit_process(1)
   end
-  let project_dir: text = configured("GHIDRA_PROJECT_DIR", "il2cpp_out/ghidra_proj")
-  let project_name: text = configured("GHIDRA_PROJECT_NAME", "tftf")
-  let binary: text = configured("GHIDRA_BINARY", "extracted/lib/arm64-v8a/libil2cpp.so")
-  let script_path: text = "tools/ghidra"
+  let job: GhidraJob = GhidraJob { analyze: analyze, project_dir: configured("GHIDRA_PROJECT_DIR", "il2cpp_out/ghidra_proj"), project_name: configured("GHIDRA_PROJECT_NAME", "tftf"), binary: configured("GHIDRA_BINARY", "extracted/lib/arm64-v8a/libil2cpp.so"), script_path: "tools/ghidra" }
   if step == "labels" then
-    let root: a mapping from text to text = json_parse(read_file("il2cpp_out/script.json"))
-    write_file("il2cpp_out/labels.tsv", apply_labels.build_labels_tsv(root))
-    let command: text = analyze ++ " " ++ project_dir ++ " " ++ project_name ++ " -import " ++ binary ++ " -preScript LightAnalyze.java -postScript ApplyLabels.java -scriptPath " ++ script_path
-    run_command(command)
+    run_labels(job)
   else if step == "xrefs" then
-    write_file("il2cpp_out/xref_targets.norm.tsv", find_xrefs.prepare_targets(read_file("il2cpp_out/xref_targets.txt")))
-    let command: text = analyze ++ " " ++ project_dir ++ " " ++ project_name ++ " -process " ++ basename(binary) ++ " -noanalysis -postScript FindXrefs.java -scriptPath " ++ script_path
-    run_command(command)
-    write_file("il2cpp_out/xrefs_out.txt", find_xrefs.format_xrefs(read_file("il2cpp_out/xrefs_raw.tsv")))
+    run_xrefs(job)
   else if step == "decompile" then
-    write_file("il2cpp_out/decompile_targets.norm.txt", decompile_targets.prepare_targets(read_file("il2cpp_out/decompile_targets.txt")))
-    let command: text = analyze ++ " " ++ project_dir ++ " " ++ project_name ++ " -process " ++ basename(binary) ++ " -noanalysis -postScript DecompileTargets.java -scriptPath " ++ script_path
-    run_command(command)
+    run_decompile(job)
   else
     print("ghidra_run: expected labels, xrefs, or decompile")
     exit_process(1)

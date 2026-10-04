@@ -1,0 +1,46 @@
+# Story dialogue catalog for en. UTF-8 KEY<TAB>text; blank values use English fallback.
+# Canonical English source text.
+ID_STORY_ARRIVAL_INTRO_001	Sensors read a cold beachhead ahead. Whatever landed here is already moving.
+ID_STORY_ARRIVAL_INTRO_002	The tide brought us in. The tide will bury you.
+ID_STORY_ARRIVAL_INTRO_003	Then we hold this line, and we hold it together.
+ID_STORY_MIDPOINT_RALLY_001	Halfway up the ridge and they still keep coming. This is a staging ground, not a patrol.
+ID_STORY_MIDPOINT_RALLY_002	Every step you take is recorded. Every step you take is counted.
+ID_STORY_MIDPOINT_RALLY_003	Then we walk it to the end. Steady spark, higher guard.
+ID_STORY_FINAL_STAND_001	You climbed all this way just to meet the shape of your own ending.
+ID_STORY_FINAL_STAND_002	We climbed a long way to end this. Stand down or fall down.
+ID_STORY_SHORE_SECURED_001	The shore is quiet. Log the coordinates and get the wounded home.
+ID_STORY_SHORE_SECURED_002	Quiet today. We will be back before it gets loud again.
+ID_STORY_CUSTOM_OPENING_INTRO_001	I am Optimus Prime... Leader of the Autobots. We have detected strange energy signals threatening the stability of this sector.
+ID_STORY_CUSTOM_OPENING_INTRO_002	Under the weight of growing threats, circumstances forced us into an emergency landing in this isolated zone.
+ID_STORY_CUSTOM_OPENING_INTRO_003	Warning: Unknown radar jamming detected... Navigation systems are being forcibly disrupted!
+ID_STORY_CUSTOM_OPENING_INTRO_004	There is no escape, Optimus... Your time is up, and the final reckoning has arrived!
+ID_STORY_CUSTOM_OPENING_INTRO_005	Bludgeon?! So you are the one behind this ambush... Let's see if your courage matches your arrogance!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	Bludgeon is down.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	Excellent. Let's move on.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	Starscream! I should have known Decepticon air command was behind this.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	Your victory over Bludgeon was... expected. Now face the true power of the Decepticon fleet!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	Then let's finish this. Autobots, take to the sky!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran scanned a Decepticon designated as Starscream, though his signature differed vastly from any foes we've faced previously. It feels as if he crossed over from an alternate dimension, and judging by the signs, additional threats are heading our way
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	Ironhide! You've turned against your own kind?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	This isn't about factions, Prime. It's about seeing who really has the grit to lead.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	Then we settle this the old way. No ranks, no badges -- just sparks.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	Ironhide is dead.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	Great, excellent progress. We will definitely find out what planet we are on--it's certainly an unknown world, but I sense it's packed with Energon energy. And we will surely figure out which dimension or world these guys came from
+ID_STORY_CUSTOM_ACT2_INTRO_001	Scanners found vital resources to repair our ship.
+ID_STORY_CUSTOM_ACT2_INTRO_002	Understood, lead the way and secure them.
+ID_STORY_CUSTOM_ACT2_INTRO_003	Absolutely, let's move out. We will surely face many battles, but we must be careful during these fights.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	Who are you? You will die!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	Show yourself.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	Commander, Prowl saw Starscream through a dust storm.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	Me no Decepticon. Me Starscream! King Seeker!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	Uh-oh, things just got worse.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	Worse? What you mean?! Me smash you when me ready!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	I have more intel on Starscream. He's up ahead, and from what I can gather, he is preparing some sort of device to strengthen his forces...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	AAAAAAHHH Prowl talks too much! But you're too late, Autobots! With this power, the skies will belong to me, and Megatron will finally bow to my superior leadership!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	Commander, you take care of the task at hand. I'll investigate his device and report back
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	I've got some bad news. Starscream has somehow rigged a device that modifies his powers.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	That's right! With this power, the skies will belong to me, and Megatron will finally bow to my leadership! You are finished, Optimus!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	Commander, you distract him in battle. I'll see what I can do about getting this tech back to the base for analysis
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats
+ID_STORY_UI_TAP_CONTINUE	Tap to Continue
+ID_STORY_UI_SKIP	Skip

@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>TFTF 基地布局可视化编辑器 (Base Layout Editor)</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    body {
+      background-color: #080c16;
+      color: #e2e8f0;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    .grid-cell {
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+    .grid-cell:hover {
+      background-color: rgba(56, 189, 248, 0.25);
+      border-color: rgba(56, 189, 248, 0.8);
+      z-index: 30;
+    }
+    .drag-item {
+      cursor: grab;
+    }
+    .drag-item:active {
+      cursor: grabbing;
+    }
+    .glow-cyan {
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.6), inset 0 0 8px rgba(6, 182, 212, 0.3);
+    }
+    .glow-purple {
+      box-shadow: 0 0 12px rgba(168, 85, 247, 0.6), inset 0 0 8px rgba(168, 85, 247, 0.3);
+    }
+    .glow-amber {
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.6), inset 0 0 8px rgba(245, 158, 11, 0.3);
+    }
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col overflow-hidden bg-[#080c16] text-slate-100">
+
+  <!-- Header -->
+  <header class="h-14 border-b border-slate-800 bg-[#0c1324] px-6 flex items-center justify-between shadow-md flex-shrink-0 z-20">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-900/50">
+        ⚡
+      </div>
+      <div>
+        <h1 class="text-sm font-bold tracking-wide text-cyan-300 flex items-center gap-2">
+          <span>TFTF 基地布局可视化配置器</span>
+          <span class="text-[10px] px-1.5 py-0.2 rounded bg-cyan-900/60 text-cyan-300 border border-cyan-700/60">实景地图对齐版</span>
+        </h1>
+        <p class="text-xs text-slate-400">支持地图实景叠层对齐 · 守将与防御模块同节点驻守 · 4大遗迹底座 · 5大后排功能建筑</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="loadPreset()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium border border-slate-700 transition">
+        重置为推荐布局
+      </button>
+      <button onclick="clearAll()" class="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800 text-xs font-medium transition">
+        清空全部
+      </button>
+      <button onclick="exportPythonCode()" class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-xs shadow-lg shadow-cyan-950 transition flex items-center gap-1.5">
+        <span>📋 复制 Python 代码</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Body -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- Left Sidebar: Palette -->
+    <aside class="w-80 border-r border-slate-800 bg-[#0a0f1d] flex flex-col flex-shrink-0 z-10">
+      <div class="p-3 border-b border-slate-800 bg-slate-900/40">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">组件库 (拖拽至网格中)</h2>
+        <p class="text-[11px] text-amber-400/90 mt-0.5 font-medium">💡 守将和 MODULE 在同一个节点上，可直接拖入同格！</p>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-3 space-y-4">
+
+        <!-- 1. 守将 (Defenders) -->
+        <div>
+          <div class="text-xs font-bold text-purple-400 mb-2 flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-500 inline-block"></span>防守将领 (Defenders)</span>
+            <span class="text-[10px] text-slate-500 font-normal">7名主阵</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2" id="defender-palette"></div>
+        </div>
+
+        <!-- 2. 防御模块 (Defense Modules) -->
+        <div>
+          <div class="text-xs font-bold text-amber-400 mb-2 flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>防御模块 / 炮塔 (Modules)</span>
+            <span class="text-[10px] text-slate-500 font-normal">附属于守将节点</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2" id="module-palette"></div>
+        </div>
+
+        <!-- 3. 遗迹 (Relics) -->
+        <div>
+          <div class="text-xs font-bold text-cyan-400 mb-2 flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-500 inline-block"></span>古代遗迹 (Relics)</span>
+            <span class="text-[10px] text-cyan-500 font-normal">对应 4 个大圆圈</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2" id="relic-palette"></div>
+        </div>
+
+        <!-- 4. 基础建筑 (Functional Buildings) -->
+        <div>
+          <div class="text-xs font-bold text-emerald-400 mb-2 flex items-center justify-between">
+            <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>后排功能建筑 (Buildings)</span>
+            <span class="text-[10px] text-emerald-500 font-normal">后排高台平原</span>
+          </div>
+          <div class="grid grid-cols-1 gap-2" id="building-palette"></div>
+        </div>
+
+        <!-- 5. 路径连接点 (Waypoints) -->
+        <div>
+          <div class="text-xs font-bold text-blue-400 mb-2 flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
+            电路回路连接点 (Waypoints)
+          </div>
+          <div class="grid grid-cols-1 gap-2" id="waypoint-palette"></div>
+        </div>
+
+      </div>
+
+      <!-- Info Footer -->
+      <div class="p-3 border-t border-slate-800 bg-[#080d1a] text-[11px] text-slate-400">
+        <div class="flex justify-between items-center mb-1">
+          <span>当前鼠标指向:</span>
+          <span id="hover-tile" class="font-mono text-cyan-300 font-semibold">-</span>
+        </div>
+        <div class="text-slate-500 leading-tight">
+          • 单击节点：查看/移除内容<br>
+          • 拖拽元素：放置或在格子间移动<br>
+          • 节点连线自动依据拓扑绘制
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Canvas / Board Area -->
+    <main class="flex-1 flex flex-col relative overflow-hidden bg-[#060912]">
+      
+      <!-- Toolbar & Map Controls -->
+      <div class="h-11 border-b border-slate-800 bg-[#0c1222] px-4 flex items-center justify-between text-xs text-slate-400 z-20">
+        <div class="flex items-center gap-4">
+          <!-- Background Map Switcher -->
+          <div class="flex items-center gap-1.5">
+            <span class="font-semibold text-slate-300">🗺️ 地图底图:</span>
+            <select id="map-select" onchange="changeMapUnderlay()" class="bg-slate-900 border border-slate-700 text-cyan-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-cyan-500">
+              <option value="user">当前实机标注图 (真实模块对位实机照)</option>
+              <option value="day">白天地形回路底图 (图1 几何精准)</option>
+              <option value="night">原版夜景守将实机图 (图2 真实对齐)</option>
+              <option value="none">关闭底图 (纯网格模式)</option>
+            </select>
+          </div>
+
+          <!-- Opacity Slider -->
+          <div class="flex items-center gap-2" id="opacity-control">
+            <span>底图透明度:</span>
+            <input type="range" id="map-opacity" min="0" max="100" value="50" oninput="updateOpacity()" class="w-24 accent-cyan-500 cursor-pointer">
+            <span id="opacity-val" class="font-mono text-cyan-300 w-8">50%</span>
+          </div>
+
+          <!-- Alignment Fine-Tuning -->
+          <div class="flex items-center gap-1.5 text-slate-400">
+            <span>底图缩放:</span>
+            <button onclick="adjustScale(-0.02)" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 font-bold">-</button>
+            <span id="scale-val" class="font-mono text-cyan-300">100%</span>
+            <button onclick="adjustScale(0.02)" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 font-bold">+</button>
+            <button onclick="adjustOffsetY(-5)" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 ml-1">▲</button>
+            <button onclick="adjustOffsetY(5)" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700">▼</button>
+            <button onclick="resetAlignment()" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-400 ml-1">重置对齐</button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="toggle-grid-coords" checked onchange="renderGrid()" class="rounded bg-slate-800 border-slate-700 text-cyan-500 focus:ring-0">
+            <span>坐标标签</span>
+          </label>
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="toggle-connections" checked onchange="renderGrid()" class="rounded bg-slate-800 border-slate-700 text-cyan-500 focus:ring-0">
+            <span>回路连线</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Scrollable Grid Container -->
+      <div class="flex-1 overflow-auto p-6 flex items-center justify-center relative" id="grid-scroll-container">
+        
+        <!-- Board Background Wrapper -->
+        <div id="board-wrapper" class="relative bg-[#0b101d] border-2 border-slate-800 rounded-2xl shadow-2xl p-6" style="width: 1040px; min-width: 1040px;">
+
+          <!-- Map Image Underlay Layer -->
+          <div id="map-underlay-wrapper" class="absolute inset-0 overflow-hidden pointer-events-none rounded-2xl z-0 flex items-center justify-center">
+            <img id="map-underlay-img" src="base_map_day.png" alt="Base Map Underlay" class="transition-opacity object-cover w-full h-full" style="opacity: 0.5; transform: scale(1.0) translateY(0px);" />
+          </div>
+
+          <!-- Top Background Graphic: The Ark Spaceship Engines -->
+          <div class="w-full h-14 mb-3 rounded-xl border border-dashed border-slate-700/60 bg-slate-900/60 backdrop-blur-sm relative z-10 flex items-center justify-center text-slate-400 text-xs font-mono tracking-widest uppercase">
+            🚀 悬崖背景 · 方舟号飞船推进器残骸 (The Ark Thrusters)
+          </div>
+
+          <!-- SVG Layer for Circuit Lines -->
+          <svg id="circuit-svg" class="absolute inset-0 w-full h-full pointer-events-none z-10"></svg>
+
+          <!-- Interactive Grid Table -->
+          <div id="grid-container" class="relative z-20 grid gap-1.5">
+            <!-- Grid cells rendered here via JS -->
+          </div>
+
+          <!-- Bottom Entrance Gateway -->
+          <div class="w-full mt-3 py-2 border border-dashed border-slate-700/60 rounded-xl bg-slate-900/60 backdrop-blur-sm relative z-10 text-center text-slate-400 text-xs font-mono tracking-widest uppercase">
+            🛡️ 南端主入口 · 方尖碑激光防线 (South Gate & Laser Guidance Turret)
+          </div>
+
+        </div>
+
+      </div>
+    </main>
+
+    <!-- Right Side: Export Code & Inspector Drawer -->
+    <div id="inspector-panel" class="w-96 border-l border-slate-800 bg-[#0a0f1d] flex flex-col flex-shrink-0 z-10">
+      <div class="p-3 border-b border-slate-800 bg-slate-900/40 flex items-center justify-between">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Python 代码生成预览</h2>
+        <span class="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">直接同步</span>
+      </div>
+
+      <!-- Code Output Area -->
+      <div class="flex-1 flex flex-col p-3 overflow-hidden">
+        <textarea id="code-output" readonly class="flex-1 w-full p-3 font-mono text-[11px] leading-relaxed bg-[#060912] border border-slate-800 rounded-xl text-cyan-200 resize-none focus:outline-none focus:border-cyan-600 select-all"></textarea>
+      </div>
+
+      <!-- Node Inspector Card (shows selected tile info) -->
+      <div class="p-4 border-t border-slate-800 bg-[#080d1a]" id="selected-node-inspector">
+        <div class="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
+          <span>节点详情 (Node Inspector)</span>
+          <span id="inspect-coords" class="font-mono text-cyan-400 text-xs">未选中节点</span>
+        </div>
+        <div id="inspect-content" class="text-xs text-slate-400 space-y-2">
+          点击网格中任意节点可在此查看、调整或清空该格子的守将与防御模块。
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-6 right-6 px-4 py-2 rounded-xl bg-cyan-600 text-white font-semibold text-xs shadow-2xl transition-all duration-300 transform translate-y-16 opacity-0 pointer-events-none z-50 flex items-center gap-2">
+    <span>✅ Python 代码已成功复制到剪贴板！</span>
+  </div>
+
+  <script>
+    // ---------------------------------------------------------------------------
+    // Palette Items Definition
+    // ---------------------------------------------------------------------------
+    const DEFENDERS_LIST = [
+      { bid: "shockwave_gs", name: "震荡波 (Shockwave)", icon: "👁️", role: "中军司令" },
+      { bid: "megatron_gs_leader2015", name: "威震天 G1 (Megatron)", icon: "⚔️", role: "北侧主将" },
+      { bid: "galvatron_gs_voyager2016", name: "惊破天 (Galvatron)", icon: "⚡", role: "南侧先锋" },
+      { bid: "megatron_cin_rotf", name: "变5威 (Megatron ROTF)", icon: "🛡️", role: "西北守将" },
+      { bid: "soundwave_gs", name: "声波 (Soundwave)", icon: "📡", role: "东北守将" },
+      { bid: "arcee_gs_deluxe2014", name: "阿尔茜 (Arcee)", icon: "🏹", role: "左翼守将" },
+      { bid: "optimusprime_cin_tf", name: "擎天柱 (Optimus Prime)", icon: "🚛", role: "右翼守将" },
+      { bid: "ironhide_gs", name: "铁皮 (Ironhide)", icon: "💥", role: "备选守将" },
+      { bid: "bumblebee_cin_dotm", name: "变3大黄蜂 (Bumblebee)", icon: "🐝", role: "备选守将" },
+      { bid: "blaster_gs_leader2016", name: "录音机 (Blaster)", icon: "📻", role: "备选守将" },
+    ];
+
+    const MODULES_LIST = [
+      { id: "mods_laserguidance_01", name: "激光制导炮 (Laser)", icon: "🎯" },
+      { id: "mods_tacticianstrick_02", name: "战术诡计 (Tactician)", icon: "🧠" },
+      { id: "mods_harmaccelerator_01", name: "伤害加速器 (Harm Accel)", icon: "⚡" },
+      { id: "mods_strangerefractor_01", name: "奇异折射镜 (Refractor)", icon: "🔮" },
+      { id: "mods_primemodule_01", name: "至尊防御核心 (Prime Mod)", icon: "👑" },
+      { id: "mods_superconductor_2000", name: "超导体 2000 (Superconductor)", icon: "🔋" },
+      { id: "mods_paralyzer_01", name: "瘫痪电磁塔 (Paralyzer)", icon: "⚡" },
+      { id: "mods_brawlersfury_01", name: "斗士之怒 (Brawler's Fury)", icon: "🔥" },
+    ];
+
+    const RELICS_LIST = [
+      { id: "relic_dark_energon_crystal", model: "rlc6", name: "暗黑能量水晶 (Dark Energon)", icon: "🟣" },
+      { id: "relic_allspark", model: "rlc2", name: "火种源神石 (The AllSpark)", icon: "🟩" },
+      { id: "relic_unstable_energon_crystal", model: "rlc11", name: "至尊丰碑雕像 (Prime Statue)", icon: "🗿" },
+      { id: "relic_matrix_of_leadership", model: "rlc14", name: "领导模块圣坛 (Matrix Shrine)", icon: "💎" },
+      { id: "relic_solus_forge", model: "rlc5", name: "索鲁斯之锤 (Solus Forge)", icon: "🔨" },
+      { id: "relic_covenant_primus", model: "rlc7", name: "普神之契 (Covenant)", icon: "📜" },
+    ];
+
+    const BUILDINGS_LIST = [
+      { id: "bldg_away_team", renderId: "z_bldg_away_team", name: "远征队机库 (Away Team + 飞船)", icon: "🚀" },
+      { id: "bldg_battle_centre", renderId: "z_bldg_battle_centre", name: "作战中心 (Battle Centre 主塔)", icon: "🏢" },
+      { id: "bldg_alliance_help", renderId: "z_bldg_alliance_help", name: "联盟雷达站 (Alliance Relay)", icon: "📡" },
+      { id: "bldg_crystal_free", renderId: "z_bldg_gacha_free", name: "免费水晶库 (Free Crystal Vault)", icon: "💠" },
+      { id: "bldg_crystal_premium", renderId: "z_bldg_gacha_other", name: "高级水晶库 (Premium Vault)", icon: "💎" },
+    ];
+
+    const WAYPOINTS_LIST = [
+      { name: "Core Conduit", icon: "🟡" },
+      { name: "Gate Conduit", icon: "🟡" },
+      { name: "Apex Bridge", icon: "🟡" },
+      { name: "West Relay", icon: "🟡" },
+      { name: "East Relay", icon: "🟡" },
+    ];
+
+    // Focus Grid Definition (50x50 map, focused view range)
+    const MIN_X = 18;
+    const MAX_X = 32;
+    const MIN_Y = 25;
+    const MAX_Y = 46;
+
+    // 4 Key Relic Circle locations on the 3D ground mesh
+    const RELIC_CIRCLES = [
+      { x: 20, y: 33, label: "左上遗迹大圆圈" },
+      { x: 30, y: 33, label: "右上遗迹大圆圈" },
+      { x: 19, y: 40, label: "左下遗迹大圆圈" },
+      { x: 31, y: 40, label: "右下遗迹大圆圈" },
+    ];
+
+    // Current State Store
+    let state = {
+      defenders: {},      // key: "x_y" -> { bid, rank: 5, level: 50, sig: 60, name }
+      modules: {},        // key: "x_y" -> moduleId
+      relics: {},         // key: "x_y" -> { id, model, name }
+      buildings: {},      // key: "x_y" -> { id, renderId, rot: 0, name }
+      waypoints: {},      // key: "x_y" -> name
+      edges: [],          // array of [ [x1, y1], [x2, y2] ]
+      selectedTile: null,
+      mapScale: 1.0,
+      mapOffsetY: 0,
+    };
+
+    // ---------------------------------------------------------------------------
+    // Map Underlay Controls
+    // ---------------------------------------------------------------------------
+    function changeMapUnderlay() {
+      const mode = document.getElementById("map-select").value;
+      const img = document.getElementById("map-underlay-img");
+      const opacityControl = document.getElementById("opacity-control");
+
+      if (mode === "none") {
+        img.style.display = "none";
+        opacityControl.style.opacity = "0.4";
+      } else {
+        img.style.display = "block";
+        opacityControl.style.opacity = "1.0";
+        if (mode === "user") {
+          img.src = "base_map_user_annotated.png";
+        } else if (mode === "day") {
+          img.src = "base_map_day.png";
+        } else {
+          img.src = "base_map_night.png";
+        }
+      }
+    }
+
+    function updateOpacity() {
+      const val = document.getElementById("map-opacity").value;
+      document.getElementById("opacity-val").textContent = `${val}%`;
+      document.getElementById("map-underlay-img").style.opacity = val / 100;
+    }
+
+    function adjustScale(delta) {
+      state.mapScale = Math.max(0.7, Math.min(1.5, state.mapScale + delta));
+      document.getElementById("scale-val").textContent = `${Math.round(state.mapScale * 100)}%`;
+      applyMapTransform();
+    }
+
+    function adjustOffsetY(delta) {
+      state.mapOffsetY += delta;
+      applyMapTransform();
+    }
+
+    function resetAlignment() {
+      state.mapScale = 1.0;
+      state.mapOffsetY = 0;
+      document.getElementById("scale-val").textContent = "100%";
+      applyMapTransform();
+    }
+
+    function applyMapTransform() {
+      const img = document.getElementById("map-underlay-img");
+      img.style.transform = `scale(${state.mapScale}) translateY(${state.mapOffsetY}px)`;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Initial Recommendation Preset
+    // ---------------------------------------------------------------------------
+    function loadPreset() {
+      state.defenders = {
+        "25_30": { bid: "megatron_gs_leader2015", rank: 5, level: 50, sig: 60, name: "Apex Bastion" },
+        "22_33": { bid: "megatron_cin_rotf", rank: 5, level: 50, sig: 30, name: "West Bastion" },
+        "28_33": { bid: "soundwave_gs", rank: 5, level: 50, sig: 30, name: "East Bastion" },
+        "22_39": { bid: "galvatron_gs_voyager2016", rank: 5, level: 50, sig: 40, name: "Courtyard Vanguard" },
+        "25_35": { bid: "megatron_cin_rotf", rank: 5, level: 50, sig: 60, name: "变5威 (Megatron ROTF)" },
+        "25_42": { bid: "arcee_gs_deluxe2014", rank: 5, level: 50, sig: 40, name: "West Flank Guard" },
+        "28_39": { bid: "shockwave_gs", rank: 5, level: 50, sig: 60, name: "Commander's Stronghold" },
+      };
+
+      state.modules = {
+        "25_30": "mods_primemodule_01",
+        "22_33": "mods_paralyzer_01",
+        "28_33": "mods_brawlersfury_01",
+        "25_35": "mods_tacticianstrick_02",
+        "22_39": "mods_harmaccelerator_01",
+        "28_39": "mods_strangerefractor_01",
+        "25_42": "mods_laserguidance_01",
+      };
+
+      state.relics = {
+        "19_40": { id: "relic_unstable_energon_crystal", model: "rlc11", name: "Monument of Prime" },
+        "20_33": { id: "relic_dark_energon_crystal", model: "rlc6", name: "Dark Energon Shrine" },
+        "30_33": { id: "relic_allspark", model: "rlc2", name: "AllSpark Pedestal" },
+        "31_40": { id: "relic_matrix_of_leadership", model: "rlc14", name: "Matrix Shrine" },
+      };
+
+      state.buildings = {
+        "21_25": { id: "bldg_away_team", renderId: "z_bldg_away_team", rot: 0, name: "Away Team Station" },
+        "23_24": { id: "bldg_crystal_premium", renderId: "z_bldg_gacha_other", rot: 0, name: "Premium Crystal Vault" },
+        "25_23": { id: "bldg_battle_centre", renderId: "z_bldg_battle_centre", rot: 0, name: "Battle Centre" },
+        "27_24": { id: "bldg_crystal_free", renderId: "z_bldg_gacha_free", rot: 0, name: "Free Crystal Vault" },
+        "29_25": { id: "bldg_alliance_help", renderId: "z_bldg_alliance_help", rot: 0, name: "Alliance Relay" },
+      };
+
+      state.waypoints = {
+        "25_38": "Core Conduit",
+        "25_44": "Gate Conduit",
+        "25_31": "Apex Conduit",
+        "22_35": "West Relay",
+        "28_35": "East Relay",
+      };
+
+      state.edges = [
+        [[25, 44], [25, 42]],
+        [[25, 42], [25, 38]],
+        [[25, 38], [25, 35]],
+        [[25, 35], [25, 31]],
+        [[25, 31], [25, 30]],
+        [[25, 42], [22, 39]],
+        [[25, 42], [28, 39]],
+        [[25, 38], [22, 39]],
+        [[25, 38], [28, 39]],
+        [[22, 39], [22, 35]],
+        [[28, 39], [28, 35]],
+        [[22, 35], [25, 35]],
+        [[28, 35], [25, 35]],
+        [[22, 35], [22, 33]],
+        [[28, 35], [28, 33]],
+        [[22, 33], [25, 30]],
+        [[28, 33], [25, 30]],
+        [[22, 33], [25, 35]],
+        [[28, 33], [25, 35]],
+        [[22, 39], [19, 40]],
+        [[28, 39], [31, 40]],
+        [[22, 33], [20, 33]],
+        [[28, 33], [30, 33]],
+      ];
+
+      renderGrid();
+      updateCodeOutput();
+    }
+
+    function clearAll() {
+      if (confirm("确定要清空所有当前摆放吗？")) {
+        state.defenders = {};
+        state.modules = {};
+        state.relics = {};
+        state.buildings = {};
+        state.waypoints = {};
+        state.edges = [];
+        renderGrid();
+        updateCodeOutput();
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Render Grid & Elements
+    // ---------------------------------------------------------------------------
+    function renderGrid() {
+      const container = document.getElementById("grid-container");
+      const showCoords = document.getElementById("toggle-grid-coords").checked;
+      
+      const cols = MAX_X - MIN_X + 1;
+      container.style.gridTemplateColumns = `repeat(${cols}, minmax(52px, 1fr))`;
+      container.innerHTML = "";
+
+      for (let y = MIN_Y; y <= MAX_Y; y++) {
+        for (let x = MIN_X; x <= MAX_X; x++) {
+          const key = `${x}_${y}`;
+          const def = state.defenders[key];
+          const mod = state.modules[key];
+          const rel = state.relics[key];
+          const bld = state.buildings[key];
+          const wpt = state.waypoints[key];
+          const hasContent = !!(def || mod || rel || bld || wpt);
+
+          const cell = document.createElement("div");
+          cell.id = `cell-${key}`;
+          cell.dataset.x = x;
+          cell.dataset.y = y;
+
+          // Check special zones
+          const isRelicCircle = RELIC_CIRCLES.some(rc => rc.x === x && rc.y === y);
+          const isCenterLine = x === 25;
+          const isBuildingRow = y <= 29;
+
+          let bgClasses = "bg-slate-900/60 border-slate-700/60";
+          if (isRelicCircle) {
+            bgClasses = "bg-cyan-950/70 border-cyan-400 glow-cyan ring-1 ring-cyan-400";
+          } else if (isBuildingRow) {
+            bgClasses = "bg-emerald-950/40 border-emerald-700/50";
+          } else if (isCenterLine) {
+            bgClasses = "bg-slate-900/80 border-slate-600/70";
+          }
+
+          cell.className = `grid-cell relative w-full h-15 rounded-lg border flex flex-col items-center justify-between p-1 transition select-none backdrop-blur-[2px] ${bgClasses} ${hasContent ? 'cursor-grab active:cursor-grabbing hover:border-cyan-400' : 'cursor-pointer hover:border-slate-500'}`;
+
+          // If cell has content, allow dragging the entire node
+          if (hasContent) {
+            cell.draggable = true;
+            cell.ondragstart = (e) => handleCellDragStart(e, x, y);
+          }
+
+          // Dragover events
+          cell.ondragover = (e) => { e.preventDefault(); cell.classList.add("ring-2", "ring-cyan-400", "scale-105"); };
+          cell.ondragleave = () => { cell.classList.remove("ring-2", "ring-cyan-400", "scale-105"); };
+          cell.ondrop = (e) => handleDrop(e, x, y);
+          cell.onmouseenter = () => updateHover(x, y);
+          cell.onclick = () => selectTile(x, y);
+
+          // Top Header in Cell: Coords / Badges / Drag Handle
+          let coordHtml = showCoords ? `<span class="text-[8px] font-mono text-slate-400 leading-none">${x},${y}</span>` : "";
+          if (isRelicCircle) {
+            coordHtml = `<span class="text-[8px] font-mono font-bold text-cyan-300 leading-none">⭕遗迹</span>`;
+          }
+
+          // Content in Cell (Each sub-badge is also independently draggable!)
+          let bodyHtml = `<div class="flex-1 w-full flex flex-col items-center justify-center gap-0.5 overflow-hidden pointer-events-auto">`;
+
+          if (bld) {
+            bodyHtml += `
+              <div draggable="true" ondragstart="handleBadgeDrag(event, 'building', ${x}, ${y})" class="px-1 py-0.5 rounded bg-emerald-600/70 border border-emerald-300 text-emerald-100 text-[9px] font-bold truncate max-w-full shadow cursor-grab active:cursor-grabbing hover:scale-105 transition" title="${bld.name} (可拖拽移动)">
+                🏛️ ${bld.id.replace("bldg_", "")}
+              </div>`;
+          } else if (rel) {
+            bodyHtml += `
+              <div draggable="true" ondragstart="handleBadgeDrag(event, 'relic', ${x}, ${y})" class="px-1 py-0.5 rounded bg-cyan-600/70 border border-cyan-300 text-cyan-100 text-[9px] font-bold truncate max-w-full shadow glow-cyan cursor-grab active:cursor-grabbing hover:scale-105 transition" title="${rel.name} (可拖拽移动)">
+                💎 ${rel.name.split(" ")[0]}
+              </div>`;
+          } else {
+            // Joint Defender + Module slot!
+            if (def) {
+              bodyHtml += `
+                <div draggable="true" ondragstart="handleBadgeDrag(event, 'defender', ${x}, ${y})" class="w-full px-1 py-0.2 rounded bg-purple-600/80 border border-purple-300 text-purple-100 text-[8px] font-bold truncate text-center shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition" title="守将: ${def.name} (可单独拖拽移动)">
+                  🤖 ${def.bid.split("_")[0]}
+                </div>`;
+            }
+            if (mod) {
+              bodyHtml += `
+                <div draggable="true" ondragstart="handleBadgeDrag(event, 'module', ${x}, ${y})" class="w-full px-1 py-0.2 rounded bg-amber-600/80 border border-amber-300 text-amber-100 text-[8px] font-bold truncate text-center shadow-md cursor-grab active:cursor-grabbing hover:scale-105 transition" title="防御模块: ${mod} (可单独拖拽移动)">
+                  ⚡ ${mod.replace("mods_", "").split("_")[0]}
+                </div>`;
+            }
+            if (wpt && !def && !mod) {
+              bodyHtml += `
+                <div draggable="true" ondragstart="handleBadgeDrag(event, 'waypoint', ${x}, ${y})" class="w-3.5 h-3.5 rounded-full bg-amber-400 shadow-md shadow-amber-400/80 flex items-center justify-center text-[8px] text-slate-950 font-bold cursor-grab active:cursor-grabbing hover:scale-110 transition" title="${wpt} (可拖拽移动)">
+                  ●
+                </div>`;
+            }
+          }
+
+          bodyHtml += `</div>`;
+
+          const dragHandle = hasContent ? `<span class="text-[9px] text-cyan-400/80 hover:text-cyan-300 font-bold cursor-grab" title="拖拽可移动整个节点与连线">✥</span>` : "";
+
+          cell.innerHTML = `
+            <div class="w-full flex justify-between items-center px-0.5">
+              ${coordHtml}
+              ${dragHandle}
+              ${isCenterLine ? '<span class="text-[7px] text-slate-500 font-bold">┃</span>' : ''}
+            </div>
+            ${bodyHtml}
+          `;
+
+          container.appendChild(cell);
+        }
+      }
+
+      drawCircuits();
+    }
+
+    // ---------------------------------------------------------------------------
+    // SVG Circuit Links
+    // ---------------------------------------------------------------------------
+    function drawCircuits() {
+      const svg = document.getElementById("circuit-svg");
+      const showLinks = document.getElementById("toggle-connections").checked;
+      svg.innerHTML = "";
+      if (!showLinks) return;
+
+      const boardWrapper = document.getElementById("board-wrapper");
+      const wrapperRect = boardWrapper.getBoundingClientRect();
+
+      state.edges.forEach(([p1, p2]) => {
+        const cell1 = document.getElementById(`cell-${p1[0]}_${p1[1]}`);
+        const cell2 = document.getElementById(`cell-${p2[0]}_${p2[1]}`);
+        if (!cell1 || !cell2) return;
+
+        const r1 = cell1.getBoundingClientRect();
+        const r2 = cell2.getBoundingClientRect();
+
+        const x1 = r1.left + r1.width / 2 - wrapperRect.left;
+        const y1 = r1.top + r1.height / 2 - wrapperRect.top;
+        const x2 = r2.left + r2.width / 2 - wrapperRect.left;
+        const y2 = r2.top + r2.height / 2 - wrapperRect.top;
+
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        line.setAttribute("stroke", "#06b6d4");
+        line.setAttribute("stroke-width", "2.5");
+        line.setAttribute("stroke-opacity", "0.6");
+        line.setAttribute("stroke-dasharray", "4,3");
+        svg.appendChild(line);
+      });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Drag & Drop Operations
+    // ---------------------------------------------------------------------------
+    function handleDragStart(e, type, item) {
+      e.dataTransfer.setData("application/json", JSON.stringify({ mode: "palette", type, item }));
+      e.dataTransfer.effectAllowed = "copy";
+    }
+
+    function handleBadgeDrag(e, type, x, y) {
+      e.stopPropagation();
+      e.dataTransfer.setData("application/json", JSON.stringify({ mode: "badge", type, from: { x, y } }));
+      e.dataTransfer.effectAllowed = "move";
+      const el = e.currentTarget;
+      el.classList.add("opacity-40");
+      el.addEventListener("dragend", () => el.classList.remove("opacity-40"), { once: true });
+    }
+
+    function handleCellDragStart(e, x, y) {
+      // If triggered by child element that already set data, ignore
+      if (e.dataTransfer.types.includes("application/json") && e.dataTransfer.getData("application/json")) return;
+      e.dataTransfer.setData("application/json", JSON.stringify({ mode: "node", from: { x, y } }));
+      e.dataTransfer.effectAllowed = "move";
+      const cell = document.getElementById(`cell-${x}_${y}`);
+      if (cell) {
+        cell.classList.add("opacity-40", "scale-95");
+        cell.addEventListener("dragend", () => cell.classList.remove("opacity-40", "scale-95"), { once: true });
+      }
+    }
+
+    function handleDrop(e, toX, toY) {
+      e.preventDefault();
+      const cell = document.getElementById(`cell-${toX}_${toY}`);
+      if (cell) cell.classList.remove("ring-2", "ring-cyan-400", "scale-105");
+
+      try {
+        const raw = e.dataTransfer.getData("application/json");
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        const toKey = `${toX}_${toY}`;
+
+        // 1. From Left Sidebar Palette
+        if (!data.mode || data.mode === "palette") {
+          const { type, item } = data;
+          if (type === "defender") {
+            state.defenders[toKey] = {
+              bid: item.bid,
+              rank: 5,
+              level: 50,
+              sig: 60,
+              name: item.name
+            };
+          } else if (type === "module") {
+            state.modules[toKey] = item.id;
+          } else if (type === "relic") {
+            state.relics[toKey] = {
+              id: item.id,
+              model: item.model,
+              name: item.name
+            };
+          } else if (type === "building") {
+            state.buildings[toKey] = {
+              id: item.id,
+              renderId: item.renderId,
+              rot: 0,
+              name: item.name
+            };
+          } else if (type === "waypoint") {
+            state.waypoints[toKey] = item.name;
+          }
+        }
+        // 2. Dragging Entire Placed Node (Moves all items & shifts connected circuits)
+        else if (data.mode === "node") {
+          const fromX = data.from.x;
+          const fromY = data.from.y;
+          if (fromX === toX && fromY === toY) return;
+          const fromKey = `${fromX}_${fromY}`;
+
+          if (state.defenders[fromKey]) {
+            state.defenders[toKey] = state.defenders[fromKey];
+            delete state.defenders[fromKey];
+          }
+          if (state.modules[fromKey]) {
+            state.modules[toKey] = state.modules[fromKey];
+            delete state.modules[fromKey];
+          }
+          if (state.relics[fromKey]) {
+            state.relics[toKey] = state.relics[fromKey];
+            delete state.relics[fromKey];
+          }
+          if (state.buildings[fromKey]) {
+            state.buildings[toKey] = state.buildings[fromKey];
+            delete state.buildings[fromKey];
+          }
+          if (state.waypoints[fromKey]) {
+            state.waypoints[toKey] = state.waypoints[fromKey];
+            delete state.waypoints[fromKey];
+          }
+
+          // Auto update circuits
+          state.edges = state.edges.map(([p1, p2]) => {
+            let np1 = (p1[0] === fromX && p1[1] === fromY) ? [toX, toY] : p1;
+            let np2 = (p2[0] === fromX && p2[1] === fromY) ? [toX, toY] : p2;
+            return [np1, np2];
+          });
+        }
+        // 3. Dragging a Single Badge (Defender / Module / Relic / Building)
+        else if (data.mode === "badge") {
+          const fromX = data.from.x;
+          const fromY = data.from.y;
+          if (fromX === toX && fromY === toY) return;
+          const fromKey = `${fromX}_${fromY}`;
+          const type = data.type;
+
+          if (type === "defender" && state.defenders[fromKey]) {
+            state.defenders[toKey] = state.defenders[fromKey];
+            delete state.defenders[fromKey];
+          } else if (type === "module" && state.modules[fromKey]) {
+            state.modules[toKey] = state.modules[fromKey];
+            delete state.modules[fromKey];
+          } else if (type === "relic" && state.relics[fromKey]) {
+            state.relics[toKey] = state.relics[fromKey];
+            delete state.relics[fromKey];
+          } else if (type === "building" && state.buildings[fromKey]) {
+            state.buildings[toKey] = state.buildings[fromKey];
+            delete state.buildings[fromKey];
+          } else if (type === "waypoint" && state.waypoints[fromKey]) {
+            state.waypoints[toKey] = state.waypoints[fromKey];
+            delete state.waypoints[fromKey];
+          }
+        }
+
+        renderGrid();
+        updateCodeOutput();
+        selectTile(toX, toY);
+      } catch (err) {
+        console.error("Drop error", err);
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Palette Setup
+    // ---------------------------------------------------------------------------
+    function setupPalettes() {
+      // Defenders
+      const defContainer = document.getElementById("defender-palette");
+      DEFENDERS_LIST.forEach(d => {
+        const el = document.createElement("div");
+        el.className = "drag-item p-2 rounded-lg bg-slate-900 border border-purple-800/60 hover:border-purple-400 hover:bg-purple-950/40 text-xs flex items-center gap-1.5 transition shadow";
+        el.draggable = true;
+        el.ondragstart = (e) => handleDragStart(e, "defender", d);
+        el.innerHTML = `<span>${d.icon}</span><span class="truncate font-medium">${d.name.split(" ")[0]}</span>`;
+        defContainer.appendChild(el);
+      });
+
+      // Modules
+      const modContainer = document.getElementById("module-palette");
+      MODULES_LIST.forEach(m => {
+        const el = document.createElement("div");
+        el.className = "drag-item p-2 rounded-lg bg-slate-900 border border-amber-800/60 hover:border-amber-400 hover:bg-amber-950/40 text-xs flex items-center gap-1.5 transition shadow";
+        el.draggable = true;
+        el.ondragstart = (e) => handleDragStart(e, "module", m);
+        el.innerHTML = `<span>${m.icon}</span><span class="truncate font-medium">${m.name.split(" ")[0]}</span>`;
+        modContainer.appendChild(el);
+      });
+
+      // Relics
+      const relContainer = document.getElementById("relic-palette");
+      RELICS_LIST.forEach(r => {
+        const el = document.createElement("div");
+        el.className = "drag-item p-2 rounded-lg bg-slate-900 border border-cyan-800/60 hover:border-cyan-400 hover:bg-cyan-950/40 text-xs flex items-center gap-1.5 transition shadow";
+        el.draggable = true;
+        el.ondragstart = (e) => handleDragStart(e, "relic", r);
+        el.innerHTML = `<span>${r.icon}</span><span class="truncate font-medium">${r.name.split(" ")[0]}</span>`;
+        relContainer.appendChild(el);
+      });
+
+      // Buildings
+      const bldContainer = document.getElementById("building-palette");
+      BUILDINGS_LIST.forEach(b => {
+        const el = document.createElement("div");
+        el.className = "drag-item p-2 rounded-lg bg-slate-900 border border-emerald-800/60 hover:border-emerald-400 hover:bg-emerald-950/40 text-xs flex items-center gap-1.5 transition shadow";
+        el.draggable = true;
+        el.ondragstart = (e) => handleDragStart(e, "building", b);
+        el.innerHTML = `<span>${b.icon}</span><span class="truncate font-medium">${b.name}</span>`;
+        bldContainer.appendChild(el);
+      });
+
+      // Waypoints
+      const wptContainer = document.getElementById("waypoint-palette");
+      WAYPOINTS_LIST.forEach(w => {
+        const el = document.createElement("div");
+        el.className = "drag-item p-2 rounded-lg bg-slate-900 border border-blue-800/60 hover:border-blue-400 hover:bg-blue-950/40 text-xs flex items-center gap-1.5 transition shadow";
+        el.draggable = true;
+        el.ondragstart = (e) => handleDragStart(e, "waypoint", w);
+        el.innerHTML = `<span>${w.icon}</span><span class="truncate font-medium">${w.name}</span>`;
+        wptContainer.appendChild(el);
+      });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Inspection & Node Selection
+    // ---------------------------------------------------------------------------
+    function updateHover(x, y) {
+      document.getElementById("hover-tile").textContent = `Tile (${x}, ${y})`;
+    }
+
+    function selectTile(x, y) {
+      state.selectedTile = { x, y };
+      const key = `${x}_${y}`;
+      document.getElementById("inspect-coords").textContent = `Tile (${x}, ${y})`;
+
+      const def = state.defenders[key];
+      const mod = state.modules[key];
+      const rel = state.relics[key];
+      const bld = state.buildings[key];
+      const wpt = state.waypoints[key];
+
+      let html = `<div class="space-y-2">`;
+
+      if (!def && !mod && !rel && !bld && !wpt) {
+        html += `<p class="text-slate-500 italic">当前格子为空。从左侧拖拽守将、防御模块、遗迹或建筑到此处。</p>`;
+      } else {
+        if (def) {
+          html += `
+            <div class="p-2 rounded bg-purple-950/60 border border-purple-700 flex items-center justify-between shadow">
+              <div>
+                <div class="font-bold text-purple-300">🤖 守将: ${def.name}</div>
+                <div class="text-[10px] text-slate-400 font-mono">ID: ${def.bid} (R${def.rank} L${def.level})</div>
+              </div>
+              <button onclick="removeEntity('defender', ${x}, ${y})" class="text-rose-300 hover:text-rose-200 text-xs px-2 py-1 rounded bg-rose-900/60 border border-rose-700">移除</button>
+            </div>`;
+        }
+        if (mod) {
+          html += `
+            <div class="p-2 rounded bg-amber-950/60 border border-amber-700 flex items-center justify-between shadow">
+              <div>
+                <div class="font-bold text-amber-300">⚡ 防御模块: ${mod}</div>
+                <div class="text-[10px] text-slate-400 font-mono">与守将同台驻守</div>
+              </div>
+              <button onclick="removeEntity('module', ${x}, ${y})" class="text-rose-300 hover:text-rose-200 text-xs px-2 py-1 rounded bg-rose-900/60 border border-rose-700">移除</button>
+            </div>`;
+        }
+        if (rel) {
+          html += `
+            <div class="p-2 rounded bg-cyan-950/60 border border-cyan-700 flex items-center justify-between shadow">
+              <div>
+                <div class="font-bold text-cyan-300">💎 遗迹: ${rel.name}</div>
+                <div class="text-[10px] text-slate-400 font-mono">ID: ${rel.id} (模型: ${rel.model})</div>
+              </div>
+              <button onclick="removeEntity('relic', ${x}, ${y})" class="text-rose-300 hover:text-rose-200 text-xs px-2 py-1 rounded bg-rose-900/60 border border-rose-700">移除</button>
+            </div>`;
+        }
+        if (bld) {
+          html += `
+            <div class="p-2 rounded bg-emerald-950/60 border border-emerald-700 flex items-center justify-between shadow">
+              <div>
+                <div class="font-bold text-emerald-300">🏛️ 建筑: ${bld.name}</div>
+                <div class="text-[10px] text-slate-400 font-mono">ID: ${bld.id} (Render: ${bld.renderId})</div>
+              </div>
+              <button onclick="removeEntity('building', ${x}, ${y})" class="text-rose-300 hover:text-rose-200 text-xs px-2 py-1 rounded bg-rose-900/60 border border-rose-700">移除</button>
+            </div>`;
+        }
+        if (wpt) {
+          html += `
+            <div class="p-2 rounded bg-blue-950/60 border border-blue-700 flex items-center justify-between shadow">
+              <div>
+                <div class="font-bold text-blue-300">🟡 回路节点: ${wpt}</div>
+              </div>
+              <button onclick="removeEntity('waypoint', ${x}, ${y})" class="text-rose-300 hover:text-rose-200 text-xs px-2 py-1 rounded bg-rose-900/60 border border-rose-700">移除</button>
+            </div>`;
+        }
+      }
+
+      html += `</div>`;
+      document.getElementById("inspect-content").innerHTML = html;
+    }
+
+    function removeEntity(type, x, y) {
+      const key = `${x}_${y}`;
+      if (type === "defender") delete state.defenders[key];
+      if (type === "module") delete state.modules[key];
+      if (type === "relic") delete state.relics[key];
+      if (type === "building") delete state.buildings[key];
+      if (type === "waypoint") delete state.waypoints[key];
+
+      renderGrid();
+      updateCodeOutput();
+      selectTile(x, y);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Python Code Exporter
+    // ---------------------------------------------------------------------------
+    function updateCodeOutput() {
+      let py = `# ===========================================================================\n`;
+      py += `# TFTF Base Authored Layout (Generated by Human-In-The-Loop Base Visual Editor)\n`;
+      py += `# ===========================================================================\n\n`;
+
+      // 1. DEFENDERS
+      py += `BASE_DEFENDERS = {\n`;
+      for (const [k, d] of Object.entries(state.defenders)) {
+        const [x, y] = k.split("_");
+        py += `    (${x}, ${y}): {"bid": "${d.bid}", "rank": ${d.rank}, "level": ${d.level}, "sig": ${d.sig}, "name": "${d.name}"},\n`;
+      }
+      py += `}\n\n`;
+
+      // 2. TOWERS / MODULES
+      py += `BASE_TOWERS = {\n`;
+      for (const [k, m] of Object.entries(state.modules)) {
+        const [x, y] = k.split("_");
+        py += `    (${x}, ${y}): "${m}",\n`;
+      }
+      py += `}\n\n`;
+
+      // 3. RELICS
+      py += `BASE_RELICS = {\n`;
+      for (const [k, r] of Object.entries(state.relics)) {
+        const [x, y] = k.split("_");
+        py += `    (${x}, ${y}): {"id": "${r.id}", "model": "${r.model}", "name": "${r.name}"},\n`;
+      }
+      py += `}\n\n`;
+
+      // 4. FUNCTIONAL BUILDINGS
+      py += `BASE_FUNCTIONAL_BUILDINGS = {\n`;
+      for (const [k, b] of Object.entries(state.buildings)) {
+        const [x, y] = k.split("_");
+        py += `    (${x}, ${y}): {"id": "${b.id}", "renderId": "${b.renderId}", "rot": ${b.rot || 0}, "name": "${b.name}"},\n`;
+      }
+      py += `}\n\n`;
+
+      // 5. WAYPOINTS
+      py += `BASE_WAYPOINTS = {\n`;
+      for (const [k, w] of Object.entries(state.waypoints)) {
+        const [x, y] = k.split("_");
+        py += `    (${x}, ${y}): "${w}",\n`;
+      }
+      py += `}\n\n`;
+
+      // 6. EDGES
+      py += `BASE_EDGES = [\n`;
+      state.edges.forEach(([p1, p2]) => {
+        py += `    ((${p1[0]}, ${p1[1]}), (${p2[0]}, ${p2[1]})),\n`;
+      });
+      py += `]\n`;
+
+      document.getElementById("code-output").value = py;
+    }
+
+    function exportPythonCode() {
+      const code = document.getElementById("code-output").value;
+      navigator.clipboard.writeText(code).then(() => {
+        const toast = document.getElementById("toast");
+        toast.classList.remove("translate-y-16", "opacity-0");
+        setTimeout(() => {
+          toast.classList.add("translate-y-16", "opacity-0");
+        }, 2500);
+      });
+    }
+
+    // ---------------------------------------------------------------------------
+    // Window Resize & Init
+    // ---------------------------------------------------------------------------
+    window.onresize = drawCircuits;
+
+    window.onload = () => {
+      setupPalettes();
+      loadPreset();
+      updateOpacity();
+    };
+  </script>
+</body>
+</html>

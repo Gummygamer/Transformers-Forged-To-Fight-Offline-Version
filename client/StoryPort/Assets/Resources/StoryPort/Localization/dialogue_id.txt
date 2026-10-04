@@ -1,0 +1,46 @@
+# Story dialogue catalog for id. UTF-8 KEY<TAB>text; blank values use English fallback.
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	Sensor mendeteksi pantai pendaratan yang dingin di depan. Apa pun yang mendarat di sini sudah bergerak.
+ID_STORY_ARRIVAL_INTRO_002	Pasang membawa kami ke sini. Pasang akan mengubur kalian.
+ID_STORY_ARRIVAL_INTRO_003	Kalau begitu kita pertahankan garis ini, dan kita pertahankan bersama.
+ID_STORY_MIDPOINT_RALLY_001	Baru setengah jalan di punggung bukit dan mereka terus berdatangan. Ini area berkumpul, bukan patroli.
+ID_STORY_MIDPOINT_RALLY_002	Setiap langkahmu dicatat. Setiap langkahmu dihitung.
+ID_STORY_MIDPOINT_RALLY_003	Kalau begitu kita jalani sampai akhir. Percikan yang stabil, pertahanan lebih tinggi.
+ID_STORY_FINAL_STAND_001	Kau mendaki sejauh ini hanya untuk bertemu wujud akhir hidupmu sendiri.
+ID_STORY_FINAL_STAND_002	Kami mendaki jauh untuk mengakhiri ini. Menyerahlah atau tumbang.
+ID_STORY_SHORE_SECURED_001	Pantai tenang. Catat koordinatnya dan bawa pulang yang terluka.
+ID_STORY_SHORE_SECURED_002	Hari ini tenang. Kita akan kembali sebelum keadaan ribut lagi.
+ID_STORY_CUSTOM_OPENING_INTRO_001	Aku Optimus Prime... pemimpin Autobot. Kami mendeteksi sinyal energi aneh yang mengancam kestabilan sektor ini.
+ID_STORY_CUSTOM_OPENING_INTRO_002	Di bawah beban ancaman yang terus tumbuh, keadaan memaksa kami melakukan pendaratan darurat di zona terpencil ini.
+ID_STORY_CUSTOM_OPENING_INTRO_003	Peringatan: Gangguan radar tak dikenal terdeteksi... Sistem navigasi dipaksa terganggu!
+ID_STORY_CUSTOM_OPENING_INTRO_004	Tidak ada jalan keluar, Optimus... Waktumu habis, dan perhitungan terakhir telah tiba!
+ID_STORY_CUSTOM_OPENING_INTRO_005	Bludgeon?! Jadi kau dalang penyergapan ini... Mari kita lihat apakah keberanianmu sebanding dengan kesombonganmu!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	Bludgeon telah tumbang.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	Bagus sekali. Mari kita lanjutkan.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	Starscream! Seharusnya aku tahu komando udara Decepticon ada di balik ini.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	Kemenanganmu atas Bludgeon sudah... diduga. Sekarang hadapi kekuatan sejati armada Decepticon!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	Kalau begitu mari kita akhiri ini. Autobot, ke udara!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran memindai seorang Decepticon bernama Starscream, meskipun tanda energinya sangat berbeda dari musuh mana pun yang pernah kita hadapi. Rasanya seolah dia menyeberang dari dimensi lain, dan dilihat dari tandanya, ancaman tambahan sedang menuju ke arah kita
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	Ironhide! Kau berbalik melawan kaummu sendiri?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	Ini bukan soal faksi, Prime. Ini soal melihat siapa yang benar-benar punya nyali untuk memimpin.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	Kalau begitu kita selesaikan dengan cara lama. Tanpa pangkat, tanpa lencana -- hanya percikan.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	Ironhide telah mati.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	Bagus, kemajuan yang luar biasa. Kita pasti akan tahu di planet apa kita berada -- ini jelas dunia yang tidak dikenal, tetapi kurasa dunia ini penuh dengan energi Energon. Dan kita pasti akan mencari tahu dari dimensi atau dunia mana orang-orang ini berasal
+ID_STORY_CUSTOM_ACT2_INTRO_001	Pemindai menemukan sumber daya vital untuk memperbaiki kapal kita.
+ID_STORY_CUSTOM_ACT2_INTRO_002	Dimengerti, pimpin jalan dan amankan semuanya.
+ID_STORY_CUSTOM_ACT2_INTRO_003	Tentu, ayo bergerak. Kita pasti akan menghadapi banyak pertempuran, tetapi kita harus berhati-hati dalam pertarungan ini.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	Siapa kau? Kau akan mati!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	Tunjukkan dirimu.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	Komandan, Prowl melihat Starscream menembus badai debu.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	Aku bukan Decepticon. Aku Starscream! Raja Seeker!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	Uh-oh, keadaan baru saja memburuk.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	Lebih buruk? Apa maksud kau?! Aku hancurkan kau kalau aku siap!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	Aku punya informasi lebih lanjut tentang Starscream. Dia ada di depan, dan dari yang bisa kuketahui, dia sedang menyiapkan semacam alat untuk memperkuat pasukannya...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	AAAAAAHHH Prowl terlalu banyak bicara! Tapi kalian terlambat, Autobot! Dengan kekuatan ini, langit akan menjadi milikku, dan Megatron akhirnya akan tunduk pada kepemimpinanku yang unggul!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	Komandan, kau urus tugas yang ada. Aku akan menyelidiki alatnya dan melapor kembali
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	Aku punya kabar buruk. Starscream entah bagaimana telah merakit alat yang mengubah kekuatannya.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	Benar! Dengan kekuatan ini, langit akan menjadi milikku, dan Megatron akhirnya akan tunduk pada kepemimpinanku! Kau tamat, Optimus!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	Komandan, alihkan perhatiannya dalam pertempuran. Aku akan lihat apa yang bisa kulakukan untuk membawa teknologi ini kembali ke markas untuk dianalisis
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	Urgensi misi meningkat pesat di bawah tekanan waktu yang terus bertambah, dan telemetri teknis mengonfirmasi bahwa pertemuan-pertemuan bermusuhan kita yang berlanjut mewujudkan ketakutan dan ancaman terburuk kita
+ID_STORY_UI_TAP_CONTINUE	Ketuk untuk melanjutkan
+ID_STORY_UI_SKIP	Lewati

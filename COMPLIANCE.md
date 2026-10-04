@@ -4,6 +4,11 @@ This file records how the backend-content reconstruction in this package was don
 that it stays on the right side of copyright and stays defensive/interoperability-only.
 It covers the data added in `Server/gamedata.lbl` and the regenerated response files.
 
+The module descriptions in `Server/mods_catalog.json` are newly AI-authored generic
+gameplay summaries. They were not transcribed or paraphrased from the game. Module names,
+catalog identifiers, categories, rarities, and asset references are retained as the data
+needed to identify existing entries in an operator-supplied client.
+
 ## What was added
 
 `Server/gamedata.lbl` is a hand-authored source of the server-side content that Kabam
@@ -16,12 +21,6 @@ it, `legible run Server/gamedata.lbl` regenerates two response files:
 
 `Server/fakeserver.lbl`'s dynamic `/bcg/getBaseHeroData` handler now computes hero stats
 from the same authored curve, so on-screen numbers stay consistent with the roster.
-
-The module catalog descriptions in `Server/mods_catalog.json` and `Server/gamedata.lbl`
-are newly AI-authored text for this project. They are generic gameplay summaries and were
-not transcribed or paraphrased from the game's module descriptions. Module names, catalog
-identifiers, categories, and asset references remain only as needed to identify the
-operator-supplied client's existing entries and assets.
 
 The special-attack-meter work adds only newly authored original values, invented for this
 revival and never transcribed from recovered Kabam data: `_MANA_GAIN_RATE = 1.0` for wire
@@ -125,8 +124,8 @@ Nothing under `media/`, no APK, no game asset, and no recovered Kabam server dat
   for this offline revival. The point of the file's header comment is to make that
   explicit and auditable.
 
-- **No copyrighted material is included or distributed.** No game assets, no APK, no
-  Kabam binaries, and no recovered Kabam server data are in this package. The character
+- **No game assets or binaries are included or distributed.** No APK, Kabam binary, or
+  recovered Kabam server dataset is in this package. The character
   **ids** used (e.g. `bumblebee_gs_kabam`) are asset-bundle names that already ship
   inside the user's own copy of the app (see `re_notes/ASSET_INVENTORY.txt`); the data
   here only points fresh numbers at art the user already legally possesses.
@@ -395,3 +394,277 @@ server plus a read-only diagnostic hook slot (`DIALOGDIAG`) that logs the client
 dialogue state before calling the original method. It adds no assets, no binaries, no
 recovered server data, no network interception, and no credential access. Nothing under
 `media/`, no APK, and no game asset was added to the repository.
+
+## Custom story 2.1.1 final encounter — Ironhide boss swap
+
+The 2.1.1 custom story's final boss encounter was changed from the shipped Starscream
+blueprint (`fte_stars_gs_t3`) to the already-shipped roster id `ironhide_cin_rotf`
+(demolition, star 3, autobot). The `ironhide_cin_rotf` art is already resolved by the
+existing `art_overrides()` entry (`ironh_c_rotf`); no new art, asset, or roster entry was
+added.
+
+The two dialogue sets that reference the final boss — the pre-battle ambush set (renamed
+`custom_ironhide_ambush`) and the post-battle defeated set (`custom_ironhide_defeated`) —
+were re-voiced with new 100%-original lines written for this repository. None of these
+lines transcribes or paraphrases any Transformers media, game dialogue, or copyrighted
+source. Optimus Prime's lines remain original writing created for this project. The
+`custom_opening_intro` (5 entries) and `custom_bludgeon_defeated` (2 entries) sets are
+unchanged.
+
+No asset, binary, APK, recovered Kabam server data, or network interception was added.
+Nothing under `media/` was touched.
+
+## Guard `read_file` behind nested `if` — Legible's `and` does not short-circuit
+
+Contributed by **@galvatron** (Discord).
+
+Four call sites were changed so that a `read_file` is only reached after its
+`file_exists` guard has actually passed. `Server/fakeserver.lbl` (`tutorial_login_seen`)
+and the former desktop GUI runner (`append_worker_start_log` ×2,
+`worker_logged_success`) each expressed the guard as
+`file_exists(path) and <something that reads path>`. Because `and` evaluates both
+operands, the read ran even when the file was absent and aborted the process. Each site
+now places the read inside a nested `if`, which is the existing idiom elsewhere in these
+same files.
+
+This is a control-flow correction to this repository's own Legible source. It is
+100% original work written for this repository. No logic, string, constant, or value was
+transcribed or paraphrased from Transformers: Forged to Fight, from any decompiled or
+disassembled game code, or from any other copyrighted source. The behaviour of each
+function is unchanged when the file exists; only the absent-file path differs, and it
+now returns the same result the guard already intended rather than terminating.
+
+Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game
+data, network capture, or credential was added. Nothing under `media/` was touched. No
+new dependency was introduced.
+
+## Unicode round-tripping in `Server/jsonout.lbl`
+
+`Server/jsonout.lbl` previously replaced every non-ASCII scalar with an ASCII `?` on the
+decode side and aborted the process on the encode side, so any JSON string containing a
+non-ASCII character was silently corrupted on a parse/encode round trip. The decoder now
+turns a `\uXXXX` escape (including a UTF-16 surrogate pair, for codepoints above U+FFFF)
+into the corresponding UTF-8 bytes, and maps a lone or unpaired surrogate to U+FFFD. The
+encoder walks UTF-8 sequences back to codepoints and re-emits them as `\uXXXX`, using a
+surrogate pair above U+FFFF, so output stays pure ASCII exactly as before. Malformed,
+overlong, out-of-range and surrogate-encoded UTF-8 are rejected loudly rather than
+substituted. Output was verified byte-identical to Python `json.dumps(ensure_ascii=True)`.
+
+This is a correctness fix to this repository's own Legible source. **It adds no game
+content of any kind** — no authored values, no identifiers, no wire keys. Nothing was
+transcribed from recovered Kabam server data. No asset, binary, APK, game data, network
+capture, or credential was added. Nothing under `media/` was touched. No new dependency was
+introduced.
+
+## Effect icon codepoints and the authoring guide's enum tables
+
+Two corrections to material already in this repository.
+
+`Server/gamedata.lbl` served `U+E402` as the bleed effect icon and `U+E412` as the shock
+effect icon. Both are wrong on inspection — `U+E412` is a bare fist with no electrical
+motif. They now serve `U+E414` and `U+E914`. All four codepoints are glyphs in
+`Tecnica_Bold_116`, a font **already present inside the operator's own client**; this change
+alters which existing glyph is referenced by an appearance record and **adds no font, asset,
+or artwork of any kind**. Neither replacement is among the 72 private-use codepoints the
+client references in its own string table, so no symbol the client already draws for its own
+UI has been repurposed.
+
+`ABILITY_AUTHORING.md` documented three wire fields with incomplete value lists. The
+corrected tables (`BuffTriggerRate`, `BuffTargetTypes`, `BuffModTypes`) are **enum
+definitions read out of the operator-supplied client binary**, recorded as an
+interoperability schema observation — the same established precedent as the hit-stun wire
+keys recorded above. The added §3.2.1, §4.1 and §8 sections are our own prose describing
+this repository's own data format, plus a mapping of ability names to font codepoints that
+is **original authored judgement**, not transcribed from any recovered source.
+
+Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game data,
+network capture, or credential was added. Nothing under `media/` was touched. No new
+dependency was introduced.
+
+## Revert of the effect icon codepoint swap, and of the swipe special-attack gesture
+
+This contribution **removes** previously contributed material. It adds nothing.
+
+The icon codepoint swap recorded in the section above (`U+E402` → `U+E414` for bleed,
+`U+E412` → `U+E914` for shock) is **reverted**: `Server/gamedata.lbl` and the regenerated
+`Server/responses/GET__bcg_getLoginData.json` once again emit the original `U+E402` /
+`U+E412` / `U+E41D` set. The swap was committed as "not verified in-game yet"; no glyph it
+changed was ever observed rendering in a running client. Rolling it back removes the only
+unverified icon claims that reached the shipped payload. The paragraph above is retained,
+corrected by this entry rather than deleted, so the reasoning that produced `U+E414` /
+`U+E914` stays available for a future change that is verified first. The compliance posture
+is unchanged either way: all four codepoints are glyphs in `Tecnica_Bold_116`, a font
+**already present inside the operator's own client**, and no font, asset, or artwork was
+added by the swap or by this revert.
+
+The swipe special-attack gesture selection in `tools/nativehook/hook.c` (slots 164/165,
+`PlayerController.GetAvailableSpecialTier` and `HudSpecialMeter.OnSpecialButtonPressed`)
+is also **reverted**, restoring the payout hooks as the final slots and the stock
+special-attack dispatch path. This removes interception of touch input inside the
+operator's own client; nothing is added in its place. The gesture-specific checks in
+`Server/test_nativehook_slots.lbl` were removed with the code they asserted. The
+`hermesVersionCode` / `hermesVersionName` build properties, which landed in the same commit
+but are unrelated to the gesture, are kept.
+
+Nothing was transcribed from recovered Kabam server data. No asset, binary, APK, game data,
+network capture, or credential was added. Nothing under `media/` was touched. No new
+dependency was introduced.
+
+## Karma Six activeTeams gap, native quest-reentry crash fix, and getBaseHeroData hardening
+
+This contribution investigates and closes gaps a developer's separate personal fork
+(`kmcbest/Transformers-Forged-To-Fight-Offline-Version`, branches `redeco`/`ability`/
+`custom-special`) had already found and fixed for its own divergent Python-based server
+rewrite of `Server/`. Nothing was ported from that fork's Python source or its
+`assets_redeco/` tree (which carries ~119 MB of AssetBundles derived from the operator's
+APK and is out of scope for this repository's data-only posture); each fix below was
+independently re-derived by reading this repository's own `.lbl` code and, in one case,
+the same developer's proper PR (#14) against this repository's Legible source.
+
+`Server/gamedata.lbl`'s `build_user_data` and `Server/fakeserver.lbl`'s
+`saved_team_envelope` were both missing an `activeTeams` entry for `challenge_qid()`
+(the Karma Six Special Mission, `1.1.2`). `QuestFlow` checks `BCG.GetActiveTeam` before
+loading a quest map; without this entry, entering Karma Six looped `quest-begin`
+indefinitely instead of loading the map. This is the same root cause as this repository's
+own upstream PR #14 (`358d5eb`), reconciled here alongside an independent, uncommitted
+Act 3 custom-story addition that also needed its own new `activeTeams` entry
+(`custom_story_act3_qid()`). No game content is authored by this fix: it is pure
+plumbing that echoes an existing quest id back through an existing wire shape, the same
+class of change the `activeTeams` paragraph earlier in this file already covers.
+
+`tools/nativehook/hook.c` gained four `poke32` patches (installer, near the existing
+60 fps/vSync patches) that redirect three functions in the operator's own
+`libil2cpp.so` — `Legacy.QuestSet`, a badge-counter aggregator, and
+`QuestDB.AddExpiredQuest` — from throwing `NullReferenceException` /
+`IndexOutOfRangeException` on re-entering a quest after a battle or quit, to their
+existing safe-exit paths in the same functions. This is a **binary patch of the
+operator's own client**, the same category as every other `poke32` hook already recorded
+throughout this file (e.g. the 60 fps and vSync patches, or `FIXWRAPMI`/`FIXSYN`): it
+redirects an existing branch to another address already inside the same function; it
+injects no new code, asset, or capability. This fix has not yet been re-verified live in
+this repository's own build (device verification is the next step); the developer's own
+project verified the equivalent patch on their fork.
+
+`tools/nativehook/inapk_server.c`'s `getBaseHeroData` handler was hardened in two ways,
+both defensive and neither adding game content: it now falls back through `bid` →
+`character` → `id` when extracting a hero identifier from the request body (the client
+is observed to vary which key it sends), and it clamps a requested `level` above 30 down
+to 30 before building the `@hero:<bid>:<rank>:<level>` cache key, since this repository's
+own export already authors a dense rank 1-5 × level 1-30 grid for every owned hero
+(`Server/export_payload.lbl`'s `add_heroes`) and previously had no fallback for a level
+outside that range. A `logmsg` diagnostic line was added for the same handler, matching
+the existing diagnostic logging pattern already used elsewhere in this file.
+
+Nothing was transcribed from recovered Kabam server data or from the fork's own
+authored content. No asset, binary APK, captured audiovisual content, credential, or
+recovered server dataset was added. Nothing under `media/` was touched. No new
+dependency was introduced.
+
+## 2026-09-18 — ABILITY_AUTHORING.md corrections (conditions, magnitude)
+
+Documentation-only. Three corrections to `ABILITY_AUTHORING.md`, all of them to text I
+authored in PR #10 that later testing showed to be wrong or incomplete.
+
+1. The guide stated in two places that there is **no generic predicate system** and that
+   *"opponent is class Y"* cannot be expressed as a condition. That is false. Conditions
+   are authored in the `trs` field as `<target>:<key><op><value>`, parsed by
+   `BuffTriggerFactory.ParseConditions` with the regex `([\w\.]+)(=|<=|>=|!=|>|<)(.+)`,
+   six operators, and twelve readable keys. Demonstrated in a live fight with a matched
+   pass/fail pair differing only by operator, plus an unconditioned control row.
+2. The `m` field was documented only as "magnitude". It is an absolute total spread across
+   the duration (`per tick = m / d / 2`), not a fraction of Attack, and because the HUD
+   renderer takes an `int` a fractional value truncates to zero with no error. Added as a
+   numbered pitfall with the measured values that established it.
+3. The condition-class inventory was expanded to name the comparison family and
+   `BuffConditionOp`, and to state the real remaining limit (no health key).
+
+All findings are original: derived from disassembly of the client binary this repository
+already targets, and from runtime logging via this repository's own `tools/nativehook`
+harness during local play. Nothing was transcribed from recovered Kabam server data or from
+any other fork's authored content. No asset, binary APK, captured audiovisual content,
+credential, or recovered server dataset was added. Nothing under `media/` was touched. No
+new dependency was introduced. No generated payload changed, so no regeneration was
+required.
+
+## 2026-09-18 — nativehook: two diagnostic hooks (magnitude + condition gate)
+
+Adds two read-only logging hooks to `tools/nativehook/hook.c`, the instrumentation that
+produced the measurements cited in the `ABILITY_AUTHORING.md` corrections in this PR.
+
+1. `hooked_FloatingText_OnTick` now also calls `PlayerController.GetCachedValue`
+   (`g_base + 0x117A1C0`) — the same function the effect itself branches on — and logs the
+   returned float as `cached=`. Logging the cache key alone showed the effect was ticking
+   but not why it stayed silent; logging the value is what established that `m` is an
+   absolute total and that a fractional magnitude truncates to zero at the `int`-typed HUD
+   renderer.
+2. `hooked_TestForConditionsAndRoll` wraps `StatModifierController.TestForConditionsAndRoll`
+   (`g_base + 0xCCF35C`) and logs the stat-mod id, the pass/fail result, the roll and the
+   chance. This is how the `trs` condition format was verified.
+
+Both hooks call the original and return its result unchanged; neither alters game state or
+payload. A `statmod_id` helper reads `StatModifier._statModifier` (`+0x18`) then
+`BCGStatModifier.ID` (`+0x10`) so the lines name an ability rather than a bare pointer.
+
+`test_nativehook_slots` passes 14/0, confirming `H[]` and `handlers[]` remain contiguous and
+that the restored gesture-hook slots from `d5038b6` are untouched. Compiles clean under
+`aarch64-linux-android28-clang -fsyntax-only`.
+
+All offsets were derived from disassembly of the client binary this repository already
+targets. Nothing was transcribed from recovered Kabam server data or from any other fork's
+authored content. No asset, binary APK, captured audiovisual content, credential, or
+recovered server dataset was added. Nothing under `media/` was touched. No new dependency
+was introduced. No generated payload changed.
+
+## 2026-09-19 — ABILITY_AUTHORING.md restructure + merge of the ability reference
+
+Documentation-only. Restructures the authoring guide and merges in an ability-grammar
+reference built during local testing. No payload, asset or code change; nothing regenerates.
+
+**Restructure.** Sections are reorganised by what a reader came to do rather than by the order
+we investigated things, hard-coded section numbers are dropped in favour of descriptive
+headings, project history and method move to appendices, and status claims are consolidated in
+one section so they rot in a single place. A table of contents with anchor links is added, and
+heading levels are strictly nested so the document converts cleanly to HTML/Word/PDF via
+pandoc — stated near the top so nobody forks a second copy in another format.
+
+**New reference content**, all of it original and derived from disassembly of the client binary
+this repository already targets, plus runtime logging via this repository's own
+`tools/nativehook` harness during local play:
+
+- the complete `t` type-string registry recovered from both effect factories
+  (`TFormBuffEffectFactory` `0xB07138`, `BuffEffectFactory` `0xE5DCC0`)
+- the `tm` parameter keys for the effect classes that parse them, each corroborated against
+  the class's own private field names
+- the constructor-arity split that determines whether a class can receive `tm` at all
+- the complete `ta`, `mt`, trigger, condition-key, state and stat-attribute vocabularies
+- a capability map grouping the effect classes by what a player would recognise
+
+**Every factual claim carries a provenance mark** stating how it is known — observed in a live
+fight, present in the served payload, read from the binary, or inferred — with a legend and the
+rule that a single-source claim is provisional. Claims that are unverified say so rather than
+being asserted. Known limits are stated in the document: the type registry is known-good rather
+than proven exhaustive, the multi-key `tm` separator is unconfirmed, and the area-spawner keys
+are inherited from an abstract base.
+
+Nothing was transcribed from recovered Kabam server data or from any other fork's authored
+content. No asset, binary APK, captured audiovisual content, credential, or recovered server
+dataset was added. Nothing under `media/` was touched. No new dependency was introduced. No
+generated payload changed, so no regeneration was required.
+
+## Unity 2020 porting patches (`tools/port202`)
+
+The port scripts edit decompiled sources that are generated locally from the user's own
+copy of the game and never committed. `unity2020_csharp_compat.py`,
+`unity2020_firstpass_compat.py` and `unity6_compat.py` locate code by method signature,
+a single-line anchor, or a regex over identifiers, and then replace a body, wrap a span
+in try/catch, or insert a guard written for this project. They store interface names
+and short anchors, not decompiled method bodies. Earlier versions of these scripts that
+embedded multi-line decompiled blocks, and the removed `unity/StoryPort` prototype whose
+classes were ported from the 2.0.2 decompiled source, were purged from the history of
+`development` on 2026-09-26. The current bodies
+are an order-total asset-eviction comparator, a missing-shader guard for contact shadows,
+default node tuning when legacy tuning prefabs are absent, and texture assignment in an
+async UI callback. `update_ui_atlases.py` reads atlas rectangles from a locally loaded 9.2
+APK through a local AssetRipper instance and writes only into the git-ignored generated
+project; its sprite aliases are asset names already present in that APK. No asset,
+binary, captured audiovisual content, or recovered server data is added.

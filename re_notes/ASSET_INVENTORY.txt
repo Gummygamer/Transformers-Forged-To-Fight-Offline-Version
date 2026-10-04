@@ -9,6 +9,16 @@ Total asset bundles present: 108
 ==================================================================
 NAMED CHARACTER / ROSTER BUNDLES (each = full model+rig+anims+fx+audio)
 ==================================================================
+The 59 named bundles below are not the entire full-model roster. The shared
+`characters` bundle TOC also contains these merged playable-character prefabs:
+
+- `optimusprime_gs_v` -> `Assets/Bundles/Characters/Merged/OptimusPrime_GS_V/OptimusPrime_GS_V.prefab`
+- `starscream_gs` -> `Assets/Bundles/Characters/Merged/Starscream_GS/Starscream_GS.prefab`
+
+Their `_lw` TOC entries are low-weight variants of those same two models, not
+separate robots. The server's FTE Optimus and Starscream roster IDs reference
+these shared prefabs; Starscream uses portrait art base `stars_gs`.
+
 arcee_gs_deluxe2014
 barricade_cin_dotm
 blaster_gs_leader2016

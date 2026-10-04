@@ -34,10 +34,10 @@
 //
 //   4. SETACTFIX. hook_11 carries the maxQueuedActionTime fallback change: keep
 //      the window computed by the game when it exists, and use
-//      SETACT_FALLBACK_WINDOW only when it does not. The real source of that
+//      the shared managed_input.h fallback only when it does not. The real source of that
 //      window is bcg-combat.maxQueuedActionTime, authored in Server/gamedata.lbl;
-//      keep SETACT_FALLBACK_WINDOW in step with it. This armv7 source change has
-//      not been compiled or run on a 32-bit device. It is verified on arm64 only.
+//      keep the shared fallback in step with it. The field-access refactor needs
+//      live verification on both ABIs; host tests do not prove in-game behavior.
 //
 //   5. TSHIDE. The arm64 squad-screen-occlusion workaround in hook.c slots
 //      122-132 is deliberately not ported. It hides the base buildings that
@@ -49,6 +49,28 @@
 //      RVAs and live device verification have not been collected. A 32-bit build
 //      therefore still shows base buildings bleeding into both the pre-battle
 //      squad screen and the BOTS roster/detail pages.
+//
+//   6. ARENA. The realtime Arena netcode in arena.c/netclient.c is deliberately absent.
+//      netclient.c is ABI-neutral transport and would work as-is, but arena.c reads and
+//      writes PlayerController and AIController at arm64 field offsets (Attributes @0x80,
+//      Id @0xF4, Opponent @0xF8; AIController.PlayerController @0x90). On armv7 a managed
+//      header is 8 bytes instead of 16 and a reference field 4 bytes instead of 8, so every
+//      one of those shifts. arena.h now #errors on a 32-bit ARM build rather than let the
+//      bridge write to the wrong field of a live controller.
+//
+//      A port needs, from `patches/abi_map.lbl`:
+//        method  0x1179AF4  PlayerController.Action(int)
+//        method  0x1174300  PlayerController.SpecialAttack(int)
+//        method  0xDB1D18   AIController.SetPaused(bool)
+//        method  0xDB025C   AIController.get_IsPaused()
+//        method  0xDAC660   PlayerAttributes.get_Health()
+//        method  0xDAC67C   PlayerAttributes.set_Health(float)
+//        method  0xDE8750   Simulation.FixedUpdate        (the tick that pumps the relay)
+//        fields  PlayerController, AIController, PlayerAttributes
+//      plus the three arm64 hook points that carry the wiring: FIXFIGHT (both fighters'
+//      controllers, Id 0 local and Id 1 remote), AIRANGE (the AI pause) and PCACTION /
+//      PCSPECIAL (input capture). Note AIRANGE itself is already absent here per item 3, so
+//      a v7a arena port has to add the AI hook before it can pause anything.
 //
 //      A porter must translate every arm64 RVA with
 //      `patches/abi_map.lbl method <arm64 rva>` and every field offset with
@@ -87,12 +109,27 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <unistd.h>
 #include <sys/mman.h>
 #include <pthread.h>
 #include <link.h>
 #include <dlfcn.h>
 #include "inapk_server.h"
+#include "dialogue_translations.generated.h"
+
+/* Android devices may use 16 KiB pages. Compute the complete page range
+ * before mprotect instead of assuming a 4 KiB mask and a fixed 0x2000 span. */
+static int make_code_range_writable(void *address, size_t length){
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) page_size = 4096;
+    uintptr_t page = (uintptr_t)address & ~((uintptr_t)page_size - 1U);
+    uintptr_t end = (uintptr_t)address + length;
+    uintptr_t protected_end = (end + (uintptr_t)page_size - 1U) & ~((uintptr_t)page_size - 1U);
+    if (protected_end <= page) protected_end = page + (uintptr_t)page_size;
+    return mprotect((void*)page, (size_t)(protected_end - page),
+                    PROT_READ|PROT_WRITE|PROT_EXEC);
+}
 
 static void flog(const char* fmt, ...);
 static uintptr_t g_base;
@@ -135,6 +172,57 @@ typedef void* (*arraynew_t)(void*, size_t);
 static strnew_t g_strnew = NULL;
 static arraynew_t g_arraynew = NULL;
 static void* g_empty_tags = NULL;   // shared empty string[] (see hook.c slot 57)
+static fn8 g_dialogue_deserialize_orig = NULL;
+// DialogueEntry.get_line is a tiny auto-property getter the overlay never calls.
+// Hook Deserialize instead and replace the <line> backing field (+0x20) after the
+// original has populated it, before the entry is returned to the dialogue display path.
+
+static int dialogue_string_equals_utf8(void* managed, const char* utf8){
+    uintptr_t p = (uintptr_t)managed;
+    if (!utf8 || p < 0x100000 || (p & 3)) return 0;
+    int32_t length = *(int32_t*)(p + 0x08);
+    if (length < 0 || length > 8192) return 0;
+    const uint16_t* chars = (const uint16_t*)(p + 0x0C);
+    int index = 0;
+    const unsigned char* bytes = (const unsigned char*)utf8;
+    while (*bytes) {
+        uint32_t cp;
+        if (*bytes < 0x80) cp = *bytes++;
+        else if ((*bytes & 0xE0) == 0xC0 && bytes[1]) { cp = ((*bytes & 0x1F) << 6) | (bytes[1] & 0x3F); bytes += 2; }
+        else if ((*bytes & 0xF0) == 0xE0 && bytes[1] && bytes[2]) { cp = ((*bytes & 0x0F) << 12) | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F); bytes += 3; }
+        else if ((*bytes & 0xF8) == 0xF0 && bytes[1] && bytes[2] && bytes[3]) { cp = ((*bytes & 0x07) << 18) | ((bytes[1] & 0x3F) << 12) | ((bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F); bytes += 4; }
+        else return 0;
+        if (cp <= 0xFFFF) {
+            if (index >= length || chars[index++] != cp) return 0;
+        } else {
+            cp -= 0x10000;
+            if (index + 1 >= length || chars[index++] != (uint16_t)(0xD800 + (cp >> 10)) || chars[index++] != (uint16_t)(0xDC00 + (cp & 0x3FF))) return 0;
+        }
+    }
+    return index == length;
+}
+
+static void* hooked_dialogue_entry_deserialize(void* self, void* builder, void* data, void* method, void* a4, void* a5, void* a6, void* a7){
+    void* result = g_dialogue_deserialize_orig ? g_dialogue_deserialize_orig(self, builder, data, method, a4, a5, a6, a7) : NULL;
+    uintptr_t entry = (uintptr_t)self;
+    if (entry < 0x100000 || (entry & 3) || !g_strnew || !g_base) return result;
+    void** line = (void**)(entry + 0x20);
+    void* original = *line;
+    if (!original) return result;
+    int language = ((int(*)(void*))((uintptr_t)g_base + 0xF7F3A4))(NULL);
+    if (language < 1 || language > 16) return result;
+    for (int i = 0; i < TFTF_DIALOGUE_TRANSLATION_COUNT; ++i) {
+        if (dialogue_string_equals_utf8(original, g_tftf_dialogue_translations[i].source)) {
+            const char* translated = tftf_dialogue_locale_text(&g_tftf_dialogue_translations[i], language);
+            if (translated && translated[0]) {
+                void* replacement = g_strnew(translated);
+                if (replacement) *line = replacement;
+            }
+            break;
+        }
+    }
+    return result;
+}
 
 // Managed pointers are 4-byte aligned here, not 8.
 #define PLAUSIBLE(p) ((uintptr_t)(p) >= 0x100000 && !((uintptr_t)(p) & 3))
@@ -156,6 +244,7 @@ static struct { uint32_t rva; const char* tag; fn8 orig; } H[] = {
     { 0x8DD448,  "FORCECHAPSD", 0 },  // 9  a64 0xD14470   ChapterPanel.SetData
     { 0x12B082C, "FIXWRAPMI",   0 },  // 10 a64 0x152B570  SafeAction.<Wrap>b__0<object>
     { 0x907DD8,  "SETACTFIX",   0 },  // 11 a64 0xD35130   PlayerInput.QueuedAction.SetAction
+    { 0xA4903C,  "QHP preview",  0 },  // 12 a64 0xE3D610  PrefightScreenData.GetTeamMemberHealth
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -165,7 +254,6 @@ static struct { uint32_t rva; const char* tag; fn8 orig; } H[] = {
 #define OFF_ACT_COMPLETED     0x19   // a64 0x31  Act.completed  (Chapter.completed too)
 #define OFF_FIGHTERDATA_BP    0x20   // a64 0x40  FighterData.Blueprint
 #define OFF_BLUEPRINT_TAGS    0x68   // a64 0xB8  BCGBlueprintBase.Tags
-#define OFF_QUEUEDACTION_TS   0x0C   // a64 0x14  PlayerInput.QueuedAction.TimeStamp (float)
 
 // Lazily build the shared empty string[]. Offset-free: the klass pointer is the
 // first word of any managed object in both ABIs.
@@ -204,7 +292,36 @@ static void* hook_3(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* 
         fix_blueprint_tags(bp2);
         flog("FIXFIGHT empty=%p bp1=%p bp2=%p", g_empty_tags, bp1, bp2);
     );
-    return H[3].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    void* result=H[3].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    PROTECT({
+        if(PLAUSIBLE(a0)&&PLAUSIBLE(a1)&&*(int32_t*)((uintptr_t)a1+0x80)==0&&PLAUSIBLE(a3)){
+            void* bp=*(void**)((uintptr_t)a3+OFF_FIGHTERDATA_BP);
+            void* name=PLAUSIBLE(bp)?*(void**)((uintptr_t)bp+0x8):NULL;
+            if(PLAUSIBLE(name)){
+                int32_t length=*(int32_t*)((uintptr_t)name+0x8);
+                if(length>0&&length<64){
+                    char bid[64]; int valid=1;
+                    const uint16_t* chars=(const uint16_t*)((uintptr_t)name+0xC);
+                    for(int i=0;i<length;i++){
+                        if(chars[i]<32||chars[i]>126){valid=0;break;}
+                        bid[i]=(char)chars[i];
+                    }
+                    bid[length]=0;
+                    if(valid){
+                        float saved=tftf_quest_fighter_health(bid);
+                        if(saved>=0.0f&&saved<=1.0f){
+                            float (*get_health)(void*,void*)=(void*)(g_base+0x99A340);
+                            void (*set_health)(void*,float,void*)=(void*)(g_base+0x99A358);
+                            float before=get_health(a0,NULL);
+                            if(isfinite(before)&&before>saved+0.001f)set_health(a0,saved,NULL);
+                            flog("QHP combat hero=%s saved=%.4f initialized=%.4f final=%.4f",bid,saved,before,get_health(a0,NULL));
+                        }
+                    }
+                }
+            }
+        }
+    });
+    return result;
 }
 
 // HashSet<T>..ctor(this,collection,comparer): substitute the shared empty string[]
@@ -275,37 +392,7 @@ static void* hook_10(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void*
     return H[10].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 
-// The combat game clock. `abi_map.lbl method` cannot help here: the clock is reached
-// through a GOT slot, i.e. a DATA address, and the two builds place those differently.
-// It was instead re-derived from this binary, which is more robust than translating an
-// address anyway -- QueuedAction.HasAction (armv7 0x907EC0) has to read the very clock
-// it compares TimeStamp against, so the chain is spelled out in its own code:
-//
-//     ldr r0,[pc,#0x3c] ; ldr r0,[pc,r0]   -> r0 = *(g_base + 0x2826E00)   deref 1
-//     ldr r0,[r0]                                                          deref 2
-//     ldr r0,[r0,#0x5c]                                                    deref 3
-//     ldr r4,[r0]                                                          deref 4
-//     vldr s0,[r4,#0xc]                    -> now
-//     vcmpe.f32 s16, s0 ; movwgt r0,#1     -> return TimeStamp > now
-//
-// The two pc-relative literals resolve to GOT slot 0x2826E00, and SetAction's own copy
-// of the chain resolves to the same slot, which is the cross-check. The arm64 build
-// reads it as adrp/ldr from 0x2c1a928 and then the identical four derefs with 0xb8/0x18
-// where this one uses 0x5c/0xc -- the usual pointer-width halving. Both slots live in
-// `.got` in their respective binaries.
-#define GOT_GAMECLOCK   0x2826E00   // a64 0x2c1a928
-#define OFF_CLOCK_NEXT  0x5C        // a64 0xB8
-#define OFF_CLOCK_NOW   0x0C        // a64 0x18
-static float game_clock(void){
-    if (!g_base) return -1.f;
-    uintptr_t p = g_base + GOT_GAMECLOCK;
-    p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
-    p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
-    p = *(uintptr_t*)(p + OFF_CLOCK_NEXT); if (!PLAUSIBLE(p)) return -1.f;
-    p = *(uintptr_t*)p;                  if (!PLAUSIBLE(p)) return -1.f;
-    return *(float*)(p + OFF_CLOCK_NOW);
-}
-#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.lbl; keep in step.
+#include "managed_input.h"
 
 // PlayerInput.QueuedAction.SetAction(this, action) @0x907DD8. Before maxQueuedActionTime was
 // authored, a tap fully registered offline (OnReleaseAttackInput -> SetAction(Attack) ran), but
@@ -317,25 +404,49 @@ static float game_clock(void){
 // TimeStamp window and substitutes the matching 0.2s fallback only when the window is missing.
 static void* hook_11(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[11].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT({
-        uintptr_t q = (uintptr_t)a0;
-        float clk = game_clock();
-        if (PLAUSIBLE(q) && clk >= 0.f) {
-            float ts = *(float*)(q + OFF_QUEUEDACTION_TS);
-            static int diagnostics = 0;
-            if (ts - clk > 0.01f) {
-                if (diagnostics < 4) { diagnostics++; flog("SETACTFIX config window=%.3f (kept)", ts - clk); }
-            } else {
-                *(float*)(q + OFF_QUEUEDACTION_TS) = clk + SETACT_FALLBACK_WINDOW;
-                if (diagnostics < 4) { diagnostics++; flog("SETACTFIX no config window, fallback=%.3f", (float)SETACT_FALLBACK_WINDOW); }
-            }
-        }
-    });
+    PROTECT(managed_input_after_set_action(a0););
     return r;
 }
 
+static float hook_12(void* self, int index, void* method){
+    float health=((float (*)(void*,int,void*))H[12].orig)(self,index,method);
+    PROTECT({
+        void* team=PLAUSIBLE(self)?*(void**)((uintptr_t)self+0x18):NULL;
+        int selected=index<0&&PLAUSIBLE(self)?*(int32_t*)((uintptr_t)self+0x10):index;
+        if(PLAUSIBLE(team)&&selected>=0&&selected<5){
+            void* (*get_bid)(void*,int,void*)=(void*)(g_base+0xD8E5CC);
+            void* name=get_bid(team,selected,NULL);
+            if(PLAUSIBLE(name)){
+                int32_t length=*(int32_t*)((uintptr_t)name+0x8);
+                if(length>0&&length<64){
+                    char bid[64]; int valid=1;
+                    const uint16_t* chars=(const uint16_t*)((uintptr_t)name+0xC);
+                    for(int i=0;i<length;i++){
+                        if(chars[i]<32||chars[i]>126){valid=0;break;}
+                        bid[i]=(char)chars[i];
+                    }
+                    bid[length]=0;
+                    if(valid){
+                        float saved=tftf_quest_fighter_health(bid);
+                        if(saved>=0.0f&&saved<=1.0f&&isfinite(health)){
+                            int (*get_max)(void*,int,void*)=(void*)(g_base+0xD8EAD8);
+                            int maximum=get_max(team,selected,NULL);
+                            float target=health>1.5f&&maximum>1?(float)maximum*saved:saved;
+                            if(health>target+0.001f){
+                                flog("QHP preview hero=%s original=%.1f max=%d saved=%.4f final=%.1f",bid,health,maximum,saved,target);
+                                health=target;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    return health;
+}
+
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,
-                            hook_6,hook_7,hook_8,hook_9,hook_10,hook_11 };
+                            hook_6,hook_7,hook_8,hook_9,hook_10,hook_11,(void*)hook_12 };
 
 // ---------------------------------------------------------------------------
 // A32 inline-hook engine
@@ -450,8 +561,7 @@ static int relocate(uint8_t* tr, uint8_t* src, int ninstr){
 
 static int inline_hook(void* target, void* handler, fn8* orig_out, const char* tag){
     uint8_t* t = (uint8_t*)target;
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0) {
+    if (make_code_range_writable(t, 16) != 0) {
         LOG("%s: mprotect fail %p", tag, t); return -1;
     }
     uint8_t* tr = (uint8_t*)mmap(NULL, 256, PROT_READ|PROT_WRITE|PROT_EXEC,
@@ -469,27 +579,6 @@ static int inline_hook(void* target, void* handler, fn8* orig_out, const char* t
     write_jump(t, handler);
     __builtin___clear_cache((char*)t, (char*)t + JUMP_BYTES);
     LOG("%s: hooked %p tramp=%p (%d relocated bytes)", tag, t, tr, trlen);
-    return 0;
-}
-
-// Overwrite a single A32 instruction in libil2cpp, for fixes that are a branch rewrite
-// rather than a function hook. `expect` is the instruction the RE was done against; a
-// mismatch means this is not the binary the offset was derived from, so refuse rather
-// than corrupt a function -- same policy as relocate() returning -1.
-static int poke32(uint32_t rva, uint32_t expect, uint32_t insn, const char* tag){
-    uintptr_t a  = g_base + rva;
-    uintptr_t pg = a & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){
-        LOG("%s: mprotect fail rva=0x%x", tag, rva); return -1;
-    }
-    uint32_t was = *(uint32_t*)a;
-    if (was != expect){
-        LOG("%s: rva=0x%x holds %08x, expected %08x -- NOT poked", tag, rva, was, expect);
-        return -1;
-    }
-    *(uint32_t*)a = insn;
-    __builtin___clear_cache((char*)a, (char*)a + 4);
-    LOG("%s: poked 0x%x  %08x -> %08x", tag, rva, was, insn);
     return 0;
 }
 
@@ -516,25 +605,13 @@ static void* installer(void* arg){
     int ok = 0;
     for (int i = 0; i < NH; i++)
         if (inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig, H[i].tag) == 0) ok++;
+    int dialogue_hook = inline_hook((void*)(g_base + 0x11BBE08),
+                                   (void*)hooked_dialogue_entry_deserialize,
+                                   &g_dialogue_deserialize_orig, "DIALOGUE_LOCALE");
+    LOG("localized dialogue lookup hook=%d current-language-rva=0xF7F3A4", dialogue_hook);
     LOG("install done (%d/%d hooks)", ok, NH);
-    // FIXSYN: BCGBlueprintBase.get_SynergyBonuses (armv7 0x7A3DC8, a64 0xC17198) throws
-    // NullReferenceException on a null _synergyBonuses (field 0x7C here, a64 0xE0), which
-    // is always the offline state; see hook.c for why. arm64 fixes this by re-pointing a
-    // `cbz` from the throw block to the empty-list return. ARM32 has no throw block to
-    // re-point -- it emits the il2cpp null-check as a CALL that only falls through:
-    //
-    //     0x7A3EA4  ldr r4,[r6,#0x7c]     ; this->_synergyBonuses
-    //     0x7A3EA8  cmp r4,#0
-    //     0x7A3EAC  bne 0x7A3EB4          ; non-null: run the loop
-    //     0x7A3EB0  bl  0x4F1EA4          ; null: throw (noreturn)
-    //
-    // so 0x7A3EB0 is reached ONLY when the field is null, and nothing else branches to it.
-    // Overwriting that one call with a jump to the empty-list return is therefore exactly
-    // the arm64 fix. The return is at 0x7A3FB8: `ldr r0,[sp,#4]` (the fresh List<string>
-    // built at 0x7A3EA0, before the null-check) followed by the epilogue. Jumping straight
-    // there also skips the enumerator's Dispose at 0x7A3FA4, which is correct -- we skip
-    // its construction too, and the slot was zeroed at function entry.
-    poke32(0x7A3EB0, 0xEBF537FB, 0xEA000040, "FIXSYN");   // bl 0x4F1EA4 -> b 0x7A3FB8
+    // FIXSYN is applied directly to libil2cpp by patch_il2cpp.lbl so translated
+    // runtimes cannot cache the original null-throw instruction.
     return NULL;
 }
 
@@ -552,6 +629,7 @@ static void init(void){
     sigaction(SIGSEGV, &sa, &g_oldsegv);
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK (armv7) loaded (segv-guarded)");
+    LOG("runtime page size: %ld", sysconf(_SC_PAGESIZE));
     tftf_server_set_logger(inapk_log);
     int inapk_rc = tftf_server_start_from_apk();
     LOG("in-apk server start: %d", inapk_rc);

@@ -11,5 +11,8 @@ int tftf_server_start_blob(const void *blob, size_t len);
 int tftf_apk_candidates(const char *maps_path, const char *cmdline_path,
                         char out[][4096], int max);
 int tftf_server_start_from_apk(void);
+const unsigned char *tftf_payload_lookup(const char *key, size_t *n);
+/* Fractional health for a fighter in a pending quest encounter, or -1 if absent. */
+float tftf_quest_fighter_health(const char *bid);
 
 #endif

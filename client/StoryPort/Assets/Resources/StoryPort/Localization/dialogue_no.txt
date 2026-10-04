@@ -1,0 +1,46 @@
+# Story dialogue catalog for no. UTF-8 KEY<TAB>text; blank values use English fallback.
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	Sensorene registrerer et kaldt landgangsbrohode foran oss. Det som landet her, er allerede i bevegelse.
+ID_STORY_ARRIVAL_INTRO_002	Tidevannet brakte oss hit. Tidevannet vil begrave dere.
+ID_STORY_ARRIVAL_INTRO_003	Da holder vi denne linjen, og vi holder den sammen.
+ID_STORY_MIDPOINT_RALLY_001	Halvveis opp åsryggen og de kommer stadig. Dette er et oppsamlingsområde, ikke en patrulje.
+ID_STORY_MIDPOINT_RALLY_002	Hvert skritt du tar blir registrert. Hvert skritt du tar blir telt.
+ID_STORY_MIDPOINT_RALLY_003	Da går vi det helt til enden. Jevn gnist, høyere vakt.
+ID_STORY_FINAL_STAND_001	Du klatret helt hit bare for å møte formen på din egen slutt.
+ID_STORY_FINAL_STAND_002	Vi klatret langt for å gjøre slutt på dette. Gi deg eller fall.
+ID_STORY_SHORE_SECURED_001	Kysten er stille. Loggfør koordinatene og få de sårede hjem.
+ID_STORY_SHORE_SECURED_002	Stille i dag. Vi er tilbake før det blir høylytt igjen.
+ID_STORY_CUSTOM_OPENING_INTRO_001	Jeg er Optimus Prime... leder av Autobots. Vi har oppdaget merkelige energisignaler som truer stabiliteten i denne sektoren.
+ID_STORY_CUSTOM_OPENING_INTRO_002	Under tyngden av økende trusler tvang omstendighetene oss til en nødlanding i denne isolerte sonen.
+ID_STORY_CUSTOM_OPENING_INTRO_003	Advarsel: Ukjent radarforstyrrelse oppdaget... Navigasjonssystemene blir tvangsforstyrret!
+ID_STORY_CUSTOM_OPENING_INTRO_004	Det finnes ingen flukt, Optimus... Tiden din er ute, og den endelige oppgjørsstunden er kommet!
+ID_STORY_CUSTOM_OPENING_INTRO_005	Bludgeon?! Så det er du som står bak dette bakholdet... La oss se om motet ditt står til arrogansen din!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	Bludgeon er nede.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	Utmerket. La oss gå videre.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	Starscream! Jeg burde visst at Decepticon-luftkommandoen sto bak dette.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	Seieren din over Bludgeon var... forventet. Møt nå den sanne makten til Decepticon-flåten!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	Da gjør vi ferdig dette. Autobots, opp i luften!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	Teletran skannet en Decepticon utpekt som Starscream, selv om signaturen hans skilte seg sterkt fra alle fiender vi har møtt tidligere. Det føles som om han har krysset over fra en alternativ dimensjon, og å dømme etter tegnene er flere trusler på vei mot oss
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	Ironhide! Har du vendt deg mot din egen art?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	Dette handler ikke om fraksjoner, Prime. Det handler om å se hvem som virkelig har guts til å lede.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	Da avgjør vi dette på den gamle måten. Ingen grader, ingen merker -- bare gnister.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	Ironhide er død.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	Flott, utmerket fremgang. Vi finner helt sikkert ut hvilken planet vi er på -- det er definitivt en ukjent verden, men jeg føler at den er full av Energon-energi. Og vi finner sikkert ut hvilken dimensjon eller verden disse karene kommer fra
+ID_STORY_CUSTOM_ACT2_INTRO_001	Skannerne fant livsviktige ressurser til å reparere skipet vårt.
+ID_STORY_CUSTOM_ACT2_INTRO_002	Forstått, led an og sikre dem.
+ID_STORY_CUSTOM_ACT2_INTRO_003	Absolutt, la oss dra. Vi kommer sikkert til å møte mange kamper, men vi må være forsiktige under disse kampene.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	Hvem er du? Du skal dø!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	Vis deg.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	Kommandør, Prowl så Starscream gjennom en støvstorm.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	Jeg ikke Decepticon. Jeg Starscream! Kong Seeker!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	Uh-oh, ting ble nettopp verre.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	Verre? Hva du mene?! Jeg knuse deg når jeg klar!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	Jeg har mer etterretning om Starscream. Han er like foran, og etter det jeg kan tolke, forbereder han en slags enhet for å styrke styrkene sine...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	AAAAAAHHH Prowl snakker for mye! Men dere er for sent ute, Autobots! Med denne kraften vil himmelen tilhøre meg, og Megatron vil endelig bøye seg for min overlegne ledelse!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	Kommandør, du tar deg av oppgaven du står i. Jeg undersøker enheten hans og rapporterer tilbake
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	Jeg har dårlige nyheter. Starscream har på et vis rigget opp en enhet som endrer kreftene hans.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	Det stemmer! Med denne kraften vil himmelen tilhøre meg, og Megatron vil endelig bøye seg for min ledelse! Du er ferdig, Optimus!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	Kommandør, distraher ham i kamp. Jeg ser hva jeg kan gjøre for å få denne teknologien tilbake til basen for analyse
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	Oppdragets hastegrad øker betydelig under økende tidspress, og teknisk telemetri bekrefter at våre pågående fiendtlige møter materialiserer våre verste frykter og trusler
+ID_STORY_UI_TAP_CONTINUE	Trykk for å fortsette
+ID_STORY_UI_SKIP	Hopp over

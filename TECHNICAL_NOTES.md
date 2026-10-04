@@ -636,7 +636,7 @@ frame, its probe logged transitions only to avoid flooding the device log.
 Those diagnostics were removed before shipping. The local reproduction patch is
 `.longtask/hitstun-combat/findings/seg-06-hitstun-diagnostic-hooks.patch`; `.longtask/` is
 gitignored, so this RVA list is the durable record. The shipped fix is one authored stat-modifier
-row: `build_stat_modifiers()` in `Server/gamedata.lbl` emits `statMods["gp_hit_stun"]`, covered
+row: `build_stat_modifiers()` in `Server/gamedata.lbl` (data in `Server/data/stat_modifiers.json`) emits `statMods["gp_hit_stun"]`, covered
 by `test_gp_hit_stun_is_a_complete_harvested_stat_modifier_row` in `Server/test_gamedata.lbl`.
 
 | Device log | `STATMOD id=gp_hit_stun` | `HITSTQ ... now=1` (`get_HitStunned` true) |
@@ -690,7 +690,9 @@ halving. `SetAction`'s own copy of the chain resolves to the same slot, which is
 cross-check, and both slots are in `.got` in their respective binaries. Live log:
 `SETACTFIX clk=652.300 ts=652.800`, the clock advancing monotonically across taps.
 
-`FIXSYN` is a branch rewrite inside `BCGBlueprintBase.get_SynergyBonuses`. arm64 re-points
+`FIXSYN` is a static `patch_il2cpp.lbl` branch rewrite inside
+`BCGBlueprintBase.get_SynergyBonuses`. Applying it before the APK is launched avoids stale
+translated instructions on BlueStacks and other ARM-on-x86 emulators. arm64 re-points
 a `cbz` from the throw block to the empty-list return. ARM32 has no throw block to
 re-point: the compiler emits the il2cpp null check as a *call* that only falls through.
 
@@ -751,8 +753,7 @@ baked transition/body pair before updating it.
 The static export hardcodes the board width in `move_body`'s bounds check and the
 `add_quests` row loop, and it intentionally has exact-size guards. Growing the board requires
 updating those two places and both exact constants in `Server/export_payload.lbl` and
-`Server/test_export_payload.lbl`: the current values are 9368 entries and 4572592 bytes
-(formerly 9325 and 4500632). A mismatch in the exporter calls one `fail(...)` line and aborts
+`Server/test_export_payload.lbl`: the current values are 9790 entries and 7130656 bytes. A mismatch in the exporter calls one `fail(...)` line and aborts
 the whole test binary before it can print a test summary.
 
 ### In-app C server
@@ -795,9 +796,10 @@ model even though the player HUD and selected hero are Optimus Primal. Trace the
 fighter-data source and replace the generic `/matches/activate-match/quests_fight` response with
 the exact contract if required.
 
-2. Persist completed quest progression and rewards after a resolved fight. Combat and result
-submission now finish, but the authored fake server does not yet retain completion across
-sessions or implement the full reward contract.
+2. Persist the full quest reward contract after a resolved fight. Combat results now persist
+the current quest position, pending/completed encounter state, and selected squad across map
+re-entry and native-server restarts; reward delivery and the broader economy contract remain
+unimplemented.
 
 3. The wider server content database: more quests and maps, opponent lineups, per-bot
 abilities, rewards, persistence, and the economy.
@@ -1111,13 +1113,23 @@ answer without a second round trip.
 
 ### Limits and retail-client reachability
 
-Retail TFTF Arena is asynchronous by design: the client fights a local AI copy of the opponent's
-stored team. There is no realtime fight netcode in the retail client. Real-time input relay is
-therefore impossible without rewriting the IL2CPP fight simulation, which this project does not
-do. `PVPAPI` (`re_notes/dump.cs` line 416801) is the client's whole PVP surface, with eight
-network methods relevant to these endpoint mappings. Device captures confirm `GetLoginData` as
-`/pvp/get-login-data` and `FindArenaOpponent` as `/pvp/find-arena-opponent`. The other spellings
-come directly from client string literals, although their live response paths remain unverified.
+Retail TFTF Arena is asynchronous by design: the stock client fights a local AI copy of the
+opponent's stored team and `PVPAPI` (`re_notes/dump.cs` line 416801) has no realtime-fight
+method. The normal APK remains on that compatible async path. The optional arm64 native hook
+adds the missing client half: `arena.c` bridges the two fighters on the Unity main thread, while
+`netclient.c` relays input and health-state packets over UDP through `tools/netrelay/netrelay.c`.
+`Server/build_arena_hook.sh` produces the opt-in hook with a direct relay host, port, fixed Arena
+room, and device-specific peer baked in; `build_phone_apk.lbl` embeds that hook into the next APK.
+The configuration is compile-time because an unrooted phone cannot reliably write an app-private
+configuration file. The relay host must be directly reachable by both devices: ADB reverse is
+TCP-only and cannot transport UDP.
+
+The hook is arm64-only because its controller offsets are arm64 values. It is deliberately absent
+from normal/offline hooks, so the extra transport thread and socket surface are not loaded unless
+the operator explicitly builds the per-device Arena hook. Device captures confirm `GetLoginData`
+as `/pvp/get-login-data` and `FindArenaOpponent` as `/pvp/find-arena-opponent`. The other
+spellings come directly from client string literals, although their live response paths remain
+unverified.
 
 Consequently `/pvp/heartbeat`, `/pvp/lobby`, `/pvp/leave-match`, `/pvp/fight-post`,
 `/pvp/fight-poll`, `/pvp/report-result`, and `/pvp/match-result` will never be called by a
@@ -1127,5 +1139,67 @@ presence with TTL expiry, live two-device matchmaking into one shared `matchID`,
 opponent's actual live team rather than a stale stored roster, and authoritative two-sided
 result reconciliation that both devices read identically.
 
-`tools/nativehook/` is not a netcode surface: its hooks are offline fight mechanics.
-`inapk_server.c` binds only `127.0.0.1:8080`, so it does not enable LAN play.
+`inapk_server.c` still binds only `127.0.0.1:8080`, so it does not itself enable LAN play. The
+optional netcode surface is the separately enabled `arena.c`/`netclient.c` hook and UDP relay.
+
+## Quest-set summary table bounds
+
+The client parses `/quests/quest-list` into per-set summary tables and indexes them by the
+quest's own `act` / `chapter` / `mission` fields. These are 1-based slot indices into arrays
+that the set itself sizes. Disassembly of `Legacy.QuestSet.BuildSummaryTable` (arm64 RVA
+`0x1039BE4`) and `ParseChapters` / `ParseQuests` (`0x103A5B4` / `0x103A710`) shows the exact
+allocation:
+
+- `Acts = new Act[actCount + 1]`
+- For each act `i`, `chapters = new Chapter[chapterCount[i] + 1]`
+- For each chapter, `quests = new Summary[... + 1]`
+
+`AddQuestSummarys` (RVA `0x10381F0`) then stores each summary at
+`Acts[act].chapters[chapter].quests[mission]`, and `AddQuestDetails` (RVA `0x103A0E4`) performs
+the same indexed store when a quest-detail response arrives.
+
+Consequences for authored content:
+
+- A quest's `act` must satisfy `1 <= act <= actCount`. A quest with `act` beyond the set's
+  own `actCount` throws `IndexOutOfRangeException` while the quest list is parsed, which closes
+  the client right after login.
+- `chapterCount` must have exactly `actCount + 1` entries, and `chapter` must not exceed
+  `chapterCount[act]`.
+- The `act` / `chapter` / `mission` values in the static `quest-list` object and in any
+  generated `build_quest_summary` output for the same qid must agree, because both are stored
+  through the same indexed path.
+
+The `2.1.1` custom story quest lives in its own set (`custom_story_act1`), so its summary
+slot is `1/1/1` even though the qid string starts with `2`. The qid is an opaque routing
+key; the numeric slot fields, not the qid, drive the client's table indexing. Act 2 reuses
+the same set: `actCount` is now 2 with `chapterCount: [1,1,1]`, and the added quest `2.2.1`
+("Resource Scanners") takes summary slot 2/1/1 under a "CUSTOM STORY - ACT 2" label.
+`Server/test_fakeserver.lbl::test_quest_list_slots_fit_client_summary_tables` encodes these
+bounds so a future set cannot regress them.
+
+The 2.1.1 custom story's final boss is `ironhide_cin_rotf` with `dialogue=custom_ironhide_ambush`
+and `dialoguePE=custom_ironhide_defeated` on the chicago/todIndex-0 tile. The encounter tile
+still uses `mapOverride "chicago"` and `todIndex 0` as required for the client fight prefab.
+
+Act 2 begins after that Ironhide post-battle dialogue resolves: quest `2.2.1` loads its own
+compact 2x2 map (`quest_dim_for` returns 2 and `revealed_tiles_for` returns the two path
+cells). Its single encounter tile advertises `dialogue=custom_act2_intro` (the three-line
+Marissa / Optimus / Marissa sequence) and uses `boss` key `bumblebee_gs_kabam`, so entering
+the act presents the shipped Bumblebee boss card. Stepping onto that tile still starts the
+requested fight: the movement `battle` action and `currentBattleId` carry
+`kickback_gs_kabam` as the final boss on the chicago/todIndex-0 prefab, and both entities
+(`bumblebee_gs_kabam` for the image and `kickback_gs_kabam` for the battle) ship in the
+tile's `entities` map. `Server/test_gamedata.lbl` and `Server/test_quest_walk.lbl` pin the
+exact dialogue order, act slot, boss image, and Kickback launch through the fake server.
+
+### Story start: square map contract
+
+The BlueStacks trace on 2026-09-09 identified the post-team-select failure as
+`ArgumentOutOfRangeException` in `EB.Missions.Map.Deserialize`, called by
+`Legacy.QuestMap.Deserialize` immediately after `/quests/quest-begin/2.1.1`.
+The custom map declared `gridDimension: 3` but contained three rows of only two
+tiles. The client indexes a square grid, including hidden cells. Each row now
+includes the missing third filler tile; the walkable path remains in column 1.
+`Server/test_quest_map_shape.lbl` checks every Story map (1.1.1, 2.1.1, and the Act 2
+2.2.1 board) against its declared dimensions, start count, walkable count, and link targets. APKs must be rebuilt
+because the bundled server stores these responses in its generated payload.

@@ -32,10 +32,11 @@
 #define MAX_BODY (1024u * 1024u)
 #define MAX_CONN 64
 #define TEAM_SIZE_MAX 5
+#define STATE_PATH_MAX 4096
 
 typedef struct { uint32_t ko, kl, bo, bl; } Rec;
 typedef struct { const unsigned char *p; size_t n; uint32_t count, eo, pc, po, dfo, dfl, port; } Blob;
-typedef struct { char qid[64]; int x, y, pending; } Position;
+typedef struct { char qid[64]; int x, y, pending, completed; int cleared_count; char cleared[16][32]; float health[TEAM_SIZE_MAX]; } Position;
 typedef struct { unsigned char *p; size_t n, cap; } Out;
 typedef struct { char bid[TEAM_SIZE_MAX][64]; int count; } Team;
 typedef struct { const char *token; const unsigned char *p; size_t n; } TemplateArg;
@@ -48,8 +49,13 @@ static pthread_mutex_t g_conn_lock = PTHREAD_MUTEX_INITIALIZER;
 static Position g_pos[16];
 static char g_saved_team[TEAM_SIZE_MAX][64];
 static int g_saved_team_count;
+/* Keep the local consumables in the same small state file as quest progress so
+   they survive app and server restarts without another persistence service. */
+static const char *g_consumable_ids[] = { "repair_kit", "team_repair_kit", "revive_kit" };
+static int g_consumable_counts[] = { 3, 1, 1 };
 static int g_connections;
 static int g_started;
+static int g_state_loaded;
 
 static void logmsg(const char *fmt, ...) {
     va_list ap;
@@ -113,8 +119,10 @@ static const Rec *find_key(const char *key) {
 }
 static const unsigned char *body_for(const Rec *r, size_t *n) { if (!r) return NULL; *n=r->bl; return g_blob.p+r->bo; }
 static const unsigned char *lookup(const char *key, size_t *n) { return body_for(find_key(key),n); }
+const unsigned char *tftf_payload_lookup(const char *key, size_t *n) { return lookup(key, n); }
 static int out_reserve(Out *o, size_t add) { size_t cap; unsigned char *p; if (add <= o->cap-o->n) return 1; cap=o->cap?o->cap:256; while(cap-o->n<add) { if(cap>MAX_BODY*8) return 0; cap*=2; } p=realloc(o->p,cap); if(!p)return 0; o->p=p;o->cap=cap;return 1; }
 static int out_add(Out *o, const void *p, size_t n) { if(!out_reserve(o,n))return 0; memcpy(o->p+o->n,p,n);o->n+=n;return 1; }
+static int out_int(Out *o, int value) { char text[32]; int n=snprintf(text,sizeof text,"%d",value); return n>0 && (size_t)n<sizeof text && out_add(o,text,(size_t)n); }
 static int out_template_args(Out *o, const unsigned char *s, size_t n, const TemplateArg *args, size_t count) {
     size_t i=0;
     while(i<n) { size_t j; int found=0;
@@ -175,9 +183,35 @@ static int contains_bytes(const unsigned char *s, size_t n, const char *needle) 
     for(i=0;i+l<=n;i++) if(!memcmp(s+i,needle,l)) return 1;
     return 0;
 }
+static const char *json_value(const char *s, const char *end, const char *want);
+static float json_float(const char *s, const char *end, const char *want, float def);
+static float hero_health_in_report(const char *body, const char *end, const char *bid) {
+    const char *hero=json_value(body,end,bid), *hero_end=json_object_end(hero,end);
+    if(hero_end){float hp=json_float(hero,hero_end,"hp",json_float(hero,hero_end,"health",json_float(hero,hero_end,"currentHealth",-1.0f)));if(hp>1.0f&&hp<=100.0f)hp/=100.0f;if(hp>=0.0f&&hp<=1.0f)return hp;}
+    /* QuestsMatchResults posts the player's active fighter as player_0_stats,
+       identified by char; player_1_stats is the enemy. Only the player slot may
+       update team health: an enemy that shares a blueprint with a team bot
+       would otherwise report its own 0 health for that bot. hp_percent is
+       already normalized; older payloads can derive it from
+       hp_remaining / hp_start. */
+    {
+        char id[64]="";const char *stats,*stats_end;float hp;
+        stats=json_value(body,end,"player_0_stats");stats_end=json_object_end(stats,end);
+        if(!stats_end||!json_string(stats,stats_end,"char",id,sizeof id)||strcmp(id,bid))return -1.0f;
+        hp=json_float(stats,stats_end,"hp_percent",-1.0f);
+        if(hp<0.0f){float remaining=json_float(stats,stats_end,"hp_remaining",-1.0f);float start=json_float(stats,stats_end,"hp_start",0.0f);if(remaining>=0.0f&&start>0.0f)hp=remaining/start;}
+        if(hp>1.0f&&hp<=100.0f)hp/=100.0f;
+        if(hp>=0.0f&&hp<=1.0f)return hp;
+    }
+    return -1.0f;
+}
 static int json_int(const char *s, const char *end, const char *want, int def) {
     const char *p=s; size_t wl=strlen(want);
     while(p<end){const char*q=strstr(p,"\"");char *stop; long v;if(!q||q>=end)break;q++;if((size_t)(end-q)<wl+1||memcmp(q,want,wl)||q[wl]!='\"'){p=q;continue;}q+=wl+1;while(q<end&&isspace((unsigned char)*q))q++;if(q>=end||*q!=':'){p=q;continue;}q++;while(q<end&&isspace((unsigned char)*q))q++;errno=0;v=strtol(q,&stop,10);if(stop==q||errno)return def;return (int)v;}return def;
+}
+static float json_float(const char *s, const char *end, const char *want, float def) {
+    const char *p=s; size_t wl=strlen(want);
+    while(p<end){const char*q=strstr(p,"\"");char *stop;float v;if(!q||q>=end)break;q++;if((size_t)(end-q)<wl+1||memcmp(q,want,wl)||q[wl]!='\"'){p=q;continue;}q+=wl+1;while(q<end&&isspace((unsigned char)*q))q++;if(q>=end||*q!=':'){p=q;continue;}q++;while(q<end&&isspace((unsigned char)*q))q++;errno=0;v=strtof(q,&stop);if(stop==q||errno)return def;return v;}return def;
 }
 static int list_has(const unsigned char *s, size_t n, const char *id) { size_t l=strlen(id), i=0; while(i<n){size_t j=i;while(j<n&&s[j]!='\n')j++;if(j-i==l&&!memcmp(s+i,id,l))return 1;i=j+1;}return 0; }
 static int team_from_lines(const unsigned char *s, size_t n, Team *team) {
@@ -189,11 +223,134 @@ static int team_from_lines(const unsigned char *s, size_t n, Team *team) {
     }
     return team->count>0;
 }
+static const char *quest_state_path(void) {
+    const char *configured=getenv("TFTF_QUEST_STATE_FILE");
+    if(configured&&configured[0])return configured;
+#ifdef __ANDROID__
+    return "/data/data/com.kabam.bigrobot/files/.tftf-quest-state";
+#else
+    return NULL;
+#endif
+}
+
+static void persist_quest_state_locked(void) {
+    const char *path=quest_state_path();
+    char tmp[STATE_PATH_MAX];
+    FILE *f;
+    int i;
+    if(!path||!path[0]||strlen(path)>=sizeof tmp-5)return;
+    snprintf(tmp,sizeof tmp,"%s.tmp",path);
+    f=fopen(tmp,"w");
+    if(!f)return;
+    fputs("TFTF2\nS|",f);
+    if(g_saved_team_count>0)for(i=0;i<g_saved_team_count;i++){
+        if(i)fputc(',',f);
+        fputs(g_saved_team[i],f);
+    }
+    fputc('\n',f);
+    for(i=0;i<16;i++)if(g_pos[i].qid[0]) {
+        int k;
+        fprintf(f,"Q|%s|%d|%d|%d|%d|",g_pos[i].qid,g_pos[i].x,g_pos[i].y,g_pos[i].pending,g_pos[i].completed);
+        for(k=0;k<g_pos[i].cleared_count;k++)fprintf(f,"%s%s",k?";":"",g_pos[i].cleared[k]);
+        fputc('|',f);
+        for(k=0;k<TEAM_SIZE_MAX;k++)fprintf(f,"%s%.4f",k?",":"",g_pos[i].health[k]);
+        fputc('\n',f);
+    }
+    for(i=0;i<3;i++)fprintf(f,"I|%s|%d\n",g_consumable_ids[i],g_consumable_counts[i]);
+    if(fflush(f)||fclose(f)){unlink(tmp);return;}
+    if(rename(tmp,path))unlink(tmp);
+}
+
+static void load_quest_state(void) {
+    const char *path=quest_state_path();
+    FILE *f;
+    char line[STATE_PATH_MAX];
+    int slot;
+    if(g_state_loaded)return;
+    g_state_loaded=1;
+    if(!path||!path[0])return;
+    f=fopen(path,"r");
+    if(!f)return;
+    pthread_mutex_lock(&g_pos_lock);
+    memset(g_pos,0,sizeof g_pos);
+    g_saved_team_count=0;
+    while(fgets(line,sizeof line,f)){
+        char *nl=strchr(line,'\n');
+        if(nl)*nl=0;
+        if(!strncmp(line,"S|",2)){
+            char *part=line+2;
+            while(*part&&g_saved_team_count<TEAM_SIZE_MAX){
+                char *comma=strchr(part,',');
+                size_t n=comma?(size_t)(comma-part):strlen(part);
+                char token[64];
+                if(n>=sizeof token)break;
+                memcpy(token,part,n); token[n]=0;
+                if(!safe_id(token))break;
+                memcpy(g_saved_team[g_saved_team_count],part,n);
+                g_saved_team[g_saved_team_count][n]=0;
+                g_saved_team_count++;
+                if(!comma)break;
+                part=comma+1;
+            }
+        } else if(!strncmp(line,"Q|",2)){
+            Position loaded;
+            char cleared[STATE_PATH_MAX]="";
+            memset(&loaded,0,sizeof loaded);
+            if(sscanf(line+2,"%63[^|]|%d|%d|%d|%d|%4095[^\n]",loaded.qid,&loaded.x,&loaded.y,&loaded.pending,&loaded.completed,cleared)<5)continue;
+            for(int h=0;h<TEAM_SIZE_MAX;h++)loaded.health[h]=1.0f;
+            char *health_sep=strchr(cleared,'|');
+            if(health_sep){char *part=health_sep+1;*health_sep=0;for(int h=0;h<TEAM_SIZE_MAX&&*part;h++){char *next=strchr(part,',');if(next)*next=0;loaded.health[h]=(float)atof(part);if(loaded.health[h]<0.0f)loaded.health[h]=0.0f;if(loaded.health[h]>1.0f)loaded.health[h]=1.0f;if(!next)break;part=next+1;}}
+            if(!safe_id(loaded.qid)||loaded.x<0||loaded.y<0)continue;
+            if(cleared[0]) {
+                char *part=cleared;
+                while(*part&&loaded.cleared_count<16) {
+                    char *sep=strchr(part,';'); size_t n=sep?(size_t)(sep-part):strlen(part);
+                    if(n>=sizeof loaded.cleared[0])break;
+                    memcpy(loaded.cleared[loaded.cleared_count],part,n); loaded.cleared[loaded.cleared_count][n]=0; loaded.cleared_count++;
+                    if(!sep)break; part=sep+1;
+                }
+            }
+            if(loaded.completed && loaded.cleared_count==0) { snprintf(loaded.cleared[0],sizeof loaded.cleared[0],"%d,%d",loaded.x,loaded.y); loaded.cleared_count=1; }
+            slot=-1;
+            for(int k=0;k<16;k++)if(!g_pos[k].qid[0]){slot=k;break;}
+            if(slot>=0)g_pos[slot]=loaded;
+        } else if(!strncmp(line,"I|",2)){
+            char id[64]; int count=-1;
+            if(sscanf(line+2,"%63[^|]|%d",id,&count)==2 && count>=0){
+                for(int i=0;i<3;i++)if(!strcmp(id,g_consumable_ids[i])){
+                    g_consumable_counts[i]=count;break;
+                }
+            }
+        }
+    }
+    pthread_mutex_unlock(&g_pos_lock);
+    fclose(f);
+}
+
+/* Mirrors gamedata.resolve_team: a squad is only storable when every bid is a
+   real roster entry and the size fits the capacity.  Anything else would be
+   silently rewritten to the default trio, so treat it as a no-op instead. */
+static int squad_is_storable(const char bids[][64], int count) {
+    const unsigned char *roster; size_t rn; int i;
+    if(count<=0||count>TEAM_SIZE_MAX)return 0;
+    roster=lookup("@roster",&rn);
+    if(!roster)return 0;
+    for(i=0;i<count;i++)if(!safe_id(bids[i])||!list_has(roster,rn,bids[i]))return 0;
+    return 1;
+}
+static void position_health_init(Position *position) {
+    int i; for(i=0;i<TEAM_SIZE_MAX;i++)position->health[i]=1.0f;
+}
+
 static void store_saved_team(const char bids[][64], int count, int invalid) {
     int i;
+    /* Squad editors can emit an empty or malformed intermediate update while
+       rebuilding the five slots.  Keep the last valid selection in that case. */
+    if (invalid || !squad_is_storable(bids,count)) return;
     pthread_mutex_lock(&g_pos_lock);
-    g_saved_team_count=invalid||count<0||count>TEAM_SIZE_MAX?-1:count;
-    if(g_saved_team_count>0)for(i=0;i<g_saved_team_count;i++)snprintf(g_saved_team[i],sizeof g_saved_team[i],"%s",bids[i]);
+    g_saved_team_count=count;
+    for(i=0;i<g_saved_team_count;i++)snprintf(g_saved_team[i],sizeof g_saved_team[i],"%s",bids[i]);
+    persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
 }
 static int resolve_team(Team *team) {
@@ -211,17 +368,70 @@ static int resolve_team(Team *team) {
     pthread_mutex_unlock(&g_pos_lock);
     return 1;
 }
-static int render_qteam(Out *o, const Team *team) {
+float tftf_quest_fighter_health(const char *bid) {
+    Team team;
+    float health=-1.0f;
+    if(!bid||!bid[0]||!resolve_team(&team))return health;
+    pthread_mutex_lock(&g_pos_lock);
+    for(int i=0;i<16&&health<0.0f;i++)if(g_pos[i].qid[0]&&g_pos[i].pending){
+        for(int h=0;h<team.count;h++)if(!strcmp(team.bid[h],bid)){
+            health=g_pos[i].health[h];
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_pos_lock);
+    return health;
+}
+static int cleared_has(const Position *p, int x, int y) {
+    char key[32]; int i; snprintf(key,sizeof key,"%d,%d",x,y);
+    for(i=0;i<p->cleared_count;i++)if(!strcmp(p->cleared[i],key))return 1;
+    return 0;
+}
+static void cleared_add(Position *p, int x, int y) {
+    char key[32]; if(cleared_has(p,x,y)||p->cleared_count>=16)return;
+    snprintf(key,sizeof key,"%d,%d",x,y); snprintf(p->cleared[p->cleared_count],sizeof p->cleared[0],"%s",key); p->cleared_count++;
+}
+static int render_cleared(Out *o, const Position *p) {
+    int i; if(!out_add(o,"[",1))return 0;
+    for(i=0;i<p->cleared_count;i++) { int x=0,y=1; if(sscanf(p->cleared[i],"%d,%d",&x,&y)!=2)continue; if(i&&!out_add(o,",",1))return 0; if(!out_add(o,"{\"x\":",5)||!out_int(o,x)||!out_add(o,",\"y\":",5)||!out_int(o,y)||!out_add(o,"}",1))return 0; }
+    return out_add(o,"]",1);
+}
+static int render_member_health(Out *o, const unsigned char *s, size_t n, float health) {
+    size_t at=0; char value[32]; int vn=snprintf(value,sizeof value,"%.4f",health);
+    while(at<n){size_t key=at;while(key+4<=n&&memcmp(s+key,"\"hp\"",4))key++;if(key+4>n)return out_add(o,s+at,n-at);size_t p=key+4;while(p<n&&isspace(s[p]))p++;if(p>=n||s[p++]!=':'){if(!out_add(o,s+at,key+4-at))return 0;at=key+4;continue;}while(p<n&&isspace(s[p]))p++;size_t end=p;if(end<n&&(s[end]=='-'||s[end]=='+'))end++;while(end<n&&(isdigit(s[end])||s[end]=='.'||s[end]=='e'||s[end]=='E'||s[end]=='+'||s[end]=='-'))end++;if(end==p){if(!out_add(o,s+at,key+4-at))return 0;at=key+4;continue;}if(!out_add(o,s+at,p-at)||!out_add(o,value,(size_t)vn))return 0;at=end;return at>=n?1:out_add(o,s+at,n-at);}
+    return 1;
+}
+static int render_qteam(Out *o, const Team *team, const Position *position) {
     int i; char key[96]; const unsigned char *v; size_t n;
     if(!out_add(o,"{",1))return 0;
-    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@questmember:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,v,n))return 0; }
+    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@questmember:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!render_member_health(o,v,n,position->health[i]))return 0; }
     return out_add(o,"}",1);
 }
-static int render_ateam(Out *o, const Team *team) {
+static int render_ateam(Out *o, const Team *team, const Position *position) {
     int i; char key[96]; const unsigned char *v; size_t n;
     if(!out_add(o,"{",1))return 0;
-    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@savedteam:hero:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,"\"",1)||!out_add(o,team->bid[i],strlen(team->bid[i]))||!out_add(o,"\":",2)||!out_add(o,v,n))return 0; }
+    for(i=0;i<team->count;i++) { snprintf(key,sizeof key,"@savedteam:hero:%s",team->bid[i]);v=lookup(key,&n);if(!v)return 0;if(i&&!out_add(o,",",1))return 0;if(!out_add(o,"\"",1)||!out_add(o,team->bid[i],strlen(team->bid[i]))||!out_add(o,"\":",2))return 0;
+        /* The consumables popup reads BCG active-team attributes, separately
+           from quest progression. Both must carry the same health fraction. */
+        if(position&&n&&v[0]=='{') {
+            char hp[48];int hn=snprintf(hp,sizeof hp,"{\"hp\":%.4f,",position->health[i]);
+            if(hn<=0||(size_t)hn>=sizeof hp||!out_add(o,hp,(size_t)hn)||!out_add(o,v+1,n-1))return 0;
+        } else if(!out_add(o,v,n))return 0; }
     return out_add(o,"}",1);
+}
+/* Already installed payloads predate the BCG update envelope. Upgrade their
+   rendered teamData as well so deploying a new hook repairs those APKs. */
+static const unsigned char *quest_team_update(Out *rendered, Out *o, size_t *outn) {
+    const char *start=(const char*)rendered->p,*end=start+rendered->n;
+    const char *team=json_value(start,end,"teamData");
+    const char *team_end=team?json_object_end(team,end):NULL;
+    if(team_end&&!json_value(team,team_end,"updates")) {
+        static const char update[]=",\"updates\":{\"activeTeams\":[";
+        if(!out_add(o,start,(size_t)(team_end-1-start))||
+           !out_add(o,update,sizeof update-1)||!out_add(o,team,(size_t)(team_end-team))||
+           !out_add(o,"]}}",3)||!out_add(o,team_end,(size_t)(end-team_end)))return NULL;
+    } else if(!out_add(o,start,rendered->n))return NULL;
+    *outn=o->n;return o->p;
 }
 static int render_steam(Out *o, const Team *team) {
     int i; char key[96]; const unsigned char *v; size_t n;
@@ -249,21 +459,215 @@ static const char *path_last(const char *p) { const char *x=strrchr(p,'/'); retu
 static int has_suffix(const char *p, const char *s) { size_t a=strlen(p),b=strlen(s);return a>=b&&!memcmp(p+a-b,s,b); }
 static int has_suffix_trim_slashes(const char *p, const char *s) { char trimmed[4096]; size_t n=strlen(p); while(n&&p[n-1]=='/')n--;if(n>=sizeof trimmed)return 0;memcpy(trimmed,p,n);trimmed[n]=0;return has_suffix(trimmed,s); }
 static void resolve_match(const char *body, const char *end) {
-    char outcome[64]="", submitted[64]="", qid[64]; const char *results=json_value(body,end,"results"), *results_end;
+    char outcome[64]="", submitted[64]="", qid[64]; Team team; int have_team=resolve_team(&team), matched=0; const char *results=json_value(body,end,"results"), *results_end;
     results_end=json_object_end(results,end);
     if(!results_end || !json_string(results,results_end,"result",outcome,sizeof outcome)) json_string(body,end,"result",outcome,sizeof outcome);
-    if(strcasecmp(outcome,"WON")) return;
     json_string(body,end,"qid",submitted,sizeof submitted);
     normalize_qid(submitted,qid);
     pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && (!submitted[0] || !strcmp(g_pos[i].qid,qid))) g_pos[i].pending=0;
+    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && g_pos[i].pending &&
+        (!submitted[0] || !strcmp(g_pos[i].qid,qid))) {
+        matched++;
+        if(have_team)for(int h=0;h<team.count;h++){
+            float hp=hero_health_in_report(body,end,team.bid[h]);
+            if(hp>=0.0f){g_pos[i].health[h]=hp;logmsg("quest-health saved qid=%s hero=%s hp=%.4f",g_pos[i].qid,team.bid[h],hp);}
+            else logmsg("quest-health missing qid=%s hero=%s",g_pos[i].qid,team.bid[h]);
+        }
+        if(!strcasecmp(outcome,"WON")){
+            int first_clear=!cleared_has(&g_pos[i],g_pos[i].x,g_pos[i].y);
+            g_pos[i].pending=0;g_pos[i].completed=1;cleared_add(&g_pos[i],g_pos[i].x,g_pos[i].y);
+            /* First-time encounter clears fund the repair loop; revisiting a
+               cleared tile cannot be used to farm consumables. */
+            if(first_clear&&g_consumable_counts[0]<999)g_consumable_counts[0]++;
+        }
+    }
+    if(!matched)logmsg("quest-health ignored submitted=%s normalized=%s outcome=%s team=%d",submitted,qid,outcome,have_team?team.count:0);
+    persist_quest_state_locked();
     pthread_mutex_unlock(&g_pos_lock);
+}
+/* Use orders may carry their own target. The quest popup instead places
+   the common target in the request context. Never search arbitrary bid fields. */
+static int json_use_targets(const char *body, const char *end, char bids[][64], int *count) {
+    const char *items=json_value(body,end,"items"), *q; int n=0;
+    *count=0;
+    if(!items||items>=end||*items!='[')return 0;
+    q=items+1;
+    while(q<end) {
+        const char *item_end, *context, *context_end; char version[128], name[128], bid[64];
+        while(q<end&&(isspace((unsigned char)*q)||*q==','))q++;
+        if(q>=end||*q==']')break;
+        if(*q!='{')return 0;
+        item_end=json_object_end(q,end); if(!item_end)return 0;
+        version[0]=name[0]=bid[0]=0;
+        json_string(q,item_end,"version_id",version,sizeof version);
+        json_string(q,item_end,"item_name",name,sizeof name);
+        context=json_value(q,item_end,"context");
+        context_end=json_object_end(context,item_end);
+        if((version[0]||name[0]||json_value(q,item_end,"version_id")||json_value(q,item_end,"item_name"))&&context_end&&json_string(context,context_end,"bid",bid,sizeof bid)&&safe_id(bid)) {
+            int duplicate=0;
+            for(int i=0;i<n;i++)if(!strcmp(bids[i],bid))duplicate=1;
+            if(!duplicate&&n<TEAM_SIZE_MAX)snprintf(bids[n++],sizeof bids[0],"%s",bid);
+        }
+        q=item_end;
+    }
+    if(!n) {
+        /* q points at the closing items bracket; check either side of the
+           array for the request context, without searching inside an item. */
+        const char *context=json_value(q,end,"context");
+        const char *context_end=json_object_end(context,end);
+        if(!context_end){context=json_value(body,items,"context");context_end=json_object_end(context,items);}
+        char bid[64];
+        if(context_end&&json_string(context,context_end,"bid",bid,sizeof bid)&&safe_id(bid))
+            snprintf(bids[n++],sizeof bids[0],"%s",bid);
+    }
+    *count=n;
+    return 1;
+}
+static int consumable_index(const char *name) {
+    for(int i=0;i<3;i++)if(!strcmp(name,g_consumable_ids[i]))return i;
+    if(!strcmp(name,"Repair Kit"))return 0;
+    if(!strcmp(name,"Team Repair Kit"))return 1;
+    if(!strcmp(name,"Revive"))return 2;
+    return -1;
+}
+/* The popup serializes a selected quantity as repeated use orders. */
+static int repair_item_count(const char *body, const char *end, int *item) {
+    const char *items=json_value(body,end,"items"),*q=items&&*items=='['?items+1:NULL;
+    int count=0;*item=-1;
+    if(!q)return 0;
+    while(q<end) {
+        while(q<end&&(isspace((unsigned char)*q)||*q==','))q++;
+        if(q>=end)return 0;
+        if(*q==']')return count;
+        const char *entry_end=json_object_end(q,end);char name[128];
+        if(!entry_end||!json_string(q,entry_end,"item_name",name,sizeof name))return 0;
+        int index=consumable_index(name);
+        if(index<0||(*item>=0&&*item!=index)||count>=999)return 0;
+        *item=index;count++;q=entry_end;
+    }
+    return 0;
+}
+static int apply_repair_targets(const char *body, const char *end, const char *qid, int item, int uses) {
+    char bids[TEAM_SIZE_MAX][64]; int count=0,changed=0,have_qid=qid&&qid[0]; Team team;
+    if(item<0||item>2||!json_use_targets(body,end,bids,&count)||(count==0&&item!=1)||!resolve_team(&team))return 0;
+    pthread_mutex_lock(&g_pos_lock);
+    /* Heal and spend under the same lock on both routes. Otherwise competing
+       requests can heal before discovering that another request spent the kit. */
+    if(g_consumable_counts[item]<uses){pthread_mutex_unlock(&g_pos_lock);return -1;}
+    for(int i=0;i<16;i++)if(g_pos[i].qid[0]&&(!have_qid||!strcmp(g_pos[i].qid,qid))) {
+        for(int h=0;h<team.count;h++) {
+            int selected=item==1;
+            for(int b=0;b<count;b++)if(!strcmp(team.bid[h],bids[b]))selected=1;
+            if(!selected)continue;
+            if(item==2) {
+                if(g_pos[i].health[h]<=0.0f){g_pos[i].health[h]=0.5f;changed=1;}
+            } else if(g_pos[i].health[h]>0.0f && g_pos[i].health[h]<1.0f) {
+                float amount=(item==0?0.30f:0.20f)*(float)uses;
+                g_pos[i].health[h]+=amount;
+                if(g_pos[i].health[h]>1.0f)g_pos[i].health[h]=1.0f;
+                changed=1;
+            }
+        }
+    }
+    if(changed){g_consumable_counts[item]-=uses;persist_quest_state_locked();}
+    pthread_mutex_unlock(&g_pos_lock);
+    return changed;
+}
+static const unsigned char *repair_no_effect(Out *o, size_t *outn) {
+    /* An empty success makes the client spend inventory locally even though
+       the server did not heal a full, dead, or unrelated target. */
+    static const char response[]="{\"error\":\"invalid\",\"result\":null}";
+    if(!out_add(o,response,sizeof response-1))return NULL;
+    *outn=o->n;return o->p;
+}
+static const unsigned char *repair_depleted(Out *o, size_t *outn) {
+    static const char response[]="{\"error\":\"nsf\",\"result\":null}";
+    if(!out_add(o,response,sizeof response-1))return NULL;
+    *outn=o->n;return o->p;
+}
+/* The use callback only animates redeemers. Authoritative health and inventory
+   reach the popup through the managers' normal push update handlers. */
+static int repair_updates(Out *o, const char *qid, int item) {
+    Team team; Position positions[16]; int count=0,owned;
+    if(!resolve_team(&team))return 0;
+    pthread_mutex_lock(&g_pos_lock);
+    owned=g_consumable_counts[item];
+    for(int i=0;i<16;i++)if(g_pos[i].qid[0]&&(!qid||!strcmp(qid,g_pos[i].qid)))positions[count++]=g_pos[i];
+    pthread_mutex_unlock(&g_pos_lock);
+    static const char head[]=",\"async\":[{\"component\":\"BCGManager\",\"channel\":\"\",\"message\":\"active-team-updated\",\"payload\":{\"result\":{\"updates\":{\"activeTeams\":[";
+    if(!out_add(o,head,sizeof head-1))return 0;
+    for(int i=0;i<count;i++) {
+        char prefix[160];int n=snprintf(prefix,sizeof prefix,"%s{\"aid\":\"%s-0\",\"type\":\"PvE\",\"modes\":[\"PvE\"],\"heroes\":",i?",":"",positions[i].qid);
+        if(n<=0||(size_t)n>=sizeof prefix||!out_add(o,prefix,(size_t)n)||!render_ateam(o,&team,&positions[i])||!out_add(o,"}",1))return 0;
+    }
+    char tail[256];int n=snprintf(tail,sizeof tail,"]}}}},{\"component\":\"InventoryManager\",\"channel\":\"\",\"message\":\"update\",\"payload\":[{\"item\":\"%s\",\"quantity\":%d}]}]}",g_consumable_ids[item],owned);
+    return n>0&&(size_t)n<sizeof tail&&out_add(o,tail,(size_t)n);
+}
+static const unsigned char *use_game_store_items(const char *body, const char *end, Out *o, size_t *outn) {
+    char bids[TEAM_SIZE_MAX][64];int count=0,idx=-1;
+    int uses=repair_item_count(body,end,&idx);
+    if(!uses||!json_use_targets(body,end,bids,&count)||(count==0&&idx!=1)||
+       (idx==2&&uses!=1))return repair_no_effect(o,outn);
+    int applied=apply_repair_targets(body,end,NULL,idx,uses);
+    if(applied<0)return repair_depleted(o,outn);
+    if(!applied)return repair_no_effect(o,outn);
+    char response[192];int amount=(idx==0?30:idx==1?20:50)*uses;
+    int n=snprintf(response,sizeof response,"{\"error\":null,\"result\":{\"redeemers\":[{\"t\":\"%s\",\"q\":%d}]}}",idx==2?"rvv":"hth",amount);
+    if(n<=0||(size_t)n>=sizeof response||!out_add(o,response,(size_t)n-1)||!repair_updates(o,NULL,idx))return NULL;
+    *outn=o->n;
+    return o->p;
+}
+static const unsigned char *repair_heroes(const char *p, const char *body, const char *end, Out *o, size_t *outn) {
+    char qid[64], raw[64]; const char *slash=strrchr(p,'/');
+    if(!slash)return NULL;
+    snprintf(raw,sizeof raw,"%.63s",slash+1);normalize_qid(raw,qid);
+    char bids[TEAM_SIZE_MAX][64];int count=0,item=-1;
+    int uses=repair_item_count(body,end,&item);
+    if(!uses||!json_use_targets(body,end,bids,&count)||(count==0&&item!=1)||
+       (item==2&&uses!=1))return repair_no_effect(o,outn);
+    int applied=apply_repair_targets(body,end,qid,item,uses);
+    if(applied<0)return repair_depleted(o,outn);
+    if(!applied)return repair_no_effect(o,outn);
+    char response[224];int amount=(item==0?30:item==1?20:50)*uses;
+    int n=snprintf(response,sizeof response,"{\"error\":null,\"result\":{\"success\":true,\"usedConsumableCount\":%d,\"redeemers\":[{\"t\":\"%s\",\"q\":%d}]}}",uses,item==2?"rvv":"hth",amount);
+    if(n<=0||(size_t)n>=sizeof response||!out_add(o,response,(size_t)n-1)||!repair_updates(o,qid,item))return NULL;
+    *outn=o->n;
+    return o->p;
+}
+static const unsigned char *inventory_response(Out *o, size_t *outn) {
+    char response[192];
+    int n;
+    pthread_mutex_lock(&g_pos_lock);
+    n=snprintf(response,sizeof response,
+        "{\"error\":null,\"result\":{\"repair_kit\":%d,\"team_repair_kit\":%d,\"revive_kit\":%d}}",
+        g_consumable_counts[0],g_consumable_counts[1],g_consumable_counts[2]);
+    pthread_mutex_unlock(&g_pos_lock);
+    if(n<=0||(size_t)n>=sizeof response||!out_add(o,response,(size_t)n))return NULL;
+    *outn=o->n;return o->p;
+}
+static const unsigned char *gamestore_refresh(int mission, int grouped, Out *o, size_t *outn) {
+    /* AutoRefreshingUpdate reads the payload under its group name, not "data".
+       Keep the normal API envelope and any requested mission update. */
+    static const char update[]="{\"name\":\"gamestore\",\"check\":\"offline-1\",\"refresh\":0,\"cache\":false,\"gamestore\":{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":{\"consumable\":[{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot.\",\"r\":[{\"t\":\"hth\",\"q\":30}],\"use_pve\":true},{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[{\"t\":\"hth\",\"q\":20}],\"use_pve\":true},{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[{\"t\":\"rvv\",\"q\":50}],\"use_pve\":true}]},\"setIdMap\":{}},\"err\":\"\",\"locCheck\":\"\"}";
+    static const char prefix[]="{\"error\":null,\"result\":{\"updates\":[";
+    static const char suffix[]="]}}";
+    static const char single_prefix[]="{\"error\":null,\"result\":";
+    if(!out_add(o,grouped?prefix:single_prefix,grouped?sizeof prefix-1:sizeof single_prefix-1))return NULL;
+    if(mission) {
+        size_t n; const unsigned char *base=lookup("@grouprefresh:missionsconfig",&n);
+        const char *items=base?json_value((const char*)base,(const char*)base+n,"updates"):NULL;
+        const char *entry=items&&*items=='['?items+1:NULL;
+        const char *end=entry?json_object_end(entry,(const char*)base+n):NULL;
+        if(!end||!out_add(o,entry,(size_t)(end-entry))||!out_add(o,",",1))return NULL;
+    }
+    if(!out_add(o,update,sizeof update-1)||!out_add(o,grouped?suffix:"}",grouped?sizeof suffix-1:1))return NULL;
+    *outn=o->n;return o->p;
 }
 static const unsigned char *dynamic(const char *method, const char *p, const char *query, const char *body, size_t bn, Out *o, size_t *outn) {
     char key[256], tid[64]="", bid[64]="", mid[64], qid[64], uid[64]="1000000000001", now[32]; const unsigned char *v; size_t n; const char *end=body+bn;
     /* This ordering deliberately mirrors fakeserver.H._dynamic. */
     if(has_suffix(p,"/bcg/getUserData")) { Team team; Out saved={0},active={0}; TemplateArg args[2];
-        v=lookup("@userdata:template",&n);if(!v||!resolve_team(&team)||!render_steam(&saved,&team)||!render_ateam(&active,&team)){free(saved.p);free(active.p);return NULL;}
+        v=lookup("@userdata:template",&n);if(!v||!resolve_team(&team)||!render_steam(&saved,&team)||!render_ateam(&active,&team,NULL)){free(saved.p);free(active.p);return NULL;}
         args[0]=(TemplateArg){"%STEAM%",saved.p,saved.n};args[1]=(TemplateArg){"%ATEAM%",active.p,active.n};
         if(!out_template_args(o,v,n,args,2)){free(saved.p);free(active.p);return NULL;}free(saved.p);free(active.p);*outn=o->n;return o->p;
     }
@@ -273,8 +677,14 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         args[0]=(TemplateArg){"%UID%",(const unsigned char*)uid,strlen(uid)};args[1]=(TemplateArg){"%NOW%",(const unsigned char*)now,strlen(now)};
         if(!v||!out_template_args(o,v,n,args,2))return NULL;*outn=o->n;return o->p;
     }
-    if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
-    if(has_suffix(p,"/base/active")) { snprintf(key,sizeof key,"%s /base/active",method); v=lookup(key,outn); return v?v:lookup("GET /base/active",outn); }
+    if(!strcmp(method,"POST")&&has_suffix_trim_slashes(p,"/gamestore/use"))return use_game_store_items(body,end,o,outn);
+    if(!strcmp(method,"GET")&&has_suffix_trim_slashes(p,"/inventory"))return inventory_response(o,outn);
+    if(has_suffix(p,"/autorefresh/gamestore/refresh"))return gamestore_refresh(0,0,o,outn);
+    if(has_suffix(p,"/autorefresh/grouprefresh")) { int mission=0; const char *x=query; while(x&&*x){const char*e=strchr(x,'&');const char*eq=strchr(x,'=');size_t nl;if(!e)e=x+strlen(x);if(eq&&eq<e){nl=(size_t)(eq-x);if(nl>=12&&!memcmp(x,"groups.",7)&&nl>=5&&!memcmp(eq-5,".name",5)&&(size_t)(e-eq-1)==14&&!memcmp(eq+1,"missionsconfig",14))mission=1;}x=*e?e+1:NULL;} if(query&&strstr(query,"gamestore"))return gamestore_refresh(mission,1,o,outn);return lookup(mission?"@grouprefresh:missionsconfig":"@grouprefresh:",outn); }
+    if(strstr(p,"/base/active")) { snprintf(key,sizeof key,"%s /base/active",method); v=lookup(key,outn); return v?v:lookup("GET /base/active",outn); }
+    if(has_suffix(p,"/tutorial/get-login-data")) {
+        return lookup("@tutorial:login-completed",outn);
+    }
     if(has_suffix(p,"/tutorial/start-tutorial")||has_suffix(p,"/tutorial/start-branch")||has_suffix(p,"/tutorial/early-start-branch")||has_suffix(p,"/tutorial/complete-tutorial")) {
         if(!json_string(body,end,"tid",tid,sizeof tid))if(!json_string(body,end,"tutorialId",tid,sizeof tid))json_string(body,end,"id",tid,sizeof tid);
         if(!safe_id(tid)) return NULL;
@@ -286,17 +696,47 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         *outn=o->n;
         return o->p;
     }
-    if(has_suffix(p,"/bcg/getBaseHeroData")) {
+    if(strstr(p,"/bcg/getBaseHeroData")) {
         const char *a=strstr(body,"\"heroes\""); const char *arr=a?strchr(a,'['):NULL; const char *q=arr?arr+1:NULL; v=lookup("@herodata:open",&n);if(!v||!out_add(o,v,n))return NULL;
-        int first=1; while(q&&q<end){const char *open=strchr(q,'{'),*close;int depth=0;if(!open||open>=end)break;close=open;do{if(*close=='{')depth++;else if(*close=='}')depth--;close++;}while(close<end&&depth);if(depth)break;char hb[64]="", hk[200], sig[32];int rank=json_int(open,close,"rank",1),level=json_int(open,close,"level",1),sl=json_int(open,close,"sig_lvl",0);if(!rank)rank=1;if(!level)level=1;json_string(open,close,"bid",hb,sizeof hb);snprintf(hk,sizeof hk,"@hero:%s:%d:%d",hb,rank,level);v=lookup(hk,&n);if(!v){snprintf(hk,sizeof hk,"@hero:%s:1:1",hb);v=lookup(hk,&n);}if(!v)v=lookup("@hero:*:1:1",&n);if(v){snprintf(sig,sizeof sig,"%d",sl);if(!first&&!out_add(o,",",1))return NULL;if(!out_template(o,v,n,"%SIG%",sig,"", ""))return NULL;first=0;}q=close;}
+        int first=1; while(q&&q<end){const char *open=strchr(q,'{'),*close;int depth=0;if(!open||open>=end)break;close=open;do{if(*close=='{')depth++;else if(*close=='}')depth--;close++;}while(close<end&&depth);if(depth)break;char hb[64]="", hk[200], sig[32];int rank=json_int(open,close,"rank",1),level=json_int(open,close,"level",1),sl=json_int(open,close,"sig_lvl",0);if(!rank)rank=1;if(!level)level=1;if(!json_string(open,close,"bid",hb,sizeof hb))if(!json_string(open,close,"character",hb,sizeof hb))json_string(open,close,"id",hb,sizeof hb);snprintf(hk,sizeof hk,"@hero:%s:%d:%d",hb,rank,level);v=lookup(hk,&n);if(!v){snprintf(hk,sizeof hk,"@hero:%s:1:1",hb);v=lookup(hk,&n);}if(!v)v=lookup("@hero:*:1:1",&n);logmsg("getBaseHeroData: hero=%s rank=%d lvl=%d lookup=%s", hb, rank, level, v ? "OK" : "NULL");if(v){snprintf(sig,sizeof sig,"%d",sl);if(!first&&!out_add(o,",",1))return NULL;if(!out_template(o,v,n,"%SIG%",sig,"", ""))return NULL;first=0;if(rank==5&&level==1){char hk50[200];size_t n50=0;snprintf(hk50,sizeof hk50,"@hero:%s:5:50",hb);const unsigned char *v50=lookup(hk50,&n50);if(v50){if(!out_add(o,",",1))return NULL;if(!out_template(o,v50,n50,"%SIG%",sig,"", ""))return NULL;logmsg("getBaseHeroData: also emitted rank 5 level 50 for %s", hb);}}}q=close;}
         v=lookup("@herodata:close",&n);if(!v||!out_add(o,v,n))return NULL; Out compact=*o; o->p=NULL;o->n=o->cap=0; v=json_default_spaces(compact.p,compact.n,o,outn);free(compact.p);return v;
     }
     if(strstr(p,"/quests/quest-detail/")) { snprintf(mid,sizeof mid,"%.63s",path_last(p));snprintf(key,sizeof key,"%s /quests/quest-detail/%s",method,mid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-detail/%s",mid);v=lookup(key,&n);}return v?json_default_spaces(v,n,o,outn):NULL; }
+    if(!strcmp(method,"POST")&&strstr(p,"/quests/use/")){v=repair_heroes(p,body,end,o,outn);if(v)return v;}
     if(strstr(p,"/matches/resolve-match/")) { resolve_match(body,end); return NULL; }
-    if(strstr(p,"/quests/quest-begin/")) { Team team; Out qteam={0}; TemplateArg args[2];snprintf(qid,sizeof qid,"%.63s",path_last(p)); logmsg("quest-begin qid=%s body=%.*s", qid, (int)(end-body>512?512:end-body), body); /* reset even if response is absent */
-        int x=0,y=1;store_quest_team(body,end);snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&x,&y);pthread_mutex_lock(&g_pos_lock);int slot=-1;for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)||!g_pos[i].qid[0]){slot=i;break;}if(slot>=0){snprintf(g_pos[slot].qid,sizeof g_pos[slot].qid,"%s",qid);g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;}pthread_mutex_unlock(&g_pos_lock);snprintf(key,sizeof key,"%s /quests/quest-begin/%s",method,qid);v=lookup(key,&n);if(!v){snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);}if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team)){free(qteam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};v=template_spaced(o,v,n,args,2,outn);free(qteam.p);return v; }
+    if(strstr(p,"/quests/quest-begin/")) {
+        Team team; Position snapshot={0}; Out qteam={0},cleared={0};
+        TemplateArg args[5]; char posx[16],posy[16]; int x=0,y=1,slot=-1;
+        snprintf(qid,sizeof qid,"%.63s",path_last(p));
+        store_quest_team(body,end);
+        snprintf(key,sizeof key,"@quest:start:%s",qid); v=lookup(key,&n);
+        if(!v)return NULL;
+        sscanf((const char*)v,"%d %d",&x,&y);
+        pthread_mutex_lock(&g_pos_lock);
+        for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
+        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){
+            slot=i; memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);
+            g_pos[i].x=x;g_pos[i].y=y;break;
+        }
+        if(slot>=0){snapshot=g_pos[slot];persist_quest_state_locked();}
+        pthread_mutex_unlock(&g_pos_lock);
+        if(slot<0)return NULL;
+        snprintf(posx,sizeof posx,"%d",snapshot.x);snprintf(posy,sizeof posy,"%d",snapshot.y);
+        snprintf(key,sizeof key,"POST /quests/quest-begin/%s",qid);v=lookup(key,&n);
+        if(!v||!resolve_team(&team)||!render_qteam(&qteam,&team,&snapshot)||!render_cleared(&cleared,&snapshot)){
+            free(qteam.p);free(cleared.p);return NULL;
+        }
+        args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};
+        args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};
+        args[2]=(TemplateArg){"%POSX%",(const unsigned char*)posx,strlen(posx)};
+        args[3]=(TemplateArg){"%POSY%",(const unsigned char*)posy,strlen(posy)};
+        args[4]=(TemplateArg){"%CLEARED%",cleared.p,cleared.n};
+        logmsg("quest-begin qid=%s pos=%s,%s squad=%d lead=%s",qid,posx,posy,team.count,team.bid[0]);
+        v=template_spaced(o,v,n,args,5,outn);free(qteam.p);free(cleared.p);return v;
+    }
     if(strstr(p,"/quests/quest-movedir/")) {
-        int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0;
+        int dx=1,dy=0,sx=0,sy=1,nx=0,ny=1,slot=-1,found=0,completed=0;
+        Position snapshot={0};
         const char *z=strrchr(p,'/'), *yseg=z?z+1:"", *z2=z?NULL:NULL;
         char xs[32], ys[32], seg[96], *ep; long lx,ly;
         if(z){z2=z-1;while(z2>p&&*z2!='/')z2--;if(*z2=='/')z2++;}
@@ -307,19 +747,50 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         snprintf(qid,sizeof qid,"%.63s",seg);lx=strtol(xs,&ep,10);if(*ep)lx=1;ly=strtol(ys,&ep,10);if(*ep){lx=1;ly=0;}dx=(int)lx;dy=(int)ly;
         pthread_mutex_lock(&g_pos_lock);
         for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
-        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
-        if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
+        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
+        if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
         snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
         if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}
-        if(found&&slot>=0){g_pos[slot].x=nx;g_pos[slot].y=ny;}
+        if(!found){dx=0;dy=0;nx=sx;ny=sy;}
+        if(slot>=0){
+            /* The start tile has no encounter; entering it is always safe. */
+            int start_x=0,start_y=1;
+            snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);
+            if(v)sscanf((const char*)v,"%d %d",&start_x,&start_y);
+            if(sx==start_x&&sy==start_y)cleared_add(&g_pos[slot],sx,sy);
+            completed=cleared_has(&g_pos[slot],nx,ny);
+            g_pos[slot].x=nx;g_pos[slot].y=ny;g_pos[slot].completed=completed;
+        }
+        if(completed) snprintf(key,sizeof key,"@movedir-completed:%s:%d:%d:0:0",qid,sx,sy);
+        else snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);
+        v=lookup(key,&n);
+        if(slot>=0){
+            g_pos[slot].pending=v&&contains_bytes(v,n,"\"currentBattleState\"");
+            snapshot=g_pos[slot];persist_quest_state_locked();
+        }
         pthread_mutex_unlock(&g_pos_lock);
-        snprintf(key,sizeof key,"@movedir:%s:%d:%d:%d:%d",qid,sx,sy,dx,dy);v=lookup(key,&n);
-        if(!v){snprintf(key,sizeof key,"@movedir:%s:%d:%d:0:0",qid,sx,sy);v=lookup(key,&n);}
-        if(v&&found&&contains_bytes(v,n,"\"currentBattleState\"")){pthread_mutex_lock(&g_pos_lock);if(slot>=0&&!strcmp(g_pos[slot].qid,qid))g_pos[slot].pending=1;pthread_mutex_unlock(&g_pos_lock);}
-        if(v){Team team;Out qteam={0},ateam={0};TemplateArg args[3];if(!resolve_team(&team)||!render_qteam(&qteam,&team)||!render_ateam(&ateam,&team)){free(qteam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(qteam.p);free(ateam.p);return v;}
+        if(v){
+            Team team;Out qteam={0},ateam={0},cleared={0};TemplateArg args[6]; char nextx[16],nexty[16];
+            if(!resolve_team(&team)||!render_qteam(&qteam,&team,&snapshot)||!render_ateam(&ateam,&team,&snapshot)||!render_cleared(&cleared,&snapshot)){
+                free(qteam.p);free(ateam.p);free(cleared.p);return NULL;
+            }
+            args[0]=(TemplateArg){"%LEAD%",(const unsigned char*)team.bid[0],strlen(team.bid[0])};
+            args[1]=(TemplateArg){"%QTEAM%",qteam.p,qteam.n};
+            args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};
+            args[3]=(TemplateArg){"%CLEARED%",cleared.p,cleared.n};
+            snprintf(nextx,sizeof nextx,"%d",nx); snprintf(nexty,sizeof nexty,"%d",ny);
+            args[4]=(TemplateArg){"%POSX%",(const unsigned char*)nextx,strlen(nextx)};
+            args[5]=(TemplateArg){"%POSY%",(const unsigned char*)nexty,strlen(nexty)};
+            logmsg("quest-move qid=%s pos=%d,%d pending=%d cleared=%d squad=%d lead=%s",qid,nx,ny,snapshot.pending,snapshot.cleared_count,team.count,team.bid[0]);
+            for(int h=0;h<team.count;h++)logmsg("quest-health returned qid=%s hero=%s hp=%.4f",qid,team.bid[h],snapshot.health[h]);
+            Out rendered={0};size_t rn;
+            v=template_spaced(&rendered,v,n,args,6,&rn);
+            if(v)v=quest_team_update(&rendered,o,outn);
+            free(rendered.p);free(qteam.p);free(ateam.p);free(cleared.p);return v;
+        }
         return NULL;
     }
-    if(has_suffix(p,"/bcg/setSavedTeam")) { char teamid[64]="0",bids[TEAM_SIZE_MAX][64];int count,invalid;Team team;Out steam={0},ateam={0};TemplateArg args[3];json_string(body,end,"teamID",teamid,sizeof teamid);json_heroes(body,end,bids,&count,&invalid);store_saved_team(bids,count,invalid);v=lookup("@savedteam:template",&n);if(!v||!resolve_team(&team)||!render_steam(&steam,&team)||!render_ateam(&ateam,&team)){free(steam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%TID%",(const unsigned char*)teamid,strlen(teamid)};args[1]=(TemplateArg){"%STEAM%",steam.p,steam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(steam.p);free(ateam.p);return v; }
+    if(has_suffix(p,"/bcg/setSavedTeam")) { char teamid[64]="0",bids[TEAM_SIZE_MAX][64];int count,invalid;Team team;Out steam={0},ateam={0};TemplateArg args[3];json_string(body,end,"teamID",teamid,sizeof teamid);json_heroes(body,end,bids,&count,&invalid);store_saved_team(bids,count,invalid);v=lookup("@savedteam:template",&n);if(!v||!resolve_team(&team)||!render_steam(&steam,&team)||!render_ateam(&ateam,&team,NULL)){free(steam.p);free(ateam.p);return NULL;}args[0]=(TemplateArg){"%TID%",(const unsigned char*)teamid,strlen(teamid)};args[1]=(TemplateArg){"%STEAM%",steam.p,steam.n};args[2]=(TemplateArg){"%ATEAM%",ateam.p,ateam.n};v=template_spaced(o,v,n,args,3,outn);free(steam.p);free(ateam.p);return v; }
     return NULL;
 }
 
@@ -377,6 +848,12 @@ static void *connection(void *arg) {
         char *head_end; size_t hlen, clen=0, body_have, take; char method[24], target[4096], proto[16], path[4096], *query=""; const char *cv,*ev,*conn; int close_after=0;
         while(!(head_end=(char*)find_end(buf,used))) { if(used>=MAX_HEAD || recv_more(fd,buf,&used,MAX_HEAD+MAX_BODY)<1)goto out; }
         hlen=(size_t)((unsigned char*)head_end-buf)+4;
+        /* buf is recycled malloc memory, so it still holds the previous
+         * request's bytes past the current head.  NUL-terminate the head
+         * (overwriting the \r of the blank line) before any header scan,
+         * otherwise ci_find_header picks up a stale Content-Length and the
+         * thread blocks forever waiting for a body that never arrives. */
+        buf[hlen-2]=0;
         if(sscanf((char*)buf,"%23s %4095s %15s",method,target,proto)!=3 || strncmp(proto,"HTTP/",5))goto out;
         cv=ci_find_header((char*)buf,"Content-Length"); if(cv) { char *ep; unsigned long long x=strtoull(cv,&ep,10); if(ep==cv||x>64u*1024u*1024u)goto out;clen=(size_t)x; }
         ev=ci_find_header((char*)buf,"Expect"); if(ev&&has_token(ev,"100-continue")&&!send_all(fd,"HTTP/1.1 100 Continue\r\n\r\n",25))goto out;
@@ -406,7 +883,7 @@ static void *accept_loop(void *unused) {
 }
 int tftf_server_start_blob(const void *blob, size_t len) {
     Blob b; int fd,opt=1;struct sockaddr_in sa;pthread_t th;int rc=blob_validate(blob,len,&b);
-    if(rc){logmsg("payload validation failed (%d)",rc);return -1;} pthread_mutex_lock(&g_start_lock);if(g_started){pthread_mutex_unlock(&g_start_lock);return -2;}g_blob=b;
+    if(rc){logmsg("payload validation failed (%d)",rc);return -1;} pthread_mutex_lock(&g_start_lock);if(g_started){pthread_mutex_unlock(&g_start_lock);return -2;}g_blob=b;load_quest_state();
     fd=socket(AF_INET,SOCK_STREAM,0);if(fd<0)goto fail;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&opt,sizeof opt);memset(&sa,0,sizeof sa);sa.sin_family=AF_INET;sa.sin_addr.s_addr=htonl(INADDR_LOOPBACK);sa.sin_port=htons((uint16_t)b.port);
     for(int i=0;i<5;i++){if(!bind(fd,(struct sockaddr*)&sa,sizeof sa))break;if(i==4)goto failclose;struct timespec ts={0,200000000};nanosleep(&ts,NULL);}if(listen(fd,64))goto failclose;if(pthread_create(&th,NULL,accept_loop,(void*)(intptr_t)fd))goto failclose;pthread_detach(th);g_started=1;pthread_mutex_unlock(&g_start_lock);logmsg("in-apk server listening on 127.0.0.1:%u",b.port);return 0;
 failclose: close(fd);

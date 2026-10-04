@@ -5,14 +5,21 @@
 # REQUIRES the app installed with `adb install --no-incremental` (default incremental-fs
 # lib dir is read-only even to root -> cp EPERM with no AVC).
 set -e
-export PATH="$HOME/Android/Sdk/platform-tools:$PATH"
 D="${D:-emulator-5554}"; PKG=com.kabam.bigrobot
 HERE="$(cd "$(dirname "$0")" && pwd)"
-CC="$HOME/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang"
+ROOT_DIR="$(cd "$HERE/../.." && pwd)"
+DIALOGUE_HEADER_DIR="$ROOT_DIR/build/nativehook"
+python3 "$HERE/generate_dialogue_header.py" "$DIALOGUE_HEADER_DIR/dialogue_translations.generated.h"
+if [ -z "${CC:-}" ] || [ "$(basename "$CC")" = "gcc" ] || [ "$(basename "$CC")" = "cc" ]; then
+  NDK_CLANG="$(command -v aarch64-linux-android28-clang 2>/dev/null || find /nix/store -path "*/ndk/*/aarch64-linux-android28-clang" -type f 2>/dev/null | head -n1 || echo "$HOME/Android/Sdk/ndk/26.3.11579264/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang")"
+  CC="$NDK_CLANG"
+fi
 LOGF=/data/data/$PKG/files/dotkeys.log
-echo "[*] build"
+echo "[*] build using CC: $CC"
+# Keep the emulator deploy on the production/offline hook. The experimental Arena transport
+# is not part of the default APK build because it adds a second native thread and socket path.
 "$CC" -shared -O2 -fPIC -Wl,-soname,libdothook.so -o "$HERE/libdothook.so" \
-  "$HERE/hook.c" "$HERE/inapk_server.c" -llog
+  -I "$DIALOGUE_HEADER_DIR" "$HERE/hook.c" "$HERE/inapk_server.c" -llog
 LIBDIR=$(adb -s "$D" shell "find /data/app -type d -name arm64 2>/dev/null | grep bigrobot" | tr -d '\r')
 echo "[*] deploy -> $LIBDIR"
 adb -s "$D" shell am force-stop $PKG

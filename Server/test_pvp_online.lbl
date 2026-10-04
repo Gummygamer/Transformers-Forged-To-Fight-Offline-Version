@@ -24,6 +24,36 @@ function test_pvp_login_data_is_canned(): boolean
   starts_with(choice.source, "canned ") and choice.body != "\{\"error\":null,\"result\":\{\}\}"
 end
 
+function test_pvp_login_data_shape_stage1_stage2_stage3(arena: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(arena, "pid")) == "arena_versus" and jsonout.obj_has(arena, "winStreak") and jsonout.obj_has(arena, "wins") and jsonout.obj_has(arena, "losses") and jsonout.obj_has(arena, "longestStreak") and jsonout.obj_has(arena, "findAttempts")
+end
+
+function test_pvp_login_data_shape_stage1_stage2(result: Json): boolean
+  intent: test
+  let arenas: a list of Json = jsonout.list_items(jsonout.obj_get(result, "pvpUserData"))
+  let arena: Json = unwrap_or(get(arenas, 0), jsonout.json_obj([]))
+  if jsonout.type_name(jsonout.obj_get(result, "pvpMatchData")) != "list" then
+  false
+else if length(arenas) != 1 or jsonout.type_name(arena) != "object" or not jsonout.obj_has(arena, "pid") then
+  false
+else
+  test_pvp_login_data_shape_stage1_stage2_stage3(arena)
+end
+end
+
+function test_pvp_login_data_shape_stage1(top: Json): boolean
+  intent: test
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" then
+  false
+else if not jsonout.obj_has(result, "pvpUserData") or not jsonout.obj_has(result, "pvpMatchData") then
+  false
+else
+  test_pvp_login_data_shape_stage1_stage2(result)
+end
+end
+
 function test_pvp_login_data_shape(): boolean
   intent: test
   let choice: ResponseChoice = fakeserver.resolve_response("GET", "/pvp/get-login-data?api=5")
@@ -33,22 +63,7 @@ function test_pvp_login_data_shape(): boolean
 else if not jsonout.obj_has(top, "result") then
   false
 else
-  let result: Json = jsonout.obj_get(top, "result")
-  if jsonout.type_name(result) != "object" then
-  false
-else if not jsonout.obj_has(result, "pvpUserData") or not jsonout.obj_has(result, "pvpMatchData") then
-  false
-else
-  let arenas: a list of Json = jsonout.list_items(jsonout.obj_get(result, "pvpUserData"))
-  let arena: Json = unwrap_or(get(arenas, 0), jsonout.json_obj([]))
-  if jsonout.type_name(jsonout.obj_get(result, "pvpMatchData")) != "list" then
-  false
-else if length(arenas) != 1 or jsonout.type_name(arena) != "object" or not jsonout.obj_has(arena, "pid") then
-  false
-else
-  jsonout.as_text(jsonout.obj_get(arena, "pid")) == "arena_versus" and jsonout.obj_has(arena, "winStreak") and jsonout.obj_has(arena, "wins") and jsonout.obj_has(arena, "losses") and jsonout.obj_has(arena, "longestStreak") and jsonout.obj_has(arena, "findAttempts")
-end
-end
+  test_pvp_login_data_shape_stage1(top)
 end
 end
 
@@ -63,17 +78,15 @@ function test_events_refresh_is_canned(): boolean
   starts_with(choice.source, "canned ") and choice.body != "\{\"error\":null,\"result\":\{\}\}"
 end
 
-function test_events_refresh_has_a_playable_arena(): boolean
+function test_events_refresh_has_a_playable_arena_stage1_stage2_stage3(result: Json, event: Json): boolean
   intent: test
-  let choice: ResponseChoice = fakeserver.resolve_response("GET", "/events/refresh?hash=&api=5")
-  let top: Json = jsonout.parse_json(choice.body)
-  if jsonout.type_name(top) != "object" or not jsonout.obj_has(top, "result") then
-  false
-else
-  let result: Json = jsonout.obj_get(top, "result")
-  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "check") or not jsonout.obj_has(result, "events") then
-  false
-else
+  let messaging: Json = jsonout.obj_get(event, "messaging")
+  let arena: Json = jsonout.obj_get(event, "arena")
+  jsonout.as_text(jsonout.obj_get(result, "check")) == "offline-ave-v999" and jsonout.as_text(jsonout.obj_get(event, "_id")) == "arena_versus" and jsonout.as_text(jsonout.obj_get(event, "eventtype")) == "arena" and jsonout.as_text(jsonout.obj_get(event, "state")) == "Running" and jsonout.as_int(jsonout.obj_get(event, "start")) < jsonout.as_int(jsonout.obj_get(event, "end")) and jsonout.as_int(jsonout.obj_get(event, "end")) < jsonout.as_int(jsonout.obj_get(event, "final")) and jsonout.type_name(messaging) == "object" and jsonout.as_text(jsonout.obj_get(messaging, "name")) != "" and jsonout.as_text(jsonout.obj_get(messaging, "long")) != "" and jsonout.type_name(arena) == "object" and jsonout.as_int(jsonout.obj_get(arena, "teamSize")) == 3 and jsonout.as_int(jsonout.obj_get(arena, "winStreakMax")) == 3
+end
+
+function test_events_refresh_has_a_playable_arena_stage1_stage2(result: Json): boolean
+  intent: test
   let events: a list of Json = jsonout.list_items(jsonout.obj_get(result, "events"))
   mutable event: Json = jsonout.json_obj([])
   for candidate in events do
@@ -84,11 +97,28 @@ else
 else if not jsonout.obj_has(event, "_id") or not jsonout.obj_has(event, "eventtype") or not jsonout.obj_has(event, "state") or not jsonout.obj_has(event, "messaging") or not jsonout.obj_has(event, "arena") then
   false
 else
-  let messaging: Json = jsonout.obj_get(event, "messaging")
-  let arena: Json = jsonout.obj_get(event, "arena")
-  jsonout.as_text(jsonout.obj_get(result, "check")) == "offline-ave-v999" and jsonout.as_text(jsonout.obj_get(event, "_id")) == "arena_versus" and jsonout.as_text(jsonout.obj_get(event, "eventtype")) == "arena" and jsonout.as_text(jsonout.obj_get(event, "state")) == "Running" and jsonout.as_int(jsonout.obj_get(event, "start")) < jsonout.as_int(jsonout.obj_get(event, "end")) and jsonout.as_int(jsonout.obj_get(event, "end")) < jsonout.as_int(jsonout.obj_get(event, "final")) and jsonout.type_name(messaging) == "object" and jsonout.as_text(jsonout.obj_get(messaging, "name")) != "" and jsonout.as_text(jsonout.obj_get(messaging, "long")) != "" and jsonout.type_name(arena) == "object" and jsonout.as_int(jsonout.obj_get(arena, "teamSize")) == 3 and jsonout.as_int(jsonout.obj_get(arena, "winStreakMax")) == 3
+  test_events_refresh_has_a_playable_arena_stage1_stage2_stage3(result, event)
 end
 end
+
+function test_events_refresh_has_a_playable_arena_stage1(top: Json): boolean
+  intent: test
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "check") or not jsonout.obj_has(result, "events") then
+  false
+else
+  test_events_refresh_has_a_playable_arena_stage1_stage2(result)
+end
+end
+
+function test_events_refresh_has_a_playable_arena(): boolean
+  intent: test
+  let choice: ResponseChoice = fakeserver.resolve_response("GET", "/events/refresh?hash=&api=5")
+  let top: Json = jsonout.parse_json(choice.body)
+  if jsonout.type_name(top) != "object" or not jsonout.obj_has(top, "result") then
+  false
+else
+  test_events_refresh_has_a_playable_arena_stage1(top)
 end
 end
 
@@ -127,6 +157,51 @@ function test_opponent_is_the_other_peer_and_falls_back_to_house(): boolean
   peers_ok and fakeserver.opponent_roster("sessA").peer == "house" and length(fakeserver.opponent_roster("sessA").heroes) > 0
 end
 
+function test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2_stage3_part1(match_data: Json, opponent: Json, user_data: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(match_data, "pid")) == "arena_versus" and jsonout.type_name(jsonout.obj_get(match_data, "state")) == "text" and jsonout.as_text(jsonout.obj_get(match_data, "state")) == "selecting" and jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob"
+end
+
+function test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2_stage3_part2(user_data: Json, team: a list of Json, matchups: a list of Json, hero: Json, matchup: Json): boolean
+  intent: test
+  jsonout.obj_has(user_data, "pvpStats") and length(team) > 0 and length(matchups) == length(team) and jsonout.type_name(hero) == "object" and jsonout.as_text(jsonout.obj_get(hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(matchup, "opponentHero")) == "optimusprime_cin_tf" and jsonout.obj_has(matchup, "userHero") and jsonout.as_text(jsonout.obj_get(matchup, "aip")) == "normal"
+end
+
+function test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2_stage3(match_data: Json, opponent: Json): boolean
+  intent: test
+  let user_data: Json = jsonout.obj_get(opponent, "userData")
+  let ok_1: boolean = test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2_stage3_part1(match_data, opponent, user_data)
+  let team: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "team"))
+  let matchups: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "matchups"))
+  let hero: Json = unwrap_or(get(team, 0), jsonout.json_obj([]))
+  let matchup: Json = unwrap_or(get(matchups, 0), jsonout.json_obj([]))
+  let ok_2: boolean = ok_1 and test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2_stage3_part2(user_data, team, matchups, hero, matchup)
+  ok_2
+end
+
+function test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2(result: Json): boolean
+  intent: test
+  let matches: a list of Json = jsonout.list_items(jsonout.obj_get(result, "pvpMatchData"))
+  let match_data: Json = unwrap_or(get(matches, 0), jsonout.json_obj([]))
+  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(match_data, "opponents"))
+  let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
+  if length(opponents) != 1 or jsonout.type_name(opponent) != "object" or not jsonout.obj_has(opponent, "uid") or not jsonout.obj_has(opponent, "userData") or not jsonout.obj_has(opponent, "team") then
+  false
+else
+  test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2_stage3(match_data, opponent)
+end
+end
+
+function test_find_arena_opponent_serves_the_other_peers_team_stage1(top: Json): boolean
+  intent: test
+  let result: Json = jsonout.obj_get(top, "result")
+  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "pvpMatchData") or not jsonout.obj_has(result, "pvpUserData") then
+  false
+else
+  test_find_arena_opponent_serves_the_other_peers_team_stage1_stage2(result)
+end
+end
+
 function test_find_arena_opponent_serves_the_other_peers_team(): boolean
   intent: test
   fakeserver.reset_presence()
@@ -138,25 +213,7 @@ function test_find_arena_opponent_serves_the_other_peers_team(): boolean
   if body == "" or jsonout.type_name(top) != "object" or not jsonout.obj_has(top, "result") then
   false
 else
-  let result: Json = jsonout.obj_get(top, "result")
-  if jsonout.type_name(result) != "object" or not jsonout.obj_has(result, "pvpMatchData") or not jsonout.obj_has(result, "pvpUserData") then
-  false
-else
-  let matches: a list of Json = jsonout.list_items(jsonout.obj_get(result, "pvpMatchData"))
-  let match_data: Json = unwrap_or(get(matches, 0), jsonout.json_obj([]))
-  let opponents: a list of Json = jsonout.list_items(jsonout.obj_get(match_data, "opponents"))
-  let opponent: Json = unwrap_or(get(opponents, 0), jsonout.json_obj([]))
-  if length(opponents) != 1 or jsonout.type_name(opponent) != "object" or not jsonout.obj_has(opponent, "uid") or not jsonout.obj_has(opponent, "userData") or not jsonout.obj_has(opponent, "team") then
-  false
-else
-  let user_data: Json = jsonout.obj_get(opponent, "userData")
-  let team: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "team"))
-  let matchups: a list of Json = jsonout.list_items(jsonout.obj_get(opponent, "matchups"))
-  let hero: Json = unwrap_or(get(team, 0), jsonout.json_obj([]))
-  let matchup: Json = unwrap_or(get(matchups, 0), jsonout.json_obj([]))
-  jsonout.as_text(jsonout.obj_get(match_data, "pid")) == "arena_versus" and jsonout.type_name(jsonout.obj_get(match_data, "state")) == "text" and jsonout.as_text(jsonout.obj_get(match_data, "state")) == "selecting" and jsonout.type_name(jsonout.obj_get(opponent, "uid")) == "int" and jsonout.type_name(user_data) == "object" and jsonout.obj_has(user_data, "name") and jsonout.as_text(jsonout.obj_get(user_data, "name")) == "Bob" and jsonout.obj_has(user_data, "pvpStats") and length(team) > 0 and length(matchups) == length(team) and jsonout.type_name(hero) == "object" and jsonout.as_text(jsonout.obj_get(hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(matchup, "opponentHero")) == "optimusprime_cin_tf" and jsonout.obj_has(matchup, "userHero") and jsonout.as_text(jsonout.obj_get(matchup, "aip")) == "normal"
-end
-end
+  test_find_arena_opponent_serves_the_other_peers_team_stage1(top)
 end
 end
 
@@ -355,6 +412,33 @@ function test_opponent_search_touches_the_callers_presence(): boolean
   response != "" and length(peers) == 2 and ((alice.peer == "sessA" and alice.name == "Alice") or (bob.peer == "sessA" and bob.name == "Alice"))
 end
 
+function test_exact_client_paths_return_updateable_pvp_data_part1(replacement_match: Json, locked: Json, locked_match: Json, locked_opponent: Json, loaded: Json, retried_match: Json, user_hero: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(replacement_match, "state")) == "selecting" and jsonout.as_text(jsonout.obj_get(locked_match, "state")) == "active" and jsonout.as_bool(jsonout.obj_get(locked, "locked")) and length(jsonout.list_items(jsonout.obj_get(locked_opponent, "matchups"))) == 3 and jsonout.as_bool(jsonout.obj_get(loaded, "loaded")) and jsonout.as_text(jsonout.obj_get(loaded, "fightID")) == "arena-fight-1" and jsonout.as_text(jsonout.obj_get(retried_match, "state")) == "active" and jsonout.as_text(jsonout.obj_get(user_hero, "bid")) == "optimusprime_cin_tf"
+end
+
+function test_exact_client_paths_return_updateable_pvp_data_part2(activated: Json, async_message: Json, async_data: Json, user_hero: Json, opponent_hero: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(opponent_hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_int(jsonout.obj_get(user_hero, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(opponent_hero, "attack")) > 0 and jsonout.as_text(jsonout.obj_get(async_message, "component")) == "PVPManager" and jsonout.as_text(jsonout.obj_get(async_message, "message")) == "match-activated" and jsonout.type_name(jsonout.obj_get(async_data, "pvpMatchData")) == "list" and jsonout.type_name(jsonout.obj_get(async_data, "pvpUserData")) == "list"
+end
+
+function test_exact_client_paths_return_updateable_pvp_data_part3(async_attrs: Json): boolean
+  intent: test
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(async_attrs, "userHero"), "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(async_attrs, "opponentHero"), "bid")) == "optimusprime_cin_tf"
+end
+
+function test_exact_client_paths_return_updateable_pvp_data_tail(activated_top: Json, activated: Json, user_hero: Json, ok_1: boolean): boolean
+  intent: test
+  let async_messages: a list of Json = jsonout.list_items(jsonout.obj_get(activated_top, "async"))
+  let async_message: Json = unwrap_or(get(async_messages, 0), jsonout.json_obj([]))
+  let async_data: Json = jsonout.obj_get(async_message, "payload")
+  let opponent_hero: Json = jsonout.obj_get(jsonout.obj_get(activated, "matchAttributes"), "opponentHero")
+  let ok_2: boolean = ok_1 and test_exact_client_paths_return_updateable_pvp_data_part2(activated, async_message, async_data, user_hero, opponent_hero)
+  let async_attrs: Json = jsonout.obj_get(async_data, "matchAttributes")
+  let ok_3: boolean = ok_2 and test_exact_client_paths_return_updateable_pvp_data_part3(async_attrs)
+  ok_3
+end
+
 function test_exact_client_paths_return_updateable_pvp_data(): boolean
   intent: test
   reset_endpoint_pvp_state()
@@ -370,13 +454,9 @@ function test_exact_client_paths_return_updateable_pvp_data(): boolean
   let retried_match: Json = first_pvp_match(retried)
   let activated_top: Json = jsonout.parse_json(fakeserver.dynamic("/matches/activate-match/pvp_fight?peer=sessA", "\{\"pid\":\"arena_versus\",\"heroes\":[\"optimusprime_cin_tf\",\"megatron_cin_tf\",\"bumblebee_cin_tf\"]\}"))
   let activated: Json = jsonout.obj_get(activated_top, "result")
-  let async_messages: a list of Json = jsonout.list_items(jsonout.obj_get(activated_top, "async"))
-  let async_message: Json = unwrap_or(get(async_messages, 0), jsonout.json_obj([]))
-  let async_data: Json = jsonout.obj_get(async_message, "payload")
-  let async_attrs: Json = jsonout.obj_get(async_data, "matchAttributes")
   let user_hero: Json = jsonout.obj_get(jsonout.obj_get(activated, "matchAttributes"), "userHero")
-  let opponent_hero: Json = jsonout.obj_get(jsonout.obj_get(activated, "matchAttributes"), "opponentHero")
-  jsonout.as_text(jsonout.obj_get(replacement_match, "state")) == "selecting" and jsonout.as_text(jsonout.obj_get(locked_match, "state")) == "active" and jsonout.as_bool(jsonout.obj_get(locked, "locked")) and length(jsonout.list_items(jsonout.obj_get(locked_opponent, "matchups"))) == 3 and jsonout.as_bool(jsonout.obj_get(loaded, "loaded")) and jsonout.as_text(jsonout.obj_get(loaded, "fightID")) == "arena-fight-1" and jsonout.as_text(jsonout.obj_get(retried_match, "state")) == "active" and jsonout.as_text(jsonout.obj_get(user_hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(opponent_hero, "bid")) == "optimusprime_cin_tf" and jsonout.as_int(jsonout.obj_get(user_hero, "max_hp")) > 0 and jsonout.as_int(jsonout.obj_get(opponent_hero, "attack")) > 0 and jsonout.as_text(jsonout.obj_get(async_message, "component")) == "PVPManager" and jsonout.as_text(jsonout.obj_get(async_message, "message")) == "match-activated" and jsonout.type_name(jsonout.obj_get(async_data, "pvpMatchData")) == "list" and jsonout.type_name(jsonout.obj_get(async_data, "pvpUserData")) == "list" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(async_attrs, "userHero"), "bid")) == "optimusprime_cin_tf" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(async_attrs, "opponentHero"), "bid")) == "optimusprime_cin_tf"
+  let ok_1: boolean = test_exact_client_paths_return_updateable_pvp_data_part1(replacement_match, locked, locked_match, locked_opponent, loaded, retried_match, user_hero)
+  test_exact_client_paths_return_updateable_pvp_data_tail(activated_top, activated, user_hero, ok_1)
 end
 
 function test_heartbeat_registers_a_live_peer(): boolean
@@ -631,7 +711,7 @@ function run_arena_event_tests(): integer
   failures
 end
 
-function main(): nothing
+function run_group_1(): integer
   intent: run
   mutable failures: integer = 0
   set failures = failures + report("test_pvp_path_mapping", test_pvp_path_mapping())
@@ -642,6 +722,12 @@ function main(): nothing
   set failures = failures + report("test_roster_store_round_trips_two_peers", test_roster_store_round_trips_two_peers())
   set failures = failures + report("test_storing_same_peer_twice_replaces_not_duplicates", test_storing_same_peer_twice_replaces_not_duplicates())
   set failures = failures + report("test_opponent_is_the_other_peer_and_falls_back_to_house", test_opponent_is_the_other_peer_and_falls_back_to_house())
+  failures
+end
+
+function run_group_2(): integer
+  intent: run
+  mutable failures: integer = 0
   set failures = failures + report("test_find_arena_opponent_serves_the_other_peers_team", test_find_arena_opponent_serves_the_other_peers_team())
   set failures = failures + report("test_login_mints_distinct_sessions_for_distinct_udids", test_login_mints_distinct_sessions_for_distinct_udids())
   set failures = failures + report("test_login_reuses_a_udid_without_duplicate_session", test_login_reuses_a_udid_without_duplicate_session())
@@ -650,6 +736,12 @@ function main(): nothing
   set failures = failures + report("test_login_without_credentials_or_json_still_responds", test_login_without_credentials_or_json_still_responds())
   set failures = failures + report("test_logged_in_devices_keep_separate_peer_rosters", test_logged_in_devices_keep_separate_peer_rosters())
   set failures = failures + report("test_saved_team_uses_session_name_unless_overridden", test_saved_team_uses_session_name_unless_overridden())
+  failures
+end
+
+function run_group_3(): integer
+  intent: run
+  mutable failures: integer = 0
   set failures = failures + report("test_pvp_saved_team_uses_the_arena_as_active_team_id", test_pvp_saved_team_uses_the_arena_as_active_team_id())
   set failures = failures + run_pvp_endpoint_tests()
   set failures = failures + report("test_heartbeat_registers_a_live_peer", test_heartbeat_registers_a_live_peer())
@@ -658,6 +750,12 @@ function main(): nothing
   set failures = failures + report("test_two_live_peers_pair_into_one_shared_match", test_two_live_peers_pair_into_one_shared_match())
   set failures = failures + report("test_pairing_is_idempotent_for_the_same_peer", test_pairing_is_idempotent_for_the_same_peer())
   set failures = failures + report("test_a_third_peer_does_not_steal_an_existing_pair", test_a_third_peer_does_not_steal_an_existing_pair())
+  failures
+end
+
+function run_group_4(): integer
+  intent: run
+  mutable failures: integer = 0
   set failures = failures + report("test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster", test_find_arena_opponent_prefers_a_live_peer_over_a_stored_roster())
   set failures = failures + report("test_leave_match_frees_both_peers", test_leave_match_frees_both_peers())
   set failures = failures + report("test_presence_and_matches_persist_to_disk", test_presence_and_matches_persist_to_disk())
@@ -666,11 +764,28 @@ function main(): nothing
   set failures = failures + report("test_fight_post_rejects_a_non_member", test_fight_post_rejects_a_non_member())
   set failures = failures + report("test_fight_poll_returns_events_then_catches_up", test_fight_poll_returns_events_then_catches_up())
   set failures = failures + report("test_fight_poll_marks_own_events", test_fight_poll_marks_own_events())
+  failures
+end
+
+function run_group_5(): integer
+  intent: run
+  mutable failures: integer = 0
   set failures = failures + report("test_one_sided_result_stays_pending_and_keeps_match", test_one_sided_result_stays_pending_and_keeps_match())
   set failures = failures + report("test_agreed_results_end_match_and_purge_events", test_agreed_results_end_match_and_purge_events())
   set failures = failures + report("test_disputed_results_are_identical_for_both_peers", test_disputed_results_are_identical_for_both_peers())
   set failures = failures + report("test_match_result_survives_after_match_ends", test_match_result_survives_after_match_ends())
   set failures = failures + report("test_fight_events_and_reports_persist_to_disk", test_fight_events_and_reports_persist_to_disk())
+  failures
+end
+
+function main(): nothing
+  intent: run
+  mutable failures: integer = 0
+  set failures = failures + run_group_1()
+  set failures = failures + run_group_2()
+  set failures = failures + run_group_3()
+  set failures = failures + run_group_4()
+  set failures = failures + run_group_5()
   print(to_text(45 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures != 0 then exit_process(1) end
 end

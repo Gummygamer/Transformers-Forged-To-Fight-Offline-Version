@@ -20,7 +20,16 @@
 #include <link.h>
 #include <dlfcn.h>
 #include <time.h>
+#include <math.h>
 #include "inapk_server.h"
+#include "dialogue_translations.generated.h"
+#ifndef TFTF_ENABLE_ARENA
+#define TFTF_ENABLE_ARENA 0
+#endif
+#if TFTF_ENABLE_ARENA
+#include "arena.h"
+#include "netclient.h"
+#endif
 
 // forward decls (used by seg_handler below, defined later)
 static void flog(const char* fmt, ...);
@@ -29,6 +38,20 @@ static uintptr_t g_base;
 static __thread sigjmp_buf g_jb;
 static __thread volatile int g_prot;
 static struct sigaction g_oldsegv, g_oldbus;
+
+/* Android devices may use 16 KiB pages.  Never assume a 4 KiB page when
+ * changing executable IL2CPP pages: an unaligned mprotect() fails with EINVAL
+ * and a partially protected range can leave the process executing stale code. */
+static int make_code_range_writable(void *address, size_t length){
+    long page_size = sysconf(_SC_PAGESIZE);
+    if (page_size <= 0) page_size = 4096;
+    uintptr_t page = (uintptr_t)address & ~((uintptr_t)page_size - 1U);
+    uintptr_t end = (uintptr_t)address + length;
+    uintptr_t protected_end = (end + (uintptr_t)page_size - 1U) & ~((uintptr_t)page_size - 1U);
+    if (protected_end <= page) protected_end = page + (uintptr_t)page_size;
+    return mprotect((void*)page, (size_t)(protected_end - page),
+                    PROT_READ|PROT_WRITE|PROT_EXEC);
+}
 static void seg_handler(int sig, siginfo_t* si, void* uc){
     if (g_prot) siglongjmp(g_jb, 1);
     // Real game fault (il2cpp null-check reads offset 0 -> SIGSEGV -> Unity converts to
@@ -99,6 +122,13 @@ static int il2cpp_object_class(void* o, char* out, int cap){
 }
 static uintptr_t g_base;            // libil2cpp base (set in installer)
 static strnew_t g_strnew = NULL;    // il2cpp_string_new (dlsym'd in installer)
+static fn8 g_dialogue_deserialize_orig = NULL;
+static const uint32_t RVA_LOCALIZER_GET_CURRENT = 0x127CD10;
+// DialogueEntry.get_line is an 8-byte auto-property getter the overlay never calls.
+// Hook Deserialize instead and replace the <line> backing field after the original has
+// populated it, before the entry is returned to the dialogue display path.
+static const uint32_t RVA_DIALOGUE_ENTRY_DESERIALIZE = 0x145D748;
+static const uint32_t OFFSET_DIALOGUE_ENTRY_LINE = 0x38;
 static arraynew_t g_arraynew = NULL; // il2cpp_array_new (dlsym'd in installer)
 // A shared, empty string[] used to fill blueprint.Tags (List<string> @0xB8) when the
 // login parser leaves it null. The offline getLoginData JSON carries no `tags` key
@@ -510,6 +540,19 @@ static struct { uint32_t rva; const char* tag; int jp; fn8 orig; } H[] = {
     { 0x15890C0, "WINOPEN",  0, 0 },  // 159 WindowManager.Open(layer,name,...) -> log layer+name+info
     { 0x1580674, "WINCLOSE", 0, 0 },  // 160 WindowManager.Close(layer,name,...) -> log layer+name
     { 0x1580548, "WINBLOCK", 0, 0 },  // 161 WindowInputBlocker.BlockWindow(info,enabled) -> log name+enabled
+    { 0xD9FF50, "GETDEFTAB", 2, 0 },  // 162 PayoutsModel.GetDefaultTabId -> prevent IndexOutOfRangeException on empty tabs
+    { 0xD9F9E0, "PAYOUTSAWAKE", 2, 0 },// 163 PayoutsModel.Awake -> catch exception if any
+    // Keep PR #9's combat hooks after the existing payout hooks: slots 162/163 are
+    // already live and their original trampolines must continue to point at payouts.
+    { 0x1173FA4, "PCGETSPTIER", 2, 0 }, // 164 PlayerController.GetAvailableSpecialTier -> gesture-selected tier
+    { 0xFF05C8,  "HUDSPBTN",    2, 0 }, // 165 HudSpecialMeter.OnSpecialButtonPressed -> confirm control ownership
+    // PVPPLDIAG (Arena diagnostic): accepting an Arena team throws NullReferenceException at
+    // PVPPlayerContestantItem.Init (managed stack confirmed live, no native FAULT because the
+    // null check is an il2cpp NullCheck call). The host app's wire output is byte-identical to
+    // Server/fakeserver.lbl in the same paired state, so the null is client-side state, not a
+    // response field. Dump every Parameters field Init touches before the original runs.
+    { 0xF19D60, "PVPPLDIAG", 2, 0 }, // 166 PVPPlayerContestantItem.Init -> dump Parameters before the NRE
+    { 0xE3D610, "QHP preview", 2, 0 }, // 167 PrefightScreenData.GetTeamMemberHealth
 };
 #define NH (int)(sizeof(H)/sizeof(H[0]))
 
@@ -545,6 +588,19 @@ static int g_sp3_beat_du_ms = 800;
    TransformMoveEvent remains diagnostic-only and does not supply this schedule. */
 static int g_sp3_alt_on_ms  = 1000;   /* alternate form appears at this offset */
 static int g_sp3_alt_off_ms = 2500;   /* fallback end when a rig has no measured alternate clip */
+
+#define SP3_MAX_INTERVALS 4
+typedef struct {
+    int count;
+    int on_ms[SP3_MAX_INTERVALS];
+    int off_ms[SP3_MAX_INTERVALS];
+} SP3ActiveTiming;
+
+static SP3ActiveTiming g_current_sp3_timing = {
+    .count = 1,
+    .on_ms = {1000},
+    .off_ms = {2500}
+};
 static int g_sp3_alt_len_ms = 0;      /* measured SpecialAttack03 length for this cinematic */
 static int g_sp3_beat_form = -1;      /* -1 unknown, 1 alt, 0 robot: what is applied right now */
 static int g_sp3_beat_ticks = 0;      /* pump ticks seen in the current cinematic */
@@ -762,18 +818,7 @@ void* hook_92(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     });
     return H[92].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
-// Read the combat game-clock singleton (same chain OnReceive/OnRelease/HasAction/SetAction use):
-//   [g_base+0x2c1a928] -> [.] -> [.+0xb8] -> [.] -> float @0x18
-static float game_clock(void){
-    if(!g_base) return -1.f;
-    uintptr_t p = g_base + 0x2c1a928;
-    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
-    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
-    p = *(uintptr_t*)(p+0xb8); if(p<0x100000||(p&7)) return -1.f;
-    p = *(uintptr_t*)p; if(p<0x100000||(p&7)) return -1.f;
-    return *(float*)(p+0x18);
-}
-#define SETACT_FALLBACK_WINDOW 0.2f  // Mirrors bcg-combat maxQueuedActionTime in Server/gamedata.lbl; keep in step.
+#include "managed_input.h"
 // slot 58 FIX: PlayerInput.QueuedAction.SetAction(this=QueuedAction, action) @0xD35130.
 // Before maxQueuedActionTime was authored, a tap fully registered offline
 // (OnReleaseAttackInput -> SetAction(Attack) ran), but SetAction stored TimeStamp = now + 0:
@@ -785,26 +830,15 @@ static float game_clock(void){
 // The root cause is now fixed in server data: bcg-combat authors maxQueuedActionTime = 0.2.
 // This hook remains only as a safety net if that config has not arrived when combat starts.
 // After the original SetAction, retain its usable TimeStamp window unchanged; only a missing
-// window is replaced with the matching 0.2s fallback. Simulate then executes the action once
+// window is replaced with the matching 0.2s fallback through managed_input.h.
+// Runtime metadata resolves fields by name on both ABIs; no clock GOT chain or
+// object field offsets are used here. Simulate then executes the action once
 // and ExecuteAction's ClearAction (@0xD35264) resets Action=0/TimeStamp=-1, so it cannot
 // re-trigger. This applies to every queued action (attack/block/dash/special, both fighters),
 // which is the intended input-buffer semantics.
 void* hook_58(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r = H[58].orig(a0,a1,a2,a3,a4,a5,a6,a7);
-    PROTECT({
-        uintptr_t q=(uintptr_t)a0;
-        float clk=game_clock();
-        if(q>=0x100000 && !(q&7) && clk>=0){
-            float ts=*(float*)(q+0x14);
-            static int diagnostics=0;
-            if(ts-clk>0.01f){
-                if(diagnostics<4){ diagnostics++; flog("SETACTFIX config window=%.3f (kept)",ts-clk); }
-            }else{
-                *(float*)(q+0x14)=clk+SETACT_FALLBACK_WINDOW;
-                if(diagnostics<4){ diagnostics++; flog("SETACTFIX no config window, fallback=%.3f",(float)SETACT_FALLBACK_WINDOW); }
-            }
-        }
-    });
+    PROTECT(managed_input_after_set_action(a0););
     return r;
 }
 // ---- texture-load diagnostics (slots 44,46,48,49,50) ----
@@ -813,6 +847,55 @@ static int read_str(void* s, char* buf, int cap){
     buf[0]=0; uintptr_t p=(uintptr_t)s; if(p<0x100000 || (p&7)) return 0;
     int32_t len=*(int32_t*)(p+0x10); if(len<0||len>cap-1) return 0;
     uint16_t* ch=(uint16_t*)(p+0x14); int i; for(i=0;i<len;i++) buf[i]=(ch[i]<128)?(char)ch[i]:'?'; buf[len]=0; return 1;
+}
+
+// Compare an IL2CPP UTF-16 string to a UTF-8 catalog value without lossy ASCII
+// conversion. Catalog lookup is by the exact server-authored English line.
+static int dialogue_string_equals_utf8(void* managed, const char* utf8){
+    uintptr_t p = (uintptr_t)managed;
+    if (!utf8 || p < 0x100000 || (p & 7)) return 0;
+    int32_t length = *(int32_t*)(p + 0x10);
+    if (length < 0 || length > 8192) return 0;
+    const uint16_t* chars = (const uint16_t*)(p + 0x14);
+    int index = 0;
+    const unsigned char* bytes = (const unsigned char*)utf8;
+    while (*bytes) {
+        uint32_t cp;
+        if (*bytes < 0x80) cp = *bytes++;
+        else if ((*bytes & 0xE0) == 0xC0 && bytes[1]) { cp = ((*bytes & 0x1F) << 6) | (bytes[1] & 0x3F); bytes += 2; }
+        else if ((*bytes & 0xF0) == 0xE0 && bytes[1] && bytes[2]) { cp = ((*bytes & 0x0F) << 12) | ((bytes[1] & 0x3F) << 6) | (bytes[2] & 0x3F); bytes += 3; }
+        else if ((*bytes & 0xF8) == 0xF0 && bytes[1] && bytes[2] && bytes[3]) { cp = ((*bytes & 0x07) << 18) | ((bytes[1] & 0x3F) << 12) | ((bytes[2] & 0x3F) << 6) | (bytes[3] & 0x3F); bytes += 4; }
+        else return 0;
+        if (cp <= 0xFFFF) {
+            if (index >= length || chars[index++] != cp) return 0;
+        } else {
+            cp -= 0x10000;
+            if (index + 1 >= length || chars[index++] != (uint16_t)(0xD800 + (cp >> 10)) || chars[index++] != (uint16_t)(0xDC00 + (cp & 0x3FF))) return 0;
+        }
+    }
+    return index == length;
+}
+
+static void* hooked_dialogue_entry_deserialize(void* self, void* builder, void* data, void* method){
+    void* result = g_dialogue_deserialize_orig ? g_dialogue_deserialize_orig(self, builder, data, method, NULL, NULL, NULL, NULL) : NULL;
+    uintptr_t entry = (uintptr_t)self;
+    if (entry < 0x100000 || (entry & 7) || !g_strnew || !g_base) return result;
+    void** line = (void**)(entry + OFFSET_DIALOGUE_ENTRY_LINE);
+    void* original = *line;
+    if (!original) return result;
+    int language = ((int(*)(void*))((uintptr_t)g_base + RVA_LOCALIZER_GET_CURRENT))(NULL);
+    if (language < 1 || language > 16) return result; // Unknown native locale keeps English.
+    for (int i = 0; i < TFTF_DIALOGUE_TRANSLATION_COUNT; ++i) {
+        if (dialogue_string_equals_utf8(original, g_tftf_dialogue_translations[i].source)) {
+            const char* translated = tftf_dialogue_locale_text(&g_tftf_dialogue_translations[i], language);
+            if (translated && translated[0]) {
+                void* replacement = g_strnew(translated);
+                if (replacement) *line = replacement;
+            }
+            break;
+        }
+    }
+    return result;
 }
 // slot 44 TEXPATH: HeroPortrait.LoadTexture(this=a0, path=a1) ; slot 50 SETPATH: set_baseTexturePath(this=a0,value=a1)
 // both: jp=30 -> log the a1 string.
@@ -894,6 +977,12 @@ void* hook_69(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
 void* hook_70(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     static int n = 0;
     if (n < 3) { PROTECT( flog("FORCEUNLK -> true"); ); n++; }
+    PROTECT(
+        uintptr_t qs = (uintptr_t)a0;
+        if (qs >= 0x100000 && !(qs & 7)) {
+            *(unsigned char*)(qs + 0xC0) = 1;
+        }
+    );
     return (void*)1;
 }
 // slot 71 FORCEACT: Act.UpdateProgression @0xC2ADC8. Run original, then force this.unlocked=1
@@ -2317,6 +2406,20 @@ void* hook_13(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
     PROTECT( ensure_empty_tags(); fix_blueprint_tags(a0); );
     return r;
 }
+static void* g_p0_controller = NULL;
+static void* g_p1_controller = NULL;
+static char g_p0_bot_id[80] = {0};
+static char g_p1_bot_id[80] = {0};
+#if TFTF_ENABLE_ARENA
+// Arena netcode: the fighter the peer drives. PlayerAttributes.Init is called once per
+// fighter with the owning PlayerController, so Id 0 is this device's player and Id 1 is the
+// one drawn as the opponent -- the same distinction g_p0_controller already relies on.
+// il2cpp entry points the arena bridge needs but which arena.c must not hardcode, so the
+// bridge stays testable on a desktop (see tools/netrelay/test_arena.c).
+static void* g_arena_ai_set_paused = NULL;   // AIController.SetPaused(bool) @0xDB1D18
+static void* g_arena_ai_is_paused  = NULL;   // AIController.get_IsPaused()  @0xDB025C
+#endif
+
 // slot 56 FIXFIGHT: PlayerAttributes.Init(this=a0, owner=a1, manager=a2, fighterData=a3,
 // opponentFighterData=a4). At dac178 it does `new HashSet<string>(this._blueprint.Tags)` and
 // throws ArgumentNullException when Tags is null -> "unknown error" as the fight loads. The
@@ -2340,12 +2443,50 @@ void* hook_56(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,voi
         if(!read_str(fld_p(bp1,0x10),id1,sizeof id1)) strcpy(id1,"<null>");
         if(!read_str(fld_p(bp2,0x10),id2,sizeof id2)) strcpy(id2,"<null>");
         void* at1=fld_p((void*)fd,0x38); void* at2=fld_p((void*)ofd,0x38);
+        int player_idx = obj_ok(a1) ? *(int32_t*)((uintptr_t)a1+0xF4) : -1;
+        if (player_idx == 0 && obj_ok(a1)) {
+            g_p0_controller = a1;
+            strncpy(g_p0_bot_id, id1, sizeof(g_p0_bot_id) - 1);
+            g_p0_bot_id[sizeof(g_p0_bot_id) - 1] = 0;
+            if (id2[0] && strcmp(id2, "<null>") != 0 && !g_p1_bot_id[0]) {
+                strncpy(g_p1_bot_id, id2, sizeof(g_p1_bot_id) - 1);
+                g_p1_bot_id[sizeof(g_p1_bot_id) - 1] = 0;
+            }
+        } else if (player_idx == 1 && obj_ok(a1)) {
+            g_p1_controller = a1;
+            strncpy(g_p1_bot_id, id1, sizeof(g_p1_bot_id) - 1);
+            g_p1_bot_id[sizeof(g_p1_bot_id) - 1] = 0;
+        }
+#if TFTF_ENABLE_ARENA
+        // Hand both fighters to the arena bridge as soon as they are known. Re-publishing on
+        // every Init is deliberate: a new fight allocates new controllers, and a stale remote
+        // pointer would replay the peer's input onto a freed object.
+        if (g_p0_controller && g_p1_controller)
+            arena_set_controllers(g_p0_controller, g_p1_controller);
+#endif
         flog("FIXFIGHT player=%d bp1=%s msa=%d attr.specials=%d tags:%p->%p  bp2=%s msa=%d attr.specials=%d tags:%p->%p",
-             obj_ok(a1)?*(int32_t*)((uintptr_t)a1+0xF4):-1, id1, obj_ok(bp1)?*(int32_t*)((uintptr_t)bp1+0xAC):-1,
+             player_idx, id1, obj_ok(bp1)?*(int32_t*)((uintptr_t)bp1+0xAC):-1,
              obj_ok(at1)?*(int32_t*)((uintptr_t)at1+0x28):-1, t1a,t1b, id2,
              obj_ok(bp2)?*(int32_t*)((uintptr_t)bp2+0xAC):-1, obj_ok(at2)?*(int32_t*)((uintptr_t)at2+0x28):-1,t2a,t2b);
     });
     void* r = H[56].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    /* QuestUserHero.hp reaches the map UI, but combat initializes its own
+       PlayerAttributes at full health. Carry the server's saved fraction into
+       the local fighter after Init has created its health resource. */
+    PROTECT({
+        int player_idx = obj_ok(a1) ? *(int32_t*)((uintptr_t)a1+0xF4) : -1;
+        if(player_idx==0 && obj_ok(a0) && g_p0_bot_id[0]) {
+            float saved=tftf_quest_fighter_health(g_p0_bot_id);
+            if(saved>=0.0f && saved<=1.0f) {
+                float (*get_health)(void*,void*)=(void*)(g_base+0xDAC698);
+                void (*set_health)(void*,float,void*)=(void*)(g_base+0xDAC6B0);
+                float before=get_health(a0,NULL);
+                if(isfinite(before) && before>saved+0.001f)set_health(a0,saved,NULL);
+                flog("QHP combat hero=%s saved=%.4f initialized=%.4f final=%.4f",
+                     g_p0_bot_id,saved,before,get_health(a0,NULL));
+            }
+        }
+    });
     return r;
 }
 // slot 57 FIXHS: HashSet<T>..ctor(this=a0, collection=a1, comparer=a2). The (IEnumerable,
@@ -3088,11 +3229,121 @@ void* hook_113(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     LOG("UICLICK listener=%p onClick=%p",a0,obj_ok(a0)?*(void**)((uintptr_t)a0+0x28):NULL);
     return H[113].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+
+typedef struct {
+    float x;
+    float y;
+    float z;
+} Vector3_t;
+
+static volatile int g_intended_special_tier = 0;
+static volatile uint64_t g_intended_special_time_ms = 0;
+static volatile int g_sp_touch_tracking = 0;
+static volatile int g_sp_touch_owned = 0;
+static volatile int g_sp_gesture_fired = 0;
+static volatile int g_sp_suppress_stock_special = 0;
+static volatile int g_sp_touch_contacts = 0;
+static float g_sp_touch_start_x = 0.0f;
+static float g_sp_touch_start_y = 0.0f;
+static uint64_t g_sp_touch_start_ms = 0;
+static uint64_t propgo_now_ms(void);
+
+static inline Vector3_t unity_get_mouse_position(void) {
+    typedef Vector3_t (*fn_mouse_pos)(void);
+    return ((fn_mouse_pos)(g_base + 0x21BC1D4))();
+}
+
+static inline int unity_get_screen_width(void) {
+    typedef int (*fn_screen_dim)(void);
+    return ((fn_screen_dim)(g_base + 0x16AFBF8))();
+}
+
+static inline int unity_get_screen_height(void) {
+    typedef int (*fn_screen_dim)(void);
+    return ((fn_screen_dim)(g_base + 0x16AFC2C))();
+}
+
+static inline int power_meter_can_use_special(void* power_meter, int tier) {
+    if (!obj_ok(power_meter)) return 0;
+    typedef int (*fn_can_use_sp)(void*, int, void*);
+    return ((fn_can_use_sp)(g_base + 0xDACE1C))(power_meter, tier, NULL);
+}
+
+static volatile int g_sp_dispatching_internal = 0;
+static inline void trigger_special_action(void* controller) {
+    if (!obj_ok(controller)) return;
+    g_sp_dispatching_internal = 1;
+    H[152].orig(controller, (void*)(intptr_t)0x200, NULL, NULL, NULL, NULL, NULL, NULL);
+    g_sp_dispatching_internal = 0;
+}
+
+static inline void clear_special_gesture_state(void) {
+    g_intended_special_tier = 0;
+    g_intended_special_time_ms = 0;
+    g_sp_touch_tracking = 0;
+    g_sp_touch_owned = 0;
+    g_sp_gesture_fired = 0;
+    g_sp_suppress_stock_special = 0;
+    g_sp_touch_contacts = 0;
+}
+
+static inline int special_touch_candidate(Vector3_t pos, int sw, int sh) {
+    /* This is only a pre-original candidate gate.  The HUD callback below must
+       claim the same touch before a gesture can dispatch a special; coordinates
+       alone never establish ownership of the control. */
+    return pos.x >= 0.0f && pos.x <= 0.28f * (float)sw &&
+           pos.y >= 0.0f && pos.y <= 0.35f * (float)sh;
+}
+
+static inline void dispatch_gesture_special(int tier, float dx, float dy, uint64_t elapsed) {
+    g_intended_special_tier = tier;
+    g_intended_special_time_ms = propgo_now_ms();
+    g_sp_gesture_fired = 1;
+    flog("SP_GESTURE dispatch tier=%d dx=%.1f dy=%.1f elapsed=%llu ms",
+         tier, dx, dy, (unsigned long long)elapsed);
+    trigger_special_action(g_p0_controller);
+}
+
 void* hook_114(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    uintptr_t pressed = (uintptr_t)a1 & 1;
+    uintptr_t unpressed = (uintptr_t)a2 & 1;
+
+    /* Arm before UICamera.ProcessTouch runs.  Its original callback can issue
+       PlayerController.Action(0x200), which hook_152 defers while this candidate
+       is unresolved.  hook_165 confirms that the HUD special control owned it. */
+    if (pressed) {
+        if (g_sp_touch_contacts > 0) {
+            /* A second finger must not reset the first finger's gesture. */
+            g_sp_touch_contacts++;
+            flog("SP_TOUCH additional contact count=%d", g_sp_touch_contacts);
+        } else {
+            clear_special_gesture_state();
+            g_sp_touch_contacts = 1;
+        }
+        if (g_sp_touch_contacts == 1 && obj_ok(g_p0_controller)) {
+            PROTECT({
+                Vector3_t pos = unity_get_mouse_position();
+                int sw = unity_get_screen_width();
+                int sh = unity_get_screen_height();
+                if (sw <= 0) sw = 1920;
+                if (sh <= 0) sh = 1080;
+                if (special_touch_candidate(pos, sw, sh)) {
+                    g_sp_touch_tracking = 1;
+                    g_sp_suppress_stock_special = 1;
+                    g_sp_touch_start_x = pos.x;
+                    g_sp_touch_start_y = pos.y;
+                    g_sp_touch_start_ms = propgo_now_ms();
+                    flog("SP_TOUCH candidate down at (%.1f, %.1f) [screen %dx%d]", pos.x, pos.y, sw, sh);
+                }
+            });
+        }
+    }
+
     void* r=H[114].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+
     // ProcessTouch receives `pressed` in w1; dispatch only on that edge, not the
     // matching release/update call for the same Android touch.
-    if ((uintptr_t)a1 & 1) {
+    if (pressed) {
         // UICamera.get_isOverUI is static: x0 is its hidden MethodInfo* (NULL).
         // If NGUI handled the touch (including the top navigation), preserve that
         // UI action and do not turn it into a base-card click.
@@ -3118,6 +3369,34 @@ void* hook_114(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
         LOG("BASETAPFIX gate overUI=%d card=%p -> %s",over,g_base_tap_card,
             dispatched ? "dispatch" : "skip");
     }
+
+    /* The native HUD callback is not emitted for every real touch on this
+       client build.  The pre-original coordinate gate is therefore the
+       ownership boundary: an in-zone touch is already isolated from stock
+       special dispatch, and must not wait forever for hook_165. */
+    if (g_sp_touch_contacts == 1 && g_sp_touch_tracking && !g_sp_gesture_fired) {
+        PROTECT({
+            Vector3_t pos = unity_get_mouse_position();
+            uint64_t elapsed = propgo_now_ms() - g_sp_touch_start_ms;
+            float dx = pos.x - g_sp_touch_start_x;
+            float dy = pos.y - g_sp_touch_start_y;
+            if (dx > 35.0f && dx > fabsf(dy)) {
+                dispatch_gesture_special(1, dx, dy, elapsed); // swipe right -> SP1
+            } else if (dy > 35.0f && dy > fabsf(dx)) {
+                dispatch_gesture_special(2, dx, dy, elapsed); // swipe up -> SP2
+            } else if (unpressed) {
+                dispatch_gesture_special(0, dx, dy, elapsed); // tap -> stock highest tier
+            } else if (elapsed > 350) {
+                dispatch_gesture_special(0, dx, dy, elapsed); // hold -> stock highest tier
+            }
+        });
+    }
+
+    /* Keep the suppression window through the release that follows a swipe or
+       hold, then make the next touch independent of the previous gesture. */
+    if (unpressed && g_sp_touch_contacts > 0) g_sp_touch_contacts--;
+    if (unpressed && g_sp_touch_contacts == 0 && g_sp_touch_tracking)
+        clear_special_gesture_state();
     return r;
 }
 // FTEBASEFIX (slot 102): permit the base-edit branch only; authored tutorial state is
@@ -3176,101 +3455,209 @@ static int sp3_prop_mirror(void* prop, int on){
     return applied;
 }
 
-static void* sp3_player(void){
-    for(int i=0;i<4;i++) if(obj_ok(g_sp3_xf[i])) return g_sp3_xf[i];
-    return NULL;
+
+static void sp3_set_default_timing(void) {
+    g_current_sp3_timing.count = 1;
+    g_current_sp3_timing.on_ms[0] = 1000;
+    g_current_sp3_timing.off_ms[0] = 2500;
+    g_sp3_alt_on_ms = 1000;
+    g_sp3_alt_off_ms = 2500;
 }
-static void* sp3_find_body(const char* wanted){
-    for(int i=0;i<8;i++){
-        void* prop=g_sp3_xf_props[i]; char name[64]; name[0]=0;
-        if(obj_ok(prop)){ read_str(fld_p(prop,0x10),name,sizeof name); if(!strcmp(name,wanted)) return prop; }
+
+static int sp3_parse_intervals_from_json(const char* json_str, const char* bot_id) {
+    if (!json_str || !bot_id || !bot_id[0]) return 0;
+
+    const char* p = NULL;
+    char search_id[80];
+    strncpy(search_id, bot_id, sizeof(search_id) - 1);
+    search_id[sizeof(search_id) - 1] = 0;
+
+    // 1. Try matching bot_id, progressively stripping suffix after '_'
+    while (search_id[0]) {
+        char quoted[96];
+        snprintf(quoted, sizeof(quoted), "\"%s\"", search_id);
+        p = strstr(json_str, quoted);
+        if (p) break;
+        p = strstr(json_str, search_id);
+        if (p) break;
+
+        char* last_under = strrchr(search_id, '_');
+        if (last_under) {
+            *last_under = 0;
+        } else {
+            break;
+        }
     }
-    return NULL;
-}
-static int sp3_player_owns_prop(void* prop){
-    void* pc=sp3_player();
-    void* props=pc ? fld_p(pc,0x90) : NULL;
-    void* pname=obj_ok(prop) ? fld_p(prop,0x10) : NULL;
-    if(!obj_ok(props) || !pname) return 0;
-    return ((void*(*)(void*,void*,void*))(g_base+0xEA16C0))(props,pname,NULL)==prop;
-}
-static void sp3_capture_rig(void* prop){
-    if(g_sp3_rig[0] || !obj_ok(prop)) return;
-    void* arr=fld_p(prop,0x70);
-    if(!obj_ok(arr) || *(int32_t*)((char*)arr+0x18)<1) return;
-    void* rr=*(void**)((char*)arr+0x20);
-    void* go=obj_ok(rr) ? ((void*(*)(void*,void*))(g_base+0x1B4BD28))(rr,NULL) : NULL;
-    if(!obj_ok(go)) return;
-    read_str(((void*(*)(void*,void*))(g_base+0x16A16A0))(go,NULL),g_sp3_rig,sizeof g_sp3_rig);
-    g_sp3_aux_rig=!strncmp(g_sp3_rig,"cha_optimusprimal_bw_mp32",25);
-    if(g_sp3rig_lines<8){ g_sp3rig_lines++;
-        flog("SP3RIG rig=%s aux_rig=%d tms=%llu",g_sp3_rig,g_sp3_aux_rig,
-             (unsigned long long)propgo_now_ms()); }
-}
-static void sp3_aux_add(void* prop, int requested){
-    for(int i=0;i<8;i++) if(g_sp3_aux_props[i]==prop){ g_sp3_aux_was_active[i]=requested; return; }
-    for(int i=0;i<8;i++) if(!g_sp3_aux_props[i]){
-        g_sp3_aux_props[i]=prop; g_sp3_aux_was_active[i]=requested;
-        if(g_sp3aux_lines<16){ g_sp3aux_lines++;
-            flog("SP3AUX prop=shoulderguns requested=%d tms=%llu",requested,
-                 (unsigned long long)propgo_now_ms()); }
-        return;
+
+    // If not found, try "_default"
+    if (!p) {
+        p = strstr(json_str, "\"_default\"");
+        if (!p) p = strstr(json_str, "_default");
     }
+    if (!p) return 0;
+
+    const char* block_start = strchr(p, '{');
+    if (!block_start) return 0;
+    const char* block_end = strchr(block_start, '}');
+    if (!block_end) return 0;
+
+    // 2. Retrieve "intervals"
+    const char* inv = strstr(block_start, "\"intervals\"");
+    if (!inv || inv > block_end) return 0;
+
+    const char* arr_start = strchr(inv, '[');
+    if (!arr_start || arr_start > block_end) return 0;
+
+    // Parse [[on1, off1], [on2, off2]]
+    int count = 0;
+    const char* cur = arr_start + 1;
+    while (cur && cur < block_end && count < SP3_MAX_INTERVALS) {
+        const char* sub_start = strchr(cur, '[');
+        if (!sub_start || sub_start > block_end) break;
+        int on_val = 0, off_val = 0;
+        if (sscanf(sub_start + 1, "%d , %d", &on_val, &off_val) == 2 ||
+            sscanf(sub_start + 1, "%d ,%d", &on_val, &off_val) == 2 ||
+            sscanf(sub_start + 1, "%d,%d", &on_val, &off_val) == 2) {
+            g_current_sp3_timing.on_ms[count] = on_val;
+            g_current_sp3_timing.off_ms[count] = off_val;
+            count++;
+        }
+        const char* sub_end = strchr(sub_start, ']');
+        if (!sub_end) break;
+        cur = sub_end + 1;
+    }
+
+    if (count > 0) {
+        g_current_sp3_timing.count = count;
+        g_sp3_alt_on_ms = g_current_sp3_timing.on_ms[0];
+        g_sp3_alt_off_ms = g_current_sp3_timing.off_ms[0];
+        return 1;
+    }
+    return 0;
 }
-static uint64_t sp3_alt_end_ms(void){
-    if(g_sp3_alt_len_ms<=0) return (uint64_t)g_sp3_alt_off_ms;
-    uint64_t end=g_sp3_alt_on_ms+g_sp3_alt_len_ms;
-    if(end<(uint64_t)g_sp3_alt_off_ms) end=(uint64_t)g_sp3_alt_off_ms;
-    if(end>11000u) end=11000u;
-    return end;
+
+static void sp3_load_timing_for_character(const char* bot_id) {
+    sp3_set_default_timing();
+    if (!bot_id || !bot_id[0]) return;
+
+    // 1. Try loading from local hot-reload file
+    const char* hot_paths[] = {
+        "/data/data/com.kabam.bigrobot/files/sp3_timings.json",
+        "/sdcard/Android/media/com.kabam.bigrobot/sp3_timings.json",
+        "/sdcard/Download/sp3_timings.json",
+        "/storage/emulated/0/Download/sp3_timings.json",
+        "/data/local/tmp/sp3_timings.json"
+    };
+    for (size_t hi = 0; hi < sizeof(hot_paths)/sizeof(hot_paths[0]); hi++) {
+        FILE* fp = fopen(hot_paths[hi], "rb");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            long len = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            if (len > 10 && len < 262144) {
+                char* buf = (char*)malloc(len + 1);
+                if (buf) {
+                    size_t read_bytes = fread(buf, 1, len, fp);
+                    buf[read_bytes] = 0;
+                    if (sp3_parse_intervals_from_json(buf, bot_id)) {
+                        flog("SP3TIMING: loaded from %s for %s (intervals=%d on0=%d off0=%d)",
+                             hot_paths[hi], bot_id, g_current_sp3_timing.count, g_current_sp3_timing.on_ms[0], g_current_sp3_timing.off_ms[0]);
+                        free(buf);
+                        fclose(fp);
+                        return;
+                    }
+                    free(buf);
+                }
+            }
+            fclose(fp);
+        }
+    }
+
+    // 2. Try loading from APK in-app Payload @sp3_timings
+    size_t payload_len = 0;
+    const unsigned char* pdata = tftf_payload_lookup("@sp3_timings", &payload_len);
+    if (pdata && payload_len > 10) {
+        char* pbuf = (char*)malloc(payload_len + 1);
+        if (pbuf) {
+            memcpy(pbuf, pdata, payload_len);
+            pbuf[payload_len] = 0;
+            if (sp3_parse_intervals_from_json(pbuf, bot_id)) {
+                flog("SP3TIMING: loaded from @sp3_timings payload for %s (intervals=%d on0=%d off0=%d)",
+                     bot_id, g_current_sp3_timing.count, g_current_sp3_timing.on_ms[0], g_current_sp3_timing.off_ms[0]);
+                free(pbuf);
+                return;
+            }
+            free(pbuf);
+        }
+    }
+
+    // 3. Built-in C fallback table
+    if (strstr(bot_id, "optimusprime")) {
+        g_current_sp3_timing.count = 1;
+        g_current_sp3_timing.on_ms[0] = 1150;
+        g_current_sp3_timing.off_ms[0] = 3200;
+    } else if (strstr(bot_id, "starscream")) {
+        g_current_sp3_timing.count = 1;
+        g_current_sp3_timing.on_ms[0] = 850;
+        g_current_sp3_timing.off_ms[0] = 2650;
+    } else if (strstr(bot_id, "bumblebee")) {
+        g_current_sp3_timing.count = 1;
+        g_current_sp3_timing.on_ms[0] = 1300;
+        g_current_sp3_timing.off_ms[0] = 2900;
+    }
+    g_sp3_alt_on_ms = g_current_sp3_timing.on_ms[0];
+    g_sp3_alt_off_ms = g_current_sp3_timing.off_ms[0];
+    flog("SP3TIMING: used fallback for %s: count=%d on0=%d off0=%d",
+         bot_id, g_current_sp3_timing.count, g_current_sp3_timing.on_ms[0], g_current_sp3_timing.off_ms[0]);
 }
+
 /* SP3BEAT (shipped): the scheduled body at a given offset into the cinematic. 1 = alternate
-   (vehicle) form, 0 = robot form. One contiguous alternate block only - see the reference
-   measurements recorded next to g_sp3_alt_on_ms. */
+   (vehicle) form, 0 = robot form. Evaluates all active intervals in g_current_sp3_timing. */
 static int sp3_beat_form_at(uint64_t elapsed_ms){
-    return elapsed_ms >= (uint64_t)g_sp3_alt_on_ms
-        && elapsed_ms < sp3_alt_end_ms();
+    for (int i = 0; i < g_current_sp3_timing.count; i++) {
+        if (elapsed_ms >= (uint64_t)g_current_sp3_timing.on_ms[i] &&
+            elapsed_ms <  (uint64_t)g_current_sp3_timing.off_ms[i]) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* SP3BEAT (shipped): push the scheduled body onto the captured props. Called only when the form
    actually changes. Each captured entry is a PropData*; its name is the string at +0x10 and is
    either "transformed" (the alternate body) or "character_model" (the robot body). */
 static void sp3_beat_apply(int alt){
-    for(int i=0;i<8;i++){
-        void* prop=g_sp3_xf_props[i];
-        if(!obj_ok(prop)) continue;
-        char name[64];
-        name[0]=0;
-        read_str(*(void**)((char*)prop+0x10), name, sizeof name);
-        int want;
-        if(!strcmp(name,"transformed")) want=alt;
-        else if(!strcmp(name,"character_model")) want=!alt;
-        else continue;
-        ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
-            (prop,want,NULL,NULL,NULL,NULL,NULL,NULL);
-        sp3_prop_mirror(prop,want);
-        if(alt && want && !strcmp(name,"transformed") && !g_sp3_anim_played && g_strnew){
-            void* state=g_strnew("SpecialAttack03");
-            if(state){
-                ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,state,NULL);
-                g_sp3_anim_played=1;
-                flog("SP3ANIM prop=%s state=SpecialAttack03 anim=%p tms=%llu",name,
-                     fld_p(prop,0x68),(unsigned long long)propgo_now_ms());
+    PROTECT({
+        for(int i=0;i<8;i++){
+            void* prop=g_sp3_xf_props[i];
+            if(!obj_ok(prop)) continue;
+            char name[64];
+            name[0]=0;
+            void* str_obj = *(void**)((char*)prop+0x10);
+            if(!obj_ok(str_obj)) continue;
+            read_str(str_obj, name, sizeof name);
+            int want;
+            if(!strcmp(name,"transformed")) want=alt;
+            else if(!strcmp(name,"character_model")) want=!alt;
+            else continue;
+            ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
+                (prop,want,NULL,NULL,NULL,NULL,NULL,NULL);
+            int n = sp3_prop_mirror(prop,want);
+            flog("SP3BEAT_PROP name=%s want=%d n=%d pgo=%p", name, want, n, *(void**)((char*)prop+0x60));
+            /* SP3ANIM (shipped): the alternate body renders in bind pose unless its own Animator is
+               driven. If not already started at t=0, drive it here as fallback. */
+            if(!g_sp3_anim_played && alt && want && !strcmp(name,"transformed") && g_strnew){
+                void* st=g_strnew("SpecialAttack03");
+                if(st) ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,st,NULL);
+                void* st2=g_strnew("Base.SpecialAttack03");
+                if(st2) ((void(*)(void*,void*,void*))(g_base+0xEA05B4))(prop,st2,NULL);
+                g_sp3_anim_played = 1;
             }
         }
-    }
-    for(int i=0;i<8;i++) if(obj_ok(g_sp3_aux_props[i])){
-        int want=alt ? 0 : g_sp3_aux_was_active[i];
-        ((void(*)(void*,int,void*,void*,void*,void*,void*,void*))H[138].orig)
-            (g_sp3_aux_props[i],want,NULL,NULL,NULL,NULL,NULL,NULL);
-        sp3_prop_mirror(g_sp3_aux_props[i],want);
-        if(g_sp3auxf_lines<24){ g_sp3auxf_lines++;
-            flog("SP3AUXF prop=shoulderguns alt=%d applied=%d tms=%llu",alt,want,
-                 (unsigned long long)propgo_now_ms()); }
-    }
+    });
     if(g_sp3_beat_lines<40){ g_sp3_beat_lines++;
-        flog("SP3BEAT apply alt=%d on=%d fallback=%d end=%llu tms=%llu",alt,g_sp3_alt_on_ms,
-             g_sp3_alt_off_ms,(unsigned long long)sp3_alt_end_ms(),(unsigned long long)propgo_now_ms()); }
+        flog("SP3BEAT apply alt=%d on=%d off=%d tms=%llu", alt, g_sp3_alt_on_ms,
+             g_sp3_alt_off_ms, (unsigned long long)propgo_now_ms()); }
 }
 
 /* SP3BEAT (shipped): the pump body, called from Simulation.FixedUpdate. */
@@ -3280,41 +3667,20 @@ static void sp3_beat_pump(void){
     uint64_t elapsed=now-g_sp3_xf_since_ms;
     if(elapsed>12000u) return;               /* the 12 s safety bound used elsewhere */
     g_sp3_beat_ticks++;
-    if(g_sp3_beat_form && !g_sp3_alt_len_ms){
-        void* prop=sp3_find_body("transformed");
-        void* anim=obj_ok(prop) ? fld_p(prop,0x68) : NULL;
-        if(obj_ok(anim) && g_strnew){
-            if(!g_sp3sinfo_hash){
-                void* state=g_strnew("SpecialAttack03");
-                if(state) g_sp3sinfo_hash=((int(*)(void*,void*))(g_base+0x219B864))(state,NULL);
-            }
-            if(g_sp3sinfo_hash){
-                Sp3StateInfo si=((Sp3StateInfo(*)(void*,int,void*))(g_base+0x219B470))(anim,0,NULL);
-                if(si.m_Name==g_sp3sinfo_hash && si.m_Length>0.05f && si.m_Length<10.1f){
-                    g_sp3_alt_len_ms=(int)(si.m_Length*1000.0f);
-                    if(g_sp3altlen_lines<4){ g_sp3altlen_lines++;
-                        flog("SP3ALTLEN rig=%s len_ms=%d end=%llu tms=%llu",g_sp3_rig,g_sp3_alt_len_ms,
-                             (unsigned long long)sp3_alt_end_ms(),(unsigned long long)now); }
-                }
-            }
-        }
-    }
     int want=sp3_beat_form_at(elapsed);
-    if(want!=g_sp3_beat_form){
-        g_sp3_beat_form=want;
-        sp3_beat_apply(want);
-    }
+    if(want==g_sp3_beat_form) return;
+    g_sp3_beat_form=want;
+    sp3_beat_apply(want);
 }
 void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     char name[64]; name[0]=0;
+    int propgo_special=0;
     int req=(intptr_t)a1 ? 1 : 0;
     PROTECT({
         if(obj_ok(a0)) read_str(*(void**)((char*)a0+0x10), name, sizeof name);
         if(!strcmp(name,"character_model") || !strcmp(name,"transformed")){
-            if(g_sp3_xf_capture_props && sp3_player_owns_prop(a0)){
-                sp3_xf_props_add(a0);
-                if(!strcmp(name,"character_model")) sp3_capture_rig(a0);
-            }
+            propgo_special=1;
+            if(g_sp3_xf_capture_props) sp3_xf_props_add(a0);
             if(sp3_xf_props_has(a0) && g_sp3_xf_since_ms){
                 uint64_t now=propgo_now_ms();
                 if(now-g_sp3_xf_since_ms > 12000u){
@@ -3322,26 +3688,16 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
                         g_sp3_xf_timeout_logged=1;
                         flog("SP3XFIX timeout tms=%llu",(unsigned long long)now);
                     }
-                    sp3_beat_apply(0); /* restore bodies and latest auxiliary requests before clear */
                     sp3_xf_clear();
                 }else{
                     int alt=sp3_beat_form_at(now-g_sp3_xf_since_ms);
                     int forced=!strcmp(name,"transformed") ? alt : !alt;
                     if(req!=forced){
-                        if(g_propgoinv_lines<200){ g_propgoinv_lines++;
+                        if(g_propgoinv_lines<500){ g_propgoinv_lines++;
                             flog("PROPGOINV prop=%s req=%d forced=%d tms=%llu",name,req,forced,(unsigned long long)now); }
                         a1=(void*)(intptr_t)forced;
                     }
                 }
-            }
-        }
-        if(g_sp3_xf_since_ms && g_sp3_aux_rig && !strcmp(name,"shoulderguns") && sp3_player_owns_prop(a0)){
-            sp3_aux_add(a0,req);
-            if(sp3_beat_form_at(propgo_now_ms()-g_sp3_xf_since_ms)){
-                a1=NULL;
-                if(g_sp3auxf_lines<24){ g_sp3auxf_lines++;
-                    flog("SP3AUXF prop=shoulderguns requested=%d forced=0 tms=%llu",req,
-                         (unsigned long long)propgo_now_ms()); }
             }
         }
     });
@@ -3349,8 +3705,22 @@ void* hook_138(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({
         int on = (intptr_t)a1 ? 1 : 0;
         int applied = sp3_prop_mirror(a0, on);
-        if(applied > 0 && g_propgoact_lines < 200){ g_propgoact_lines++;
+        if(applied > 0 && g_propgoact_lines < 500){ g_propgoact_lines++;
             flog("PROPGOACT prop=%s on=%d n=%d tms=%llu", name, on, applied, (unsigned long long)propgo_now_ms()); }
+        if(propgo_special){
+            if (on && !g_sp3_anim_played && g_sp3_xf_since_ms && sp3_xf_props_has(a0)
+                    && !strcmp(name, "transformed") && g_strnew) {
+                void* st = g_strnew("SpecialAttack03");
+                if (st) {
+                    g_sp3_anim_played = 1;
+                    ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(a0, st, NULL);
+                    void* st2 = g_strnew("Base.SpecialAttack03");
+                    if (st2) ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(a0, st2, NULL);
+                    flog("SP3ANIM prop=%s state=SpecialAttack03 anim=%p tms=%llu",
+                         name, fld_p(a0,0x68), (unsigned long long)propgo_now_ms());
+                }
+            }
+        }
     });
     return r;
 }
@@ -3523,6 +3893,7 @@ void* hook_139(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
 }
 void* hook_140(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     sp3_xf_clear();
+    clear_special_gesture_state();
     return H[140].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
 void* hook_141(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
@@ -3541,50 +3912,82 @@ void* hook_142(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({
         void* pc=fld_p(a0,0x18);
         if (obj_ok(pc)) {
+            const char* current_bot_id = (pc == g_p0_controller) ? g_p0_bot_id : g_p1_bot_id;
+            if (!current_bot_id || !current_bot_id[0]) {
+                if (g_p0_bot_id[0]) current_bot_id = g_p0_bot_id;
+                else if (g_p1_bot_id[0]) current_bot_id = g_p1_bot_id;
+            }
+            flog("SP3XFIX enter pc=%p bot_id=%s tms=%llu", pc, current_bot_id ? current_bot_id : "unknown",
+                 (unsigned long long)propgo_now_ms());
+
+            sp3_load_timing_for_character(current_bot_id);
+
             sp3_xf_add(pc);
             g_sp3_beat_form = 0;
             g_sp3_beat_ticks = 0;
-            flog("SP3XFIX enter pc=%p tms=%llu", pc, (unsigned long long)propgo_now_ms());
-            flog("SP3SCHED on=%d fallback=%d end=%llu tms=%llu",g_sp3_alt_on_ms,g_sp3_alt_off_ms,
-                 (unsigned long long)sp3_alt_end_ms(),(unsigned long long)propgo_now_ms());
+            g_sp3_anim_played = 0;
+            g_sp3_beat_lines = 0;
+            g_propgoact_lines = 0;
+            g_propgoinv_lines = 0;
+            flog("SP3SCHED intervals=%d on0=%d off0=%d tms=%llu", g_current_sp3_timing.count,
+                 g_sp3_alt_on_ms, g_sp3_alt_off_ms, (unsigned long long)propgo_now_ms());
+
+            sp3_xf_props_clear();
+            void* cpm = *(void**)((char*)pc + 0x90);
+            if (obj_ok(cpm) && g_strnew) {
+                void* prop_trans = ((void*(*)(void*,void*,void*))(g_base + 0xEA16C0))(cpm, g_strnew("transformed"), NULL);
+                void* prop_char  = ((void*(*)(void*,void*,void*))(g_base + 0xEA16C0))(cpm, g_strnew("character_model"), NULL);
+                if (prop_trans) sp3_xf_props_add(prop_trans);
+                if (prop_char)  sp3_xf_props_add(prop_char);
+                flog("SP3PROPS cpm=%p trans=%p char=%p", cpm, prop_trans, prop_char);
+            }
+
             g_sp3_xf_capture_props=1;
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,1,NULL);
             g_sp3_xf_capture_props=0;
-            /* SP3BEAT (shipped): the cinematic opens on the ROBOT wind-up. The Transform(true)
-               call above only exists to route the props through slot 138 so they can be
-               captured; push the robot body back on straight away so the alternate form does
-               not flash at t=0. */
+            /* SP3BEAT (shipped): the cinematic opens on the ROBOT wind-up. */
             sp3_beat_apply(0);
+            /* Start vehicle animation at t=0 so it advances in parallel with the robot cinematic. */
+            if (g_strnew) {
+                for (int pi = 0; pi < 8; pi++) {
+                    void* p = g_sp3_xf_props[pi];
+                    if (!obj_ok(p)) continue;
+                    char pname[64]; pname[0] = 0;
+                    void* strobj = *(void**)((char*)p + 0x10);
+                    if (!obj_ok(strobj)) continue;
+                    read_str(strobj, pname, sizeof pname);
+                    if (!strcmp(pname, "transformed")) {
+                        void* st = g_strnew("SpecialAttack03");
+                        void* st2 = g_strnew("Base.SpecialAttack03");
+                        if (st)  ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(p, st, NULL);
+                        if (st2) ((void(*)(void*,void*,void*))(g_base + 0xEA05B4))(p, st2, NULL);
+                        g_sp3_anim_played = 1;
+                        flog("SP3ANIM_START prop=transformed anim=%p tms=%llu",
+                             fld_p(p, 0x68), (unsigned long long)propgo_now_ms());
+                    }
+                }
+            }
         }
     });
     return r;
 }
+static void reset_player_attack_chain(void* pc);
+
 // SP3XFIX (shipped): drop the hold before restoring robot form at cinematic exit.
 void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* pc=fld_p(a0,0x18);
-    PROTECT({
-        void* transformed=sp3_find_body("transformed");
-        void* anim=obj_ok(transformed) ? fld_p(transformed,0x68) : NULL;
-        if(obj_ok(anim) && g_sp3sinfo_hash && g_sp3exit_lines<8){
-            Sp3StateInfo si=((Sp3StateInfo(*)(void*,int,void*))(g_base+0x219B470))(anim,0,NULL);
-            g_sp3exit_lines++;
-            flog("SP3EXIT norm=%.3f len=%.3f tms=%llu",si.m_NormalizedTime,si.m_Length,
-                 (unsigned long long)propgo_now_ms());
-        }
-        sp3_beat_apply(0); /* bodies and player-owned auxiliary props restore before clear */
-        sp3_xf_remove(pc);
-        g_sp3_beat_form=-1;
-    });
+    sp3_beat_apply(0);
+    sp3_xf_remove(pc);
+    sp3_xf_props_clear();
+    g_sp3_beat_form = -1;
+    g_sp3_anim_played = 0;
     void* r=H[143].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({
         if (obj_ok(pc)) {
             flog("SP3XFIX exit pc=%p pump=%d tms=%llu", pc, g_sp3_beat_ticks,
                  (unsigned long long)propgo_now_ms());
             ((void(*)(void*,int,void*))(g_base + 0x117A67C))(pc,0,NULL);
-            *(uint64_t*)((uintptr_t)pc + 0x1c0) = 0;
-            *(uint32_t*)((uintptr_t)pc + 0x1c8) = 0;
-            if (g_base) ((void(*)(void*,void*))(g_base + 0x1177288))(pc, NULL);
-            flog("SP3XFIX reset attack chain on pc=%p", pc);
+            reset_player_attack_chain(pc);
         }
     });
     return r;
@@ -3594,6 +3997,12 @@ void* hook_143(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
 void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
     void* r=H[145].orig(a0,a1,a2,a3,a4,a5,a6,a7);
     PROTECT({ sp3_beat_pump(); });
+#if TFTF_ENABLE_ARENA
+    // Arena netcode: this is the combat tick, so it is where the relay is pumped. Doing it
+    // here rather than on a timer keeps every il2cpp call on the Unity main thread, which is
+    // the only thread allowed to touch managed objects.
+    PROTECT({ if (arena_is_started()) arena_tick(); });
+#endif
     return r;
 }
 // AIRANGE (slot 146): the shipped AI behavior tree receives the valid Default/Ranged
@@ -3602,6 +4011,28 @@ void* hook_145(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
 // CanShoot supplies availability and out-of-melee-range gates; TryExecuteAction retains
 // normal action-state, hit-stun, recovery, and blocked-action checks. No custom range/cooldown.
 void hook_146(void* self, float dT, void* method){
+#if TFTF_ENABLE_ARENA
+    PROTECT({
+        // Arena netcode: when the peer is driving this fighter, pause the shipped AI so the
+        // two do not both steer it. Only the AI whose PlayerController IS the remote fighter
+        // is touched -- in a 3v3 the other fighters keep playing locally.
+        //
+        // SetPaused is evaluated every tick in both directions, and only called when the
+        // state actually differs, so the fighter resumes by itself the moment the peer leaves
+        // the room. A one-way pause would strand a standing target if the link dropped
+        // mid-fight, and an unconditional call would be a managed call per fighter per tick.
+        // obj_ok first: arena_should_pause_ai reads AIController.PlayerController straight out
+        // of `self`, and Simulate can be entered with a controller already freed. The two
+        // globals are non-NULL only when arena_install armed a session, which keeps an offline
+        // install off this path entirely -- see the comment there.
+        if (obj_ok(self) && g_arena_ai_set_paused && g_arena_ai_is_paused) {
+            int want = arena_should_pause_ai(self) ? 1 : 0;
+            int have = ((int(*)(void*,void*))g_arena_ai_is_paused)(self, NULL) ? 1 : 0;
+            if (want != have)
+                ((void(*)(void*,int,void*))g_arena_ai_set_paused)(self, want, NULL);
+        }
+    });
+#endif
     ((fn_ai_simulate)H[146].orig)(self,dT,method);
     PROTECT({
         void* player=fld_p(self,0x90);                    // AIController.PlayerController
@@ -3693,33 +4124,58 @@ void* hook_150(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
     PROTECT({ LOG("PUSHHM this=%p obj=%p", a0, a1); });
     return H[150].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
-static void* g_p0_controller = NULL;
-
 static void reset_player_attack_chain(void* pc) {
     if (!obj_ok(pc)) return;
+    if (g_p0_controller && pc != g_p0_controller) return;
+    int32_t p_idx = *(int32_t*)((uintptr_t)pc + 0xF4);
+    if (p_idx != 0) return;
+    if (!g_p0_controller && p_idx == 0) g_p0_controller = pc;
     *(uint64_t*)((uintptr_t)pc + 0x1c0) = 0;
     *(uint32_t*)((uintptr_t)pc + 0x1c8) = 0;
     if (g_base) {
         ((void(*)(void*, void*))(g_base + 0x1177288))(pc, NULL);
     }
-    flog("RESET_ATTACK_CHAIN on pc=%p", pc);
+    flog("RESET_ATTACK_CHAIN on p0 pc=%p", pc);
 }
 
 void* hook_151(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
     int index = (int)(intptr_t)a1;
     flog("SPECIAL_ATTACK index=%d called on controller=%p (p0=%p, is_p0=%d)",
          index, self, g_p0_controller, (self == g_p0_controller));
+    // Arena netcode: forward this device's own special to the peer. arena_on_local_special
+    // ignores any controller that is not the local one, which is what stops the echo below.
+#if TFTF_ENABLE_ARENA
+    PROTECT({ arena_on_local_special(self, index); });
+#endif
     PROTECT({
         reset_player_attack_chain(self);
     });
-    return H[151].orig(self, a1, a2, a3, a4, a5, a6, a7);
+    void* r = H[151].orig(self, a1, a2, a3, a4, a5, a6, a7);
+    if (self == g_p0_controller) g_intended_special_tier = 0;
+    return r;
 }
 void* hook_152(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
     int action = (int)(intptr_t)a1;
+    if (self == g_p0_controller && action == 0x200 &&
+        g_sp_suppress_stock_special && !g_sp_dispatching_internal) {
+        flog("PLAYER_ACTION 0x200: deferred while HUD gesture ownership is resolved");
+        return (void*)1;
+    }
     if (action >= 4 && action <= 10) {
         flog("PLAYER_ACTION action=%d on controller=%p (p0=%p, is_p0=%d)",
              action, self, g_p0_controller, (self == g_p0_controller));
     }
+    // Arena netcode: forward this device's own input to the peer. This runs for every action,
+    // not just the 4..10 range the diagnostic above logs.
+    //
+    // Re-entrancy is safe by construction. Applying a remote packet calls the same hooked
+    // address, so this hook runs again with self == g_p1_controller, and arena_on_local_action
+    // refuses any controller that is not the local one. Identity, not a re-entry flag, is what
+    // breaks the loop -- which also means a genuine local action issued while a remote packet
+    // is being applied is still captured.
+#if TFTF_ENABLE_ARENA
+    PROTECT({ arena_on_local_action(self, action); });
+#endif
     return H[152].orig(self, a1, a2, a3, a4, a5, a6, a7);
 }
 void* hook_153(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7) {
@@ -3727,11 +4183,7 @@ void* hook_153(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[153].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("SPECIAL_EXIT (S1/S2) resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            flog("SPECIAL_EXIT (S1/S2) fallback resetting attack chain on g_p0=%p", g_p0_controller);
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3741,10 +4193,7 @@ void* hook_154(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[154].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("HEAVY_ENTER resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3754,10 +4203,7 @@ void* hook_155(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[155].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("HIT_REACT resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3766,7 +4212,6 @@ void* hook_156(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     void* r = H[156].orig(self, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(self)) {
-            flog("HIT_STUN resetting attack chain on pc=%p", self);
             reset_player_attack_chain(self);
         }
     });
@@ -3776,7 +4221,6 @@ void* hook_157(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, voi
     void* r = H[157].orig(self, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(self)) {
-            flog("APPLY_DAMAGE resetting attack chain on pc=%p", self);
             reset_player_attack_chain(self);
         }
     });
@@ -3787,10 +4231,7 @@ void* hook_158(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void*
     void* r = H[158].orig(a0, a1, a2, a3, a4, a5, a6, a7);
     PROTECT({
         if (obj_ok(pc)) {
-            flog("BLOCK_ENTER resetting attack chain on pc=%p", pc);
             reset_player_attack_chain(pc);
-        } else if (obj_ok(g_p0_controller)) {
-            reset_player_attack_chain(g_p0_controller);
         }
     });
     return r;
@@ -3820,6 +4261,114 @@ void* hook_161(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,vo
         LOG("WINBLOCK name=%s enabled=%d", nm[0]?nm:"?", (int)(intptr_t)a2); });
     return H[161].orig(a0,a1,a2,a3,a4,a5,a6,a7);
 }
+void* hook_162(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        uintptr_t tabs = (uintptr_t)a1;
+        if (!tabs || tabs < 0x100000 || (tabs & 7) != 0) {
+            LOG("GETDEFTAB null/invalid tabs=%p -> return empty string", (void*)tabs);
+            return g_strnew ? g_strnew("") : NULL;
+        }
+        int len = *(int*)(tabs + 0x18);
+        if (len <= 0) {
+            LOG("GETDEFTAB empty tabs array (len=%d) -> return empty string", len);
+            return g_strnew ? g_strnew("") : NULL;
+        }
+    });
+    return H[162].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+void* hook_163(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    LOG("PAYOUTSAWAKE called");
+    PROTECT({
+        return H[163].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+    });
+    LOG("PAYOUTSAWAKE caught exception!");
+    return NULL;
+}
+// PR #9's incoming hooks use slots 164/165 so the existing payout hooks keep
+// their RVAs and their H[index].orig trampoline references.
+void* hook_164(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    uint64_t now = propgo_now_ms();
+    if (self == g_p0_controller && g_intended_special_tier > 0) {
+        uint64_t age = now - g_intended_special_time_ms;
+        if (age < 600) {
+            int target_tier = g_intended_special_tier;
+            void* power_meter = obj_ok(self) ? *(void**)((char*)self + 0x80) : NULL;
+            int available = 0;
+            PROTECT({ available = power_meter_can_use_special(power_meter, target_tier); });
+            if (available) {
+                flog("GET_AVAIL_SP_TIER: P0 overriding stock tier to %d", target_tier);
+                return (void*)(intptr_t)target_tier;
+            }
+            flog("GET_AVAIL_SP_TIER: P0 tier %d unavailable; falling back to stock", target_tier);
+            g_intended_special_tier = 0;
+        } else {
+            flog("GET_AVAIL_SP_TIER: expired gesture intent tier=%d age=%llu ms",
+                 g_intended_special_tier, (unsigned long long)age);
+            g_intended_special_tier = 0;
+        }
+    }
+    void* r = H[164].orig(self, a1, a2, a3, a4, a5, a6, a7);
+    if (self == g_p0_controller)
+        flog("GET_AVAIL_SP_TIER: P0 stock returned tier=%d", (int)(intptr_t)r);
+    return r;
+}
+
+void* hook_165(void* self, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    /* The HUD callback is the authoritative ownership signal.  A ProcessTouch
+       coordinate candidate without this callback is discarded on release. */
+    if (g_sp_touch_tracking && obj_ok(g_p0_controller)) {
+        g_sp_touch_owned = 1;
+        flog("HUD_SP_BUTTON_PRESSED: control=%p claimed gesture touch", self);
+    }
+    return H[165].orig(self, a1, a2, a3, a4, a5, a6, a7);
+}
+// PVPPLDIAG (slot 166): dump PVPPlayerContestantItem.Init's inputs before the original runs.
+// Parameters: User@0x10, Match@0x18, Team@0x20, DetailItemSelected@0x28, HeroOrderChanged@0x30.
+// TeamData.mHeroes@0x30 (List<HeroData>, _size@0x18); PVPMatchData.Opponents@0x20, State@0x18.
+// The item's own serialized refs: _heroPortraitPrefab@0x28, _playerHeroDetailWidgetPrefab@0x30,
+// _playerNameAligner@0x38, _teamInfoAligner@0x40, _playerTagLabel@0x48, _playerTotalRatingLabel@0x50,
+// _playerNameLabel@0x58, _grid@0x60, _heroDetailGrid@0x68, _fightWinsContainer@0x70, _transition@0x78.
+void* hook_166(void* a0,void* a1,void* a2,void* a3,void* a4,void* a5,void* a6,void* a7){
+    PROTECT({
+        void* user = fld_p(a1, 0x10);
+        void* match = fld_p(a1, 0x18);
+        void* team = fld_p(a1, 0x20);
+        void* heroes = fld_p(team, 0x30);
+        int32_t nheroes = obj_ok(heroes) ? *(int32_t*)((uintptr_t)heroes+0x18) : -1;
+        void* opponents = fld_p(match, 0x20);
+        int32_t nopp = obj_ok(opponents) ? *(int32_t*)((uintptr_t)opponents+0x18) : -1;
+        flog("PVPPLDIAG this=%p p=%p user=%p match=%p team=%p heroes=%p n=%d opponents=%p n=%d",
+             a0, a1, user, match, team, heroes, nheroes, opponents, nopp);
+        flog("PVPPLDIAG refs heroPortraitPrefab=%p detailPrefab=%p nameAligner=%p teamAligner=%p tag=%p rating=%p name=%p grid=%p detailGrid=%p wins=%p transition=%p",
+             fld_p(a0,0x28), fld_p(a0,0x30), fld_p(a0,0x38), fld_p(a0,0x40), fld_p(a0,0x48),
+             fld_p(a0,0x50), fld_p(a0,0x58), fld_p(a0,0x60), fld_p(a0,0x68), fld_p(a0,0x70), fld_p(a0,0x78));
+    });
+    return H[166].orig(a0,a1,a2,a3,a4,a5,a6,a7);
+}
+static float hook_167(void* self, int index, void* method){
+    float health=((float (*)(void*,int,void*))H[167].orig)(self,index,method);
+    PROTECT({
+        void* team=fld_p(self,0x30);
+        int selected=index<0&&obj_ok(self)?*(int32_t*)((uintptr_t)self+0x20):index;
+        if(obj_ok(team)&&selected>=0&&selected<5){
+            void* (*get_bid)(void*,int,void*)=(void*)(g_base+0x10E160C);
+            char bid[80];
+            if(read_str(get_bid(team,selected,NULL),bid,sizeof bid)){
+                float saved=tftf_quest_fighter_health(bid);
+                if(saved>=0.0f&&saved<=1.0f&&isfinite(health)){
+                    int (*get_max)(void*,int,void*)=(void*)(g_base+0x10E1A30);
+                    int maximum=get_max(team,selected,NULL);
+                    float target=health>1.5f&&maximum>1?(float)maximum*saved:saved;
+                    if(health>target+0.001f){
+                        flog("QHP preview hero=%s original=%.1f max=%d saved=%.4f final=%.1f",bid,health,maximum,saved,target);
+                        health=target;
+                    }
+                }
+            }
+        }
+    });
+    return health;
+}
 static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hook_7,hook_8,
     hook_9,hook_10,hook_11,hook_12,hook_13,hook_14,hook_15,hook_16,hook_17,hook_18,hook_19,hook_20,hook_21,
     hook_22,hook_23,hook_24,hook_25,hook_26,hook_27,hook_28,hook_29,hook_30,
@@ -3837,7 +4386,7 @@ static void* handlers[] = { hook_0,hook_1,hook_2,hook_3,hook_4,hook_5,hook_6,hoo
     hook_138,hook_139,hook_140,hook_141,hook_142,hook_143,hook_144,
     hook_145,hook_146,hook_147,hook_148,hook_149,hook_150,
     hook_151,hook_152,hook_153,hook_154,hook_155,hook_156,hook_157,hook_158,
-    hook_159,hook_160,hook_161 };
+    hook_159,hook_160,hook_161,hook_162,hook_163,hook_164,hook_165,hook_166,(void*)hook_167 };
 
 static void write_jump(uint8_t* dst, void* target){
     uint32_t* p = (uint32_t*)dst;
@@ -3907,8 +4456,7 @@ extern void* handlers[];
 static int inline_hook(void* target, void* handler, fn8* orig_out){
     uint8_t* t = (uint8_t*)target;
     uint32_t first = *(uint32_t*)t;
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0) { LOG("mprotect fail %p", t); return -1; }
+    if (make_code_range_writable(t, 16) != 0) { LOG("mprotect fail %p", t); return -1; }
     uint8_t* tr = (uint8_t*)mmap(NULL, 256, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
     if (tr == MAP_FAILED) { LOG("mmap fail"); return -1; }
     int trlen = relocate(tr, t, 4);     // relocate 4 prologue instrs (PC-relative fixed up)
@@ -3926,17 +4474,805 @@ static int find_cb(struct dl_phdr_info* info, size_t sz, void* data){
     return 0;
 }
 
-// Single 32-bit instruction rewrite at (g_base+rva). Installed before the target is first
-// executed (constructor thread runs at app start; the patched funcs run only later), so
-// libnb's lazy translation picks up the new word -- same guarantee as the inline hooks.
+#if TFTF_ENABLE_ARENA
+// Arena netcode: the config file that says whether this device should relay a live fight at
+// all, and to whom. Absent file => no session, and the game behaves exactly as it does today.
+// That is the whole activation switch: nothing below is on unless this file exists and is
+// complete, so a normal offline install is untouched by the netcode path.
+static const char* arena_config_path(void){
+    const char* configured = getenv("TFTF_ARENA_CONFIG");
+    if (configured && configured[0]) return configured;
+    return "/data/data/com.kabam.bigrobot/files/.tftf-arena.conf";
+}
+
+// Called from the installer thread once g_base is known, so every il2cpp address is absolute
+// and the RVAs stay in one place -- the same table hook.c already hooks from.
+static void inapk_log(const char* fmt, ...);
+
+static void arena_install(uintptr_t base){
+    ArenaOps ops;
+    const char* path = arena_config_path();
+    int rc;
+    memset(&ops, 0, sizeof ops);
+    ops.pc_action         = (void*)(base + 0x1179AF4); // PlayerController.Action(int)
+    ops.pc_special_attack = (void*)(base + 0x1174300); // PlayerController.SpecialAttack(int)
+    ops.ai_set_paused     = (void*)(base + 0xDB1D18);  // AIController.SetPaused(bool)
+    ops.attr_get_health   = (void*)(base + 0xDAC660);  // PlayerAttributes.get_Health()
+    ops.attr_set_health   = (void*)(base + 0xDAC67C);  // PlayerAttributes.set_Health(float)
+    arena_set_logger(inapk_log);
+    tftf_net_set_logger(inapk_log);
+    arena_set_ops(&ops);
+    rc = arena_start_from_file(path);
+    if (rc == 0) {
+        LOG("arena: live fight relay armed from %s", path);
+        // slot 146 drives the AI pause through these two, resolved here rather than inline so
+        // the hook body stays a couple of calls and the RVAs live in one place.
+        //
+        // They are published ONLY for an armed session, which makes the pair double as the
+        // netcode's master switch. arena_set_ops above is unconditional, so gating on the ops
+        // alone would leave slot 146 making a managed get_IsPaused() call per fighter per tick
+        // on a build with no session at all -- exactly the offline install the comment at
+        // arena_config_path promises is untouched. arena_should_pause_ai already returns 0
+        // while stopped, so the only thing that gate ever bought was the crash risk.
+        //
+        // Note this deliberately keys off "armed once", not arena_is_started(): the block must
+        // keep running after a stop so it can still call SetPaused(false) and let a fighter it
+        // paused resume on its own.
+        g_arena_ai_set_paused = ops.ai_set_paused;
+        g_arena_ai_is_paused  = (void*)(base + 0xDB025C);  // AIController.get_IsPaused()
+    } else {
+        LOG("arena: no live fight session (%d) from %s", rc, path);
+    }
+}
+#endif
+
 static void poke32(uintptr_t rva, uint32_t word){
     uint8_t* t = (uint8_t*)(g_base + rva);
-    uintptr_t pg = (uintptr_t)t & ~0xFFFUL;
-    if (mprotect((void*)pg, 0x2000, PROT_READ|PROT_WRITE|PROT_EXEC) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
+    if (make_code_range_writable(t, 4) != 0){ LOG("poke mprotect fail 0x%lx", (long)rva); return; }
     uint32_t old = *(uint32_t*)t;
     *(uint32_t*)t = word;
     __builtin___clear_cache((char*)t, (char*)t + 4);
     LOG("poked 0x%lx : %08x -> %08x", (long)rva, old, word);
+}
+
+/* Global framerate patch block for the APK patcher. Placed in .data; size fixed and known so
+ * the patcher can find it by scanning. Keep FPS_PATCH_MARKER in sync with FpsConfigPatch.kt.
+ * Default is 60 FPS; the patcher can rewrite the target to 30. */
+#define FPS_PATCH_MARKER "TFTF-FPS-CFG-1"
+#define FPS_PATCH_MARKER_LEN 16
+
+typedef struct {
+    char marker[FPS_PATCH_MARKER_LEN];
+    uint32_t target_fps;  // 60 or 30 (default 60)
+} TFTFFpsConfig;
+
+__attribute__((used, section(".data")))
+static volatile TFTFFpsConfig g_fps_config = {
+    .marker = FPS_PATCH_MARKER,
+    .target_fps = 60
+};
+
+static fn8 orig_set_targetFrameRate = NULL;
+static void* hooked_set_targetFrameRate(void* fps, void* m, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    int req_fps = (int)(intptr_t)fps;
+    LOG("Application.set_targetFrameRate: req=%d -> forcing %u", req_fps, g_fps_config.target_fps);
+    if (orig_set_targetFrameRate) {
+        return orig_set_targetFrameRate((void*)(intptr_t)g_fps_config.target_fps, m, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_set_vSyncCount = NULL;
+static void* hooked_set_vSyncCount(void* count, void* m, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    int req_vsync = (int)(intptr_t)count;
+    LOG("QualitySettings.set_vSyncCount: req=%d -> forcing 0", req_vsync);
+    if (orig_set_vSyncCount) {
+        return orig_set_vSyncCount((void*)(intptr_t)0, m, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_RefreshDisplay = NULL;
+static void* hooked_RefreshDisplay(void* self, void* onReady, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        uintptr_t s = (uintptr_t)self;
+        if (!s || (s < 0x100000) || (s & 7)) {
+            LOG("KITPROBE self=NULL");
+        } else {
+            uintptr_t heroData = *(uintptr_t*)(s + 0x80);
+            if (!heroData || (heroData < 0x100000) || (heroData & 7)) {
+                LOG("KITPROBE _heroData is NULL");
+            } else {
+                const char* branch = "neither";
+                uintptr_t attributes = 0;
+                uintptr_t userTeamHero = *(uintptr_t*)(heroData + 0x58);
+                uintptr_t userHero = *(uintptr_t*)(heroData + 0x50);
+
+                if (userTeamHero && userTeamHero >= 0x100000 && !(userTeamHero & 7)) {
+                    branch = "userTeamHero";
+                    attributes = *(uintptr_t*)(userTeamHero + 0x40);
+                } else if (userHero && userHero >= 0x100000 && !(userHero & 7)) {
+                    branch = "userHero";
+                    attributes = *(uintptr_t*)(userHero + 0x38);
+                }
+
+                if (!attributes || (attributes < 0x100000) || (attributes & 7)) {
+                    LOG("KITPROBE heroData=%p branch=%s attributes=NULL", (void*)heroData, branch);
+                } else {
+                    uintptr_t statMods = *(uintptr_t*)(attributes + 0x10);
+                    uintptr_t sigMods  = *(uintptr_t*)(attributes + 0x18);
+                    uintptr_t buffMods = *(uintptr_t*)(attributes + 0x20);
+
+                    int statSize = (statMods && statMods >= 0x100000 && !(statMods & 7)) ? *(int32_t*)(statMods + 0x18) : -1;
+                    int sigSize  = (sigMods  && sigMods  >= 0x100000 && !(sigMods  & 7)) ? *(int32_t*)(sigMods  + 0x18) : -1;
+                    int buffSize = (buffMods && buffMods >= 0x100000 && !(buffMods & 7)) ? *(int32_t*)(buffMods + 0x18) : -1;
+
+                    LOG("KITPROBE heroData=%p branch=%s attributes=%p StatMods=%p (_size=%d) sig_mods=%p (_size=%d) buff_mods=%p (_size=%d)",
+                        (void*)heroData, branch, (void*)attributes,
+                        (void*)statMods, statSize,
+                        (void*)sigMods, sigSize,
+                        (void*)buffMods, buffSize);
+
+                    if (statMods && statMods >= 0x100000 && !(statMods & 7) && statSize > 0) {
+                        uintptr_t items = *(uintptr_t*)(statMods + 0x10);
+                        if (items && items >= 0x100000 && !(items & 7)) {
+                            for (int i = 0; i < statSize && i < 100; i++) {
+                                uintptr_t strPtr = *(uintptr_t*)(items + 0x20 + i * 8);
+                                char strBuf[65];
+                                strBuf[0] = 0;
+                                if (strPtr && strPtr >= 0x100000 && !(strPtr & 7)) {
+                                    int32_t len = *(int32_t*)(strPtr + 0x10);
+                                    if (len > 0) {
+                                        if (len > 64) len = 64;
+                                        uint16_t* chars = (uint16_t*)(strPtr + 0x14);
+                                        for (int j = 0; j < len; j++) {
+                                            strBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                                        }
+                                        strBuf[len] = 0;
+                                    }
+                                }
+                                LOG("KITPROBE StatMods[%d]='%s' (strPtr=%p)", i, strBuf[0] ? strBuf : "<empty/null>", (void*)strPtr);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // KITGATE3 extended logging
+        typedef void* (*fn_get_instance)(void);
+        fn_get_instance get_bcg_instance = (fn_get_instance)(g_base + 0xa5c688);
+        void* bcgInst = get_bcg_instance ? get_bcg_instance() : NULL;
+        uintptr_t inst = (uintptr_t)bcgInst;
+        if (!inst || inst < 0x100000 || (inst & 7)) {
+            LOG("KITGATE3 BCGManager.Instance is NULL (ptr=%p)", bcgInst);
+        } else {
+            uintptr_t globalStatModsDict = *(uintptr_t*)(inst + 0x38);
+            int globalStatModsCount = (globalStatModsDict && globalStatModsDict >= 0x100000 && !(globalStatModsDict & 7))
+                                      ? *(int32_t*)(globalStatModsDict + 0x20) : -1;
+            LOG("KITGATE3 global statMods dict=%p count(unverified offset)=%d", (void*)globalStatModsDict, globalStatModsCount);
+
+            uintptr_t appDict = *(uintptr_t*)(inst + 0x40);
+            if (!appDict || appDict < 0x100000 || (appDict & 7)) {
+                LOG("KITGATE3 appearance dict is NULL (ptr=%p)", (void*)appDict);
+            } else {
+                int appCount = *(int32_t*)(appDict + 0x20);
+                LOG("KITGATE3 appearance dict=%p count(unverified offset)=%d", (void*)appDict, appCount);
+            }
+
+            // StatMods[0] lookup ("kit_bleed") & AppearanceID check
+            if (globalStatModsDict && globalStatModsDict >= 0x100000 && !(globalStatModsDict & 7)) {
+                uintptr_t entries = *(uintptr_t*)(globalStatModsDict + 0x18);
+                int count = *(int32_t*)(globalStatModsDict + 0x20);
+                void* firstMod = NULL;
+                if (entries && entries >= 0x100000 && !(entries & 7) && count > 0 && count < 10000) {
+                    for (int i = 0; i < count; i++) {
+                        uintptr_t entry = entries + 0x20 + i * 0x18;
+                        uintptr_t keyStr = *(uintptr_t*)(entry + 0x8);
+                        if (keyStr && keyStr >= 0x100000 && !(keyStr & 7)) {
+                            int32_t klen = *(int32_t*)(keyStr + 0x10);
+                            if (klen > 0 && klen < 128) {
+                                uint16_t* kchars = (uint16_t*)(keyStr + 0x14);
+                                char kbuf[128];
+                                for (int j = 0; j < klen; j++) kbuf[j] = (kchars[j] < 128) ? (char)kchars[j] : '?';
+                                kbuf[klen] = 0;
+                                if (strcmp(kbuf, "kit_bleed") == 0) {
+                                    firstMod = (void*)*(uintptr_t*)(entry + 0x10);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                LOG("KITGATE3 globalStatModsDict lookup(kit_bleed) mod=%p", firstMod);
+                if (firstMod && (uintptr_t)firstMod >= 0x100000 && !((uintptr_t)firstMod & 7)) {
+                    uintptr_t appIDStr = *(uintptr_t*)((uintptr_t)firstMod + 0x78);
+                    if (!appIDStr) {
+                        LOG("KITGATE3 AppearanceID is NULL on modifier kit_bleed (%p)", firstMod);
+                    } else if (appIDStr < 0x100000 || (appIDStr & 7)) {
+                        LOG("KITGATE3 AppearanceID is INVALID pointer %p on modifier kit_bleed (%p)", (void*)appIDStr, firstMod);
+                    } else {
+                        int32_t len = *(int32_t*)(appIDStr + 0x10);
+                        char appBuf[65];
+                        appBuf[0] = 0;
+                        if (len > 0) {
+                            if (len > 64) len = 64;
+                            uint16_t* chars = (uint16_t*)(appIDStr + 0x14);
+                            for (int j = 0; j < len; j++) {
+                                appBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                            }
+                            appBuf[len] = 0;
+                        }
+                        LOG("KITGATE3 mod kit_bleed AppearanceID='%s' (ptr=%p)", appBuf[0] ? appBuf : "<empty/null>", (void*)appIDStr);
+                    }
+                } else {
+                    LOG("KITGATE3 mod kit_bleed NOT FOUND in global statMods dict");
+                }
+            }
+        }
+    });
+    if (orig_RefreshDisplay) {
+        return orig_RefreshDisplay(self, onReady, a2, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_ShouldDisplayStatModifier = NULL;
+static void* hooked_ShouldDisplayStatModifier(void* statModId, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_ShouldDisplayStatModifier) {
+        ret = orig_ShouldDisplayStatModifier(statModId, a1, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char idBuf[65];
+        idBuf[0] = 0;
+        uintptr_t s = (uintptr_t)statModId;
+        if (s && s >= 0x100000 && !(s & 7)) {
+            int32_t len = *(int32_t*)(s + 0x10);
+            if (len > 0) {
+                if (len > 64) len = 64;
+                uint16_t* chars = (uint16_t*)(s + 0x14);
+                for (int j = 0; j < len; j++) {
+                    idBuf[j] = (chars[j] < 128) ? (char)chars[j] : '?';
+                }
+                idBuf[len] = 0;
+            }
+        }
+        LOG("KITGATE1 statModId='%s' (ptr=%p) ret=%d", idBuf[0] ? idBuf : "<empty/null>", statModId, (int)(uintptr_t)ret);
+    });
+    return ret;
+}
+
+static void dump_il2cpp_string_hex(void* ptr, char* buf, size_t max_buf, char* hex_buf, size_t max_hex) {
+    if (buf && max_buf > 0) buf[0] = 0;
+    if (hex_buf && max_hex > 0) hex_buf[0] = 0;
+    uintptr_t s = (uintptr_t)ptr;
+    if (!s || s < 0x100000 || (s & 7)) {
+        if (buf && max_buf > 0) snprintf(buf, max_buf, "<null>");
+        return;
+    }
+    int32_t len = *(int32_t*)(s + 0x10);
+    if (len <= 0 || len > 2048) {
+        if (buf && max_buf > 0) snprintf(buf, max_buf, "<empty/len=%d>", len);
+        return;
+    }
+    uint16_t* chars = (uint16_t*)(s + 0x14);
+    if (buf && max_buf > 0) {
+        int out_i = 0;
+        for (int i = 0; i < len && out_i < (int)max_buf - 10; i++) {
+            uint16_t c = chars[i];
+            if (c >= 32 && c <= 126) {
+                buf[out_i++] = (char)c;
+            } else {
+                out_i += snprintf(buf + out_i, max_buf - out_i, "\\u%04X", c);
+            }
+        }
+        buf[out_i] = 0;
+    }
+    if (hex_buf && max_hex > 0) {
+        int hex_i = 0;
+        for (int i = 0; i < len && i < 16 && hex_i < (int)max_hex - 6; i++) {
+            hex_i += snprintf(hex_buf + hex_i, max_hex - hex_i, "%04X ", chars[i]);
+        }
+        hex_buf[hex_i] = 0;
+    }
+}
+
+static void dump_appearance_all_fields(void* app_ptr, const char* context_tag) {
+    uintptr_t app = (uintptr_t)app_ptr;
+    if (!app || app < 0x100000 || (app & 7)) {
+        LOG("%s appearance=%p IS_NULL_OR_INVALID", context_tag, app_ptr);
+        return;
+    }
+    char buf_id[64], hex_id[64];
+    char buf_st[64], hex_st[64];
+    char buf_t[64], hex_t[64];
+    char buf_l[64], hex_l[64];
+    char buf_s[64], hex_s[64];
+    char buf_f[64], hex_f[64];
+    char buf_p[64], hex_p[64];
+    char buf_c[64], hex_c[64];
+
+    dump_il2cpp_string_hex(*(void**)(app + 0x10), buf_id, sizeof(buf_id), hex_id, sizeof(hex_id));
+    dump_il2cpp_string_hex(*(void**)(app + 0x18), buf_st, sizeof(buf_st), hex_st, sizeof(hex_st));
+    dump_il2cpp_string_hex(*(void**)(app + 0x20), buf_t, sizeof(buf_t), hex_t, sizeof(hex_t));
+    dump_il2cpp_string_hex(*(void**)(app + 0x28), buf_l, sizeof(buf_l), hex_l, sizeof(hex_l));
+    dump_il2cpp_string_hex(*(void**)(app + 0x30), buf_s, sizeof(buf_s), hex_s, sizeof(hex_s));
+    dump_il2cpp_string_hex(*(void**)(app + 0x38), buf_f, sizeof(buf_f), hex_f, sizeof(hex_f));
+    dump_il2cpp_string_hex(*(void**)(app + 0x40), buf_p, sizeof(buf_p), hex_p, sizeof(hex_p));
+    dump_il2cpp_string_hex(*(void**)(app + 0x48), buf_c, sizeof(buf_c), hex_c, sizeof(hex_c));
+
+    LOG("%s app=%p ID='%s' st='%s' t='%s' l='%s' s='%s' f='%s' p='%s' c='%s'",
+        context_tag, app_ptr, buf_id, buf_st, buf_t, buf_l, buf_s, buf_f, buf_p, buf_c);
+    LOG("%s HEX app=%p ID=[%s] st=[%s] t=[%s] f=[%s]",
+        context_tag, app_ptr, hex_id, hex_st, hex_t, hex_f);
+}
+
+static fn8 orig_AbilityItem_SetData = NULL;
+static void* hooked_AbilityItem_SetData(void* self, void* statModifier, void* statModAppearance, void* width, void* useLong, void* a5, void* a6, void* a7){
+    PROTECT({
+        dump_appearance_all_fields(statModAppearance, "KITGATE4_ABILITYITEM");
+        void* iconLabel = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x38) : NULL;
+        void* nameLabel = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x28) : NULL;
+        LOG("KITGATE4_ABILITYITEM self=%p statModifier=%p statModAppearance=%p iconLabel=%p nameLabel=%p",
+            self, statModifier, statModAppearance, iconLabel, nameLabel);
+    });
+    if (orig_AbilityItem_SetData) {
+        return orig_AbilityItem_SetData(self, statModifier, statModAppearance, width, useLong, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_HudBuffWidget_Init = NULL;
+static void* hooked_HudBuffWidget_Init(void* self, int id, int gridId, void* appearance, int isTower, int clickable, int refresh, void* a7){
+    PROTECT({
+        dump_appearance_all_fields(appearance, "KITGATE_HUD_BUFF_WIDGET_INIT");
+        void* buffIcon = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x30) : NULL;
+        void* countLabel = (self && (uintptr_t)self >= 0x100000 && !((uintptr_t)self & 7)) ? *(void**)((uintptr_t)self + 0x48) : NULL;
+        LOG("KITGATE_HUD_BUFF_WIDGET_INIT self=%p id=%d gridId=%d appearance=%p buffIcon=%p countLabel=%p",
+            self, id, gridId, appearance, buffIcon, countLabel);
+    });
+    if (orig_HudBuffWidget_Init) {
+        return orig_HudBuffWidget_Init(self, (void*)(uintptr_t)id, (void*)(uintptr_t)gridId, appearance, (void*)(uintptr_t)isTower, (void*)(uintptr_t)clickable, (void*)(uintptr_t)refresh, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_UILabel_TryLocalize = NULL;
+static void* hooked_UILabel_TryLocalize(void* self, void* value, void** replacement, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_UILabel_TryLocalize) {
+        ret = orig_UILabel_TryLocalize(self, value, replacement, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char inBuf[128];
+        char inHex[64];
+        char outBuf[128];
+        char outHex[64];
+        dump_il2cpp_string_hex(value, inBuf, sizeof(inBuf), inHex, sizeof(inHex));
+        void* replPtr = (replacement) ? *replacement : NULL;
+        dump_il2cpp_string_hex(replPtr, outBuf, sizeof(outBuf), outHex, sizeof(outHex));
+        LOG("KITGATE_TRY_LOCALIZE label=%p ret=%d in='%s' in_hex=[%s] out='%s' out_hex=[%s]",
+            self, (int)(uintptr_t)ret, inBuf, inHex, outBuf, outHex);
+    });
+    return ret;
+}
+
+static fn8 orig_BCGStatModifierAppearance_ctor = NULL;
+static void* hooked_BCGStatModifierAppearance_ctor(void* self, void* dict, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_BCGStatModifierAppearance_ctor) {
+        ret = orig_BCGStatModifierAppearance_ctor(self, dict, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        dump_appearance_all_fields(self, "KITGATE_APP_CTOR");
+    });
+    return ret;
+}
+
+static fn8 orig_HudBuffWidgetsContainer_Add = NULL;
+static void* hooked_HudBuffWidgetsContainer_Add(void* self, void* buff, void* refresh, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        char appIDBuf[64];
+        appIDBuf[0] = 0;
+        if (buff && (uintptr_t)buff >= 0x100000 && !((uintptr_t)buff & 7)) {
+            void* appIDStr = *(void**)((uintptr_t)buff + 0x38);
+            dump_il2cpp_string_hex(appIDStr, appIDBuf, sizeof(appIDBuf), NULL, 0);
+        }
+        LOG("KITGATE_HUDBUFFCONTAINER_ADD self=%p buff=%p statModAppearanceID='%s'",
+            self, buff, appIDBuf[0] ? appIDBuf : "<null>");
+    });
+    if (orig_HudBuffWidgetsContainer_Add) {
+        return orig_HudBuffWidgetsContainer_Add(self, buff, refresh, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+static fn8 orig_Damage_BuffEffect_OnTick = NULL;
+/* Real signature: OnTick(this, Buff buff, float tickInterval)
+ * x0 = this (Damage_BuffEffect), x1 = buff, s0 = tickInterval.
+ * The original reads the magnitude from the BUFF (0xBB1948: ldr s1,[x19,#0x44]
+ * where 0xBB18C0 mov x19,x1), so dump candidate buff offsets to locate it. */
+static void try_extract_string(void* ptr, char* buf, size_t max_len) {
+    if (!buf || max_len < 2) return;
+    buf[0] = 0;
+    uintptr_t p = (uintptr_t)ptr;
+    if (p >= 0x100000 && !(p & 7)) {
+        int32_t len = *(int32_t*)(p + 0x10);
+        if (len > 0 && len < 512) {
+            if (len > (int)max_len - 1) len = (int)max_len - 1;
+            uint16_t* chars = (uint16_t*)(p + 0x14);
+            int printable = 1;
+            for (int j = 0; j < len; j++) {
+                if (chars[j] < 0x20 || chars[j] >= 0x7f) {
+                    printable = 0;
+                    break;
+                }
+            }
+            if (printable) {
+                for (int j = 0; j < len; j++) {
+                    buf[j] = (char)chars[j];
+                }
+                buf[len] = 0;
+            }
+        }
+    }
+}
+
+static void try_extract_string(void* ptr, char* buf, size_t max_len);
+
+// FloatingText_BuffEffect..ctor(string type, BuffModTypes modType, string strParams) RVA 0xDC7AFC
+static void (*orig_FloatingText_ctor)(void*, void*, int, void*) = NULL;
+static void hooked_FloatingText_ctor(void* self, void* type, int modType, void* strParams){
+    PROTECT({
+        char typeBuf[65] = {0};
+        char paramsBuf[128] = {0};
+        try_extract_string(type, typeBuf, sizeof(typeBuf));
+        try_extract_string(strParams, paramsBuf, sizeof(paramsBuf));
+        LOG("FT_ctor self=%p type='%s' modType=%d strParams='%s' (strParamsPtr=%p)",
+            self, typeBuf[0] ? typeBuf : "<empty/null>", modType, paramsBuf[0] ? paramsBuf : "<empty/null>", strParams);
+    });
+    if (orig_FloatingText_ctor) {
+        orig_FloatingText_ctor(self, type, modType, strParams);
+    }
+}
+
+static fn8 orig_FloatingText_OnTick = NULL;
+/* FloatingText_BuffEffect.OnTick(Buff buff, float tickInterval) @ 0xDC7CB4
+ * this+0x38 = _player (PlayerController), this+0x40 = _key (string), this+0x48 = _style */
+static void hooked_FloatingText_OnTick(void* self, void* buff, float dt){
+    PROTECT({
+        char k[64]; k[0]=0;
+        uintptr_t t=(uintptr_t)self;
+        int style=-1;
+        void* player=NULL;
+        if (t >= 0x100000 && !(t & 7)) {
+            player = *(void**)(t + 0x38);
+            try_extract_string(*(void**)(t + 0x40), k, sizeof k);
+            style=*(int*)(t + 0x48);
+        }
+        /* Read the value OnTick actually branches on. FloatingText_BuffEffect.OnTick
+         * draws only when GetCachedValue(_key) > 0 (fcmp at 0xDC7CD8); logging the key
+         * alone proves the effect ticks but not why it stays silent. This calls the same
+         * PlayerController.GetCachedValue (0x117A1C0) the effect calls, so one fight
+         * distinguishes "the value never arrives" from "the value is there but tiny".
+         * This is what established that `m` is an absolute total - see
+         * ABILITY_AUTHORING.md section 7, pitfall 7. */
+        float cached = -1.0f;
+        if (g_base && player && ((uintptr_t)player >= 0x100000) && !((uintptr_t)player & 7)) {
+            void* keyObj = *(void**)(t + 0x40);
+            if (keyObj) {
+                float (*get_cached)(void*, void*) =
+                    (float (*)(void*, void*))(g_base + 0x117A1C0);
+                cached = get_cached(player, keyObj);
+            }
+        }
+        LOG("KITFT FloatingText.OnTick self=%p player=%p key='%s' style=%d dt=%.2f cached=%.4f",
+            self, player, k, style, (double)dt, (double)cached);
+    });
+    if (orig_FloatingText_OnTick)
+        ((void(*)(void*, void*, float))orig_FloatingText_OnTick)(self, buff, dt);
+}
+
+static fn8 orig_FloatingText_OnInitTarget = NULL;
+/* FloatingText_BuffEffect.OnInitTarget(BuffsController target) @ 0xDC7C40 */
+static void hooked_FloatingText_OnInitTarget(void* self, void* target){
+    if (orig_FloatingText_OnInitTarget)
+        ((void(*)(void*, void*))orig_FloatingText_OnInitTarget)(self, target);
+    PROTECT({
+        char k[64] = {0};
+        uintptr_t t = (uintptr_t)self;
+        int style = -1;
+        void* player = NULL;
+        if (t >= 0x100000 && !(t & 7)) {
+            player = *(void**)(t + 0x38);
+            try_extract_string(*(void**)(t + 0x40), k, sizeof k);
+            style = *(int*)(t + 0x48);
+        }
+        LOG("FT_OnInitTarget self=%p target=%p player=%p key='%s' style=%d", self, target, player, k, style);
+    });
+}
+
+static fn8 orig_BuffEffect_Clone = NULL;
+/* BuffEffect.Clone() @ 0xE5D884 */
+static void* hooked_BuffEffect_Clone(void* self){
+    void* result = NULL;
+    if (orig_BuffEffect_Clone) {
+        result = ((void*(*)(void*))orig_BuffEffect_Clone)(self);
+    }
+    PROTECT({
+        if (self && result) {
+            uintptr_t t_src = (uintptr_t)self;
+            uintptr_t t_dst = (uintptr_t)result;
+            char k_src[64] = {0}; char k_dst[64] = {0};
+            if (t_src >= 0x100000 && !(t_src & 7)) {
+                try_extract_string(*(void**)(t_src + 0x40), k_src, sizeof k_src);
+            }
+            if (t_dst >= 0x100000 && !(t_dst & 7)) {
+                try_extract_string(*(void**)(t_dst + 0x40), k_dst, sizeof k_dst);
+            }
+            if (k_src[0] || k_dst[0]) {
+                LOG("FT_Clone src=%p (key='%s') -> dst=%p (key='%s')", self, k_src, result, k_dst);
+            }
+        }
+    });
+    return result;
+}
+
+static fn8 orig_ParamsTable_ToString = NULL;
+/* ParamsTable.ToString(this, string key, string defaultValue) @ 0xB3A6C8 */
+static void* hooked_ParamsTable_ToString(void* self, void* key, void* defaultValue, void* method){
+    void* result = NULL;
+    if (orig_ParamsTable_ToString) {
+        result = ((void*(*)(void*, void*, void*, void*))orig_ParamsTable_ToString)(self, key, defaultValue, method);
+    }
+    PROTECT({
+        char keyBuf[128] = {0};
+        char defaultBuf[128] = {0};
+        char retBuf[128] = {0};
+        try_extract_string(key, keyBuf, sizeof(keyBuf));
+        try_extract_string(defaultValue, defaultBuf, sizeof(defaultBuf));
+        try_extract_string(result, retBuf, sizeof(retBuf));
+        LOG("PARAMSTABLE_TOSTRING self=%p key='%s' (ptr=%p) default='%s' (ptr=%p) ret='%s' (ptr=%p)",
+            self,
+            keyBuf[0] ? keyBuf : "<null/empty>", key,
+            defaultBuf[0] ? defaultBuf : "<null/empty>", defaultValue,
+            retBuf[0] ? retBuf : "<null/empty>", result);
+    });
+    return result;
+}
+
+static fn8 orig_BuffUtils_ParseParams = NULL;
+/* BuffUtils.ParseParams(string param) @ 0xEE8750 -> returns Dictionary<string, string> */
+static void* hooked_BuffUtils_ParseParams(void* param, void* method){
+    void* result = NULL;
+    if (orig_BuffUtils_ParseParams) {
+        result = ((void*(*)(void*, void*))orig_BuffUtils_ParseParams)(param, method);
+    }
+    PROTECT({
+        char pBuf[128] = {0};
+        try_extract_string(param, pBuf, sizeof(pBuf));
+        uintptr_t d = (uintptr_t)result;
+        if (d >= 0x100000 && !(d & 7)) {
+            int count = *(int*)(d + 0x20); // fields.count
+            void* entries = *(void**)(d + 0x18); // fields.entries
+            LOG("BUFFUTILS_PARSEPARAMS param='%s' (ptr=%p) dict=%p count=%d entries=%p",
+                pBuf[0] ? pBuf : "<null/empty>", param, result, count, entries);
+            if (entries && (uintptr_t)entries >= 0x100000 && !((uintptr_t)entries & 7)) {
+                uintptr_t max_len = *(uintptr_t*)((uintptr_t)entries + 0x18); // array max_length
+                if (max_len > 256) max_len = 256;
+                int logged = 0;
+                for (size_t i = 0; i < max_len && logged < count; i++) {
+                    uintptr_t entry_ptr = (uintptr_t)entries + 0x20 + i * 0x18;
+                    int hashCode = *(int*)(entry_ptr + 0x00);
+                    void* key_ptr = *(void**)(entry_ptr + 0x08);
+                    void* val_ptr = *(void**)(entry_ptr + 0x10);
+                    if (hashCode >= 0 && key_ptr != NULL) {
+                        char kBuf[128] = {0};
+                        char vBuf[128] = {0};
+                        try_extract_string(key_ptr, kBuf, sizeof(kBuf));
+                        try_extract_string(val_ptr, vBuf, sizeof(vBuf));
+                        LOG("  parsed dict[%d]: key='%s' (ptr=%p) val='%s' (ptr=%p)",
+                            logged, kBuf, key_ptr, vBuf, val_ptr);
+                        logged++;
+                    }
+                }
+            }
+        } else {
+            LOG("BUFFUTILS_PARSEPARAMS param='%s' (ptr=%p) dict=%p (invalid/null)",
+                pBuf[0] ? pBuf : "<null/empty>", param, result);
+        }
+    });
+    return result;
+}
+
+static void hooked_Damage_BuffEffect_OnTick(void* self, void* buff, float dt){
+    PROTECT({
+        uintptr_t b = (uintptr_t)buff;
+        if (b >= 0x100000 && !(b & 7)) {
+            char bt[80]; char id[80]; char ap[80];
+            try_extract_string(*(void**)(b + 0x10), bt, sizeof bt);   /* _buffType */
+            try_extract_string(*(void**)(b + 0x28), id, sizeof id);   /* _id */
+            try_extract_string(*(void**)(b + 0x38), ap, sizeof ap);   /* _appearanceID */
+            LOG("KITFIGHT type='%s' id='%s' appr='%s' origMod=%.4f amount=%.4f dur=%.2f tick=%.2f stacks=%d dt=%.2f",
+                bt, id, ap,
+                (double)*(float*)(b + 0x40),   /* _originalModifier  <-- the INPUT */
+                (double)*(float*)(b + 0x44),   /* _amount            <-- the OUTPUT */
+                (double)*(float*)(b + 0x48),   /* _duration */
+                (double)*(float*)(b + 0x58),   /* _tickInterval */
+                *(int*)(b + 0x68),             /* _stackCount */
+                (double)dt);
+        } else {
+            LOG("KITFIGHT bad buff ptr %p", buff);
+        }
+    });
+    if (orig_Damage_BuffEffect_OnTick) {
+        ((void(*)(void*, void*, float))orig_Damage_BuffEffect_OnTick)(self, buff, dt);
+    }
+}
+
+// KITREG1: TFormStatModsUtil.RegisterStatModifier(controller, key, sigLevel) RVA 0x10DAABC
+static fn8 orig_KITREG1 = NULL;
+static void* hooked_KITREG1(void* controller, void* key, void* sigLevel, void* a3, void* a4, void* a5, void* a6, void* a7){
+    PROTECT({
+        char keyBuf[65];
+        keyBuf[0] = 0;
+        try_extract_string(key, keyBuf, 64);
+        if (!keyBuf[0]) {
+            try_extract_string(sigLevel, keyBuf, 64);
+        }
+        LOG("KITREG1 controller=%p key='%s' (keyPtr=%p) sigLevel=%d (a2=%p)",
+            controller, keyBuf[0] ? keyBuf : "<empty/null>", key, (int)(uintptr_t)sigLevel, sigLevel);
+    });
+    if (orig_KITREG1) {
+        return orig_KITREG1(controller, key, sigLevel, a3, a4, a5, a6, a7);
+    }
+    return NULL;
+}
+
+// KITREG2: StatModifierController.RegisterStatModifier(this, statModifier, float amount) RVA 0xCCE8D8
+static void (*orig_KITREG2)(void*, void*, float) = NULL;
+static void hooked_KITREG2(void* self, void* mod, float amount){
+    PROTECT({
+        uintptr_t m = (uintptr_t)mod;
+        float mod_m = (m >= 0x100000 && !(m & 7)) ? *(float*)(m + 0xA0) : -1.0f;
+        void* idPtr = (m >= 0x100000 && !(m & 7)) ? *(void**)(m + 0x10) : NULL;
+        void* tmPtr = (m >= 0x100000 && !(m & 7)) ? *(void**)(m + 0x20) : NULL;
+        char idBuf[65] = {0};
+        char tmBuf[128] = {0};
+        char clsBuf[64] = {0};
+        try_extract_string(idPtr, idBuf, 64);
+        try_extract_string(tmPtr, tmBuf, 127);
+        obj_class(mod, clsBuf, sizeof(clsBuf));
+        LOG("KITREG2 self=%p mod=%p class='%s' id='%s' tm/p20='%s' amount=%.4f mod_m=%.4f",
+            self, mod, clsBuf[0] ? clsBuf : "<unknown>", idBuf[0] ? idBuf : "<empty>", tmBuf[0] ? tmBuf : "<empty>", (double)amount, (double)mod_m);
+    });
+    if (orig_KITREG2) {
+        orig_KITREG2(self, mod, amount);
+    }
+}
+
+// BuffsController.CalculateBuffAmount(this, buff) RVA 0xEED720
+static float (*orig_CalculateBuffAmount)(void*, void*) = NULL;
+static float hooked_CalculateBuffAmount(void* self, void* buff){
+    float ret = 0.0f;
+    if (orig_CalculateBuffAmount) {
+        ret = orig_CalculateBuffAmount(self, buff);
+    }
+    PROTECT({
+        uintptr_t b = (uintptr_t)buff;
+        float f40 = (b >= 0x100000 && !(b & 7)) ? *(float*)(b + 0x40) : -1.0f;
+        float f44 = (b >= 0x100000 && !(b & 7)) ? *(float*)(b + 0x44) : -1.0f;
+        void* idPtr = (b >= 0x100000 && !(b & 7)) ? *(void**)(b + 0x28) : NULL;
+        char idBuf[65] = {0};
+        try_extract_string(idPtr, idBuf, 64);
+        LOG("CALC_BUFF_AMT self=%p buff=%p id='%s' orig_mod=%.4f pre_f44=%.4f -> ret=%.4f",
+            self, buff, idBuf[0] ? idBuf : "<empty>", (double)f40, (double)f44, (double)ret);
+    });
+    return ret;
+}
+
+/* StatModifier._statModifier (BCGStatModifier) @ +0x18, BCGStatModifier.ID @ +0x10.
+ * Without the id these logs are bare pointers and cannot answer "which ability". */
+static void statmod_id(void* statMod, char* out, size_t n){
+    out[0] = 0;
+    uintptr_t sm = (uintptr_t)statMod;
+    if (sm < 0x100000 || (sm & 7)) return;
+    void* bcg = *(void**)(sm + 0x18);
+    if (!bcg || ((uintptr_t)bcg < 0x100000)) return;
+    try_extract_string(*(void**)((uintptr_t)bcg + 0x10), out, n);
+}
+
+/* StatModifierController.TestForConditionsAndRoll @ 0xCCF35C
+ *   private bool TestForConditionsAndRoll(StatModifier, out float roll, out float chance,
+ *                                         BuffTriggerParams)
+ * The condition/chance gate. Activation chain is ApplyStatModifiers (0xCCF1FC) ->
+ * GetFilteredStatModifiers (0xCCEE00) -> this -> ApplyStatModifier (0xCCF30C).
+ * Logging pass/roll/chance per ability id is how the `trs` condition format was
+ * verified - see ABILITY_AUTHORING.md section 7, pitfall 5. */
+static int (*orig_TestForConditionsAndRoll)(void*, void*, float*, float*, void*) = NULL;
+static int hooked_TestForConditionsAndRoll(void* self, void* statMod, float* roll,
+                                           float* chance, void* trigParams){
+    int ret = 0;
+    if (orig_TestForConditionsAndRoll)
+        ret = orig_TestForConditionsAndRoll(self, statMod, roll, chance, trigParams);
+    PROTECT({
+        char id[64]; statmod_id(statMod, id, sizeof id);
+        LOG("KITGATE_ROLL id='%s' pass=%d roll=%.4f chance=%.4f statMod=%p",
+            id[0] ? id : "<none>", ret,
+            (double)(roll ? *roll : -1.0f), (double)(chance ? *chance : -1.0f), statMod);
+    });
+    return ret;
+}
+
+// BuffsController.ApplyStatModifier RVA 0xEEFC30
+static void* (*orig_ApplyStatModifier)(void*, void*, void*, int, int, float) = NULL;
+static void* hooked_ApplyStatModifier(void* self, void* applicant, void* statMod, int updateAttrs, int useOverrideDur, float overrideDur){
+    PROTECT({
+        uintptr_t sm = (uintptr_t)statMod;
+        float sm_amt = (sm >= 0x100000 && !(sm & 7)) ? *(float*)(sm + 0x48) : -1.0f;
+        LOG("APPLY_STATMOD target=%p app=%p statMod=%p sm_amount=%.4f", self, applicant, statMod, (double)sm_amt);
+    });
+    if (orig_ApplyStatModifier) {
+        return orig_ApplyStatModifier(self, applicant, statMod, updateAttrs, useOverrideDur, overrideDur);
+    }
+    return NULL;
+}
+
+// KITREG3: BuffsDB.GetBuffDetails(...) RVA 0x1492B74
+static fn8 orig_KITREG3 = NULL;
+static void* hooked_KITREG3(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_KITREG3) {
+        ret = orig_KITREG3(a0, a1, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char idBuf[65];
+        idBuf[0] = 0;
+        try_extract_string(a0, idBuf, 64);
+        if (!idBuf[0]) {
+            try_extract_string(a1, idBuf, 64);
+        }
+        LOG("KITREG3 requested_id='%s' (a0=%p a1=%p) ret=%p is_null=%s",
+            idBuf[0] ? idBuf : "<empty/null>", a0, a1, ret, (ret == NULL) ? "YES" : "NO");
+    });
+    return ret;
+}
+
+// KITREG4: BuffEffectFactory.CreateBuffEffect(...) RVA 0xE5DB00
+static fn8 orig_KITREG4 = NULL;
+static void* hooked_KITREG4(void* a0, void* a1, void* a2, void* a3, void* a4, void* a5, void* a6, void* a7){
+    void* ret = NULL;
+    if (orig_KITREG4) {
+        ret = orig_KITREG4(a0, a1, a2, a3, a4, a5, a6, a7);
+    }
+    PROTECT({
+        char typeBuf[65] = {0};
+        char clsBuf[64] = {0};
+        char idBuf[65] = {0};
+        char tmBuf[128] = {0};
+
+        // a0 is 'this' (BuffEffectFactory)
+        // a1 is 'x1' (the object passed into CreateBuffEffect at 0xE5DB00 / 0xE5DB04)
+        obj_class(a1, clsBuf, sizeof(clsBuf));
+
+        if (a1 && (uintptr_t)a1 >= 0x100000 && !((uintptr_t)a1 & 7)) {
+            uintptr_t p_id = *(uintptr_t*)((uintptr_t)a1 + 0x10);
+            uintptr_t p_type = *(uintptr_t*)((uintptr_t)a1 + 0x18);
+            uintptr_t p_tm = *(uintptr_t*)((uintptr_t)a1 + 0x20);
+            try_extract_string((void*)p_id, idBuf, sizeof(idBuf));
+            try_extract_string((void*)p_type, typeBuf, sizeof(typeBuf));
+            try_extract_string((void*)p_tm, tmBuf, sizeof(tmBuf));
+        }
+
+        LOG("KITREG4/E5DB04 factory=%p x1=%p class='%s' id='%s' type='%s' tm/p20='%s' ret=%p is_null=%s",
+            a0, a1, clsBuf[0] ? clsBuf : "<unknown>",
+            idBuf[0] ? idBuf : "<empty>",
+            typeBuf[0] ? typeBuf : "<empty>",
+            tmBuf[0] ? tmBuf : "<empty>",
+            ret, (ret == NULL) ? "YES" : "NO");
+    });
+    return ret;
 }
 
 static void* installer(void* arg){
@@ -3952,20 +5288,125 @@ static void* installer(void* arg){
     g_arraynew = (arraynew_t)dlsym(RTLD_DEFAULT, "il2cpp_array_new");
     if (!g_arraynew) { void* h = dlopen("libil2cpp.so", RTLD_NOLOAD); if (h) g_arraynew = (arraynew_t)dlsym(h, "il2cpp_array_new"); }
     LOG("il2cpp_string_new=%p il2cpp_array_new=%p", (void*)g_strnew, (void*)g_arraynew);
+#if TFTF_ENABLE_ARENA
+    arena_install(g_base);
+#endif
+    int ok = 0;
     for (int i = 0; i < NH; i++)
-        inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig);
-    // FIXSYN (session 10): BCGBlueprintBase.get_SynergyBonuses (@0xC17198) throws
-    // NullReferenceException when this._synergyBonuses (List<string> @0xE0) is null -- which it
-    // ALWAYS is offline (the blueprint ctor never parses a synergy key). Adding a bot to the STORY
-    // squad runs TeamData.RefreshSynergyBonusData -> b__56_0 -> get_SynergyBonuses on each hero's
-    // blueprint and the throw surfaces as the "unknown error" dialog. The getter already allocates
-    // a fresh empty result List<string> (x19) BEFORE the null-check and returns it at 0xC17340;
-    // the null branch instead jumps to the throw at 0xC17370. Redirect that one `cbz x0` from the
-    // throw to the normal empty-list return -> get_SynergyBonuses returns an empty list for a null
-    // field instead of throwing. (Same spirit as the Tags empty-collection fix; done as a targeted
-    // instruction poke rather than fabricating a List<string> whose RGCTX may be uninitialized.)
-    poke32(0xC17278, 0xB4000640);   // cbz x0, 0xC17370 (throw) -> cbz x0, 0xC17340 (return empty)
-    LOG("install done (%d hooks)", NH);
+        if (inline_hook((void*)(g_base + H[i].rva), handlers[i], &H[i].orig) == 0) ok++;
+    int dialogue_hook = inline_hook((void*)(g_base + RVA_DIALOGUE_ENTRY_DESERIALIZE),
+                                    (void*)hooked_dialogue_entry_deserialize,
+                                    &g_dialogue_deserialize_orig);
+    LOG("localized dialogue lookup hook=%d current-language-rva=0x%x", dialogue_hook, RVA_LOCALIZER_GET_CURRENT);
+    // FIXSYN is now applied directly to libil2cpp by patch_il2cpp.lbl. Keeping this
+    // branch rewrite out of the runtime installer matters on ARM-translation emulators:
+    // BlueStacks can cache the original instruction before an in-memory poke is visible.
+
+    // FRAME RATE CONFIGURATION:
+    // When target_fps == 60, apply the 60 FPS unlock:
+    // 1) PerformanceManager..cctor (@0xDA5168): default targetFrameRate 60 & vSyncCount 0
+    // 2) PerformanceManager.ApplyOnce (@0xDA65DC): unconditionally branch to _60NoVSync (0xDA6724)
+    // 3) Global hooks on Application.set_targetFrameRate (@0x1B46108) and QualitySettings.set_vSyncCount (@0x16A71C0)
+    // When target_fps == 30, keep the stock game framerate behaviour.
+    int r1 = 0, r2 = 0;
+    if (g_fps_config.target_fps == 60) {
+        poke32(0xDA52E0, 0x52800780);   // mov w0, #60
+        poke32(0xDA52F8, 0x2A1F03E0);   // mov w0, wzr (vSyncCount = 0)
+        poke32(0xDA6700, 0x14000009);   // b 0xDA6724
+
+        r1 = inline_hook((void*)(g_base + 0x1B46108), (void*)hooked_set_targetFrameRate, &orig_set_targetFrameRate);
+        r2 = inline_hook((void*)(g_base + 0x16A71C0), (void*)hooked_set_vSyncCount, &orig_set_vSyncCount);
+        LOG("targetFrameRate: 60 FPS unlock applied");
+    } else {
+        LOG("targetFrameRate: maintaining stock %u FPS", g_fps_config.target_fps);
+    }
+
+    // UNLOCK_EVENT_BUTTON:
+    // 1) LevelLock.get_Locked (@0xF0C820): force return 0 (unlocked).
+    // The Event button on FightLandingScreen checks get_Locked; offline account level/CL
+    // makes this return true, branching to ShowLevelLockAlert and skipping OnSpecialEventsClicked.
+    poke32(0xF0C820, 0x2A1F03E0);   // mov w0, wzr (return false)
+    poke32(0xF0C824, 0xD65F03C0);   // ret
+
+    // 2) FightLandingPresentation.StartPendingTutorial (@0xEA8E30): force return 0 (no tutorial pending).
+    // OnSpecialEventsClicked checks StartPendingTutorial("SpecialEventsTutorial"); offline the
+    // uncompleted tutorial state returns true and ret-exits before ProcessQuestModeClick.
+    poke32(0xEA8E30, 0x2A1F03E0);   // mov w0, wzr (return false)
+    poke32(0xEA8E34, 0xD65F03C0);   // ret
+    int r3 = inline_hook((void*)(g_base + 0x1121538), (void*)hooked_RefreshDisplay, &orig_RefreshDisplay);
+    int r4 = inline_hook((void*)(g_base + 0xC1C0F0), (void*)hooked_ShouldDisplayStatModifier, &orig_ShouldDisplayStatModifier);
+    int r5 = inline_hook((void*)(g_base + 0xDC660C), (void*)hooked_AbilityItem_SetData, &orig_AbilityItem_SetData);
+    int r6 = inline_hook((void*)(g_base + 0xDC7CB4), (void*)hooked_FloatingText_OnTick, &orig_FloatingText_OnTick);
+    int r7 = inline_hook((void*)(g_base + 0xBB18A0), (void*)hooked_Damage_BuffEffect_OnTick, &orig_Damage_BuffEffect_OnTick);
+    int r8 = inline_hook((void*)(g_base + 0x10DAABC), (void*)hooked_KITREG1, &orig_KITREG1);
+    int r9 = inline_hook((void*)(g_base + 0xCCE8D8),  (void*)hooked_KITREG2, (fn8*)&orig_KITREG2);
+    int r10 = inline_hook((void*)(g_base + 0x1492B74), (void*)hooked_KITREG3, &orig_KITREG3);
+    int r11 = inline_hook((void*)(g_base + 0xE5DB00),  (void*)hooked_KITREG4, &orig_KITREG4);
+    int r12 = inline_hook((void*)(g_base + 0xEED720),  (void*)hooked_CalculateBuffAmount, (fn8*)&orig_CalculateBuffAmount);
+    int r13 = inline_hook((void*)(g_base + 0xEEFC30),  (void*)hooked_ApplyStatModifier, (fn8*)&orig_ApplyStatModifier);
+    int rGate = inline_hook((void*)(g_base + 0xCCF35C), (void*)hooked_TestForConditionsAndRoll, (fn8*)&orig_TestForConditionsAndRoll);
+    int r14 = inline_hook((void*)(g_base + 0xDC7AFC),  (void*)hooked_FloatingText_ctor, (fn8*)&orig_FloatingText_ctor);
+    int r15 = inline_hook((void*)(g_base + 0xDC7C40),  (void*)hooked_FloatingText_OnInitTarget, (fn8*)&orig_FloatingText_OnInitTarget);
+    int r16 = inline_hook((void*)(g_base + 0xE5D884),  (void*)hooked_BuffEffect_Clone, (fn8*)&orig_BuffEffect_Clone);
+    int r17 = inline_hook((void*)(g_base + 0xB3A6C8),  (void*)hooked_ParamsTable_ToString, (fn8*)&orig_ParamsTable_ToString);
+    int r18 = inline_hook((void*)(g_base + 0xEE8750),  (void*)hooked_BuffUtils_ParseParams, (fn8*)&orig_BuffUtils_ParseParams);
+
+    int r19 = inline_hook((void*)(g_base + 0xC64264), (void*)hooked_HudBuffWidget_Init, &orig_HudBuffWidget_Init);
+    // UILabel.set_text is a 4-byte thunk immediately before UIInput.RestoreLabelPivot.
+    // inline_hook writes 16 bytes, so installing this diagnostic hook corrupts the
+    // adjacent method and crashes NumberInputBox (including the Repair popup).
+    int r20 = 0;
+    int r21 = inline_hook((void*)(g_base + 0x1B65688), (void*)hooked_UILabel_TryLocalize, &orig_UILabel_TryLocalize);
+    int r22 = inline_hook((void*)(g_base + 0xA5F51C), (void*)hooked_BCGStatModifierAppearance_ctor, &orig_BCGStatModifierAppearance_ctor);
+    int r23 = inline_hook((void*)(g_base + 0xC65C70), (void*)hooked_HudBuffWidgetsContainer_Add, &orig_HudBuffWidgetsContainer_Add);
+
+    LOG("adhoc hooks status: TestForConditionsAndRoll=%d FT_ctor=%d FT_OnInitTarget=%d FT_Clone=%d FT_OnTick=%d Dmg_OnTick=%d targetFrameRate=%d vSync=%d RefreshDisplay=%d ShouldDisplayStatMod=%d AbilityItem_SetData=%d KITREG1=%d KITREG2=%d KITREG3=%d KITREG4=%d CalculateBuffAmount=%d ApplyStatModifier=%d ParamsTable_ToString=%d BuffUtils_ParseParams=%d HudBuffWidget_Init=%d UILabel_set_text=%d TryLocalize=%d App_ctor=%d HudBuffContainer_Add=%d", rGate,
+        r14, r15, r16, r6, r7, r1, r2, r3, r4, r5, r8, r9, r10, r11, r12, r13, r17, r18, r19, r20, r21, r22, r23);
+    // FIX_QUEST_REENTER: prevent NullReferenceException / IndexOutOfRangeException when
+    // re-entering a story quest after a battle or quitting a map. Ported from the kmcbest
+    // fork's fa6e249 (verified on-device by that project). Same pristine libil2cpp.so RVAs;
+    // poke32 is RVA-relative here too.
+    // 1) Legacy.QuestSet (0x101CE1C): when set->quests is null or count <= 1, redirect to
+    //    the safe exit at 0x101D388 instead of throwing.
+    // NOTE: 0x101D3B4/0x101D3B8 are shared throw-call landing pads -- a static branch-target
+    // scan found 6 other cbz/null-guards elsewhere in Legacy.QuestSet (0x101cf30, 0x101cfdc,
+    // 0x101d118, 0x101d18c, 0x101d2b8, 0x101d35c) that also jump here, so this redirect
+    // suppresses NRE/IOORE for all of them uniformly, not just the two guards patched below.
+    // These four pokes were disabled for one session (2026-09-18) while bisecting a suspected
+    // cause of the v1.5 "Special Mode fights don't start" regression; that regression's real
+    // cause turned out to be the Karma Six movement/encounter model (see gamedata.lbl
+    // challenge_can_move and friends), not this patch, and kmcbest's fork ships these same
+    // four pokes with a working build, so they are re-enabled unchanged from the original port.
+    poke32(0x101D1B0, 0xB4000EC8);   // cbz x8, 0x101D3B4 (throw NRE) -> cbz x8, 0x101D388 (safe exit)
+    poke32(0x101D1BC, 0x54000E69);   // b.ls 0x101D3B8 (throw IOORE) -> b.ls 0x101D388 (safe exit)
+    poke32(0x101D3B4, 0x17FFFFF5);   // bl 0x9BB514 (throw NRE) -> b 0x101D388
+    poke32(0x101D3B8, 0x17FFFFF4);   // bl 0x9BB53C (throw IOORE) -> b 0x101D388
+    // 2) Badge counter / quest aggregator (0x10445C0): if set->quests is null, skip to the
+    //    next set instead of throwing NRE at 0x1044C68.
+    poke32(0x10447B8, 0xB40004A8);   // cbz x8, 0x1044C68 -> cbz x8, 0x104484C (skip set)
+    poke32(0x1044848, 0x14000001);   // b 0x1044C68 -> b 0x104484C (skip set)
+    // 0x1044C6C ("mov w0, w21") is NOT exception-adjacent dead code: it is the shared
+    // landing pad for the aggregation loop's normal, every-call exit (`b.ge 0x1044C6C`
+    // at 0x1044BE8, after the loop accumulates the badge/quest count into w21 starting
+    // from `mov w21, wzr` at 0x1044BD8). The original patch here overwrote that shared
+    // pad with an unconditional branch, so every ordinary (non-null) call returned
+    // whatever garbage was already in w0 instead of the accumulated count in w21 --
+    // corrupting the return value on the common path, not just the null-guard path.
+    // That return value feeds two delegate-dispatch calls to 0x2120350 in the function's
+    // only caller (0xa68e24 region), so a garbage count there broadcasts to whatever UI
+    // consumes it -- a plausible cause of the v1.5 "Special Mode fights don't start"
+    // regression. Fix: leave 0x1044C6C as the original `mov w0, w21`, and instead zero
+    // w21 itself on the null-guard path so that same instruction naturally returns 0.
+    poke32(0x1044C68, 0x2A1F03F5);   // bl 0x9BB514 (throw) -> mov w21, wzr
+    poke32(0x1044C6C, 0x2A1503E0);   // (restored to original) mov w0, w21
+    // 3) QuestDB.AddExpiredQuest (0x103DC04): if the null check fails, return null instead
+    //    of throwing NRE at 0x103E078. Same shared-landing-pad shape as (1) -- 0x103E078 is
+    //    also jumped to from 3 other null-guards (0x103dcc8, 0x103ddd8, 0x103df70) -- and
+    //    re-enabled for the same reason: the real v1.5 regression was elsewhere.
+    poke32(0x103E078, 0xAA1F03E0);   // bl 0x9BB514 (throw) -> mov x0, xzr
+    poke32(0x103E07C, 0x17FFFF3B);   // mov x0, x25 -> b 0x103DD68 (return null)
+
+    LOG("install done (%d/%d hooks)", ok, NH);
     return NULL;
 }
 
@@ -3983,6 +5424,7 @@ static void init(void){
     sigaction(SIGSEGV, &sa, &g_oldsegv);
     sigaction(SIGBUS,  &sa, &g_oldbus);
     LOG("TFTFHOOK loaded (segv-guarded)");
+    LOG("runtime page size: %ld", sysconf(_SC_PAGESIZE));
     tftf_server_set_logger(inapk_log);
     int inapk_rc = tftf_server_start_from_apk();
     LOG("in-apk server start: %d", inapk_rc);

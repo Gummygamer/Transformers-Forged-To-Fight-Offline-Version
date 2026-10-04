@@ -1,0 +1,46 @@
+# Story dialogue catalog for ko. UTF-8 KEY<TAB>text; blank values use English fallback.
+# All 42 story lines and both StoryPort UI labels are populated.
+ID_STORY_ARRIVAL_INTRO_001	센서가 전방에서 차가운 상륙 거점을 감지했다. 이곳에 착륙한 무언가는 이미 움직이고 있다.
+ID_STORY_ARRIVAL_INTRO_002	조류가 우리를 이곳으로 데려왔다. 조류가 너희를 묻어버릴 것이다.
+ID_STORY_ARRIVAL_INTRO_003	그렇다면 이 전선을 지킨다. 함께 지킨다.
+ID_STORY_MIDPOINT_RALLY_001	능선 중간까지 왔는데도 놈들은 계속 몰려온다. 여긴 순찰 지역이 아니라 집결지다.
+ID_STORY_MIDPOINT_RALLY_002	네가 내딛는 모든 걸음이 기록된다. 네가 내딛는 모든 걸음이 헤아려진다.
+ID_STORY_MIDPOINT_RALLY_003	그렇다면 끝까지 걸어간다. 흔들림 없는 스파크, 더 높은 방어.
+ID_STORY_FINAL_STAND_001	넌 여기까지 올라와서 결국 네 자신의 종말의 모습을 마주하게 될 뿐이다.
+ID_STORY_FINAL_STAND_002	우린 이걸 끝내려고 먼 길을 올라왔다. 항복하거나 쓰러져라.
+ID_STORY_SHORE_SECURED_001	해안은 조용하다. 좌표를 기록하고 부상자들을 집으로 데려가라.
+ID_STORY_SHORE_SECURED_002	오늘은 조용하다. 다시 시끄러워지기 전에 돌아오겠다.
+ID_STORY_CUSTOM_OPENING_INTRO_001	나는 옵티머스 프라임... 오토봇의 지도자다. 이 구역의 안정을 위협하는 이상한 에너지 신호를 감지했다.
+ID_STORY_CUSTOM_OPENING_INTRO_002	커져가는 위협의 무게 속에서, 상황 때문에 우리는 이 고립된 지역에 비상 착륙할 수밖에 없었다.
+ID_STORY_CUSTOM_OPENING_INTRO_003	경고: 미확인 레이더 교란 감지... 항법 시스템이 강제로 방해받고 있다!
+ID_STORY_CUSTOM_OPENING_INTRO_004	도망칠 곳은 없다, 옵티머스... 네 시간은 끝났고, 최후의 심판이 도래했다!
+ID_STORY_CUSTOM_OPENING_INTRO_005	블러전?! 이 매복의 배후가 너였군... 네 용기가 네 오만에 걸맞은지 어디 보자!
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_001	블러전이 쓰러졌다.
+ID_STORY_CUSTOM_BLUDGEON_DEFEATED_002	훌륭하다. 계속 가자.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_001	스타스크림! 디셉티콘 항공 사령부가 배후에 있다는 걸 알아챘어야 했다.
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_002	블러전을 이긴 건... 예상했던 일이다. 이제 디셉티콘 함대의 진정한 힘에 맞서라!
+ID_STORY_CUSTOM_STARSCREAM_AMBUSH_003	그렇다면 끝내자. 오토봇, 하늘로!
+ID_STORY_CUSTOM_STARSCREAM_DEFEATED_001	텔레트란이 스타스크림이라는 디셉티콘을 스캔했지만, 그의 신호는 우리가 이전에 상대한 어떤 적과도 크게 달랐다. 마치 다른 차원에서 넘어온 것 같고, 징후로 보아 추가 위협이 우리에게 다가오고 있다
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_001	아이언하이드! 네 동족에게 등을 돌렸단 말인가?
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_002	파벌 문제가 아니야, 프라임. 누가 진짜로 이끌 배짱이 있는지 확인하는 문제지.
+ID_STORY_CUSTOM_IRONHIDE_AMBUSH_003	그렇다면 옛날 방식으로 끝내자. 계급도, 휘장도 없이 -- 오직 스파크뿐.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_001	아이언하이드는 죽었다.
+ID_STORY_CUSTOM_IRONHIDE_DEFEATED_002	좋다, 훌륭한 진전이다. 우리가 어느 행성에 있는지 반드시 알아낼 것이다 -- 분명 알려지지 않은 세계지만, 에너존 에너지로 가득 차 있는 것 같다. 그리고 이 녀석들이 어느 차원 혹은 세계에서 왔는지도 반드시 밝혀낼 것이다
+ID_STORY_CUSTOM_ACT2_INTRO_001	스캐너가 우리 함선을 수리할 핵심 자원을 발견했다.
+ID_STORY_CUSTOM_ACT2_INTRO_002	알겠다, 앞장서서 확보해라.
+ID_STORY_CUSTOM_ACT2_INTRO_003	물론이다, 출발하자. 분명 많은 전투를 치르게 되겠지만, 이 싸움에서 신중해야 한다.
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_001	넌 누구냐? 죽게 될 것이다!
+ID_STORY_CUSTOM_BUMBLEBEE_INTRO_002	모습을 드러내라.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_001	사령관님, 프라울이 모래 폭풍 너머로 스타스크림을 봤습니다.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_002	나 디셉티콘 아냐. 나 스타스크림! 시커의 왕!!!!
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_003	어이쿠, 상황이 더 나빠졌군.
+ID_STORY_CUSTOM_STARSCREAM_DUSTSTORM_004	더 나빠? 무슨 말이냐?! 나 준비되면 널 박살낸다!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_001	스타스크림에 대한 정보가 더 있습니다. 그는 전방에 있고, 제가 파악한 바로는 병력을 강화할 일종의 장치를 준비하고 있습니다...
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_002	아아아아아 프라울은 말이 너무 많아! 하지만 너희는 너무 늦었다, 오토봇! 이 힘으로 하늘은 내 것이 될 것이고, 메가트론도 마침내 나의 우월한 지도력에 고개를 숙일 것이다!
+ID_STORY_CUSTOM_STARSCREAM_DEVICE_003	사령관님, 눈앞의 임무를 맡아주십시오. 저는 그의 장치를 조사하고 보고하겠습니다
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_001	나쁜 소식입니다. 스타스크림이 어떻게든 자신의 힘을 바꾸는 장치를 설치했습니다.
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_002	맞다! 이 힘으로 하늘은 내 것이 될 것이고, 메가트론도 마침내 나의 지도력에 고개를 숙일 것이다! 넌 끝났다, 옵티머스!
+ID_STORY_CUSTOM_STARSCREAM_SHOWDOWN_003	사령관님, 전투에서 그의 주의를 끌어주십시오. 이 기술을 분석하도록 기지로 가져갈 방법을 찾아보겠습니다
+ID_STORY_CUSTOM_MOTORMASTER_CHAPTER_INTRO_001	커져가는 시간 압박 속에서 임무의 긴급성이 크게 높아지고 있으며, 기술 원격 측정 결과는 계속되는 적대적 조우가 우리의 최악의 공포와 위협을 현실로 만들고 있음을 확인해 준다
+ID_STORY_UI_TAP_CONTINUE	탭하여 계속
+ID_STORY_UI_SKIP	건너뛰기

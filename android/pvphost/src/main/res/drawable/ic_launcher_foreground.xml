@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive launcher icon foreground: a server/host glyph inside the safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#A5D6A7"
+        android:pathData="M30,32h48v18h-48z" />
+    <path
+        android:fillColor="#A5D6A7"
+        android:pathData="M30,58h48v18h-48z" />
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M36,38h6v6h-6zM36,64h6v6h-6z" />
+</vector>
