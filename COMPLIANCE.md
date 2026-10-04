@@ -4,6 +4,11 @@ This file records how the backend-content reconstruction in this package was don
 that it stays on the right side of copyright and stays defensive/interoperability-only.
 It covers the data added in `Server/gamedata.lbl` and the regenerated response files.
 
+The module descriptions in `Server/mods_catalog.json` are newly AI-authored generic
+gameplay summaries. They were not transcribed or paraphrased from the game. Module names,
+catalog identifiers, categories, rarities, and asset references are retained as the data
+needed to identify existing entries in an operator-supplied client.
+
 ## What was added
 
 `Server/gamedata.lbl` is a hand-authored source of the server-side content that Kabam
@@ -119,8 +124,8 @@ Nothing under `media/`, no APK, no game asset, and no recovered Kabam server dat
   for this offline revival. The point of the file's header comment is to make that
   explicit and auditable.
 
-- **No copyrighted material is included or distributed.** No game assets, no APK, no
-  Kabam binaries, and no recovered Kabam server data are in this package. The character
+- **No game assets or binaries are included or distributed.** No APK, Kabam binary, or
+  recovered Kabam server dataset is in this package. The character
   **ids** used (e.g. `bumblebee_gs_kabam`) are asset-bundle names that already ship
   inside the user's own copy of the app (see `re_notes/ASSET_INVENTORY.txt`); the data
   here only points fresh numbers at art the user already legally possesses.

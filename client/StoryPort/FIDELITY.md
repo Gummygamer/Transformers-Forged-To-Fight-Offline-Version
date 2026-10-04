@@ -96,6 +96,19 @@ Preview with `CaptureStory`, `CaptureSquad`, `CaptureFight`, `CaptureResult`,
 `SP_SQUADCAM`, `SP_BASECAM` and `SP_BLDG` retune the stage, cameras and building
 layout in the Editor only.
 
+Fight HUD and lighting (compared with the 2:48 and 2:40 frames, graphics-enabled Editor previews
+via xvfb; `SP_FIGHTSTATE=<enemyHp>,<playerHp>,<playerMana>,<enemyMana>` previews a mid-fight HUD):
+names, health percents and ratings use the Tecnica font; health bars have the gold frame, dark
+track, a blue gauge that brightens toward its tip and a red damage trail that drains to the new
+value; the player's three special bars sit right of the left hex (yellow charging, green full)
+and the enemy's three red bars left of the right hex, driven by `enemyMana`; the special hex
+glows green when a bar is ready and the attack hex is a filled grey hex. Reflection intensity is
+0.3: the baked 9.2 probe strip at full strength rendered painted armour as rainbow chrome.
+Values shown (health %, ratings, mana) are unchanged. Still not matched: the HUD's corner backing
+panels and the rating row's wing/arrow icons (no local sprites found); the fight stage view
+(the footage's Marina City towers with the crashed carrier behind the fighters) was not located
+in the one `chicago.prefab` after trying eight headings, and `Main Stage` stays hidden.
+
 Remaining gaps: the server grants no match rewards, so the result screen has no
 rewards row; Marissa has no model or portrait in the local 9.2 data; exact alliance
 beam appearance still needs a graphics-enabled base comparison; enemy defense timing

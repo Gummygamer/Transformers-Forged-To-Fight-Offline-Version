@@ -18,6 +18,7 @@ namespace StoryPort.Editor
             CheckFightGestures();
             CheckHeavyMove();
             AssetDatabase.Refresh();
+            CheckFightHud();
             CheckNavigationFont();
             StoryPortAssetSetup.ImportLocalUiArt(false);
             foreach (var name in new[]
@@ -80,6 +81,73 @@ namespace StoryPort.Editor
                 throw new Exception("A tap on the visible lower-right attack hex did not attack");
             if (input.Begin(new Vector2(.92f, .02f), 7f) != StoryPortFightGesture.Action.None || input.Tracking)
                 throw new Exception("A touch below the fight control area started a gesture");
+        }
+
+        // The footage's fight HUD: Tecnica names and percents, a red trail behind each
+        // health bar, three player bars and three enemy bars driven by server-side mana.
+        static void CheckFightHud()
+        {
+            UnityEditor.SceneManagement.EditorSceneManager.NewScene(UnityEditor.SceneManagement.NewSceneSetup.EmptyScene, UnityEditor.SceneManagement.NewSceneMode.Single);
+            var client = new GameObject("StoryPort HUD check").AddComponent<StoryPortBootstrap>();
+            try
+            {
+                Call(client, "BuildCamera");
+                Call(client, "BuildUI");
+                Call(client, "FightScreen");
+                var content = (RectTransform)Field(client, "content");
+                var hud = content != null ? content.Find("Fight HUD") : null;
+                if (hud == null) throw new Exception("Fight screen built no HUD");
+                foreach (var side in new[] { "Player", "Enemy" })
+                {
+                    var name = hud.Find(side + " Name");
+                    var percent = hud.Find(side + " Health Frame/" + side + " Health");
+                    var trail = hud.Find(side + " Health Frame/" + side + " Health Back/" + side + " Health Trail");
+                    if (name == null || percent == null || trail == null) throw new Exception(side + " HUD lost its name, percent or damage trail");
+                    foreach (var text in new[] { name.GetComponent<UnityEngine.UI.Text>(), percent.GetComponent<UnityEngine.UI.Text>() })
+                        if (text.font == null || text.font.name != "tecnica_nav") throw new Exception(side + " HUD text is not in the Tecnica font");
+                }
+                Field(client, "enemyHp", 40);
+                Field(client, "enemyMana", StoryPortCombatRules.ManaPerBar * 1.5f);
+                Field(client, "playerMana", StoryPortCombatRules.ManaPerBar * 2f);
+                Field(client, "enemyTrail", .9f);
+                Call(client, "UpdateFightHud");
+                Call(client, "UpdateHealthTrails", .1f);
+                var enemyFill = hud.Find("Enemy Special Bar 2/Enemy Special Bar 2 Fill").GetComponent<UnityEngine.UI.Image>();
+                var playerFill = hud.Find("Special Bar 2/Special Bar 2 Fill").GetComponent<UnityEngine.UI.Image>();
+                if (Mathf.Abs(hud.Find("Enemy Special Bar 1/Enemy Special Bar 1 Fill").GetComponent<UnityEngine.UI.Image>().fillAmount - 1f) > .01f ||
+                    Mathf.Abs(enemyFill.fillAmount - .5f) > .01f)
+                    throw new Exception("Enemy special bars do not follow the enemy's meter");
+                if (playerFill.fillAmount < .99f || playerFill.color.g < .8f || playerFill.color.r > .3f)
+                    throw new Exception("A full player special bar is not green");
+                var trailImage = hud.Find("Enemy Health Frame/Enemy Health Back/Enemy Health Trail").GetComponent<UnityEngine.UI.Image>();
+                // Damage leaves the previous value behind (drained by time), healing snaps.
+                if (Mathf.Abs((float)Field(client, "enemyTrail") - .86f) > .001f || Mathf.Abs(trailImage.fillAmount - .86f) > .001f)
+                    throw new Exception("The health trail must start at the previous value, not jump to the new one");
+                Field(client, "enemyTrail", .2f);
+                Call(client, "UpdateHealthTrails", .1f);
+                if (Mathf.Abs(trailImage.fillAmount - .4f) > .001f)
+                    throw new Exception("The health trail did not snap up to a restored value");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(client.gameObject);
+            }
+        }
+
+        static void Call(StoryPortBootstrap client, string method, params object[] arguments)
+        {
+            var parameters = arguments.Length == 0 ? Type.EmptyTypes : Array.ConvertAll(arguments, value => value.GetType());
+            var target = typeof(StoryPortBootstrap).GetMethod(method, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null, parameters, null);
+            if (target == null) throw new MissingMethodException("StoryPortBootstrap", method);
+            target.Invoke(client, arguments);
+        }
+
+        static object Field(StoryPortBootstrap client, string field, object value = null)
+        {
+            var target = typeof(StoryPortBootstrap).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            if (target == null) throw new MissingFieldException("StoryPortBootstrap", field);
+            if (value != null) target.SetValue(client, value);
+            return target.GetValue(client);
         }
 
         static void CheckHeavyMove()

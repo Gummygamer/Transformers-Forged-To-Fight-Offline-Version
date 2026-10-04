@@ -160,6 +160,11 @@ namespace StoryPort
         Text comboText;
         Image playerHpFill;
         Image enemyHpFill;
+        // Damage trail: the red sliver behind each bar that drains to the new value.
+        Image playerHpTrail, enemyHpTrail;
+        float playerTrail = 1f, enemyTrail = 1f;
+        Image[] enemySegments, enemySegmentFills;
+        Image specialGlow, attackHexFill;
         Image specialFill;
         Image[] specialSegments;
 
@@ -222,14 +227,15 @@ namespace StoryPort
             light.intensity = 1.65f;
             light.transform.rotation = Quaternion.Euler(42, -28, 0);
             RenderSettings.ambientLight = new Color(.7f, .74f, .8f);
-            // Reflect the 9.2 outdoor probe, not Unity's default bright sky,
-            // so painted armour keeps its colour instead of reading as chrome.
+            // Reflect the 9.2 outdoor probe, not Unity's default bright sky. Its
+            // baked strip is a prefiltered set, so full strength turned painted
+            // armour into rainbow chrome; the footage shows matte paint with a sheen.
             var reflection = Resources.Load<Cubemap>("StoryPort/EnvReflection");
             if (reflection != null)
             {
                 RenderSettings.defaultReflectionMode = UnityEngine.Rendering.DefaultReflectionMode.Custom;
                 RenderSettings.customReflectionTexture = reflection;
-                RenderSettings.reflectionIntensity = 1f;
+                RenderSettings.reflectionIntensity = Tune("SP_REFL", new[] { .3f })[0];
             }
         }
 
@@ -1447,7 +1453,6 @@ namespace StoryPort
             nextEnemyTurn = Time.time + 2.8f;
             if (audioPlayer != null) { audioPlayer.Preload(playerKey); audioPlayer.Preload(enemyKey); }
             hitsLanded = hitsReceived = highestChain = 0;
-            Cue("fight_start", .7f);
             var hud = Panel(content, "Fight HUD", new Color(0, 0, 0, 0), Vector2.zero, Vector2.one);
             hud.GetComponent<Image>().raycastTarget = false;
             // The fight HUD spans the full screen, as in the beta footage: hex portraits
@@ -1459,11 +1464,13 @@ namespace StoryPort
             FighterHud(hud.transform, "Player", playerKey, playerName, false, out playerHpText, out playerHpFill);
             FighterHud(hud.transform, "Enemy", enemyKey, enemyName, true, out enemyHpText, out enemyHpFill);
             // Ratings under the portraits use the server formula (health + attack) / 20.
-            playerRatingText = LabelAt(hud.transform, "Player Rating", StoryPortCombatRules.Rating(playerMaxHealth, playerAttack).ToString(), 14,
-                TextAnchor.MiddleCenter, Color.white, new Vector2(.004f, .79f), new Vector2(.08f, .84f));
-            enemyRatingText = LabelAt(hud.transform, "Enemy Rating", StoryPortCombatRules.Rating(enemyMaxHealth, enemyAttack).ToString(), 14,
-                TextAnchor.MiddleCenter, Color.white, new Vector2(.918f, .79f), new Vector2(.996f, .84f));
-            playerRatingText.fontStyle = enemyRatingText.fontStyle = FontStyle.Bold;
+            playerRatingText = LabelAt(hud.transform, "Player Rating", StoryPortCombatRules.Rating(playerMaxHealth, playerAttack).ToString(), 24,
+                TextAnchor.MiddleLeft, Color.white, new Vector2(.012f, .79f), new Vector2(.09f, .86f));
+            enemyRatingText = LabelAt(hud.transform, "Enemy Rating", StoryPortCombatRules.Rating(enemyMaxHealth, enemyAttack).ToString(), 24,
+                TextAnchor.MiddleRight, Color.white, new Vector2(.91f, .79f), new Vector2(.988f, .86f));
+            UseTecnica(playerRatingText);
+            UseTecnica(enemyRatingText);
+            playerRatingText.raycastTarget = enemyRatingText.raycastTarget = false;
             var pause = Button(hud.transform, "PAUSE", TogglePause, new Vector2(.47f, .915f), new Vector2(.53f, .99f));
             SetButtonSkin(pause, "button_tab");
             pause.GetComponentInChildren<Text>().text = "Ⅱ";
@@ -1474,29 +1481,30 @@ namespace StoryPort
             // Bottom corners as in the footage: the left hex is the special button and
             // glows green once a bar is charged; the right hex marks the attack side,
             // with the three special bars beside it.
+            specialGlow = SpriteImage(hud.transform, "Special Glow", "UI/hexagon_border", new Vector2(.012f, -.01f), new Vector2(.145f, .225f), true);
+            if (specialGlow != null) { specialGlow.color = new Color(.2f, 1f, .2f, 0f); specialGlow.raycastTarget = false; }
             var specialButton = Button(hud.transform, "SPECIAL", SpecialAttack, new Vector2(.03f, .035f), new Vector2(.115f, .175f));
             specialButton.GetComponent<Image>().color = new Color(0, 0, 0, 0);
             specialButtonLabel = specialButton.GetComponentInChildren<Text>();
             specialButtonLabel.text = "";
             specialHex = SpriteImage(specialButton.transform, "Special Hex", "UI/hexagon_progress", Vector2.zero, Vector2.one, true);
             if (specialHex != null) specialHex.raycastTarget = false;
+            // The attack side is a filled grey hex with its rim, as on the footage's right.
+            attackHexFill = SpriteImage(hud.transform, "Attack Zone Fill", "UI/hexagon_progress", new Vector2(.885f, .035f), new Vector2(.97f, .175f), true);
+            if (attackHexFill != null) { attackHexFill.color = new Color(.72f, .74f, .76f, .38f); attackHexFill.raycastTarget = false; }
             var attackZone = SpriteImage(hud.transform, "Attack Zone", "UI/hexagon_border", new Vector2(.885f, .035f), new Vector2(.97f, .175f), true);
-            if (attackZone != null) { attackZone.color = new Color(.75f, .85f, .95f, .45f); attackZone.raycastTarget = false; }
+            if (attackZone != null) { attackZone.color = new Color(.85f, .88f, .92f, .55f); attackZone.raycastTarget = false; }
+            // Three special bars per side: the player's sit right of the left hex, the
+            // enemy's left of the right hex. Slots are dark; fills are yellow while
+            // charging and green once full (player), always red (enemy).
             specialSegments = new Image[3];
             specialSegmentFills = new Image[3];
+            enemySegments = new Image[3];
+            enemySegmentFills = new Image[3];
             for (var i = 0; i < 3; i++)
             {
-                float x = .68f + i * .066f;
-                var slot = MakeImage(hud.transform, "Special Bar " + (i + 1), new Color(.12f, .13f, .15f, .8f), new Vector2(x, .05f), new Vector2(x + .06f, .085f));
-                slot.raycastTarget = false;
-                var fill = MakeImage(slot.transform, "Special Bar Fill", new Color(1f, .86f, .1f, 1f), Vector2.zero, Vector2.one);
-                fill.sprite = SlantSprite(false, false);
-                fill.type = Image.Type.Filled;
-                fill.fillMethod = Image.FillMethod.Horizontal;
-                fill.fillAmount = 0f;
-                fill.raycastTarget = false;
-                specialSegments[i] = slot;
-                specialSegmentFills[i] = fill;
+                BuildSpecialBar(hud.transform, "Special Bar " + (i + 1), .125f + i * .07f, new Color(1f, .86f, .1f, 1f), out specialSegments[i], out specialSegmentFills[i]);
+                BuildSpecialBar(hud.transform, "Enemy Special Bar " + (i + 1), .672f + i * .07f, new Color(.95f, .07f, .07f, 1f), out enemySegments[i], out enemySegmentFills[i]);
             }
             StartCoroutine(FightIntro(hud.transform));
             UpdateFightHud();
@@ -1515,6 +1523,7 @@ namespace StoryPort
             {
                 if (label == null) yield break;
                 label.text = call;
+                if (call == "FIGHT!") Cue("fight_start", .7f);
                 float t = 0f;
                 while (t < 1.2f && label != null)
                 {
@@ -1527,7 +1536,21 @@ namespace StoryPort
             if (label != null) Destroy(label.gameObject);
         }
 
-        // One fighter's HUD cluster: hex portrait, name and a slanted health bar.
+        void BuildSpecialBar(Transform hud, string name, float x, Color fillColor, out Image slot, out Image fill)
+        {
+            slot = MakeImage(hud, name, new Color(.12f, .13f, .15f, .8f), new Vector2(x, .045f), new Vector2(x + .062f, .085f));
+            slot.sprite = SlantSprite(false, false);
+            slot.raycastTarget = false;
+            fill = MakeImage(slot.transform, name + " Fill", fillColor, Vector2.zero, Vector2.one);
+            fill.sprite = SlantSprite(false, false);
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillAmount = 0f;
+            fill.raycastTarget = false;
+        }
+
+        // One fighter's HUD cluster, as at 2:48 of the footage: hex portrait, Tecnica name
+        // beside it, and a gold-framed slanted bar whose dark track shows what was lost.
         void FighterHud(Transform hud, string prefix, string key, string displayName, bool mirrored, out Text percent, out Image fill)
         {
             float px0 = mirrored ? .925f : .012f;
@@ -1535,22 +1558,68 @@ namespace StoryPort
             if (portrait != null) { portrait.preserveAspect = true; portrait.raycastTarget = false; }
             var frame = SpriteImage(hud, prefix + " Portrait Frame", "UI/frame_hud_portrait", new Vector2(px0, .84f), new Vector2(px0 + .063f, .99f), true);
             if (frame != null) { frame.preserveAspect = true; frame.raycastTarget = false; }
-            float x0 = mirrored ? .6f : .085f, x1 = mirrored ? .915f : .4f;
-            var name = LabelAt(hud, prefix + " Name", displayName, 15, mirrored ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft, Color.white, new Vector2(x0, .945f), new Vector2(x1, .99f));
-            name.fontStyle = FontStyle.Bold;
-            var rim = MakeImage(hud, prefix + " Health Frame", Color.white, new Vector2(x0, .885f), new Vector2(x1, .945f));
-            rim.sprite = SlantSprite(true, mirrored); rim.color = new Color(.82f, .85f, .88f, 1f); rim.raycastTarget = false;
-            var back = MakeImage(rim.transform, prefix + " Health Back", Color.white, new Vector2(.012f, .12f), new Vector2(.988f, .88f));
-            back.sprite = SlantSprite(false, mirrored); back.color = new Color(.02f, .06f, .1f, .95f); back.raycastTarget = false;
-            fill = MakeImage(back.transform, prefix + " Health Fill", new Color(.27f, .66f, .9f, 1f), Vector2.zero, Vector2.one);
-            fill.sprite = SlantSprite(false, mirrored);
+            float x0 = mirrored ? .665f : .08f, x1 = mirrored ? .92f : .335f;
+            var name = LabelAt(hud, prefix + " Name", displayName, 22, mirrored ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft, Color.white, new Vector2(x0 + .02f, .935f), new Vector2(x1 - .02f, .99f));
+            UseTecnica(name);
+            name.raycastTarget = false;
+            var rim = MakeImage(hud, prefix + " Health Frame", Color.white, new Vector2(x0, .875f), new Vector2(x1, .935f));
+            rim.sprite = SlantSprite(true, mirrored); rim.color = new Color(.86f, .74f, .38f, 1f); rim.raycastTarget = false;
+            var back = MakeImage(rim.transform, prefix + " Health Back", Color.white, new Vector2(.008f, .14f), new Vector2(.992f, .86f));
+            back.sprite = SlantSprite(false, mirrored); back.color = new Color(.12f, .12f, .13f, .96f); back.raycastTarget = false;
+            var trail = MakeImage(back.transform, prefix + " Health Trail", new Color(.9f, .1f, .08f, 1f), Vector2.zero, Vector2.one);
+            trail.sprite = SlantSprite(false, mirrored);
+            trail.type = Image.Type.Filled;
+            trail.fillMethod = Image.FillMethod.Horizontal;
+            trail.fillOrigin = mirrored ? 1 : 0;
+            trail.raycastTarget = false;
+            fill = MakeImage(back.transform, prefix + " Health Fill", Color.white, Vector2.zero, Vector2.one);
+            fill.sprite = HealthGradientSprite(mirrored);
             fill.type = Image.Type.Filled;
             fill.fillMethod = Image.FillMethod.Horizontal;
             fill.fillOrigin = mirrored ? 1 : 0;
             fill.raycastTarget = false;
-            percent = LabelAt(rim.transform, prefix + " Health", "100%", 13, TextAnchor.MiddleCenter, Color.white, Vector2.zero, Vector2.one);
-            percent.fontStyle = FontStyle.Bold;
+            if (mirrored) enemyHpTrail = trail; else playerHpTrail = trail;
+            percent = LabelAt(rim.transform, prefix + " Health", "100%", 24, mirrored ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft, Color.white, new Vector2(.04f, 0f), new Vector2(.96f, 1f));
+            UseTecnica(percent);
             percent.raycastTarget = false;
+        }
+
+        void UseTecnica(Text text)
+        {
+            var font = Resources.Load<Font>("StoryPort/Fonts/tecnica_nav");
+            if (font != null) text.font = font;
+        }
+
+        Sprite healthGradientLeft, healthGradientRight;
+
+        // Slanted bar fill that brightens toward its tip, like the footage's blue gauge.
+        Sprite HealthGradientSprite(bool mirrored)
+        {
+            var cached = mirrored ? healthGradientRight : healthGradientLeft;
+            if (cached != null) return cached;
+            const int w = 256, h = 32, lean = 10;
+            var texture = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+            var deep = new Color(.1f, .45f, .85f, 1f);
+            var light = new Color(.55f, .85f, 1f, 1f);
+            for (var y = 0; y < h; y++)
+            {
+                var shift = (float)y / h * lean;
+                if (mirrored) shift = lean - shift;
+                // Lighter along the upper edge, as the footage's gauge reads glossy.
+                var gloss = Mathf.Lerp(0f, .18f, (float)y / h);
+                for (var x = 0; x < w; x++)
+                {
+                    var inside = x >= shift && x <= w - lean + shift;
+                    var along = (float)x / (w - 1);
+                    if (mirrored) along = 1f - along;
+                    var color = Color.Lerp(deep, light, along * along);
+                    texture.SetPixel(x, y, inside ? Color.Lerp(color, Color.white, gloss) : Color.clear);
+                }
+            }
+            texture.Apply();
+            var sprite = Sprite.Create(texture, new Rect(0, 0, w, h), new Vector2(.5f, .5f), 100f);
+            if (mirrored) healthGradientRight = sprite; else healthGradientLeft = sprite;
+            return sprite;
         }
 
         Sprite slantOutline, slantFillLeft, slantFillRight, slantOutlineRight;
@@ -1821,6 +1890,8 @@ namespace StoryPort
                 if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome + enemyActor.transform.right * (defense == StoryPortEnemyDefense.Action.Dodge ? .7f : -.5f), .2f));
             }
             PlayState(playerAnimator, state);
+            int specialLevel = specialMove ? state[state.Length - 1] - '0' : 0;
+            if (specialMove && audioPlayer != null) audioPlayer.Special(playerKey, specialLevel, false, .75f);
             if (specialMove)
             {
                 // CrossFade starts on the next animator update. Read that state's
@@ -1872,6 +1943,7 @@ namespace StoryPort
                 if (blockBroken) SetNotice("BLOCK BROKEN");
                 ShowDamageNumber(Mathf.RoundToInt(dealt), enemyActor, blocked ? new Color(.7f, .85f, 1f) : crit ? new Color(1f, .8f, .2f) : new Color(1f, .97f, .9f));
                 if (specialMove && !blocked) ImpactBurst(enemyActor);
+                if (specialMove && !blocked && !dodged && audioPlayer != null) audioPlayer.Special(playerKey, specialLevel, true, .8f);
                 Combat(playerKey, "attack_hit_" + step);
                 if (!blocked) Combat(enemyKey, step >= 5 ? "hit_react_heavy" : step >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
             }
@@ -2069,8 +2141,9 @@ namespace StoryPort
             if (camera == null || winner == null) yield break;
             // A knockout during a special hands the camera back before the hold.
             EndSpecialShot();
-            Cue("enemy_killed", .7f);
             var loser = winner == playerActor ? enemyActor : playerActor;
+            if (winner == playerActor) Cue("enemy_killed", .7f);
+            if (audioPlayer != null) audioPlayer.KnockoutLanding(winner == playerActor ? enemyKey : playerKey, .8f);
             var label = LabelAt(content, "Knockout Call", "K.O.", 72, TextAnchor.MiddleCenter, Color.white, new Vector2(.3f, .6f), new Vector2(.7f, .86f));
             label.fontStyle = FontStyle.Bold;
             label.raycastTarget = false;
@@ -2233,6 +2306,7 @@ namespace StoryPort
                 float specialStartedAt = -1f;
                 float originalEnemyAnimatorSpeed = enemyAnimator != null ? enemyAnimator.speed : 1f;
                 PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack0" + hit);
+                if (special && audioPlayer != null) audioPlayer.Special(enemyKey, enemySpecialLevel, false, .75f);
                 if (special)
                 {
                     yield return null;
@@ -2259,6 +2333,7 @@ namespace StoryPort
                 SyncHealthPercent();
                 if (damage > 0) ShowDamageNumber(damage, playerActor, guarding ? new Color(.7f, .85f, 1f) : new Color(1f, .45f, .4f));
                 if (special && damage > 0 && !guarding) ImpactBurst(playerActor);
+                if (special && damage > 0 && !guarding && !evaded && audioPlayer != null) audioPlayer.Special(enemyKey, enemySpecialLevel, true, .8f);
                 if (guarding) Combat(playerKey, "block_react");
                 else if (damage > 0)
                 {
@@ -2307,6 +2382,7 @@ namespace StoryPort
         void Update()
         {
             if (screen == "fight" && !paused) HandleFightTouch();
+            if (screen == "fight") UpdateHealthTrails();
             // The enemy's turn comes on its own timer, not only when the player is idle.
             if (screen == "fight" && !paused && !requestBusy && !enemyBusy && Time.time >= nextEnemyTurn && playerHp > 0 && enemyHp > 0)
                 EnemyTurn();
@@ -2330,9 +2406,38 @@ namespace StoryPort
                 for (var i = 0; i < specialSegmentFills.Length; i++)
                     if (specialSegmentFills[i] != null)
                         specialSegmentFills[i].fillAmount = Mathf.Clamp01(playerMana / StoryPortCombatRules.ManaPerBar - i);
+            if (specialSegmentFills != null)
+                for (var i = 0; i < specialSegmentFills.Length; i++)
+                    if (specialSegmentFills[i] != null)
+                        specialSegmentFills[i].color = specialSegmentFills[i].fillAmount >= .999f ? new Color(.1f, .9f, .2f, 1f) : new Color(1f, .86f, .1f, 1f);
+            if (enemySegmentFills != null)
+                for (var i = 0; i < enemySegmentFills.Length; i++)
+                    if (enemySegmentFills[i] != null)
+                        enemySegmentFills[i].fillAmount = Mathf.Clamp01(enemyMana / StoryPortCombatRules.ManaPerBar - i);
             if (specialHex != null)
-                specialHex.color = specialMeter >= 1 ? new Color(.3f, 1f, .3f, .95f) : new Color(.75f, .85f, .95f, .45f);
+                specialHex.color = specialMeter >= 1 ? new Color(.2f, .85f, .25f, .95f) : new Color(.72f, .74f, .76f, .38f);
+            if (specialGlow != null)
+                specialGlow.color = specialMeter >= 1 ? new Color(.25f, 1f, .25f, .7f) : new Color(.25f, 1f, .25f, 0f);
             if (specialButtonLabel != null) specialButtonLabel.text = "";
+        }
+
+        // The trail holds the previous health for a moment, then drains to the new value.
+        void UpdateHealthTrails()
+        {
+            UpdateHealthTrails(Time.unscaledDeltaTime);
+        }
+
+        void UpdateHealthTrails(float deltaTime)
+        {
+            DrainTrail(playerHpTrail, ref playerTrail, playerHp / 100f, deltaTime);
+            DrainTrail(enemyHpTrail, ref enemyTrail, enemyHp / 100f, deltaTime);
+        }
+
+        static void DrainTrail(Image trail, ref float shown, float target, float deltaTime)
+        {
+            if (trail == null) return;
+            shown = shown < target ? target : Mathf.MoveTowards(shown, target, deltaTime * .4f);
+            trail.fillAmount = shown;
         }
 
         void MoveStory(int dx, int dy)

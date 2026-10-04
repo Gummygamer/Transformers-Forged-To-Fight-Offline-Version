@@ -1,0 +1,227 @@
+[
+  {
+    "id": "mods_primemodule_01",
+    "name": "Prime Module",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "A compact reserve core stores spare charge and helps nearby systems recover after heavy use.",
+    "model_id": "mods_primemodule",
+    "portrait_id": "primemodule"
+  },
+  {
+    "id": "mods_harmaccelerator_01",
+    "name": "Harm Accelerator",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "A focused output coil boosts a defender’s strike strength for a brief burst of pressure.",
+    "model_id": "mods_harmaccelerator",
+    "portrait_id": "harm"
+  },
+  {
+    "id": "mods_EMImodule_01",
+    "name": "EMI Module",
+    "category": "Defensive",
+    "default_star": 5,
+    "description": "A pulse emitter disrupts incoming ranged targeting and gives nearby defenses time to respond.",
+    "model_id": "mods_emimodule",
+    "portrait_id": "emi"
+  },
+  {
+    "id": "mods_repairmodule_01",
+    "name": "Repair Module",
+    "category": "Defensive",
+    "default_star": 5,
+    "description": "Automated repair arms restore a small amount of a defender’s integrity at regular intervals.",
+    "model_id": "mods_repairmodule",
+    "portrait_id": "repair"
+  },
+  {
+    "id": "mods_strangerefractor_01",
+    "name": "Strange Refractor",
+    "category": "Defensive",
+    "default_star": 5,
+    "description": "A layered prism bends incoming force away and strengthens a defender’s guard.",
+    "model_id": "mods_strangerefractor",
+    "portrait_id": "strangerefractor"
+  },
+  {
+    "id": "mods_superconductor_1000",
+    "name": "Superconductor-1000",
+    "category": "Offensive",
+    "default_star": 4,
+    "description": "A chilled coil stores energy for a more powerful first special attack.",
+    "model_id": "mods_superconductor",
+    "portrait_id": "superconductor"
+  },
+  {
+    "id": "mods_superconductor_2000",
+    "name": "Superconductor-2000",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "A high-capacity coil stores energy for a more powerful second special attack.",
+    "model_id": "mods_superconductor",
+    "portrait_id": "superconductor"
+  },
+  {
+    "id": "mods_paralyzer_01",
+    "name": "Paralyzer",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "A short-range pulse interrupts movement and briefly slows a target’s response.",
+    "model_id": "mods_immobilizer",
+    "portrait_id": "paralyzer"
+  },
+  {
+    "id": "mods_laserguidance_01",
+    "name": "Laser Guidance",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "A calibrated sight improves the speed and consistency of ranged attacks.",
+    "model_id": "mods_laserguidance",
+    "portrait_id": "laserguidance"
+  },
+  {
+    "id": "mods_nightbirdsmark_01",
+    "name": "Nightbird's Mark",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "A precision beacon highlights weak points and improves the chance of a critical strike.",
+    "model_id": "mods_nightbirdsmark",
+    "portrait_id": "nightbirdsmark"
+  },
+  {
+    "id": "mods_brawlersfury_01",
+    "name": "Brawler's Fury",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "This close-combat unit raises combo damage and adds force when its defender is weakened.",
+    "model_id": "mods_brawlersfury",
+    "portrait_id": "brawlersfury"
+  },
+  {
+    "id": "mods_demolitionscache_01",
+    "name": "Demolitions Cache",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "A reinforced charge adds a blast effect to a defender’s heavy attack.",
+    "model_id": "mods_demolitionscache",
+    "portrait_id": "democache"
+  },
+  {
+    "id": "mods_exofilter_01",
+    "name": "Exo-Filter",
+    "category": "Defensive",
+    "default_star": 5,
+    "description": "A compact shielding array reduces the effects of unstable incoming energy.",
+    "model_id": "mods_exofilter",
+    "portrait_id": "exofilter"
+  },
+  {
+    "id": "mods_fluxincapacitator_01",
+    "name": "Transwarp Cell",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "A spatial regulator pairs with heavy attacks to disrupt an opponent’s stored energy.",
+    "model_id": "mods_fluxincapacitator",
+    "portrait_id": "flux"
+  },
+  {
+    "id": "mods_robotresource_01",
+    "name": "Robot Resource",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "Two tuned crystal cores provide a steady increase to a base defender’s power output.",
+    "model_id": "mods_robotresource",
+    "portrait_id": "robotresource"
+  },
+  {
+    "id": "mods_scoutssentry_01",
+    "name": "Scout's Sentry",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "A fast-response sensor boosts first-strike readiness and helps a defender react sooner.",
+    "model_id": "mods_scoutssentry",
+    "portrait_id": "scoutssentry"
+  },
+  {
+    "id": "mods_security_01",
+    "name": "Security Protocol",
+    "category": "Defensive",
+    "default_star": 5,
+    "description": "An automated safeguard reinforces a defender’s armor while its systems are under pressure.",
+    "model_id": "mods_security",
+    "portrait_id": "security"
+  },
+  {
+    "id": "mods_tacticianstrick_02",
+    "name": "Tactician's Trick",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "A timing relay disrupts an opponent’s rhythm and makes special attacks less predictable.",
+    "model_id": "mods_tacticianstrick",
+    "portrait_id": "tacticianstrick"
+  },
+  {
+    "id": "mods_techconsole_01",
+    "name": "Tech Console",
+    "category": "Utility",
+    "default_star": 5,
+    "description": "A compact control interface helps an operator coordinate precise, high-impact actions.",
+    "model_id": "mods_techconsole",
+    "portrait_id": "techconsole"
+  },
+  {
+    "id": "mods_warriorscall",
+    "name": "Warrior's Call",
+    "category": "Offensive",
+    "default_star": 5,
+    "description": "A rally signal briefly hardens a defender and increases its offensive momentum.",
+    "model_id": "mods_warriorscall",
+    "portrait_id": "warriorscall"
+  },
+  {
+    "id": "mods_generic_off_01",
+    "name": "Generic Offence",
+    "category": "Offensive",
+    "default_star": 3,
+    "description": "A straightforward power unit increases a defender’s basic strike output.",
+    "model_id": "mods_generic_off_01",
+    "portrait_id": "gen_off"
+  },
+  {
+    "id": "mods_generic_def_01",
+    "name": "Generic Defense",
+    "category": "Defensive",
+    "default_star": 3,
+    "description": "A durable support unit improves a defender’s health and resistance.",
+    "model_id": "mods_generic_def_01",
+    "portrait_id": "gen_def"
+  },
+  {
+    "id": "mods_generic_utl_01",
+    "name": "Generic Utility",
+    "category": "Utility",
+    "default_star": 3,
+    "description": "A flexible support unit improves recovery and adaptability during a fight.",
+    "model_id": "mods_generic_utl_01",
+    "portrait_id": "gen_utl"
+  },
+  {
+    "id": "mods_attack_01",
+    "name": "Attack Module",
+    "category": "Offensive",
+    "default_star": 4,
+    "description": "A reinforced drive channel delivers additional force through standard attacks.",
+    "model_id": "mods_attack",
+    "portrait_id": "attack"
+  },
+  {
+    "id": "mods_health_01",
+    "name": "Health Module",
+    "category": "Defensive",
+    "default_star": 4,
+    "description": "A reinforced life-support field helps a defender withstand more damage.",
+    "model_id": "mods_health",
+    "portrait_id": "health"
+  }
+]

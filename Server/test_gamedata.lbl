@@ -306,7 +306,11 @@ function test_generated_user_data_snapshot_has_three_specials_for_every_bot_step
   intent: check
   mutable passed: boolean = passed_in
   for hero in owned do
-    set passed = passed and encoded_field(hero, "entity_type") == "\"bot\"" and has_three_special_attacks(hero)
+    if encoded_field(hero, "entity_type") == "\"bot\"" then
+  set passed = passed and has_three_special_attacks(hero)
+else
+  set passed = passed and encoded_field(hero, "entity_type") == "\"tower\"" and encoded_field(hero, "special_attacks") == "0"
+end
   end
   mutable index: integer = 0
   while index < length(defaults) do
@@ -315,6 +319,33 @@ function test_generated_user_data_snapshot_has_three_specials_for_every_bot_step
     let active_hero: Json = jsonout.obj_get(active, bid)
     set passed = passed and field_text(saved_hero, "bid") == bid and has_three_special_attacks(saved_hero) and has_three_special_attacks(active_hero)
     set index = index + 1
+  end
+  passed
+end
+
+function module_snapshot_entry_matches(mod: Json, blueprints: Json, characters: Json, owned: a list of Json): boolean
+  intent: check
+  let bid: text = jsonout.as_text(jsonout.obj_get(mod, "id"))
+  let blueprint: Json = jsonout.obj_get(blueprints, bid)
+  let character: Json = jsonout.obj_get(characters, bid)
+  mutable user_entry: Json = jsonout.json_obj([])
+  for entry in owned do
+    if field_text(entry, "bid") == bid then set user_entry = entry end
+  end
+  field_text(blueprint, "et") == "tower" and field_text(blueprint, "name") == jsonout.as_text(jsonout.obj_get(mod, "name")) and field_text(blueprint, "i") == jsonout.as_text(jsonout.obj_get(mod, "portrait_id")) and field_text(character, "id") == bid and field_text(user_entry, "entity_type") == "tower" and encoded_field(user_entry, "special_attacks") == "0"
+end
+
+function test_generated_module_snapshots(): boolean
+  intent: test
+  let login: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getLoginData.json")))
+  let login_result: Json = jsonout.obj_get(login, "result")
+  let user: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getUserData.json")))
+  let updates: Json = jsonout.obj_get(jsonout.obj_get(user, "result"), "updates")
+  let owned: a list of Json = jsonout.list_items(jsonout.obj_get(updates, "heroes"))
+  let modules: a list of Json = gamedata.module_catalog_items()
+  mutable passed: boolean = length(modules) == 25
+  for mod in modules do
+    set passed = passed and module_snapshot_entry_matches(mod, jsonout.obj_get(login_result, "blueprints"), jsonout.obj_get(login_result, "characters"), owned)
   end
   passed
 end
@@ -329,7 +360,7 @@ function test_generated_user_data_snapshot_has_three_specials_for_every_bot(): b
   let active_team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(updates, "activeTeams")), 0), jsonout.json_obj([]))
   let active: Json = jsonout.obj_get(active_team, "heroes")
   let defaults: a list of text = gamedata.default_team()
-  mutable passed: boolean = length(owned) == length(gamedata.owned()) and length(saved) == length(defaults)
+  mutable passed: boolean = length(owned) == length(gamedata.owned()) + length(gamedata.module_catalog_items()) and length(saved) == length(defaults)
   set passed = test_generated_user_data_snapshot_has_three_specials_for_every_bot_step1(owned, saved, active, defaults, passed)
   passed
 end
@@ -1001,6 +1032,7 @@ function main_group_2(): integer
   set failed = failed + report("test_generated_user_data_has_mana_gain_for_every_owned_bot", test_generated_user_data_has_mana_gain_for_every_owned_bot(), "generated user data mana fields were wrong")
   set failed = failed + report("test_generated_login_snapshot_has_three_specials_for_every_bot", test_generated_login_snapshot_has_three_specials_for_every_bot(), "generated login special counts were wrong")
   set failed = failed + report("test_generated_user_data_snapshot_has_three_specials_for_every_bot", test_generated_user_data_snapshot_has_three_specials_for_every_bot(), "generated user-data special counts were wrong")
+  set failed = failed + report("test_generated_module_snapshots", test_generated_module_snapshots(), "module catalog entries were absent or inconsistent across login and user data")
   set failed = failed + report("test_normal_attack_levels_have_nonzero_damage_rows", test_normal_attack_levels_have_nonzero_damage_rows(), "attack values were wrong")
   failed
 end

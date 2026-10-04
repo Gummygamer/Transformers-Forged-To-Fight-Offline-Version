@@ -151,7 +151,26 @@ namespace StoryPort.Editor
                 Set(client, "pendingEncounter", true);
                 Invoke(client, "SquadScreen");
             }
-            else if (screen == "fight") Invoke(client, "FightScreen");
+            else if (screen == "fight")
+            {
+                Invoke(client, "FightScreen");
+                // SP_FIGHTSTATE=<enemyHp>,<playerHp>,<playerMana>,<enemyMana> previews a mid-fight HUD.
+                var state = Environment.GetEnvironmentVariable("SP_FIGHTSTATE");
+                if (!string.IsNullOrEmpty(state))
+                {
+                    var values = state.Split(',');
+                    var invariant = System.Globalization.CultureInfo.InvariantCulture;
+                    Set(client, "enemyHp", int.Parse(values[0], invariant));
+                    Set(client, "playerHp", int.Parse(values[1], invariant));
+                    Set(client, "playerMana", float.Parse(values[2], invariant));
+                    Set(client, "enemyMana", float.Parse(values[3], invariant));
+                    Set(client, "enemyTrail", int.Parse(values[0], invariant) / 100f + .12f);
+                    Invoke(client, "UpdateFightHud");
+                    Invoke(client, "UpdateHealthTrails");
+                    var call = GameObject.Find("Fight Call");
+                    if (call != null) UnityEngine.Object.DestroyImmediate(call);
+                }
+            }
             else if (screen == "victory")
             {
                 Invoke(client, "FightScreen");
