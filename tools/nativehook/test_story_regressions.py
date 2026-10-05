@@ -345,10 +345,10 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
 
         for route in ("quests", "gamestore"):
             assert use("repair_kit", TEAM[1], route, True)["error"] == "invalid"
-            assert request("/inventory")["repair_kit"] == 3
+            assert request("/inventory")["repair_kit"] == 999
         assert use("repair_kit", TEAM[0])["usedConsumableCount"] == 1
         assert_health(begin(), TEAM[0], 0.8)
-        assert request("/inventory")["repair_kit"] == 2
+        assert request("/inventory")["repair_kit"] == 999
         assert use("revive_kit", TEAM[1])["success"] is True
         assert_health(begin(), TEAM[1], 0.5)
         assert request("/inventory")["revive_kit"] == 0
@@ -356,7 +356,7 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert_health(begin(), TEAM[0], 1.0)
         for route in ("quests", "gamestore"):
             assert use("repair_kit", TEAM[0], route, True)["error"] == "invalid"
-            assert request("/inventory")["repair_kit"] == 1
+            assert request("/inventory")["repair_kit"] == 999
         assert use("team_repair_kit", TEAM[0])["success"] is True
         healed = begin()
         assert_health(healed, TEAM[0], 1.0)
@@ -365,23 +365,23 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert request("/inventory")["team_repair_kit"] == 0
         assert use("repair_kit", TEAM[2])["success"] is True
         assert_health(begin(), TEAM[2], 0.8)
-        for route in ("quests", "gamestore"):
-            assert use("repair_kit", TEAM[2], route, True)["error"] == "nsf"
+        assert use("repair_kit", TEAM[2], "gamestore", True)["error"] is None
+        assert_health(begin(), TEAM[2], 1.0)
         stop()
         start()
         assert_health(begin(), TEAM[0], 1.0)
         assert_health(begin(), TEAM[1], 0.7)
-        assert request("/inventory") == {"repair_kit": 0, "team_repair_kit": 0, "revive_kit": 0}
+        assert request("/inventory") == {"repair_kit": 999, "team_repair_kit": 0, "revive_kit": 0}
         active = move(0)["teamData"]["heroes"]
         assert abs(active[TEAM[1]]["hp"] - 0.7) < 0.0001
         resolve("WON")
         assert move(1)["progression"]["currentBattleId"] == "fte_stars_gs_t3"
-        print("PASS: repair, revive, team heal, full-health rejection, depletion, persistence and subsequent fight")
+        print("PASS: repair replenishment, revive, team heal, validation, persistence and subsequent fight")
 
         stop()
         state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
                               "\nQ|2.1.1|1|1|1|0|0,1|0.1000,0.0000,0.3000,1.0000,1.0000\n"
-                              "I|repair_kit|3\nI|team_repair_kit|1\nI|revive_kit|1\n")
+                              "I|repair_kit|0\nI|team_repair_kit|1\nI|revive_kit|1\n")
         start()
         item = {"version_id": "offline-1", "item_name": "repair_kit"}
         nested = {**item, "context": {"bid": TEAM[0]}}
@@ -391,12 +391,20 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         batch = {"context": {"bid": TEAM[0]}, "items": [item, item]}
         assert request(f"/quests/use/{QID}-0", batch)["usedConsumableCount"] == 2
         assert_health(begin(), TEAM[0], 1.0)
-        assert request("/inventory")["repair_kit"] == 0
-        assert request("/gamestore/use", batch, allow_error=True)["error"] == "nsf"
+        assert request("/inventory")["repair_kit"] == 999
+        store_batch = {"context": {"bid": TEAM[2]}, "items": [item, item]}
+        assert request("/gamestore/use", store_batch, allow_error=True)["error"] is None
+        assert_health(begin(), TEAM[2], 0.9)
+        assert request("/inventory")["repair_kit"] == 999
+        stop()
+        start()
+        assert request("/inventory")["repair_kit"] == 999
+        assert_health(begin(), TEAM[0], 1.0)
+        assert_health(begin(), TEAM[2], 0.9)
         request(f"/quests/use/{QID}-0", {"items": [{"item_name": "team_repair_kit"}],
                                            "context": {"aid": QID + "-0"}})
         assert_health(begin(), TEAM[1], 0.0)
-        assert_health(begin(), TEAM[2], 0.5)
+        assert_health(begin(), TEAM[2], 1.0)
         print("PASS: legacy item context, root context in either order, repeated orders and team use without a bot target")
 
         # Invalid targets, malformed orders and absent quest state must be
@@ -406,7 +414,7 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
                               "\nI|repair_kit|1\nI|team_repair_kit|1\nI|revive_kit|1\n")
         start()
         assert use("repair_kit", TEAM[0], "gamestore", True)["error"] == "invalid"
-        assert request("/inventory")["repair_kit"] == 1
+        assert request("/inventory")["repair_kit"] == 999
         stop()
         state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
                               "\nQ|2.1.1|1|1|1|0|0,1|0.1000,0.1000,0.1000,1.0000,1.0000\n"
@@ -424,13 +432,13 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
                 assert state_path.read_text() == before
         print("PASS: missing quest, unknown/off-team targets and malformed/empty orders leave state intact")
 
-        # The two endpoints share the final kit. A rejected concurrent request
-        # must not heal another bot after the successful request spends it.
+        # The two endpoints can concurrently repair any eligible bots without
+        # spending their renewable inventory or healing past full health.
         for attempt in range(12):
             stop()
             state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
                                   "\nQ|2.1.1|1|1|1|0|0,1|0.1000,0.1000,0.1000,1.0000,1.0000\n"
-                                  "I|repair_kit|1\nI|team_repair_kit|1\nI|revive_kit|1\n")
+                                  "I|repair_kit|0\nI|team_repair_kit|1\nI|revive_kit|1\n")
             start()
             barrier = threading.Barrier(12)
             def final_item(index):
@@ -439,12 +447,12 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
                 return request(route, {"items": [item], "context": {"bid": TEAM[index % 3]}}, allow_error=True)
             with ThreadPoolExecutor(max_workers=12) as pool:
                 replies = list(pool.map(final_item, range(12)))
-            assert sum(reply["error"] is None for reply in replies) == 1, replies
-            assert all(reply["error"] in (None, "nsf") for reply in replies), replies
+            assert sum(reply["error"] is None for reply in replies) == 9, replies
+            assert all(reply["error"] in (None, "invalid") for reply in replies), replies
             hp = begin()["progression"]["users"][UID]["team"]
-            assert sorted(round(hp[bot]["hp"], 4) for bot in TEAM) == [0.1, 0.1, 0.4], hp
-            assert request("/inventory") == {"repair_kit": 0, "team_repair_kit": 1, "revive_kit": 1}
-        print("PASS: concurrent requests across both repair routes consume the final item and heal exactly once")
+            assert sorted(round(hp[bot]["hp"], 4) for bot in TEAM) == [1.0, 1.0, 1.0], hp
+            assert request("/inventory") == {"repair_kit": 999, "team_repair_kit": 1, "revive_kit": 1}
+        print("PASS: concurrent repairs replenish inventory and preserve health limits")
 
     finally:
         if process is not None and process.poll() is None:

@@ -162,7 +162,11 @@ function check_gamestore_use(base: text, port: integer, pid: text): boolean
   let ok_4: boolean = check("harness alive after gamestore/use", harness_alive(pid), "harness died")
   let after: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\}", true)
   let ok_5: boolean = check("hp restored to 1.0 after repair", contains_text(after.body, "\"hp\": 1") or contains_text(after.body, "\"hp\":1"), after.body)
-  ok_1 and ok_2 and ok_3 and ok_4 and ok_5
+  let repeated: HttpReply = request(base, port, "POST", "/gamestore/use", use_body_for("optimusprime_cin_tf"), true)
+  let inventory: HttpReply = request(base, port, "GET", "/inventory", "", false)
+  let ok_6: boolean = check("repeated repair succeeds", contains_text(repeated.body, "\"error\":null"), repeated.body)
+  let ok_7: boolean = check("repair inventory remains 999", contains_text(inventory.body, "\"repair_kit\":999"), inventory.body)
+  ok_1 and ok_2 and ok_3 and ok_4 and ok_5 and ok_6 and ok_7
 end
 
 function check_quests_use(base: text, port: integer, pid: text): boolean
@@ -172,7 +176,9 @@ function check_quests_use(base: text, port: integer, pid: text): boolean
   let ok_1: boolean = check("quests/use status", quest_use.status == "200", quest_use.status)
   let ok_2: boolean = check("quests/use success body", contains_text(quest_use.body, "\"success\":true"), quest_use.body)
   let ok_3: boolean = check("harness alive after quests/use", harness_alive(pid), "harness died")
-  ok_1 and ok_2 and ok_3
+  let inventory: HttpReply = request(base, port, "GET", "/inventory", "", false)
+  let ok_4: boolean = check("quests repair inventory remains 999", contains_text(inventory.body, "\"repair_kit\":999"), inventory.body)
+  ok_1 and ok_2 and ok_3 and ok_4
 end
 
 function malformed_bodies(): a list of text
@@ -210,10 +216,12 @@ end
 function run_checks(base: text, port: integer, started: HarnessStart): boolean
   intent: run every repair-endpoint check against the started native server
   setup_squad(base, port)
+  let inventory: HttpReply = request(base, port, "GET", "/inventory", "", false)
+  let kits_available: boolean = check("depleted saved repair kits replenish to 999", contains_text(inventory.body, "\"repair_kit\":999"), inventory.body)
   let ok_1: boolean = check_gamestore_use(base, port, started.pid)
   let ok_2: boolean = check_quests_use(base, port, started.pid)
   let ok_3: boolean = check_malformed_bodies(base, port, started.pid)
-  ok_1 and ok_2 and ok_3
+  kits_available and ok_1 and ok_2 and ok_3
 end
 
 function run_with_harness(base: text, harness: text, payload: text, port: integer): nothing
@@ -236,6 +244,7 @@ function main(): nothing
   create_dir(base)
   let root: text = path_join(fakeserver.here(), "..")
   let harness: text = path_join(base, "harness")
+  write_file(path_join(base, "quest-state"), "TFTF2\nI|repair_kit|0\n")
   let port: integer = find_port()
   if not compile_harness(base, root, harness) or port == 0 then
     print("[!] setup failed")

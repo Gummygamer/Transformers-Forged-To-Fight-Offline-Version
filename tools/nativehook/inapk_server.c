@@ -52,7 +52,7 @@ static int g_saved_team_count;
 /* Keep the local consumables in the same small state file as quest progress so
    they survive app and server restarts without another persistence service. */
 static const char *g_consumable_ids[] = { "repair_kit", "team_repair_kit", "revive_kit" };
-static int g_consumable_counts[] = { 3, 1, 1 };
+static int g_consumable_counts[] = { 999, 1, 1 };
 static int g_connections;
 static int g_started;
 static int g_state_loaded;
@@ -318,7 +318,7 @@ static void load_quest_state(void) {
             char id[64]; int count=-1;
             if(sscanf(line+2,"%63[^|]|%d",id,&count)==2 && count>=0){
                 for(int i=0;i<3;i++)if(!strcmp(id,g_consumable_ids[i])){
-                    g_consumable_counts[i]=count;break;
+                    g_consumable_counts[i]=i==0?999:count;break;
                 }
             }
         }
@@ -569,7 +569,7 @@ static int apply_repair_targets(const char *body, const char *end, const char *q
             }
         }
     }
-    if(changed){g_consumable_counts[item]-=uses;persist_quest_state_locked();}
+    if(changed){if(item==0)g_consumable_counts[item]=999;else g_consumable_counts[item]-=uses;persist_quest_state_locked();}
     pthread_mutex_unlock(&g_pos_lock);
     return changed;
 }
@@ -648,7 +648,7 @@ static const unsigned char *inventory_response(Out *o, size_t *outn) {
 static const unsigned char *gamestore_refresh(int mission, int grouped, Out *o, size_t *outn) {
     /* AutoRefreshingUpdate reads the payload under its group name, not "data".
        Keep the normal API envelope and any requested mission update. */
-    static const char update[]="{\"name\":\"gamestore\",\"check\":\"offline-1\",\"refresh\":0,\"cache\":false,\"gamestore\":{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":{\"consumable\":[{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot.\",\"r\":[{\"t\":\"hth\",\"q\":30}],\"use_pve\":true},{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[{\"t\":\"hth\",\"q\":20}],\"use_pve\":true},{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[{\"t\":\"rvv\",\"q\":50}],\"use_pve\":true}]},\"setIdMap\":{}},\"err\":\"\",\"locCheck\":\"\"}";
+    static const char update[]="{\"name\":\"gamestore\",\"check\":\"offline-1\",\"refresh\":0,\"cache\":false,\"gamestore\":{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":{\"consumable\":[{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot. Free and replenished after use.\",\"r\":[{\"t\":\"hth\",\"q\":30}],\"use_pve\":true},{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[{\"t\":\"hth\",\"q\":20}],\"use_pve\":true},{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[{\"t\":\"rvv\",\"q\":50}],\"use_pve\":true}]},\"setIdMap\":{}},\"err\":\"\",\"locCheck\":\"\"}";
     static const char prefix[]="{\"error\":null,\"result\":{\"updates\":[";
     static const char suffix[]="]}}";
     static const char single_prefix[]="{\"error\":null,\"result\":";

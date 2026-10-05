@@ -130,7 +130,7 @@ end
 
 function initial_inventory_count(name: text): integer
   intent: return the initial offline grant for a consumable
-  if name == "repair_kit" then return 3 end
+  if name == "repair_kit" then return 999 end
   if name == "team_repair_kit" then return 1 end
   if name == "revive_kit" then return 1 end
   0
@@ -138,6 +138,7 @@ end
 
 function inventory_count(name: text): integer
   intent: read a saved consumable count or its initial grant
+  if name == "repair_kit" then return 999 end
   if not file_exists(inventory_file()) then
     initial_inventory_count(name)
   else
@@ -151,9 +152,9 @@ function inventory_count(name: text): integer
 end
 
 function update_inventory_count(name: text, delta: integer): nothing
-  intent: persist one consumable use
+  intent: persist consumable use while keeping repair kits renewable
   create_dir(log_dir())
-  let repair: integer = inventory_count("repair_kit") + if name == "repair_kit" then delta else 0 end
+  let repair: integer = 999
   let team: integer = inventory_count("team_repair_kit") + if name == "team_repair_kit" then delta else 0 end
   let revive: integer = inventory_count("revive_kit") + if name == "revive_kit" then delta else 0 end
   write_file(inventory_file(), "repair_kit|" ++ to_text(repair) ++ "\nteam_repair_kit|" ++ to_text(team) ++ "\nrevive_kit|" ++ to_text(revive) ++ "\n")
@@ -1025,7 +1026,7 @@ end
 
 function gamestore_data(): Json
   intent: create the locally owned heal/revive consumable catalog
-  jsonout.parse_json("\{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":\{\"consumable\":[\{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot.\",\"r\":[\{\"t\":\"hth\",\"q\":30\}],\"use_pve\":true\},\{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[\{\"t\":\"hth\",\"q\":20\}],\"use_pve\":true\},\{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[\{\"t\":\"rvv\",\"q\":50\}],\"use_pve\":true\}]\},\"setIdMap\":\{\}}")
+  jsonout.parse_json("\{\"version_id\":\"offline-1\",\"cdn\":\"\",\"tags\":[],\"curves\":[],\"items\":\{\"consumable\":[\{\"n\":\"repair_kit\",\"t\":\"Repair Kit\",\"d\":\"Restores 30% health to one bot. Free and replenished after use.\",\"r\":[\{\"t\":\"hth\",\"q\":30\}],\"use_pve\":true\},\{\"n\":\"team_repair_kit\",\"t\":\"Team Repair Kit\",\"d\":\"Restores 20% health to your team.\",\"r\":[\{\"t\":\"hth\",\"q\":20\}],\"use_pve\":true\},\{\"n\":\"revive_kit\",\"t\":\"Revive\",\"d\":\"Revives a bot at 50% health.\",\"r\":[\{\"t\":\"rvv\",\"q\":50\}],\"use_pve\":true\}]\},\"setIdMap\":\{\}}")
 end
 
 function game_store_item(item_name: text): text
