@@ -759,6 +759,11 @@ function test_standalone_progression_reaches_motormaster(): boolean
   jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(first), "battleEnemy"), "key")) == "barricade_cin_dotm" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(second), "battleEnemy"), "key")) == "tantrum_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(third), "battleEnemy"), "key")) == "motormaster_gs_voyager2015" and not jsonout.as_bool(jsonout.obj_get(move_battle(third), "isFinalBoss")) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(fourth), "battleEnemy"), "key")) == "fte_stars_gs_t3" and jsonout.as_bool(jsonout.obj_get(move_battle(fourth), "isFinalBoss"))
 end
 
+function test_motormaster_start_is_walkable_and_reaches_encounters(qid: text): boolean
+  intent: test
+  gamedata.quest_start_y_for(qid) == 2 and gamedata.quest_is_walkable(qid, 0, 2) and not gamedata.quest_is_walkable(qid, 0, 1) and gamedata.quest_has_encounter_at(qid, 1, 2)
+end
+
 function test_motormaster_chapter_entry_and_boss(): boolean
   intent: test
   let qid: text = gamedata.custom_story_motormaster_qid()
@@ -768,7 +773,7 @@ function test_motormaster_chapter_entry_and_boss(): boolean
   let tile1: Json = standalone_tile(grid, 1)
   let tile3: Json = standalone_tile(grid, 3)
   let dialogue: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_custom_story_dialogue_sets(), "custom_motormaster_chapter_intro"))
-  qid == "2.4.1" and jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 2 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_motormaster_chapter_intro" and length(dialogue) == 1 and dialogue_entry_matches(dialogue, 0, "optimusprime_cin_tf", "left", "The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats") and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(tile3, "final"))
+  qid == "2.4.1" and jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 2 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_motormaster_chapter_intro" and length(dialogue) == 1 and dialogue_entry_matches(dialogue, 0, "optimusprime_cin_tf", "left", "The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats") and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and test_motormaster_start_is_walkable_and_reaches_encounters(qid)
 end
 
 function test_custom_story_has_independent_identity_and_compact_map_part1(qid: text, summary: Json): boolean

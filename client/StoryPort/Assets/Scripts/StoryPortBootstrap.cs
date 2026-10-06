@@ -2623,12 +2623,20 @@ namespace StoryPort
             currentQid = ActQids[actIndex];
             storyNodes = ActNodeLabels[actIndex].Split('|');
             string body = "{\"setId\":\"" + StorySet + "\"}";
+            mapX = 0;
+            mapY = 0;
             pendingEncounter = false;
             Show("loading");
             StartCoroutine(Post("/quests/quest-begin/" + currentQid, body, response =>
             {
                 ReadCurrentPosition(response);
                 ReadStoryMap(response);
+                var position = StoryRouteData.ResolvePosition(storyMapNodes, mapX, mapY);
+                if (position != null && (position.x != mapX || position.y != mapY))
+                {
+                    mapX = position.x;
+                    mapY = position.y;
+                }
                 StartCoroutine(ProbeStoryPosition());
             }));
         }

@@ -1005,7 +1005,7 @@ end
 
 public function quest_path_col_for(qid: text): integer
   intent: get
-  if qid == challenge_qid() then 16 else if qid == custom_story_standalone_qid() then 2 else quest_path_col() end
+  if qid == challenge_qid() then 16 else if qid == custom_story_standalone_qid() or qid == custom_story_motormaster_qid() then 2 else quest_path_col() end
 end
 
 public function quest_start_x_for(qid: text): integer
@@ -2427,6 +2427,18 @@ public function quest_can_move(qid: text, start_x: integer, start_y: integer, ne
     (start_x == next_x and start_y == next_y and act3_walkable(start_x, start_y)) or act3_step(start_x, start_y, next_x, next_y)
   else
     next_y == quest_path_col_for(qid) and next_x >= 0 and next_x < quest_dim_for(qid)
+  end
+end
+
+public function quest_is_walkable(qid: text, x: integer, y: integer): boolean
+  intent: check whether a position belongs to the quest visible walkable map
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(build_quest_map(qid), "grid"))
+  if x < 0 or x >= length(grid) then false else
+    let row: a list of Json = jsonout.list_items(unwrap_or(get(grid, x), jsonout.json_list([])))
+    if y < 0 or y >= length(row) then false else
+      let tile: Json = unwrap_or(get(row, y), jsonout.json_obj([]))
+      jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and not jsonout.as_bool(jsonout.obj_get(tile, "hidden"))
+    end
   end
 end
 

@@ -273,7 +273,7 @@ function position_for(qid: text): Position
   return position
 end
   end
-  Position { qid: qid, x: 0, y: 1, pending: false, completed: false, cleared: [] }
+  Position { qid: qid, x: gamedata.quest_start_x_for(qid), y: gamedata.quest_start_y_for(qid), pending: false, completed: false, cleared: [] }
 end
 
 function set_position(position: Position): nothing
@@ -1786,7 +1786,7 @@ end
 function begin_position(qid: text): Position
   intent: save the quest start position keeping earlier progress and return it
   let previous: Position = position_for(qid)
-  let preserve_progress: boolean = position_exists(qid)
+  let preserve_progress: boolean = position_exists(qid) and gamedata.quest_is_walkable(qid, previous.x, previous.y)
   let begin_x: integer = if preserve_progress then previous.x else gamedata.quest_start_x_for(qid) end
   let begin_y: integer = if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end
   let begun: Position = Position { qid: qid, x: begin_x, y: begin_y, pending: previous.pending and preserve_progress, completed: previous.completed and preserve_progress, cleared: previous.cleared }

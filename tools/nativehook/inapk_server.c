@@ -341,6 +341,20 @@ static int squad_is_storable(const char bids[][64], int count) {
 static void position_health_init(Position *position) {
     int i; for(i=0;i<TEAM_SIZE_MAX;i++)position->health[i]=1.0f;
 }
+static int quest_position_is_walkable(const char *qid,int x,int y) {
+    char key[160],start[64]; size_t n=0; const unsigned char *v; int sx=0,sy=1;
+    snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);
+    if(v){size_t z=n<sizeof start-1?n:sizeof start-1;memcpy(start,v,z);start[z]=0;sscanf(start,"%d %d",&sx,&sy);}
+    if(x==sx&&y==sy)return 1;
+    snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
+    if(!v)return 0;
+    const char *line=(const char*)v,*end=line+n;
+    while(line<end){int ax,ay,dx,dy,bx,by;const char *next=memchr(line,'\n',(size_t)(end-line));size_t len=next?(size_t)(next-line):(size_t)(end-line);
+        if(len<128){char row[128];memcpy(row,line,len);row[len]=0;if(sscanf(row,"%d %d %d %d %d %d",&ax,&ay,&dx,&dy,&bx,&by)==6&&bx==x&&by==y)return 1;}
+        line=next?next+1:end;
+    }
+    return 0;
+}
 
 static void store_saved_team(const char bids[][64], int count, int invalid) {
     int i;
@@ -718,7 +732,12 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
             slot=i; memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);
             g_pos[i].x=x;g_pos[i].y=y;break;
         }
-        if(slot>=0){snapshot=g_pos[slot];persist_quest_state_locked();}
+        if(slot>=0){
+            if(!quest_position_is_walkable(qid,g_pos[slot].x,g_pos[slot].y)){
+                g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;g_pos[slot].completed=0;
+            }
+            snapshot=g_pos[slot];persist_quest_state_locked();
+        }
         pthread_mutex_unlock(&g_pos_lock);
         if(slot<0)return NULL;
         snprintf(posx,sizeof posx,"%d",snapshot.x);snprintf(posy,sizeof posy,"%d",snapshot.y);
@@ -745,10 +764,14 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         const char *z3=z2-2;while(z3>p&&*z3!='/')z3--;if(*z3=='/')z3++;
         snprintf(seg,sizeof seg,"%.*s",(int)(z2-z3-1),z3);char *dash=strrchr(seg,'-');if(!dash)return NULL;*dash=0;
         snprintf(qid,sizeof qid,"%.63s",seg);lx=strtol(xs,&ep,10);if(*ep)lx=1;ly=strtol(ys,&ep,10);if(*ep){lx=1;ly=0;}dx=(int)lx;dy=(int)ly;
+        snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&sx,&sy);
         pthread_mutex_lock(&g_pos_lock);
         for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
-        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);break;}
-        if(slot>=0){sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(!sx&&!sy){sy=1;g_pos[slot].y=1;}if(g_pos[slot].pending){dx=0;dy=0;}}
+        if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);g_pos[i].x=sx;g_pos[i].y=sy;break;}
+        if(slot>=0){
+            if(!quest_position_is_walkable(qid,g_pos[slot].x,g_pos[slot].y)){g_pos[slot].x=sx;g_pos[slot].y=sy;g_pos[slot].pending=0;g_pos[slot].completed=0;}
+            sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(g_pos[slot].pending){dx=0;dy=0;}
+        }
         snprintf(key,sizeof key,"@quest:moves:%s",qid);v=lookup(key,&n);
         if(v){char *copy=malloc(n+1);if(copy){memcpy(copy,v,n);copy[n]=0;char *line=copy;while(line&&*line){int ax,ay,ad,ae,bx,by;char *next=strchr(line,'\n');if(next)*next++=0;if(sscanf(line,"%d %d %d %d %d %d",&ax,&ay,&ad,&ae,&bx,&by)==6&&ax==sx&&ay==sy&&ad==dx&&ae==dy){nx=bx;ny=by;found=1;break;}line=next;}free(copy);}}
         if(!found){dx=0;dy=0;nx=sx;ny=sy;}

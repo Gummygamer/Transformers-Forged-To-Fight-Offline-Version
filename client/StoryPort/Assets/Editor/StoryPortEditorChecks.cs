@@ -411,16 +411,21 @@ namespace StoryPort.Editor
         static void CheckStoryRoute()
         {
             const string response = "{\"result\":{\"2.1.1\":{\"map\":{\"gridDimension\":3,\"grid\":[" +
-                "[{\"walkable\":true,\"hidden\":false,\"lab\":\"Start\",\"boss\":\"bludgeon\",\"links\":[{\"x\":1,\"y\":0}]}," +
-                "{\"walkable\":true,\"hidden\":true,\"lab\":\"Hidden\"}]," +
-                "[{\"walkable\":true,\"hidden\":false,\"lab\":\"Final\",\"boss\":\"ironhide\",\"final\":true,\"links\":[]}],[]]}}}}";
+                "[{\"walkable\":true,\"hidden\":false,\"lab\":\"Route\",\"boss\":\"bludgeon\",\"links\":[{\"x\":1,\"y\":0}]}," +
+                "{\"walkable\":true,\"hidden\":true,\"lab\":\"Hidden\"},{}]," +
+                "[{\"walkable\":true,\"hidden\":false,\"lab\":\"Final\",\"boss\":\"ironhide\",\"final\":true,\"links\":[]}," +
+                "{\"walkable\":true,\"hidden\":false,\"start\":true,\"lab\":\"Authored Start\",\"links\":[{\"x\":1,\"y\":0}]},{}],[]]}}}}";
             var route = StoryRouteData.Parse(response, "2.1.1");
-            if (!route.hasMap || route.dimension != 3 || route.nodes.Count != 2)
+            if (!route.hasMap || route.dimension != 3 || route.nodes.Count != 3)
                 throw new Exception("Story route lost its dimension or visible nodes");
+            if (StoryRouteData.ResolvePosition(route.nodes, 99, 99) != route.nodes[2] ||
+                StoryRouteData.ResolvePosition(route.nodes, 1, 0) != route.nodes[1])
+                throw new Exception("Story route did not recover an invalid position or preserve a valid one");
             if (route.nodes[0].x != 0 || route.nodes[0].y != 0 || route.nodes[0].boss != "bludgeon" ||
                 route.nodes[0].links.Count != 1 || route.nodes[0].links[0] != new Vector2Int(1, 0))
                 throw new Exception("Story route changed server coordinates or links");
-            if (route.nodes[1].x != 1 || route.nodes[1].y != 0 || !route.nodes[1].isFinal)
+            if (route.nodes[1].x != 1 || route.nodes[1].y != 0 || !route.nodes[1].isFinal ||
+                route.nodes[2].x != 1 || route.nodes[2].y != 1 || !route.nodes[2].isStart)
                 throw new Exception("Story route lost its final encounter");
             var absent = StoryRouteData.Parse(response, "2.3.1");
             if (absent.hasMap || absent.nodes.Count != 0)

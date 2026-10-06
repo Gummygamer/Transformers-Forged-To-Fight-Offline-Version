@@ -12,6 +12,7 @@ namespace StoryPort
         public string label;
         public string boss;
         public bool isFinal;
+        public bool isStart;
         // Dialogue set ids the server attaches to the tile: shown before the
         // fight ("dialogue") and after it is won ("dialoguePE").
         public string dialogue;
@@ -42,6 +43,15 @@ namespace StoryPort
         public int dimension;
         public bool hasMap;
 
+        public static StoryMapNode ResolvePosition(List<StoryMapNode> nodes, int x, int y)
+        {
+            if (nodes == null) return null;
+            var current = nodes.Find(node => node.x == x && node.y == y);
+            if (current != null) return current;
+            var start = nodes.Find(node => node.isStart);
+            return start ?? nodes.Find(node => node.x == 0);
+        }
+
         public static StoryRouteData Parse(string response, string qid)
         {
             var route = new StoryRouteData();
@@ -66,6 +76,7 @@ namespace StoryPort
                         label = ReadString(tile, "lab"),
                         boss = ReadString(tile, "boss"),
                         isFinal = ReadValue(tile, "final") == "true",
+                        isStart = ReadValue(tile, "start") == "true",
                         dialogue = ReadString(tile, "dialogue"),
                         dialogueAfter = ReadString(tile, "dialoguePE")
                     };

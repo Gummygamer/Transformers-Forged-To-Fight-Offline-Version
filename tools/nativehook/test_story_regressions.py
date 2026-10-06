@@ -88,6 +88,57 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
 
     try:
         start()
+        # Old saves could place Motormaster's 2.4.1 entry on the filler row.
+        # Beginning the quest must snap to the authored start and retain valid
+        # cleared history, then the first step must reach the authored enemy.
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|2.4.1|0|1|0|0|3,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
+        start()
+        motormaster = begin(qid="2.4.1")
+        assert motormaster["progression"]["currentPos"] == {"x": 0, "y": 2}
+        assert {"x": 3, "y": 2} in motormaster["cleared"]
+        assert_squad(motormaster)
+        assert_health(motormaster, TEAM[0], 0.8)
+        assert_health(motormaster, TEAM[1], 0.7)
+        first_motormaster = move(1, "2.4.1")
+        assert first_motormaster["progression"]["currentBattleId"] == "motormaster_gs_voyager2015"
+
+        # A valid in-flight encounter stays at its authored route coordinate
+        # when the player reenters the quest.
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|2.4.1|1|2|1|0|3,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
+        start()
+        pending = begin(qid="2.4.1")
+        assert pending["progression"]["currentPos"] == {"x": 1, "y": 2}
+        assert move(1, "2.4.1")["progression"]["currentBattleId"] == "motormaster_gs_voyager2015"
+
+        # Out-of-map coordinates are repaired by move as well as begin.
+        stop()
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|2.4.1|99|99|1|1|3,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
+        start()
+        recovered = move(1, "2.4.1")
+        assert recovered["progression"]["currentBattleId"] == "motormaster_gs_voyager2015"
+        assert recovered["progression"]["currentPos"] == {"x": 1, "y": 2}
+        assert {"x": 3, "y": 2} in recovered["progression"]["cleared"]
+        print("PASS: stale and out-of-bounds Motormaster saves recover; valid pending progress persists")
+
+        # The first move before any quest-begin call also uses the authored
+        # (0,2) entry rather than the old generic (0,1) coordinate.
+        stop()
+        if state_path.exists():
+            state_path.unlink()
+        start()
+        direct = move(1, "2.4.1")
+        assert direct["progression"]["currentBattleId"] == "motormaster_gs_voyager2015"
+        assert direct["progression"]["currentPos"] == {"x": 1, "y": 2}
+
+        stop()
+        if state_path.exists():
+            state_path.unlink()
+        start()
         refresh = request("/autorefresh/gamestore/refresh")
         catalog = refresh["gamestore"]
         assert catalog["version_id"] and len(catalog["items"]["consumable"]) == 3
