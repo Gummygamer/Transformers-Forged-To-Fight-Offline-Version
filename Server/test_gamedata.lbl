@@ -820,19 +820,27 @@ function test_custom_story_has_independent_identity_and_compact_map(): boolean
 end
 
 
+function arena_matches(enemy: Json, qid: text, row: integer): boolean
+  intent: check that an enemy payload carries the arena the server selects for its encounter
+  let fallback_level: text = if qid == "1.1.1" then "" else "chicago" end
+  let fallback_tod: integer = if qid == "1.1.1" then -1 else 0 end
+  let arena: BoardTerrain = gamedata.encounter_arena_for(qid, row, fallback_level, fallback_tod)
+  jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == arena.theme and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == arena.tod
+end
+
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part1(tile1: Json, enemy1: Json): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy1, "mapOverride")) == "chicago"
+  jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_opening_intro" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_bludgeon_defeated" and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(tile1, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy1, "isFinalBoss"))) and arena_matches(enemy1, gamedata.custom_story_qid(), 1)
 end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part2(enemy1: Json, tile2: Json, battle1: Json): boolean
   intent: test
-  jsonout.as_int(jsonout.obj_get(enemy1, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "dialoguePE")) == "custom_starscream_defeated"
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle1, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and (not jsonout.as_bool(jsonout.obj_get(battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(tile2, "dialogue")) == "custom_starscream_ambush" and jsonout.as_text(jsonout.obj_get(tile2, "dialoguePE")) == "custom_starscream_defeated"
 end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part3(tile2: Json, enemy2: Json, battle2: Json): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(tile2, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(enemy2, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy2, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3"
+  jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "fte_stars_gs_t3" and (not jsonout.as_bool(jsonout.obj_get(tile2, "final"))) and (not jsonout.as_bool(jsonout.obj_get(enemy2, "isFinalBoss"))) and arena_matches(enemy2, gamedata.custom_story_qid(), 2) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle2, "battleEnemy"), "key")) == "fte_stars_gs_t3"
 end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part4(tile3: Json, enemy3: Json, battle2: Json): boolean
@@ -842,7 +850,7 @@ end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1_part5(enemy3: Json, battle3: Json): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(enemy3, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(enemy3, "todIndex")) == 0 and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle3, "battleEnemy"), "key")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss"))
+  arena_matches(enemy3, gamedata.custom_story_qid(), 3) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(battle3, "battleEnemy"), "key")) == "ironhide_cin_rotf" and jsonout.as_bool(jsonout.obj_get(battle3, "isFinalBoss"))
 end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act1(): boolean
@@ -881,7 +889,7 @@ end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part3(act2_tile2: Json, act2_enemy1: Json, act2_battle1: Json): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(act2_enemy1, "key")) == "kickback_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_battle1, "isFinalBoss"))) and jsonout.as_text(jsonout.obj_get(act2_enemy1, "mapOverride")) == "chicago" and jsonout.as_int(jsonout.obj_get(act2_enemy1, "todIndex")) == 0 and (not jsonout.obj_has(act2_tile2, "dialogue")) and jsonout.as_text(jsonout.obj_get(act2_tile2, "boss")) == "mirage_gs_deluxe2016"
+  jsonout.as_text(jsonout.obj_get(act2_enemy1, "key")) == "kickback_gs_kabam" and (not jsonout.as_bool(jsonout.obj_get(act2_battle1, "isFinalBoss"))) and arena_matches(act2_enemy1, gamedata.custom_story_act2_qid(), 1) and (not jsonout.obj_has(act2_tile2, "dialogue")) and jsonout.as_text(jsonout.obj_get(act2_tile2, "boss")) == "mirage_gs_deluxe2016"
 end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part4(act2_tile2: Json, act2_enemy2: Json, act2_moved2: Json, act2_battle2: Json): boolean
@@ -1110,7 +1118,7 @@ function main(): nothing
   set failed = failed + main_group_3()
   set failed = failed + main_group_4()
   set failed = failed + main_group_5()
-  print(to_text(76 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(78 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -1124,6 +1132,8 @@ end
 function run_slice3_tests_group_1(): integer
   intent: run
   mutable failed: integer = 0
+  set failed = failed + report("test_every_story_quest_varies_arenas_consistently_between_map_and_battle", test_every_story_quest_varies_arenas_consistently_between_map_and_battle(), "story arenas were not varied or disagreed between map and battle")
+  set failed = failed + report("test_story_arena_selection_is_deterministic", test_story_arena_selection_is_deterministic(), "arena selection was not deterministic")
   set failed = failed + report("test_intermediate_map_tile_carries_an_authored_nonfinal_encounter", test_intermediate_map_tile_carries_an_authored_nonfinal_encounter(), "intermediate encounter tile was wrong")
   set failed = failed + report("test_intermediate_blueprint_is_a_distinct_owned_roster_member", test_intermediate_blueprint_is_a_distinct_owned_roster_member(), "intermediate blueprint roster membership was wrong")
   set failed = failed + report("test_move_to_intermediate_tile_opens_the_minion_battle", test_move_to_intermediate_tile_opens_the_minion_battle(), "intermediate battle was wrong")
@@ -1190,6 +1200,63 @@ function move_battle(moved: Json): Json
   jsonout.obj_get(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(moved, "results")), 1), jsonout.json_obj([])), "action"), "battle")
 end
 
+function arena_tile_entity(tile: Json, key: text): Json
+  intent: read one encounter entity from a map tile
+  jsonout.obj_get(jsonout.obj_get(tile, "entities"), key)
+end
+
+function story_arena_consistent_at(qid: text, grid: a list of Json, x: integer, y: integer): boolean
+  intent: check that the map enemy and movement battle enemy at one tile share an arena
+  if not gamedata.quest_has_encounter_at(qid, x, y) then
+    true
+  else
+    let key: text = gamedata.quest_encounter_at(qid, x, y).key
+    let row: Json = unwrap_or(get(grid, x), jsonout.json_list([]))
+    let tile: Json = unwrap_or(get(jsonout.list_items(row), y), jsonout.json_obj([]))
+    let map_enemy: Json = arena_tile_entity(tile, key)
+    let battle: Json = move_battle(gamedata.build_quest_movedir(qid, 0, 0, x, y, []))
+    let battle_enemy: Json = jsonout.obj_get(battle, "battleEnemy")
+    jsonout.as_text(jsonout.obj_get(battle_enemy, "key")) == key and jsonout.as_text(jsonout.obj_get(map_enemy, "mapOverride")) == jsonout.as_text(jsonout.obj_get(battle_enemy, "mapOverride")) and jsonout.as_int(jsonout.obj_get(map_enemy, "todIndex")) == jsonout.as_int(jsonout.obj_get(battle_enemy, "todIndex")) and arena_level_known(jsonout.as_text(jsonout.obj_get(battle_enemy, "mapOverride"))) and jsonout.as_int(jsonout.obj_get(battle_enemy, "todIndex")) >= 0 and jsonout.as_int(jsonout.obj_get(battle_enemy, "todIndex")) <= 2
+  end
+end
+
+function story_arena_levels_seen(qid: text): a list of text
+  intent: list the distinct arena levels across a quest, or an empty list when map and battle arenas disagree
+  let grid: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_quest_map(qid), "grid"))
+  mutable seen: a list of text = []
+  mutable consistent: boolean = true
+  mutable x: integer = 0
+  while x < length(grid) do
+    mutable y: integer = 0
+    while y < length(grid) do
+      if not story_arena_consistent_at(qid, grid, x, y) then set consistent = false end
+      if gamedata.quest_has_encounter_at(qid, x, y) then
+        let level: text = jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(gamedata.build_quest_movedir(qid, 0, 0, x, y, [])), "battleEnemy"), "mapOverride"))
+        if not contains(seen, level) then set seen = append(seen, level) end
+      end
+      set y = y + 1
+    end
+    set x = x + 1
+  end
+  if consistent then seen else [] end
+end
+
+function test_every_story_quest_varies_arenas_consistently_between_map_and_battle(): boolean
+  intent: test that all six Story quests vary their fight arenas and agree between map payload and battle
+  mutable ok: boolean = true
+  for qid in ["1.1.1", "2.1.1", "2.2.1", "2.3.1", "2.3.2", "2.4.1"] do
+    if length(story_arena_levels_seen(qid)) < 2 then set ok = false end
+  end
+  ok
+end
+
+function test_story_arena_selection_is_deterministic(): boolean
+  intent: test that repeated queries pick the same arena
+  let a: BoardTerrain = gamedata.encounter_arena_for("1.1.1", 4, "", -1)
+  let b: BoardTerrain = gamedata.encounter_arena_for("1.1.1", 4, "", -1)
+  a.theme == b.theme and a.tod == b.tod
+end
+
 function test_intermediate_map_tile_carries_an_authored_nonfinal_encounter_part1(tile: Json, enemy: Json): boolean
   intent: test
   jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and (not jsonout.obj_has(tile, "final") or not jsonout.as_bool(jsonout.obj_get(tile, "final"))) and jsonout.as_text(jsonout.obj_get(tile, "boss")) == gamedata.minion_blueprint() and jsonout.as_text(jsonout.obj_get(enemy, "entityType")) == "boss" and jsonout.as_bool(jsonout.obj_get(enemy, "isFinalBoss")) == false and jsonout.encode_compact(jsonout.obj_get(enemy, "characters")) == jsonout.encode_compact(jsonout.json_list([jsonout.json_text(gamedata.minion_blueprint())]))
@@ -1197,7 +1264,7 @@ end
 
 function test_intermediate_map_tile_carries_an_authored_nonfinal_encounter_part2(enemy: Json): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(enemy, "mapOverride")) == gamedata.arena_level() and jsonout.as_int(jsonout.obj_get(enemy, "todIndex")) == gamedata.arena_tod_index()
+  arena_matches(enemy, "1.1.1", 1)
 end
 
 function test_intermediate_map_tile_carries_an_authored_nonfinal_encounter(): boolean

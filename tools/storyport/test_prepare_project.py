@@ -6,7 +6,7 @@ import unittest
 
 from PIL import Image
 
-from prepare_project import copy_localization_catalogs, extract_atlas_sprites, find_nav_font
+from prepare_project import arena_sky_texture, copy_localization_catalogs, extract_atlas_sprites, find_nav_font
 
 
 class LocalizationCopyTests(unittest.TestCase):
@@ -84,6 +84,34 @@ class AtlasExtractionTests(unittest.TestCase):
     def test_navigation_font_missing_fails_before_build(self) -> None:
         with self.assertRaisesRegex(FileNotFoundError, "pass --nav-font"):
             find_nav_font(self.root / "converted", None, self.root / "absent.ttf")
+
+
+class ArenaSkyTests(unittest.TestCase):
+    def test_resolves_the_base_texture_of_the_sky_renderer_material(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scenes = root / "bundles/scenes/demo_merged"
+            scenes.mkdir(parents=True)
+            (root / "Material").mkdir()
+            (root / "Texture2D").mkdir()
+            (root / "Material/sky.mat").write_text("_base_tex:\n        m_Texture: {fileID: 2800000, guid: " + "b" * 32 + ", type: 3}\n")
+            (root / "Material/sky.mat.meta").write_text("guid: " + "a" * 32 + "\n")
+            (root / "Texture2D/sky.png").write_bytes(b"png")
+            (root / "Texture2D/sky.png.meta").write_text("guid: " + "b" * 32 + "\n")
+            (scenes / "demo_timeofday_0_forward.prefab").write_text(
+                "--- !u!23 &1\nMeshRenderer:\n  m_Materials:\n  - {fileID: 2100000, guid: " + "a" * 32 + ", type: 2}\n"
+            )
+
+            self.assertEqual(arena_sky_texture(root, "demo", 0), root / "Texture2D/sky.png")
+
+    def test_returns_none_without_a_sky_material(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scenes = root / "bundles/scenes/demo_merged"
+            scenes.mkdir(parents=True)
+            (scenes / "demo_timeofday_0_forward.prefab").write_text("--- !u!1 &1\nGameObject:\n")
+
+            self.assertIsNone(arena_sky_texture(root, "demo", 0))
 
 
 if __name__ == "__main__":

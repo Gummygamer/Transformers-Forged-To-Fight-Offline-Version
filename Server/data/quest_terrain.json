@@ -1,6 +1,6 @@
 {
   "_comment": "Board terrain per story quest. 'theme' selects the questboard prefab library the client loads (GameboardManager.RequestLibrary / GetBasePathForType take a themeName); 'todIndex' selects the time-of-day variant inside that theme's bundle. Verified against the shipped 9.2 asset bundles -- assets/assetpack/<theme>/<theme>_merged.assetbundle contains <theme>_timeofday_<N>_<render>.prefab. Four themes ship and each supports a different number of times of day, so todIndex must be validated per theme, not globally.",
-  "_arena_comment": "Fight-background variety is OPT-IN per quest via \"arena\": {\"vary\": true}, and optionally \"pool\": [...] to draw from a chosen grouping instead of all five shipped arena levels. Quests without an \"arena\" key keep the previous behaviour exactly: the global TFTF_ARENA_LEVEL / TFTF_ARENA_TOD, or the hardcoded chicago the custom-story paths used. WHY IT IS NOT ON GLOBALLY, since this is a scoping decision and not a technical limit: turning it on for everything contradicts two things upstream wrote to defend the current behaviour -- test_gamedata.lbl:1068 asserts enemy.mapOverride == arena_level(), and Server/fixtures/story_act1_848e4d3.json is a golden payload pinned to upstream commit 848e4d3 that three tests compare against. Flipping the default means editing upstream's test and regenerating a fixture tied to their commit, which is their design call. TO GO GLOBAL LATER: default `vary` to true in gamedata.lbl encounter_arena_for, update that assertion, and regenerate the fixture. No other code changes are needed -- `pool` already supports 'these quests draw from these arenas'. CAVEAT: quests 2.1.1 / 2.2.1 / 2.3.1 are the custom story acts, and their tests pin the full encounter chain including the enemy payload, so opting those in requires updating those tests too. 1.1.2 is opted in below as the worked example because it is not pinned. The pick is seeded from quest id and row rather than random_int on purpose: build_quest_begin / build_quest_detail are baked into a CRC-32 guarded payload, so a fresh roll per call would make every export a different blob and could show one arena on the map preview and another in the fight.",
+  "_arena_comment": "Fight-background variety is OPT-IN per quest via \"arena\": {\"vary\": true}, and optionally \"pool\": [...] to draw from a chosen grouping instead of all five shipped arena levels. Quests without an \"arena\" key keep the previous behaviour: the global TFTF_ARENA_LEVEL / TFTF_ARENA_TOD, or the hardcoded chicago the custom-story paths used. All Story quests (1.1.1, 2.1.1, 2.2.1, 2.3.1, 2.3.2, 2.4.1) and the 1.1.2 challenge are opted in. The pick is seeded from quest id and encounter x coordinate rather than random_int on purpose: build_quest_begin / build_quest_detail are baked into a CRC-32 guarded payload, so a fresh roll per call would make every export a different blob and could show one arena on the map preview and another in the fight.",
   "_shipped_board_themes": {
     "primordial": {
       "tods": [
@@ -66,7 +66,10 @@
   "quests": {
     "1.1.1": {
       "theme": "primordial",
-      "todIndex": 0
+      "todIndex": 0,
+      "arena": {
+        "vary": true
+      }
     },
     "1.1.2": {
       "theme": "unicron",
@@ -77,11 +80,32 @@
     },
     "2.1.1": {
       "theme": "ruinedcity",
-      "todIndex": 2
+      "todIndex": 2,
+      "arena": {
+        "vary": true
+      }
     },
     "2.2.1": {
       "theme": "unicron",
-      "todIndex": 7
+      "todIndex": 7,
+      "arena": {
+        "vary": true
+      }
+    },
+    "2.3.1": {
+      "arena": {
+        "vary": true
+      }
+    },
+    "2.3.2": {
+      "arena": {
+        "vary": true
+      }
+    },
+    "2.4.1": {
+      "arena": {
+        "vary": true
+      }
     }
   }
 }

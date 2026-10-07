@@ -298,20 +298,14 @@ Per-encounter arena variety is authored alongside the board terrain:
 `vary` turns it on; `pool` restricts the draw to a chosen grouping instead of all five. A
 quest with no `arena` key keeps the previous behaviour exactly.
 
-**Why it is opt-in rather than global — a scoping decision, not a technical limit.** Turning
-it on everywhere contradicts two things upstream wrote to defend the current behaviour:
-
-- `Server/test_gamedata.lbl:1068` asserts `enemy.mapOverride == arena_level()`, i.e. that
-  every story fight uses the one global `TFTF_ARENA_LEVEL`.
-- `Server/fixtures/story_act1_848e4d3.json` is a golden payload **pinned to upstream commit
-  `848e4d3`**, compared against by three tests.
-
-Flipping the default means editing upstream's test and regenerating a fixture tied to their
-commit. **That is a design call for the maintainers, not something to change silently.**
-
-**To go global later:** default `vary` to true in `encounter_arena_for`, update that one
-assertion, regenerate the fixture. No other code changes — `pool` already expresses "these
-quests draw from these arenas."
+**Current state.** All Story quests (`1.1.1`, `2.1.1`, `2.2.1`, `2.3.1`, `2.3.2`, `2.4.1`) and
+the `1.1.2` challenge are opted in. Other quests keep the global `TFTF_ARENA_LEVEL` arena.
+The pinned `arena_level()` assertions were replaced with `encounter_arena_for` checks, and
+`Server/fixtures/story_act1_848e4d3.json` was regenerated for the varied `1.1.1` payloads
+(`map`, `begin`, `firstMovedir`; `sourceCommit` is unchanged). The seed uses the encounter's
+**x coordinate** in both the map payload and the movedir battle, so branching boards must
+pass the same x to both — `test_every_story_quest_varies_arenas_consistently_between_map_and_battle`
+enforces this.
 
 ⚠️ **The Karma Six challenge board seeds on the encounter key, not the row.** Its tiles call
 `encounter_arena_for(challenge_qid(), length(key), …)`, and `challenge_qid()` is `1.1.2`
@@ -320,9 +314,6 @@ seed is a key *length* rather than a position, the spread is lumpy rather than e
 its 148 nodes the observed split was mine 46, karnak 30, chicago 30, hongkong 24, rust 18.
 [👁 live] Every arena appears, which is the point, but do not expect uniformity.
 
-⚠️ **Quests `2.1.1`, `2.2.1`, `2.3.1` are the custom story acts**, and their tests pin the
-full encounter chain including the enemy payload. Opting those in requires updating those
-tests too. `1.1.2` is the worked example because it is not pinned.
 
 **The pick is seeded from quest id and row, not `random_int`.** `build_quest_begin` and
 `build_quest_detail` are baked into an export payload guarded by a CRC-32 and a fixed entry

@@ -150,18 +150,9 @@ end
 
 public function encounter_arena_for(qid: text, row: integer, fallback_level: text, fallback_tod: integer): BoardTerrain
   intent: pick the arena for one encounter, or keep the existing fallback when the quest has not opted in
-  -- OPT-IN ON PURPOSE, and this is a scoping decision rather than a technical limit.
-  -- Varying the arena everywhere is implemented and works; it is gated because turning it
-  -- on globally contradicts two things upstream wrote to defend the current behaviour:
-  --   * test_gamedata.lbl:1068 asserts enemy.mapOverride == arena_level(), i.e. that every
-  --     story fight uses the one global TFTF_ARENA_LEVEL arena;
-  --   * Server/fixtures/story_act1_848e4d3.json is a golden payload pinned to upstream
-  --     commit 848e4d3, and three tests compare against it.
-  -- Flipping the default would mean editing upstream's test and regenerating a fixture tied
-  -- to their commit, which is their design call to make and not ours to make silently.
-  -- To go global later: default `vary` to true here, update that assertion, and regenerate
-  -- the fixture. `pool` already allows a chosen grouping rather than all five, so
-  -- "these quests draw from these arenas" needs no further code.
+  -- Opt-in per quest in data/quest_terrain.json ("arena": {"vary": true}); every Story quest
+  -- and the 1.1.2 challenge are on. Callers must pass the same row (the encounter x) for the
+  -- map payload and the movedir battle so the preview and the fight pick one arena.
   if not arena_varies(qid) then
   BoardTerrain { theme: fallback_level, tod: fallback_tod }
 else
@@ -1630,7 +1621,9 @@ function custom_motormaster_final_tile(): Json
   let row: integer = 3
   let encounter: QuestEncounter = quest_encounter_for(custom_story_motormaster_qid(), row)
   let links: Json = jsonout.json_list([vec2(1, 2), vec2(3, 2)])
-  let arena: BoardTerrain = encounter_arena_for(custom_story_motormaster_qid(), row, "chicago", 0)
+  -- The final node sits at x=2 and the movedir battle seeds its arena from x, so the map
+  -- payload must use 2 here or the preview and the fight would show different arenas.
+  let arena: BoardTerrain = encounter_arena_for(custom_story_motormaster_qid(), 2, "chicago", 0)
   let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, encounter.key, encounter.final_boss)
   let pairs: a list of Pair = [pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", encounter.final_boss), pair_text("lab", encounter.label), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), pair_text("boss", encounter.key), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(encounter.key, enemy)]))]
   jsonout.json_obj(pairs)
@@ -2204,9 +2197,9 @@ function build_custom_story_standalone_map(): Json
   jsonout.json_obj([pair_text("hash", "qm_" ++ custom_story_standalone_qid()), pair_int("v", 1), pair_text("mapHash", "qm_" ++ custom_story_standalone_qid()), pair_int("gridDimension", 5), jsonout.json_pair("grid", grid), pair_int("walkableCount", 5), pair_int("visibleWalkableCount", 5), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), pair_int("overrideZoom", 0)])
 end
 
-function motormaster_branch_tile(key: text, label: text): Json
+function motormaster_branch_tile(key: text, label: text, row: integer): Json
   intent: build one branch encounter and link it to the final Motormaster node
-  let arena: BoardTerrain = encounter_arena_for(custom_story_motormaster_qid(), 2, "chicago", 0)
+  let arena: BoardTerrain = encounter_arena_for(custom_story_motormaster_qid(), row, "chicago", 0)
   let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, key, false)
   jsonout.json_obj([pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", false), pair_text("lab", label), pair_text("boss", key), jsonout.json_pair("links", jsonout.json_list([vec2(2, 2), vec2(2, 3)])), jsonout.json_pair("visibleLinks", jsonout.json_list([vec2(2, 2), vec2(2, 3)])), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(key, enemy)]))])
 end
@@ -2218,7 +2211,7 @@ end
 
 function build_custom_story_motormaster_map(): Json
   intent: build the Motormaster chapter map with a Ratchet/Waspinator fork after the intro
-  let rows: a list of Json = [jsonout.json_list([filler_tile(), filler_tile(), filler_tile(), filler_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("ratchet_gs_kabam", "RIGHT: Ratchet"), filler_tile()]), jsonout.json_list([filler_tile(), start_tile(jsonout.json_list([vec2(2, 2)])), motormaster_intro_tile(), custom_motormaster_final_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("waspinator_gs_deluxe", "LEFT: Waspinator"), filler_tile()])]
+  let rows: a list of Json = [jsonout.json_list([filler_tile(), filler_tile(), filler_tile(), filler_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("ratchet_gs_kabam", "RIGHT: Ratchet", 1), filler_tile()]), jsonout.json_list([filler_tile(), start_tile(jsonout.json_list([vec2(2, 2)])), motormaster_intro_tile(), custom_motormaster_final_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("waspinator_gs_deluxe", "LEFT: Waspinator", 3), filler_tile()])]
   let grid: Json = jsonout.json_list(rows)
   let path: Json = jsonout.json_list([vec2(2, 1), vec2(2, 2), vec2(1, 2), vec2(2, 3)])
   jsonout.json_obj([pair_text("hash", "qm_" ++ custom_story_motormaster_qid()), pair_int("v", 1), pair_text("mapHash", "qm_" ++ custom_story_motormaster_qid()), pair_int("gridDimension", 4), jsonout.json_pair("grid", grid), pair_int("walkableCount", 5), pair_int("visibleWalkableCount", 5), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), pair_int("overrideZoom", 0)])

@@ -26,6 +26,7 @@ namespace StoryPort.Editor
             CreateStoryBoardGroundMaterial();
             CreateChicagoSkyMaterial();
             CreateChicagoRoadMaterial();
+            CreateArenaSkyMaterials();
             CreateReflectionCubemap();
             CopyFirst("PrimordialBase", "library_primordial_base", "library_primordial_base");
             CopyBuilding("Buildings/battle_centre", "z_bldg_battle_centre_01");
@@ -233,6 +234,31 @@ namespace StoryPort.Editor
                 return;
             }
             Debug.LogWarning("StoryPort: local 9.2 Chicago asphalt texture or shader was not found");
+        }
+
+        // prepare_project.py copies each arena's per-time-of-day sky texture next to its
+        // stage prefab. Wrap each in an unlit material showing the horizon-to-zenith half.
+        static void CreateArenaSkyMaterials()
+        {
+            var shader = Shader.Find("Unlit/Texture");
+            if (shader == null) { Debug.LogWarning("StoryPort: Unlit/Texture shader was not found for arena skies"); return; }
+            foreach (var level in new[] { "chicago", "hongkong", "karnak", "mine", "rust" })
+            {
+                for (var tod = 0; tod < 3; tod++)
+                {
+                    var texturePath = ResourcesRoot + "/Arenas/" + level + "_sky_" + tod + ".png";
+                    AssetDatabase.ImportAsset(texturePath);
+                    var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(texturePath);
+                    if (texture == null) { Debug.LogWarning("StoryPort: arena sky texture not found: " + texturePath); continue; }
+                    var material = new Material(shader) { name = level + "_sky_" + tod };
+                    material.SetTexture("_MainTex", texture);
+                    material.SetTextureScale("_MainTex", new Vector2(1f, .5f));
+                    material.SetTextureOffset("_MainTex", new Vector2(0f, .5f));
+                    var destination = ResourcesRoot + "/Arenas/" + level + "_sky_" + tod + ".mat";
+                    if (AssetDatabase.LoadAssetAtPath<Material>(destination) != null) AssetDatabase.DeleteAsset(destination);
+                    AssetDatabase.CreateAsset(material, destination);
+                }
+            }
         }
 
         public static void InspectLocalAssets()

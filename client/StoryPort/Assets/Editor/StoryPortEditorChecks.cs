@@ -31,6 +31,7 @@ namespace StoryPort.Editor
             CheckBotMaterial();
             CheckFightAnimations();
             CheckAudio();
+            CheckArenaCatalog();
             var sky = Resources.Load<Material>("StoryPort/ChicagoDaySky");
             if (sky == null || sky.mainTexture == null)
                 throw new Exception("Missing converted 9.2 Chicago daylight sky");
@@ -40,7 +41,35 @@ namespace StoryPort.Editor
             var road = Resources.Load<Material>("StoryPort/ChicagoRoad");
             if (road == null || road.mainTexture == null || road.shader == null || road.shader.name != "StoryPort/ChicagoRoad")
                 throw new Exception("Missing converted 9.2 Chicago asphalt material");
-            Debug.Log("StoryPort Editor checks passed: server route and combat values, fight gestures, 9.2 art/audio, and Chicago environment");
+            Debug.Log("StoryPort Editor checks passed: server route and combat values, fight gestures, 9.2 art/audio, and all Story arenas");
+        }
+
+        static void CheckArenaCatalog()
+        {
+            foreach (var level in new[] { "chicago", "hongkong", "karnak", "mine", "rust" })
+            {
+                var stage = Resources.Load<GameObject>("StoryPort/Arenas/" + level + "_stage");
+                if (stage == null)
+                    throw new Exception("Missing converted Story arena stage: " + level);
+                if (stage.GetComponentsInChildren<Renderer>(true).Length < 20)
+                    throw new Exception("Story arena stage has too little renderable geometry: " + level);
+                for (var tod = 0; tod < 3; tod++)
+                {
+                    var sky = Resources.Load<Material>("StoryPort/Arenas/" + level + "_sky_" + tod);
+                    if (sky == null || sky.mainTexture == null)
+                        throw new Exception("Missing converted Story arena sky: " + level + " time of day " + tod);
+                }
+            }
+            if (!StoryPortArenaData.IsSupportedLevel("hongkong") || StoryPortArenaData.IsSupportedLevel("atlantis"))
+                throw new Exception("StoryPortArenaData does not recognise the shipped arena levels");
+            string key, level2;
+            int tod2;
+            if (!StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"karnak\",\"todIndex\":2}}", out key, out level2, out tod2) ||
+                key != "x" || level2 != "karnak" || tod2 != 2)
+                throw new Exception("StoryPortArenaData did not read the server arena");
+            StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"atlantis\",\"todIndex\":9}}", out key, out level2, out tod2);
+            if (level2 != StoryPortArenaData.FallbackLevel || tod2 != StoryPortArenaData.FallbackTod)
+                throw new Exception("StoryPortArenaData accepted an unsupported arena");
         }
 
         static void CheckFightGestures()

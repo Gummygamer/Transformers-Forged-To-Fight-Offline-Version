@@ -13,6 +13,14 @@ from PIL import Image
 
 VERSION = "6000.6.3f1"
 EXCLUDED = {"Scripts", "Plugins"}  # Never import decompiled game code or APK plugins.
+ARENA_LEVELS = ("chicago", "hongkong", "karnak", "mine", "rust")
+ARENA_TODS = (0, 1, 2)
+# Unity-internal GUIDs: default resources, plus the built-in extra (f) and editor (e) resources.
+BUILTIN_GUIDS = {
+    "0000000deadbeef15deadf00d0000000",
+    "0000000000000000e000000000000000",
+    "0000000000000000f000000000000000",
+}
 NAV_FONT_FALLBACK = Path(
     "build/assetripper/exports/recompilation-2020/ExportedProject/Assets/Resources/ui/fonts/ttf/Tecnica_Bold_116.ttf"
 )
@@ -68,6 +76,117 @@ def copy_localization_catalogs(source: Path, target: Path) -> None:
         shutil.copytree(source, target)
 
 
+def guid_set(root: Path) -> set[str]:
+    """Collect the Unity asset GUIDs declared by every .meta file under a folder."""
+    return {
+        match.group(1)
+        for meta in root.rglob("*.meta")
+        if (match := re.search(r"^guid: ([0-9a-f]{32})$", meta.read_text(errors="ignore"), re.M))
+    }
+
+
+def arena_scene_prefab(root: Path, level: str, tod: int) -> Path:
+    """Locate one converted arena time-of-day prefab (sky and sun only) in an Assets folder."""
+    return root / "bundles/scenes" / f"{level}_merged" / f"{level}_timeofday_{tod}_forward.prefab"
+
+
+def arena_stage_prefab(root: Path, level: str) -> Path:
+    """Locate the converted arena geometry prefab shared by every time of day."""
+    return root / "bundles/scenes" / f"{level}_merged" / f"{level}_merged.prefab"
+
+
+def arena_sky_texture(root: Path, level: str, tod: int) -> Path | None:
+    """Resolve the base sky texture the time-of-day prefab's Sky renderer uses."""
+    by_guid: dict[str, Path] = {}
+    for meta in root.rglob("*.meta"):
+        match = re.search(r"^guid: ([0-9a-f]{32})$", meta.read_text(errors="ignore"), re.M)
+        if match:
+            by_guid[match.group(1)] = meta.with_suffix("")
+    prefab = arena_scene_prefab(root, level, tod).read_text(errors="ignore")
+    for component in re.split(r"(?m)(?=^--- !u!)", prefab):
+        if not component.startswith("--- !u!23 "):
+            continue
+        material = re.search(r"m_Materials:\n\s+- \{fileID: \d+, guid: ([0-9a-f]{32})", component)
+        material_path = by_guid.get(material.group(1)) if material else None
+        if material_path is None or not material_path.is_file():
+            continue
+        texture = re.search(r"_base_tex:\n\s+m_Texture: \{fileID: \d+, guid: ([0-9a-f]{32})", material_path.read_text(errors="ignore"))
+        if texture and by_guid.get(texture.group(1)) is not None:
+            return by_guid[texture.group(1)]
+    return None
+
+
+def import_arena_conversion(arena_roots: list[Path], level: str, imported_assets: Path) -> Path | None:
+    """Import a standalone per-level conversion that the main converted project lacks.
+
+    AssetRipper assigns GUIDs per run, so a separate conversion is self-contained and
+    stays in its own folder. Returns the folder holding its prefabs, or None.
+    """
+    for root in arena_roots:
+        assets = root / f"story-arena-conversion-{level}/ExportedProject/Assets"
+        if not arena_stage_prefab(assets, level).is_file():
+            continue
+        target = imported_assets / "Arenas" / level
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(assets, target, ignore=lambda _directory, names: EXCLUDED.intersection(names))
+        return target
+    return None
+
+
+def copy_arena_prefabs(
+    converted_project: Path, unity_assets: Path, imported_assets: Path, arena_roots: list[Path] | None = None
+) -> None:
+    """Create Resources aliases for each arena's geometry and per-time-of-day sky texture.
+
+    The `<level>_timeofday_<n>_forward` prefabs hold only a sky dome, sun and lens flare;
+    the street geometry lives in `<level>_merged`. Reject incomplete conversions.
+    """
+    resources = unity_assets / "Resources/StoryPort/Arenas"
+    if resources.exists():
+        shutil.rmtree(resources)
+    resources.mkdir(parents=True, exist_ok=True)
+    missing = []
+    unresolved = []
+    sources: dict[str, Path] = {}
+    for level in ARENA_LEVELS:
+        main_assets = converted_project / "Assets"
+        if arena_stage_prefab(main_assets, level).is_file() and all(
+            arena_scene_prefab(main_assets, level, tod).is_file() for tod in ARENA_TODS
+        ):
+            sources[level] = main_assets
+        else:
+            standalone = import_arena_conversion(arena_roots or [], level, imported_assets)
+            if standalone is not None:
+                sources[level] = standalone
+    imported_guids = guid_set(imported_assets)
+    for level in ARENA_LEVELS:
+        if level not in sources:
+            missing.append(level)
+            continue
+        stage = arena_stage_prefab(sources[level], level)
+        stage_text = re.sub(r"^\s*m_Script: .*$", "", stage.read_text(errors="ignore"), flags=re.M)
+        absent = sorted(set(re.findall(r"\bguid: ([0-9a-f]{32})\b", stage_text)) - {"0" * 32} - BUILTIN_GUIDS - imported_guids)
+        if absent:
+            unresolved.append(f"{level} stage: {', '.join(absent)}")
+        else:
+            shutil.copy2(stage, resources / f"{level}_stage.prefab")
+        for tod in ARENA_TODS:
+            sky = arena_sky_texture(sources[level], level, tod) if arena_scene_prefab(sources[level], level, tod).is_file() else None
+            if sky is None or not sky.is_file():
+                missing.append(f"{level}/TOD {tod} sky")
+                continue
+            shutil.copy2(sky, resources / f"{level}_sky_{tod}{sky.suffix}")
+    if missing:
+        raise FileNotFoundError(
+            "Missing converted arena scenes required for Story battles: "
+            + "; ".join(missing)
+            + ". Convert the corresponding 9.2 scene bundles (see --arena-conversions) before preparing StoryPort."
+        )
+    if unresolved:
+        raise RuntimeError("Converted Story arena prefabs have unresolved dependencies: " + "; ".join(unresolved))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--converted-project", type=Path, required=True)
@@ -78,6 +197,14 @@ def main() -> None:
         type=Path,
         default=Path("build/pristine-rebuild/tree/assets/assetpack"),
         help="Local extracted 9.2 assetpack root; copied artwork is not tracked.",
+    )
+    parser.add_argument(
+        "--arena-conversions",
+        type=Path,
+        action="append",
+        default=[Path("build")],
+        help="Folder holding story-arena-conversion-<level>/ExportedProject for arena levels "
+        "missing from the converted project. May be repeated.",
     )
     parser.add_argument(
         "--nav-font", type=Path,
@@ -133,6 +260,8 @@ def main() -> None:
         stale_scene = unity_assets / "Resources/StoryPort/ChicagoFightStage.prefab"
         stale_scene.unlink(missing_ok=True)
         stale_scene.with_suffix(stale_scene.suffix + ".meta").unlink(missing_ok=True)
+
+    copy_arena_prefabs(args.converted_project, unity_assets, imported, args.arena_conversions)
 
     # Small original menu, loading, story-card, and quest portrait images are
     # not stored in the Unity bundles. Keep them local in Resources so the clean

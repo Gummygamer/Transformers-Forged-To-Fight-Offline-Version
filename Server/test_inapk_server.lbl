@@ -248,7 +248,7 @@ end
 
 function payload_custom_story_checks_part2(begin: HttpReply, moved: HttpReply, expected_moved: text): boolean
   intent: test
-  expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"chicago\"") and contains_text(begin.body, "\"optimusprime_cin_tf\"") and contains_text(begin.body, "\"optimusprimal_bw_mp32\"") and contains_text(begin.body, "\"megatron_gs_leader2015\"")
+  expect("custom quest movedir", moved.body, expected_moved) and contains_text(moved.body, "\"bludgeon_gs_rd20\"") and contains_text(moved.body, "\"mapOverride\": \"" ++ gamedata.encounter_arena_for(gamedata.custom_story_qid(), 1, "chicago", 0).theme ++ "\"") and contains_text(begin.body, "\"optimusprime_cin_tf\"") and contains_text(begin.body, "\"optimusprimal_bw_mp32\"") and contains_text(begin.body, "\"megatron_gs_leader2015\"")
 end
 
 function payload_custom_story_checks(base: text, port: integer): boolean

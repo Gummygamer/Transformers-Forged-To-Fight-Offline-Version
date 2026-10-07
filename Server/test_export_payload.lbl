@@ -448,7 +448,7 @@ function test_dynamic_parity_step4(payload: Payload, custom_team: a list of text
   let custom_actual_move: text = fakeserver.dynamic(custom_move_path, "\{\}")
   let custom_expanded_move: text = expand_team_template(payload, entry_body(payload, "@movedir:2.1.1:0:1:1:0"), custom_team, "0", cleared_slot(custom_actual_move))
   if detail == "" and not same_json(custom_expanded_move, custom_actual_move) then set detail = "custom movedir template differs" end
-  if detail == "" and (not contains_text(custom_actual_move, "\"key\": \"bludgeon_gs_rd20\"") or not contains_text(custom_actual_move, "\"mapOverride\": \"chicago\"") or not contains_text(custom_actual_move, "\"todIndex\": 0") or not contains_text(custom_actual_move, "\"isFinalBoss\": false")) then set detail = "custom movedir encounter differs" end
+  if detail == "" and (not contains_text(custom_actual_move, "\"key\": \"bludgeon_gs_rd20\"") or not contains_text(custom_actual_move, "\"mapOverride\": \"" ++ gamedata.encounter_arena_for(gamedata.custom_story_qid(), 1, "chicago", 0).theme ++ "\"") or not contains_text(custom_actual_move, "\"todIndex\": " ++ to_text(gamedata.encounter_arena_for(gamedata.custom_story_qid(), 1, "chicago", 0).tod)) or not contains_text(custom_actual_move, "\"isFinalBoss\": false")) then set detail = "custom movedir encounter differs" end
   detail
 end
 

@@ -4,6 +4,7 @@ Shader "StoryPort/EBPBR"
     {
         _base_tex ("Base Color", 2D) = "white" {}
         _base_col ("Base Tint", Color) = (1,1,1,1)
+        _base_saturation ("Base Saturation", Range(0,1)) = 1
         _base_uv_transform ("Base UV Transform", Vector) = (1,1,0,0)
         _normal_tex ("Normal", 2D) = "bump" {}
         _pbr_composite_tex ("Roughness and Occlusion", 2D) = "white" {}
@@ -45,6 +46,7 @@ Shader "StoryPort/EBPBR"
         float4 _roughness_tex_ST;
         float4 _emissive_tex_ST;
         fixed4 _base_col;
+        half _base_saturation;
         fixed4 _emissive_col;
         half _metallic_range;
         half _roughness_range;
@@ -77,7 +79,9 @@ Shader "StoryPort/EBPBR"
 
             // EB tints are authored around 0.5 grey as neutral (x2), so a plain
             // multiply halved every paint colour and left reflections dominant.
-            o.Albedo = saturate(base.rgb * 2.0h);
+            fixed3 baseRgb = base.rgb * 2.0h;
+            fixed baseGray = dot(baseRgb, fixed3(.299h, .587h, .114h));
+            o.Albedo = saturate(lerp(baseGray.xxx, baseRgb, _base_saturation));
             o.Alpha = base.a;
             o.Normal = UnpackScaleNormal(tex2D(_normal_tex, meshUv * _normal_tex_ST.xy + _normal_tex_ST.zw), _normal_scale);
             // Without a metal mask the range applies to the whole surface; halving

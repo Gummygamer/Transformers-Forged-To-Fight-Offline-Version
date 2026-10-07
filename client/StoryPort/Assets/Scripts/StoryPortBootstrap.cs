@@ -78,6 +78,8 @@ namespace StoryPort
         string playerKey = "fte_optimus_gs_t3";
         string playerName = "Optimus Prime";
         string enemyName = "Bludgeon";
+        string fightArenaLevel = StoryPortArenaData.FallbackLevel;
+        int fightArenaTod = StoryPortArenaData.FallbackTod;
         string[] storyNodes;
         readonly List<StoryMapNode> storyMapNodes = new List<StoryMapNode>();
         readonly Dictionary<Vector2Int, Vector3> storyNodeWorldPositions = new Dictionary<Vector2Int, Vector3>();
@@ -1650,25 +1652,59 @@ namespace StoryPort
             return sprite;
         }
 
+        // Stage scale, x/y/z offset and heading that seat the fighters on each level's
+        // converted arena floor, facing the level's scenery as in the 9.2 footage.
+        static float[] ArenaPlacement(string level)
+        {
+            switch (level)
+            {
+                case "hongkong": return new[] { .6f, 0f, 0f, -5.5f, 0f };
+                case "karnak": return new[] { .6f, 0f, 0f, -5.5f, 90f };
+                case "mine": return new[] { .6f, 0f, 0f, -5.5f, 90f };
+                case "rust": return new[] { .6f, 0f, 0f, -5.5f, 90f };
+                default: return new[] { .6f, -33.6f, 0f, 40f, 180f };
+            }
+        }
+
         void SpawnFightWorld()
         {
             ResetCamera();
-            CreateChicagoSky();
-            // Scale, offset and heading place the fighters on the ruined street by
-            // the stage's main fight area, facing the brick towers as in the footage.
-            var tune = Tune("SP_STAGE", new[] { .6f, -33.6f, 0f, 40f, 180f });
-            var stage = SpawnWorld("Chicago Fight Stage", "ChicagoFightStage", Vector3.zero, new Vector3(0f, tune[4], 0f), tune[0]);
+            // The server picks the fight's level and time of day; fall back to the
+            // converted Chicago street when that arena is not in this build.
+            var stageResource = fightArenaLevel == "chicago" ? "ChicagoFightStage" : "Arenas/" + fightArenaLevel + "_stage";
+            var arenaPrefab = Resources.Load<GameObject>("StoryPort/" + stageResource);
+            if (arenaPrefab == null)
+            {
+                Debug.LogWarning("StoryPort missing arena stage StoryPort/" + stageResource + "; falling back to Chicago");
+                fightArenaLevel = StoryPortArenaData.FallbackLevel;
+                fightArenaTod = StoryPortArenaData.FallbackTod;
+                stageResource = "ChicagoFightStage";
+                arenaPrefab = Resources.Load<GameObject>("StoryPort/" + stageResource);
+            }
+            CreateArenaSky(fightArenaLevel, fightArenaTod);
+            var tune = Tune("SP_STAGE", ArenaPlacement(fightArenaLevel));
+            var stage = SpawnWorld("Fight Stage · " + fightArenaLevel, stageResource, Vector3.zero, new Vector3(0f, tune[4], 0f), tune[0], true, arenaPrefab);
             if (stage != null)
             {
                 stage.transform.localPosition += new Vector3(tune[1], tune[2], tune[3]);
-                ApplyStoryPortMaterials(stage);
-                foreach (var child in stage.GetComponentsInChildren<Transform>(true))
-                    if (child.name == "Main Stage") child.gameObject.SetActive(false);
-                var roadMaterial = Resources.Load<Material>("StoryPort/ChicagoRoad");
-                foreach (var renderer in stage.GetComponentsInChildren<Renderer>(true))
+                ApplyStoryPortMaterials(stage, fightArenaLevel);
+                if (fightArenaLevel != "chicago")
                 {
-                    if (roadMaterial != null && renderer.name.IndexOf("trrn_road", StringComparison.OrdinalIgnoreCase) >= 0)
-                        renderer.sharedMaterial = roadMaterial;
+                    // Additive glow overlays lose their blend mode under the mobile shader and
+                    // would paint opaque patches over the arena floor.
+                    foreach (var renderer in stage.GetComponentsInChildren<Renderer>(true))
+                        if (renderer.name.IndexOf("_glow", StringComparison.OrdinalIgnoreCase) >= 0) renderer.enabled = false;
+                }
+                else
+                {
+                    foreach (var child in stage.GetComponentsInChildren<Transform>(true))
+                        if (child.name == "Main Stage") child.gameObject.SetActive(false);
+                    var roadMaterial = Resources.Load<Material>("StoryPort/ChicagoRoad");
+                    foreach (var renderer in stage.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (roadMaterial != null && renderer.name.IndexOf("trrn_road", StringComparison.OrdinalIgnoreCase) >= 0)
+                            renderer.sharedMaterial = roadMaterial;
+                    }
                 }
             }
             playerActor = SpawnBot(playerKey, new Vector3(-2.55f, 0, -5.5f), 90f, .72f, true);
@@ -1682,20 +1718,36 @@ namespace StoryPort
             nextEnemyTurn = Time.time + 2.8f;
         }
 
-        void CreateChicagoSky()
+        // Fills the backdrop with the arena's own time-of-day sky. Every level's sky
+        // texture stacks two hemispheres; the upper half runs horizon to zenith.
+        void CreateArenaSky(string level, int tod)
         {
-            var skyMaterial = Resources.Load<Material>("StoryPort/ChicagoDaySky");
+            var dayChicago = level == "chicago" && tod == 0;
+            var skyMaterial = Resources.Load<Material>(dayChicago ? "StoryPort/ChicagoDaySky" : "StoryPort/Arenas/" + level + "_sky_" + tod);
             var camera = Camera.main;
-            if (skyMaterial == null || camera == null) return;
+            if (skyMaterial == null || camera == null)
+            {
+                Debug.LogWarning("StoryPort has no sky for " + level + " time of day " + tod);
+                return;
+            }
             var sky = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            sky.name = "9.2 Chicago Day Sky";
+            sky.name = "9.2 Sky · " + level + " " + tod;
             sky.transform.SetParent(camera.transform, false);
-            // The texture's upper half runs from the sun-lit horizon (bottom) to the
-            // zenith, so pin its bottom edge to the camera's horizon line.
-            camera.backgroundColor = new Color(.62f, .5f, .32f); // dusk haze below the sky texture
-            var key = FindObjectOfType<Light>();
-            if (key != null) { key.color = new Color(1f, .86f, .68f); key.intensity = 1.25f; }
-            RenderSettings.ambientLight = new Color(.5f, .5f, .55f);
+            // Pin the texture's bottom edge to the camera's horizon line.
+            camera.backgroundColor = tod == 1 ? new Color(.04f, .05f, .1f) : tod == 2 ? new Color(.22f, .23f, .26f) : new Color(.62f, .5f, .32f);
+            if (dayChicago)
+            {
+                var key = FindObjectOfType<Light>();
+                if (key != null) { key.color = new Color(1f, .86f, .68f); key.intensity = 1.25f; }
+                RenderSettings.ambientLight = new Color(.5f, .5f, .55f);
+            }
+            else
+            {
+                // The shared scene ambient is tuned for the bots and overexposes terrain.
+                RenderSettings.ambientLight = tod == 1 ? new Color(.22f, .24f, .32f) : new Color(.38f, .4f, .44f);
+                var key = FindObjectOfType<Light>();
+                if (key != null) key.intensity = Mathf.Min(key.intensity, tod == 1 ? .6f : .85f);
+            }
             var pitch = camera.transform.eulerAngles.x;
             if (pitch > 180f) pitch -= 360f;
             const float distance = 100f, height = 46f;
@@ -1731,12 +1783,12 @@ namespace StoryPort
             worldRoots.Add(sky);
         }
 
-        void ApplyStoryPortMaterials(GameObject root)
+        void ApplyStoryPortMaterials(GameObject root, string arenaLevel)
         {
             var shader = Shader.Find("StoryPort/EBPBR");
             if (shader == null)
             {
-                Debug.LogWarning("StoryPort could not find its mobile PBR shader for the Chicago stage");
+                Debug.LogWarning("StoryPort could not find its mobile PBR shader for the " + arenaLevel + " stage");
                 return;
             }
 
@@ -1747,6 +1799,30 @@ namespace StoryPort
                 {
                     if (material == null || !material.HasProperty("_base_tex")) continue;
                     material.shader = shader;
+                    // The shader doubles its tint (0.5 is neutral). Terrain materials in the
+                    // other arenas author a white tint, which would blow the floor out.
+                    if (arenaLevel != "chicago" && material.HasProperty("_base_col"))
+                    {
+                        var tint = material.GetColor("_base_col");
+                        if (material.name.IndexOf("trrn_floor", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            // The mobile shader preserves the source tint. The Rust floor's
+                            // blue and green paint tints become broad saturated patches. Keep
+                            // the texture detail while reducing those floor colors.
+                            material.SetColor("_base_col", new Color(.5f, .5f, .5f, tint.a));
+                            if (arenaLevel == "rust" && material.HasProperty("_base_saturation"))
+                                material.SetFloat("_base_saturation", .25f);
+                        }
+                        else if (Mathf.Max(tint.r, Mathf.Max(tint.g, tint.b)) > .5f)
+                            material.SetColor("_base_col", new Color(tint.r * .5f, tint.g * .5f, tint.b * .5f, tint.a));
+                    }
+                    // Terrain authors zero roughness and full metallic range, which the
+                    // shader reads as a mirror and reflects the sky colour over the floor.
+                    if (arenaLevel != "chicago")
+                    {
+                        if (material.HasProperty("_roughness_range")) material.SetFloat("_roughness_range", Mathf.Max(material.GetFloat("_roughness_range"), .85f));
+                        if (material.HasProperty("_metallic_range")) material.SetFloat("_metallic_range", Mathf.Min(material.GetFloat("_metallic_range"), .2f));
+                    }
                     if (material.HasProperty("_use_pbr_composite"))
                         material.SetFloat("_use_pbr_composite", material.GetTexture("_pbr_composite_tex") != null ? 1 : 0);
                     if (material.HasProperty("_use_metallic_tex"))
@@ -1756,7 +1832,7 @@ namespace StoryPort
                     converted++;
                 }
             }
-            Debug.Log("StoryPort applied its mobile PBR shader to " + converted + " Chicago stage materials");
+            Debug.Log("StoryPort applied its mobile PBR shader to " + converted + " " + arenaLevel + " stage materials");
         }
 
         int SkinIndex(string key)
@@ -2448,13 +2524,14 @@ namespace StoryPort
             StartCoroutine(Post(path, "{}", response =>
             {
                 lastQuestJson = response;
+                var responseEnemy = ReadBattleEnemy(response);
                 if (!ReadCurrentPosition(response))
                 {
                     mapX += dx;
                     mapY += dy;
                 }
                 var serverEnemy = ExtractJsonString(response, "currentBattleId");
-                if (string.IsNullOrEmpty(serverEnemy)) serverEnemy = ExtractBattleKey(response);
+                if (string.IsNullOrEmpty(serverEnemy)) serverEnemy = responseEnemy;
                 var landed = FindStoryMapNode(mapX, mapY);
                 if (!string.IsNullOrEmpty(serverEnemy))
                 {
@@ -2632,6 +2709,8 @@ namespace StoryPort
             mapX = 0;
             mapY = 0;
             pendingEncounter = false;
+            fightArenaLevel = StoryPortArenaData.FallbackLevel;
+            fightArenaTod = StoryPortArenaData.FallbackTod;
             Show("loading");
             StartCoroutine(Post("/quests/quest-begin/" + currentQid, body, response =>
             {
@@ -2652,9 +2731,10 @@ namespace StoryPort
             string response = "";
             yield return StartCoroutine(Post("/quests/quest-movedir/" + currentQid + "-0/0/0", "{}", json => response = json));
             lastQuestJson = response;
+            var responseEnemy = ReadBattleEnemy(response);
             ReadCurrentPosition(response);
             var serverEnemy = ExtractJsonString(response, "currentBattleId");
-            if (string.IsNullOrEmpty(serverEnemy)) serverEnemy = ExtractBattleKey(response);
+            if (string.IsNullOrEmpty(serverEnemy)) serverEnemy = responseEnemy;
             pendingEncounter = !string.IsNullOrEmpty(serverEnemy);
             if (pendingEncounter)
             {
@@ -2970,9 +3050,10 @@ namespace StoryPort
             StartCoroutine(Post("/bcg/setSavedTeam", saved, _ => { squadForStory = false; Show("base"); }));
         }
 
-        GameObject SpawnWorld(string objectName, string resourceName, Vector3 position, Vector3 rotation, float scale)
+        GameObject SpawnWorld(string objectName, string resourceName, Vector3 position, Vector3 rotation, float scale,
+            bool hideEmbeddedSky = true, GameObject prefabOverride = null)
         {
-            var prefab = Resources.Load<GameObject>("StoryPort/" + resourceName);
+            var prefab = prefabOverride != null ? prefabOverride : Resources.Load<GameObject>("StoryPort/" + resourceName);
             if (prefab == null)
             {
                 Debug.LogError("StoryPort missing Resources prefab: StoryPort/" + resourceName);
@@ -2985,8 +3066,9 @@ namespace StoryPort
             instance.name = objectName;
             instance.transform.localScale *= scale;
             var renderers = instance.GetComponentsInChildren<Renderer>(true);
-            foreach (var renderer in renderers)
-                if (renderer.name.Equals("Sky", StringComparison.OrdinalIgnoreCase)) renderer.enabled = false;
+            if (hideEmbeddedSky)
+                foreach (var renderer in renderers)
+                    if (renderer.name.Equals("Sky", StringComparison.OrdinalIgnoreCase)) renderer.enabled = false;
             Debug.Log("StoryPort loaded " + resourceName + ": renderers=" + renderers.Length +
                 " scale=" + instance.transform.localScale);
             return instance;
@@ -3033,10 +3115,14 @@ namespace StoryPort
             return StoryRouteData.ReadString(json, key);
         }
 
-        string ExtractBattleKey(string json)
+        string ReadBattleEnemy(string json)
         {
-            var match = Regex.Match(json, "\\\"battleEnemy\\\"\\s*:\\s*\\{[^}]*\\\"key\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
-            return match.Success ? match.Groups[1].Value : "";
+            string key, level;
+            int tod;
+            StoryPortArenaData.TryReadBattleEnemy(json, out key, out level, out tod);
+            fightArenaLevel = level;
+            fightArenaTod = tod;
+            return key;
         }
 
         string DisplayName(string key)

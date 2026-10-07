@@ -178,7 +178,7 @@ end
 
 function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part2(custom_battle: Json, template_move: text): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == "chicago" and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "key")) == "bludgeon_gs_rd20" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "mapOverride")) == gamedata.encounter_arena_for(gamedata.custom_story_qid(), 1, "chicago", 0).theme and jsonout.as_int(jsonout.obj_get(jsonout.obj_get(custom_battle, "battleEnemy"), "todIndex")) == gamedata.encounter_arena_for(gamedata.custom_story_qid(), 1, "chicago", 0).tod and fakeserver.get_saved_team() == ["megatron_cin_rotf"] and pos_x(template_move) == 1 and current_battle_id(template_move) == gamedata.minion_blueprint()
 end
 
 function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent(): boolean

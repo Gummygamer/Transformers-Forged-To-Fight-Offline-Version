@@ -94,6 +94,50 @@ namespace StoryPort.Editor
             Capture("fight");
         }
 
+        // Logs renderer counts and bounds for every Story arena stage plus the legacy Chicago stage.
+        public static void InspectArenas()
+        {
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var names = new System.Collections.Generic.List<string> { "StoryPort/ChicagoFightStage" };
+            foreach (var level in new[] { "chicago", "hongkong", "karnak", "mine", "rust" })
+                names.Add("StoryPort/Arenas/" + level + "_stage");
+            foreach (var resource in names)
+            {
+                var prefab = Resources.Load<GameObject>(resource);
+                if (prefab == null) { Debug.Log("StoryPort arena " + resource + " MISSING"); continue; }
+                var root = UnityEngine.Object.Instantiate(prefab);
+                var renderers = root.GetComponentsInChildren<Renderer>(true);
+                Debug.Log("StoryPort arena " + resource + " renderers=" + renderers.Length + " " + Describe(root.transform));
+                foreach (Transform group in root.transform)
+                    Debug.Log("StoryPort arena   group " + group.name + " active=" + group.gameObject.activeSelf + " " + Describe(group));
+                if (Environment.GetEnvironmentVariable("SP_INSPECT_RENDERERS") == "1")
+                    foreach (var r in renderers)
+                    {
+                        var mats = "";
+                        foreach (var m in r.sharedMaterials)
+                            if (m != null)
+                            {
+                                var bt = m.HasProperty("_base_tex") ? m.GetTexture("_base_tex") : null;
+                                mats += m.name + "[" + m.shader.name + " base=" + (bt != null ? bt.name : "-") + (m.HasProperty("_Color") ? " col=" + m.GetColor("_Color") : "") + "] ";
+                            }
+                        Debug.Log("StoryPort arena   renderer " + r.name + " c=" + r.bounds.center + " s=" + r.bounds.size + " mats=" + mats);
+                    }
+                foreach (var child in root.GetComponentsInChildren<Transform>(true))
+                    if (child.name.IndexOf("stage", StringComparison.OrdinalIgnoreCase) >= 0)
+                        Debug.Log("StoryPort arena   stage-node " + child.name + " pos=" + child.position + " " + Describe(child));
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        static string Describe(Transform node)
+        {
+            var renderers = node.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0) return "renderers=0 pos=" + node.position;
+            var bounds = renderers[0].bounds;
+            foreach (var r in renderers) bounds.Encapsulate(r.bounds);
+            return "renderers=" + renderers.Length + " center=" + bounds.center + " size=" + bounds.size;
+        }
+
         public static void InspectFightStage()
         {
             EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -153,6 +197,14 @@ namespace StoryPort.Editor
             }
             else if (screen == "fight")
             {
+                // STORYPORT_PREVIEW_ARENA=<level>:<todIndex> previews one server-selected arena.
+                var arena = Environment.GetEnvironmentVariable("STORYPORT_PREVIEW_ARENA");
+                if (!string.IsNullOrEmpty(arena))
+                {
+                    var parts = arena.Split(':');
+                    Set(client, "fightArenaLevel", parts[0]);
+                    Set(client, "fightArenaTod", int.Parse(parts[1]));
+                }
                 Invoke(client, "FightScreen");
                 // SP_FIGHTSTATE=<enemyHp>,<playerHp>,<playerMana>,<enemyMana> previews a mid-fight HUD.
                 var state = Environment.GetEnvironmentVariable("SP_FIGHTSTATE");
