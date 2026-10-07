@@ -184,13 +184,13 @@ public function abi_elf_machine(abi: text): integer
 end
 
 -- patches/patch_il2cpp.lbl is the canonical source of these offsets and stub
--- bytes. These are patch sites 7 and 8 from that list.
+-- bytes. These are patch sites 7 and 8 plus the null-synergy fix at site 16.
 public function reachability_sites(abi: text): a list of ReachabilitySite
   intent: get the offline reachability patch sites for an ABI
   if abi == arm64() then
-    [ReachabilitySite { offset: 28599028, stub: "40008052c0035fd6", pristine: "f30f1ef8fd7b01a9", name: "Application.internetReachability" }, ReachabilitySite { offset: 20135496, stub: "20008052c0035fd6", pristine: "fd7bbfa9fd030091", name: "EndPoint.HasInternetConnectivity" }]
+    [ReachabilitySite { offset: 28599028, stub: "40008052c0035fd6", pristine: "f30f1ef8fd7b01a9", name: "Application.internetReachability" }, ReachabilitySite { offset: 20135496, stub: "20008052c0035fd6", pristine: "fd7bbfa9fd030091", name: "EndPoint.HasInternetConnectivity" }, ReachabilitySite { offset: 12677752, stub: "400600b4", pristine: "c00700b4", name: "BCGBlueprintBase.get_SynergyBonuses" }]
   else
-    [ReachabilitySite { offset: 27322892, stub: "0200a0e31eff2fe1", pristine: "34009fe500009fe7", name: "Application.internetReachability" }, ReachabilitySite { offset: 17149180, stub: "0100a0e31eff2fe1", pristine: "00482de90db0a0e1", name: "EndPoint.HasInternetConnectivity" }]
+    [ReachabilitySite { offset: 27322892, stub: "0200a0e31eff2fe1", pristine: "34009fe500009fe7", name: "Application.internetReachability" }, ReachabilitySite { offset: 17149180, stub: "0100a0e31eff2fe1", pristine: "00482de90db0a0e1", name: "EndPoint.HasInternetConnectivity" }, ReachabilitySite { offset: 8011440, stub: "400000ea", pristine: "fb37f5eb", name: "BCGBlueprintBase.get_SynergyBonuses" }]
   end
 end
 
@@ -1306,7 +1306,7 @@ function print_build_result(options: BuildOptions, result: BuildResult): nothing
     let loaded: Payload = export_payload.load_payload(payload)
     print("bundled server payload: " ++ payload_asset() ++ " (" ++ to_text(bytes_length(payload)) ++ " bytes, " ++ to_text(length(loaded.entry_keys)) ++ " routes, port " ++ to_text(options.server_port) ++ ")")
     bytes_free(payload)
-    print("offline reachability stubs: Application.internetReachability; EndPoint.HasInternetConnectivity (applied or already present)")
+    print("offline patches: Application.internetReachability; EndPoint.HasInternetConnectivity; BCGBlueprintBase.get_SynergyBonuses (applied or already present)")
   end
   let hook: integer = read_file_bytes(selected_hook(options))
   print("embedded runtime hook: " ++ selected_hook(options) ++ " (" ++ to_text(bytes_length(hook)) ++ " bytes)")

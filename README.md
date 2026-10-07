@@ -637,14 +637,16 @@ unchanged and remain the default.
 `--server-host` values are rejected. The baked payload is a snapshot of the authored data at build
 time, so changing `Server/gamedata.lbl` or a table in `Server/data/` requires rebuilding the APK. Its responses are the same
 ones served by `Server/fakeserver.lbl`. For a recognised stock `libil2cpp.so`, the builder now
-applies the two offline reachability stubs before packaging; an unknown library hard-fails with a
-patch command instead of producing an APK that still requires Android networking.
+applies the two offline reachability stubs and the null-synergy guard before packaging; an unknown
+library hard-fails with a patch command instead of producing an APK that still requires Android networking.
 
 The shipped arm64 library has patch sites 1--6, but not the two reachability sites (7--8), so an
 earlier bundled arm64 build could still demand a live network. The builder fills in sites 7--8
-automatically for the recognised stock arm64 library. Arm64 sites 9--12 (the profile-level-lock
-patches) are also absent from the shipped library; that separate, non-network gap is out of scope
-for this build step.
+automatically for the recognised stock arm64 library. It also applies site 16, which returns an
+empty synergy list when offline data omits one; without it, opening Story can raise a
+`NullReferenceException` in `TeamData.RefreshSynergyBonusData`. Arm64 sites 9--12 (the
+profile-level-lock patches) are also absent from the shipped library; that separate, non-network
+gap is out of scope for this build step.
 
 For an ARMv7 bundled build, use the same align and signing steps with ARMv7 output names.
 Unlike the arm64 one, this build must also supply a patched library: the stock
