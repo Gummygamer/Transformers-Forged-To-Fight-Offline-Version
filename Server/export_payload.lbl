@@ -288,7 +288,7 @@ function move_result_state(qid: text, sx: integer, sy: integer, dx: integer, dy:
   mutable actual_dy: integer = dy
   let nx: integer = sx + dx
   let ny: integer = sy + dy
-  let valid_y: boolean = if qid == gamedata.custom_story_act3_qid() then
+  let valid_y: boolean = if qid == gamedata.custom_story_act3_qid() or qid == gamedata.custom_story_motormaster_qid() then
     ny >= 0 and ny < gamedata.quest_dim_for(qid)
   else
     ny == gamedata.quest_path_col_for(qid)
@@ -520,6 +520,8 @@ function quest_moves_for(qid: text): Batch
     add_quest_moves_linked(qid, gamedata.challenge_walkable_coords())
   else if qid == gamedata.custom_story_act3_qid() then
     add_quest_moves_act3(qid, gamedata.quest_dim_for(qid))
+  else if qid == gamedata.custom_story_motormaster_qid() then
+    add_quest_moves_linked(qid, ["2 1", "2 2", "1 2", "3 2", "2 3"])
   else
     add_quest_moves_standard(qid, gamedata.quest_dim_for(qid), gamedata.quest_path_col_for(qid))
   end

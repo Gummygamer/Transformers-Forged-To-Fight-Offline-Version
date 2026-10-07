@@ -761,7 +761,29 @@ end
 
 function test_motormaster_start_is_walkable_and_reaches_encounters(qid: text): boolean
   intent: test
-  gamedata.quest_start_y_for(qid) == 2 and gamedata.quest_is_walkable(qid, 0, 2) and not gamedata.quest_is_walkable(qid, 0, 1) and gamedata.quest_has_encounter_at(qid, 1, 2)
+  gamedata.quest_start_x_for(qid) == 2 and gamedata.quest_start_y_for(qid) == 1 and gamedata.quest_is_walkable(qid, 2, 1) and gamedata.quest_is_walkable(qid, 2, 2) and not gamedata.quest_has_encounter_at(qid, 2, 2) and gamedata.quest_can_move(qid, 2, 1, 2, 2) and gamedata.quest_can_move(qid, 2, 2, 1, 2) and gamedata.quest_can_move(qid, 2, 2, 3, 2) and not gamedata.quest_can_move(qid, 2, 2, 2, 3)
+end
+
+function test_motormaster_routes_to_ratchet_or_waspinator(): boolean
+  intent: test
+  let qid: text = gamedata.custom_story_motormaster_qid()
+  let right: Json = gamedata.build_quest_movedir(qid, -1, 0, 2, 2, [])
+  let left: Json = gamedata.build_quest_movedir(qid, 1, 0, 2, 2, [])
+  let final_right: Json = gamedata.build_quest_movedir(qid, -1, 1, 3, 2, [])
+  let right_battle: Json = move_battle(right)
+  let left_battle: Json = move_battle(left)
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(right_battle, "battleEnemy"), "key")) == "ratchet_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(left_battle, "battleEnemy"), "key")) == "waspinator_gs_deluxe" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(final_right), "battleEnemy"), "key")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(move_battle(final_right), "isFinalBoss")) and not jsonout.as_bool(jsonout.obj_get(move_battle(right), "isFinalBoss")) and not jsonout.as_bool(jsonout.obj_get(move_battle(left), "isFinalBoss"))
+end
+
+function motormaster_map_routes_ok(grid: a list of Json): boolean
+  intent: check that the briefing is non-combat and both side encounters are on the board
+  let briefing_row: a list of Json = jsonout.list_items(unwrap_or(get(grid, 2), jsonout.json_list([])))
+  let left_row: a list of Json = jsonout.list_items(unwrap_or(get(grid, 3), jsonout.json_list([])))
+  let right_row: a list of Json = jsonout.list_items(unwrap_or(get(grid, 1), jsonout.json_list([])))
+  let briefing: Json = unwrap_or(get(briefing_row, 2), jsonout.json_obj([]))
+  let left: Json = unwrap_or(get(left_row, 2), jsonout.json_obj([]))
+  let right: Json = unwrap_or(get(right_row, 2), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(briefing, "dialogue")) == "custom_motormaster_chapter_intro" and not jsonout.obj_has(briefing, "boss") and jsonout.as_text(jsonout.obj_get(left, "boss")) == "waspinator_gs_deluxe" and jsonout.as_text(jsonout.obj_get(right, "boss")) == "ratchet_gs_kabam"
 end
 
 function test_motormaster_chapter_entry_and_boss(): boolean
@@ -770,10 +792,10 @@ function test_motormaster_chapter_entry_and_boss(): boolean
   let summary: Json = gamedata.build_quest_summary(qid, gamedata.custom_story_set_id())
   let map: Json = gamedata.build_quest_map(qid)
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
-  let tile1: Json = standalone_tile(grid, 1)
-  let tile3: Json = standalone_tile(grid, 3)
+  let final_row: a list of Json = jsonout.list_items(unwrap_or(get(grid, 2), jsonout.json_list([])))
+  let tile3: Json = unwrap_or(get(final_row, 3), jsonout.json_obj([]))
   let dialogue: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_custom_story_dialogue_sets(), "custom_motormaster_chapter_intro"))
-  qid == "2.4.1" and jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 2 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_motormaster_chapter_intro" and length(dialogue) == 1 and dialogue_entry_matches(dialogue, 0, "optimusprime_cin_tf", "left", "The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats") and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and test_motormaster_start_is_walkable_and_reaches_encounters(qid)
+  qid == "2.4.1" and jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 2 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and motormaster_map_routes_ok(grid) and length(dialogue) == 1 and dialogue_entry_matches(dialogue, 0, "optimusprime_cin_tf", "left", "The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats") and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and test_motormaster_start_is_walkable_and_reaches_encounters(qid) and test_motormaster_routes_to_ratchet_or_waspinator()
 end
 
 function test_custom_story_has_independent_identity_and_compact_map_part1(qid: text, summary: Json): boolean
@@ -1009,6 +1031,7 @@ function run_custom_story_tests(): integer
   set failed = failed + report("test_standalone_dialogue_is_exact_and_ordered", test_standalone_dialogue_is_exact_and_ordered(), "standalone dialogue was missing, reordered, or mismatched")
   set failed = failed + report("test_standalone_progression_reaches_motormaster", test_standalone_progression_reaches_motormaster(), "standalone battle progression did not reach Motormaster")
   set failed = failed + report("test_motormaster_chapter_entry_and_boss", test_motormaster_chapter_entry_and_boss(), "Motormaster chapter opening or boss was wrong")
+  set failed = failed + report("test_motormaster_routes_to_ratchet_or_waspinator", test_motormaster_routes_to_ratchet_or_waspinator(), "Motormaster chapter did not preserve the two requested encounter routes")
   failed
 end
 

@@ -1155,7 +1155,8 @@ namespace StoryPort
                 if (!positions.ContainsKey(coord)) continue;
                 Vector2 point = positions[coord];
                 bool encounter = !string.IsNullOrEmpty(node.boss);
-                bool available = encounter && IsNextEncounter(node.x, node.y);
+                bool selectable = encounter || !string.IsNullOrEmpty(node.dialogue);
+                bool available = selectable && IsNextEncounter(node.x, node.y);
                 float size = encounter ? .09f : .07f;
                 var panel = Panel(content, "Server Quest Node " + node.x + "-" + node.y, Color.clear,
                     new Vector2(point.x - size * .5f, point.y - size * .63f),
@@ -1177,7 +1178,7 @@ namespace StoryPort
                 nodeLabel.raycastTarget = false;
                 var hit = panel.GetComponent<Image>();
                 hit.color = Color.clear;
-                if (encounter)
+                if (selectable)
                 {
                     var button = panel.AddComponent<Button>();
                     button.targetGraphic = hit;
@@ -2454,6 +2455,7 @@ namespace StoryPort
                 }
                 var serverEnemy = ExtractJsonString(response, "currentBattleId");
                 if (string.IsNullOrEmpty(serverEnemy)) serverEnemy = ExtractBattleKey(response);
+                var landed = FindStoryMapNode(mapX, mapY);
                 if (!string.IsNullOrEmpty(serverEnemy))
                 {
                     pendingEncounter = true;
@@ -2467,14 +2469,18 @@ namespace StoryPort
                     playerName = rosterNames[squad[0]];
                     squadForStory = true;
                     Cue("node_land_on_fight");
-                    var landed = FindStoryMapNode(mapX, mapY);
                     PlayDialogue(landed != null ? landed.dialogue : "", () => Show("squad"));
                 }
                 else
                 {
                     pendingEncounter = false;
-                    SetNotice("NO ENCOUNTER AT THIS ROUTE NODE");
-                    Show("map");
+                    if (landed != null && !string.IsNullOrEmpty(landed.dialogue))
+                        PlayDialogue(landed.dialogue, () => Show("map"));
+                    else
+                    {
+                        SetNotice("NO ENCOUNTER AT THIS ROUTE NODE");
+                        Show("map");
+                    }
                 }
             }));
         }

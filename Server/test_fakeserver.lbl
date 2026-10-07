@@ -259,8 +259,18 @@ function test_challenge_begin_uses_authored_start_on_first_entry(): boolean
   ok_1
 end
 
-function test_motormaster_begin_starts_on_route_and_reaches_encounter(): boolean
-  intent: test Motormaster story begins on its map start and can enter the first fight
+function motormaster_fake_routes_ok(qid: text): boolean
+  intent: test both fake-server branch routes after the briefing tile
+  let right: text = fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/-1/0", "\{\}")
+  fakeserver.reset_quest_positions()
+  fakeserver.dynamic("/quests/quest-begin/" ++ qid, "\{\}")
+  fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/0/1", "\{\}")
+  let left: text = fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/1/0", "\{\}")
+  current_battle_id(right) == "ratchet_gs_kabam" and current_battle_id(left) == "waspinator_gs_deluxe"
+end
+
+function test_motormaster_begin_starts_on_route_and_branches_after_dialogue(): boolean
+  intent: test the Motormaster briefing is followed by either authored branch encounter
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
   let qid: text = gamedata.custom_story_motormaster_qid()
@@ -268,8 +278,8 @@ function test_motormaster_begin_starts_on_route_and_reaches_encounter(): boolean
   let active: Json = jsonout.obj_get(jsonout.obj_get(begun, "activeQuests"), qid)
   let instance: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(active, "instances")), 0), jsonout.json_obj([]))
   let pos: Json = jsonout.obj_get(instance, "currentPos")
-  let moved: text = fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/1/0", "\{\}")
-  jsonout.as_int(jsonout.obj_get(pos, "x")) == 0 and jsonout.as_int(jsonout.obj_get(pos, "y")) == 2 and gamedata.quest_is_walkable(qid, 0, 2) and pos_x(moved) == 1 and current_battle_id(moved) != ""
+  let briefing: text = fakeserver.dynamic("/quests/quest-movedir/" ++ qid ++ "-0/0/1", "\{\}")
+  jsonout.as_int(jsonout.obj_get(pos, "x")) == 2 and jsonout.as_int(jsonout.obj_get(pos, "y")) == 1 and gamedata.quest_is_walkable(qid, 2, 1) and pos_x(briefing) == 2 and current_battle_id(briefing) == "" and motormaster_fake_routes_ok(qid)
 end
 
 function test_pending_bludgeon_survives_reentry_and_reaches_starscream(): boolean
@@ -578,7 +588,7 @@ function main_group_2(): integer
   set failed = failed + report("test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry", test_custom_story_begin_without_team_preserves_saved_squad_across_navigation_and_reentry())
   set failed = failed + report("test_standalone_begin_without_team_falls_back_to_default_squad", test_standalone_begin_without_team_falls_back_to_default_squad())
   set failed = failed + report("test_challenge_begin_uses_authored_start_on_first_entry", test_challenge_begin_uses_authored_start_on_first_entry())
-  set failed = failed + report("test_motormaster_begin_starts_on_route_and_reaches_encounter", test_motormaster_begin_starts_on_route_and_reaches_encounter())
+  set failed = failed + report("test_motormaster_begin_starts_on_route_and_branches_after_dialogue", test_motormaster_begin_starts_on_route_and_branches_after_dialogue())
   set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
