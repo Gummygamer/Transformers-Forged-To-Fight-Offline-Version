@@ -33,10 +33,11 @@
 #define MAX_CONN 64
 #define TEAM_SIZE_MAX 5
 #define STATE_PATH_MAX 4096
+#define CLEARED_CAPACITY 96
 
 typedef struct { uint32_t ko, kl, bo, bl; } Rec;
 typedef struct { const unsigned char *p; size_t n; uint32_t count, eo, pc, po, dfo, dfl, port; } Blob;
-typedef struct { char qid[64]; int x, y, pending, completed; int cleared_count; char cleared[16][32]; float health[TEAM_SIZE_MAX]; } Position;
+typedef struct { char qid[64]; int x, y, pending, completed; int cleared_count; char cleared[CLEARED_CAPACITY][32]; float health[TEAM_SIZE_MAX]; } Position;
 typedef struct { unsigned char *p; size_t n, cap; } Out;
 typedef struct { char bid[TEAM_SIZE_MAX][64]; int count; } Team;
 typedef struct { const char *token; const unsigned char *p; size_t n; } TemplateArg;
@@ -47,6 +48,7 @@ static pthread_mutex_t g_start_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_pos_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_conn_lock = PTHREAD_MUTEX_INITIALIZER;
 static Position g_pos[16];
+static char g_active_qid[64];
 static char g_saved_team[TEAM_SIZE_MAX][64];
 static int g_saved_team_count;
 /* Keep the local consumables in the same small state file as quest progress so
@@ -248,6 +250,7 @@ static void persist_quest_state_locked(void) {
         fputs(g_saved_team[i],f);
     }
     fputc('\n',f);
+    if(g_active_qid[0])fprintf(f,"A|%s\n",g_active_qid);
     for(i=0;i<16;i++)if(g_pos[i].qid[0]) {
         int k;
         fprintf(f,"Q|%s|%d|%d|%d|%d|",g_pos[i].qid,g_pos[i].x,g_pos[i].y,g_pos[i].pending,g_pos[i].completed);
@@ -292,6 +295,10 @@ static void load_quest_state(void) {
                 if(!comma)break;
                 part=comma+1;
             }
+        } else if(!strncmp(line,"A|",2)){
+            char active[64];
+            snprintf(active,sizeof active,"%.63s",line+2);
+            if(safe_id(active))snprintf(g_active_qid,sizeof g_active_qid,"%s",active);
         } else if(!strncmp(line,"Q|",2)){
             Position loaded;
             char cleared[STATE_PATH_MAX]="";
@@ -303,7 +310,7 @@ static void load_quest_state(void) {
             if(!safe_id(loaded.qid)||loaded.x<0||loaded.y<0)continue;
             if(cleared[0]) {
                 char *part=cleared;
-                while(*part&&loaded.cleared_count<16) {
+                while(*part&&loaded.cleared_count<CLEARED_CAPACITY) {
                     char *sep=strchr(part,';'); size_t n=sep?(size_t)(sep-part):strlen(part);
                     if(n>=sizeof loaded.cleared[0])break;
                     memcpy(loaded.cleared[loaded.cleared_count],part,n); loaded.cleared[loaded.cleared_count][n]=0; loaded.cleared_count++;
@@ -387,7 +394,7 @@ float tftf_quest_fighter_health(const char *bid) {
     float health=-1.0f;
     if(!bid||!bid[0]||!resolve_team(&team))return health;
     pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16&&health<0.0f;i++)if(g_pos[i].qid[0]&&g_pos[i].pending){
+    for(int i=0;i<16&&health<0.0f;i++)if(g_active_qid[0]&&!strcmp(g_pos[i].qid,g_active_qid)&&g_pos[i].pending){
         for(int h=0;h<team.count;h++)if(!strcmp(team.bid[h],bid)){
             health=g_pos[i].health[h];
             break;
@@ -402,7 +409,7 @@ static int cleared_has(const Position *p, int x, int y) {
     return 0;
 }
 static void cleared_add(Position *p, int x, int y) {
-    char key[32]; if(cleared_has(p,x,y)||p->cleared_count>=16)return;
+    char key[32]; if(cleared_has(p,x,y)||p->cleared_count>=CLEARED_CAPACITY)return;
     snprintf(key,sizeof key,"%d,%d",x,y); snprintf(p->cleared[p->cleared_count],sizeof p->cleared[0],"%s",key); p->cleared_count++;
 }
 static int render_cleared(Out *o, const Position *p) {
@@ -479,8 +486,9 @@ static void resolve_match(const char *body, const char *end) {
     json_string(body,end,"qid",submitted,sizeof submitted);
     normalize_qid(submitted,qid);
     pthread_mutex_lock(&g_pos_lock);
-    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && g_pos[i].pending &&
-        (!submitted[0] || !strcmp(g_pos[i].qid,qid))) {
+    const char *effective_qid=submitted[0]?qid:g_active_qid;
+    for(int i=0;i<16;i++) if(g_pos[i].qid[0] && g_pos[i].pending && effective_qid[0] &&
+        !strcmp(g_pos[i].qid,effective_qid)) {
         matched++;
         if(have_team)for(int h=0;h<team.count;h++){
             float hp=hero_health_in_report(body,end,team.bid[h]);
@@ -736,6 +744,7 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
             if(!quest_position_is_walkable(qid,g_pos[slot].x,g_pos[slot].y)){
                 g_pos[slot].x=x;g_pos[slot].y=y;g_pos[slot].pending=0;g_pos[slot].completed=0;
             }
+            snprintf(g_active_qid,sizeof g_active_qid,"%s",qid);
             snapshot=g_pos[slot];persist_quest_state_locked();
         }
         pthread_mutex_unlock(&g_pos_lock);
@@ -764,11 +773,12 @@ static const unsigned char *dynamic(const char *method, const char *p, const cha
         const char *z3=z2-2;while(z3>p&&*z3!='/')z3--;if(*z3=='/')z3++;
         snprintf(seg,sizeof seg,"%.*s",(int)(z2-z3-1),z3);char *dash=strrchr(seg,'-');if(!dash)return NULL;*dash=0;
         snprintf(qid,sizeof qid,"%.63s",seg);lx=strtol(xs,&ep,10);if(*ep)lx=1;ly=strtol(ys,&ep,10);if(*ep){lx=1;ly=0;}dx=(int)lx;dy=(int)ly;
-        snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(v)sscanf((const char*)v,"%d %d",&sx,&sy);
+        snprintf(key,sizeof key,"@quest:start:%s",qid);v=lookup(key,&n);if(!v)return NULL;sscanf((const char*)v,"%d %d",&sx,&sy);
         pthread_mutex_lock(&g_pos_lock);
         for(int i=0;i<16;i++)if(!strcmp(g_pos[i].qid,qid)){slot=i;break;}
         if(slot<0)for(int i=0;i<16;i++)if(!g_pos[i].qid[0]){slot=i;memset(&g_pos[i],0,sizeof g_pos[i]);position_health_init(&g_pos[i]);snprintf(g_pos[i].qid,sizeof g_pos[i].qid,"%s",qid);g_pos[i].x=sx;g_pos[i].y=sy;break;}
         if(slot>=0){
+            snprintf(g_active_qid,sizeof g_active_qid,"%s",qid);
             if(!quest_position_is_walkable(qid,g_pos[slot].x,g_pos[slot].y)){g_pos[slot].x=sx;g_pos[slot].y=sy;g_pos[slot].pending=0;g_pos[slot].completed=0;}
             sx=g_pos[slot].x;sy=g_pos[slot].y;completed=g_pos[slot].completed;if(completed)g_pos[slot].pending=0;if(g_pos[slot].pending){dx=0;dy=0;}
         }

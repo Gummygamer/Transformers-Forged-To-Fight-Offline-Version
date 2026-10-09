@@ -19,6 +19,7 @@ end
 record ServerState
   team: a list of text
   positions: a list of Position
+  active_qid: text
 end
 
 record Roster
@@ -198,22 +199,25 @@ function state_from_lines(lines: a list of text): ServerState
   intent: rebuild the saved squad and quest positions from the state file lines
   mutable team: a list of text = []
   mutable positions: a list of Position = []
+  mutable active_qid: text = ""
   for line in lines do
     let fields: a list of text = split(line, "|")
     let kind: text = unwrap_or(get(fields, 0), "")
     if kind == "S" and unwrap_or(get(fields, 1), "") != "" then
       set team = split(unwrap_or(get(fields, 1), ""), ",")
+    else if kind == "A" then
+      set active_qid = unwrap_or(get(fields, 1), "")
     else if kind == "Q" and parse_position(fields).qid != "" then
       set positions = append(positions, parse_position(fields))
     end
   end
-  ServerState { team: team, positions: positions }
+  ServerState { team: team, positions: positions, active_qid: active_qid }
 end
 
 function load_state(): ServerState
   intent: get the saved squad and quest positions or an empty state
   if not file_exists(state_file()) then
-    ServerState { team: [], positions: [] }
+    ServerState { team: [], positions: [], active_qid: "" }
   else
     state_from_lines(split(read_file(state_file()), "\n"))
   end
@@ -223,6 +227,7 @@ function save_state(state: ServerState): nothing
   intent: save
   create_dir(log_dir())
   mutable lines: a list of text = ["S|" ++ join(state.team, ",")]
+  if state.active_qid != "" then set lines = append(lines, "A|" ++ state.active_qid) end
   for position in state.positions do
     set lines = append(lines, "Q|" ++ position.qid ++ "|" ++ to_text(position.x) ++ "|" ++ to_text(position.y) ++ "|1|" ++ if position.pending then "1" else "0" end ++ "|" ++ if position.completed then "1" else "0" end ++ "|" ++ join(position.cleared, ";"))
   end
@@ -237,13 +242,13 @@ end
 public function reset_saved_team(): nothing
   intent: reset
   let state: ServerState = load_state()
-  save_state(ServerState { team: [], positions: state.positions })
+  save_state(ServerState { team: [], positions: state.positions, active_qid: state.active_qid })
 end
 
 public function reset_quest_positions(): nothing
   intent: reset
   let state: ServerState = load_state()
-  save_state(ServerState { team: state.team, positions: [] })
+  save_state(ServerState { team: state.team, positions: [], active_qid: "" })
 end
 
 function set_saved_team(team: a list of text): nothing
@@ -253,7 +258,7 @@ function set_saved_team(team: a list of text): nothing
   let resolved: a list of text = gamedata.resolve_team(team)
   if length(team) > 0 and resolved == team then
   let state: ServerState = load_state()
-  save_state(ServerState { team: resolved, positions: state.positions })
+  save_state(ServerState { team: resolved, positions: state.positions, active_qid: state.active_qid })
 end
 end
 
@@ -290,7 +295,19 @@ function set_position(position: Position): nothing
     end
   end
   if not replaced then set positions = append(positions, position) end
-  save_state(ServerState { team: state.team, positions: positions })
+  save_state(ServerState { team: state.team, positions: positions, active_qid: state.active_qid })
+end
+
+function activate_quest(qid: text): nothing
+  intent: persist the quest selected by the most recent supported begin or move
+  if not supported_quest_qid(qid) then return end
+  let state: ServerState = load_state()
+  save_state(ServerState { team: state.team, positions: state.positions, active_qid: qid })
+end
+
+function supported_quest_qid(qid: text): boolean
+  intent: check whether a quest has an authored board in this server
+  qid == "1.1.1" or qid == gamedata.challenge_qid() or qid == gamedata.custom_story_qid() or qid == gamedata.custom_story_act2_qid() or qid == gamedata.custom_story_act3_qid() or qid == gamedata.custom_story_standalone_qid() or qid == gamedata.custom_story_motormaster_qid()
 end
 
 function roster_file(): text
@@ -1804,6 +1821,7 @@ function begin_position(qid: text): Position
   let begin_y: integer = if preserve_progress then previous.y else gamedata.quest_start_y_for(qid) end
   let begun: Position = Position { qid: qid, x: begin_x, y: begin_y, pending: previous.pending and preserve_progress, completed: previous.completed and preserve_progress, cleared: previous.cleared }
   set_position(begun)
+  activate_quest(qid)
   begun
 end
 
@@ -1811,6 +1829,7 @@ function quest_begin_response(p: text, btxt: text): text
   intent: encode the quest start after saving the posted squad and position
   let req: Json = request_object(btxt)
   let qid: text = last_segment(p)
+  if not supported_quest_qid(qid) then return "" end
   let posted: a list of text = posted_team(req)
   if length(posted) > 0 then set_saved_team(posted) end
   let begun: Position = begin_position(qid)
@@ -1867,15 +1886,17 @@ end
 function movedir_response(p: text): text
   intent: encode the result of moving one step on the quest map
   let qid: text = movedir_qid(p)
+  if not supported_quest_qid(qid) then return "" end
+  activate_quest(qid)
   let start: Position = position_for(qid)
   let cleared: a list of text = cleared_with_start(qid, start)
   let offsets: a list of integer = moved_offsets(qid, start, cleared, movedir_dx(p), movedir_dy(p))
   movedir_envelope(qid, start, cleared, unwrap_or(get(offsets, 0), 0), unwrap_or(get(offsets, 1), 0))
 end
 
-function position_after_win(position: Position, submitted: text): Position
+function position_after_win(position: Position, effective_qid: text): Position
   intent: mark a pending position as cleared and completed when the winning quest matches
-  let clears: boolean = position.pending and (submitted == "" or position.qid == normalize_qid(submitted))
+  let clears: boolean = position.pending and effective_qid != "" and position.qid == effective_qid
   let point: text = to_text(position.x) ++ "," ++ to_text(position.y)
   let cleared: a list of text = if clears and not contains(position.cleared, point) then append(position.cleared, point) else position.cleared end
   Position { qid: position.qid, x: position.x, y: position.y, pending: if clears then false else position.pending end, completed: if clears then true else position.completed end, cleared: cleared }
@@ -1884,14 +1905,15 @@ end
 function record_win(submitted: text): nothing
   intent: save every position after applying a won match
   let state: ServerState = load_state()
+  let effective_qid: text = if submitted == "" then state.active_qid else normalize_qid(submitted) end
   mutable positions: a list of Position = []
   for position in state.positions do
     let point: text = to_text(position.x) ++ "," ++ to_text(position.y)
-    let first_clear: boolean = position.pending and (submitted == "" or position.qid == normalize_qid(submitted)) and not contains(position.cleared, point)
+    let first_clear: boolean = position.pending and effective_qid != "" and position.qid == effective_qid and not contains(position.cleared, point)
     if first_clear then update_inventory_count("repair_kit", 1) end
-    set positions = append(positions, position_after_win(position, submitted))
+    set positions = append(positions, position_after_win(position, effective_qid))
   end
-  save_state(ServerState { team: state.team, positions: positions })
+  save_state(ServerState { team: state.team, positions: positions, active_qid: state.active_qid })
 end
 
 function resolved_outcome(req: Json): text

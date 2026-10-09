@@ -74,6 +74,14 @@ def assert_safe(result, x, y=1):
 with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
     env = dict(os.environ, TFTF_QUEST_STATE_FILE=directory + "/state")
     state_path = Path(directory) / "state"
+    health_probe = Path(directory) / "health_probe"
+    subprocess.run([
+        "cc", "-std=c11", "-O1", "-Wall", "-Wextra", "-pthread",
+        "-I", str(Path(__file__).resolve().parent),
+        str(Path(__file__).resolve().parent / "test_health_probe.c"),
+        str(Path(__file__).resolve().parent / "inapk_server.c"),
+        "-o", str(health_probe),
+    ], check=True)
     process = None
 
     def start():
@@ -93,11 +101,11 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         # cleared history, then the first step must reach the authored enemy.
         stop()
         state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
-                              "\nQ|2.4.1|0|1|0|0|3,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
+                              "\nQ|2.4.1|0|1|0|0|1,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
         start()
         motormaster = begin(qid="2.4.1")
-        assert motormaster["progression"]["currentPos"] == {"x": 0, "y": 2}
-        assert {"x": 3, "y": 2} in motormaster["cleared"]
+        assert motormaster["progression"]["currentPos"] == {"x": 2, "y": 1}
+        assert {"x": 1, "y": 2} in motormaster["cleared"]
         assert_squad(motormaster)
         assert_health(motormaster, TEAM[0], 0.8)
         assert_health(motormaster, TEAM[1], 0.7)
@@ -105,17 +113,17 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert briefing["progression"]["currentPos"] == {"x": 2, "y": 2}
         assert "currentBattleId" not in briefing["progression"]
         waspinator = move(1, "2.4.1")
-        assert waspinator["progression"]["currentBattleId"] == "waspinator_gs_deluxe"
+        assert waspinator["progression"].get("currentBattleId") == "waspinator_gs_deluxe", waspinator["progression"]
 
         # A valid in-flight encounter stays at its authored route coordinate
         # when the player reenters the quest.
         stop()
         state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
-                              "\nQ|2.4.1|3|2|1|0|3,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
+                              "\nQ|2.4.1|3|2|1|0|1,2|0.8000,0.7000,0.6000,1.0000,1.0000\n")
         start()
         pending = begin(qid="2.4.1")
         assert pending["progression"]["currentPos"] == {"x": 3, "y": 2}
-        assert pending["progression"]["currentBattleId"] == "waspinator_gs_deluxe"
+        assert move(0, "2.4.1")["progression"]["currentBattleId"] == "waspinator_gs_deluxe"
 
         # Out-of-map coordinates are repaired by move as well as begin.
         stop()
@@ -129,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         print("PASS: stale and out-of-bounds Motormaster saves recover; valid pending progress persists")
 
         # The first move before any quest-begin call also uses the authored
-        # (0,2) entry rather than the old generic (0,1) coordinate.
+        # (2,1) entry rather than the old generic (0,1) coordinate.
         stop()
         if state_path.exists():
             state_path.unlink()
@@ -463,6 +471,22 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
         assert_health(begin(), TEAM[2], 1.0)
         print("PASS: legacy item context, root context in either order, repeated orders and team use without a bot target")
 
+        # Karma Six has 74 combat nodes; cleared history must round-trip beyond
+        # the old 16-entry native limit across a server restart.
+        stop()
+        cleared = ";".join(f"{x},{y}" for x, y in
+                           [(index % 33, index // 33) for index in range(74)])
+        state_path.write_text("TFTF2\nS|" + ",".join(TEAM) +
+                              "\nQ|1.1.2|16|16|0|0|" + cleared + "|" +
+                              ",".join(["1.0000"] * 5) + "\n")
+        start()
+        first_cleared = begin(qid="1.1.2")["cleared"]
+        assert len(first_cleared) == 74, (len(first_cleared), state_path.read_text())
+        stop()
+        start()
+        assert len(begin(qid="1.1.2")["cleared"]) == 74
+        print("PASS: all 74 Karma Six cleared tiles round-trip through native persistence")
+
         # Invalid targets, malformed orders and absent quest state must be
         # terminal errors without health/resource mutation, on either route.
         stop()
@@ -509,6 +533,35 @@ with tempfile.TemporaryDirectory(prefix="tftf-story-") as directory:
             assert sorted(round(hp[bot]["hp"], 4) for bot in TEAM) == [1.0, 1.0, 1.0], hp
             assert request("/inventory") == {"repair_kit": 999, "team_repair_kit": 1, "revive_kit": 1}
         print("PASS: concurrent repairs replenish inventory and preserve health limits")
+
+        # Leaving an unfinished Karma Six encounter and entering another story
+        # quest must make combat read the newly selected quest's health.
+        stop()
+        if state_path.exists():
+            state_path.unlink()
+        start()
+        selected_team = {f"tm{i}": bid for i, bid in enumerate(TEAM)}
+        karma = begin(selected_team, "1.1.2")
+        assert karma["progression"]["currentPos"] == {"x": 16, "y": 16}
+        assert move(1, "1.1.2")["progression"]["currentBattleId"]
+        resolve("LOST", "1.1.2", game_stats={"player_0_stats": {
+            "char": TEAM[0], "hp_percent": 0.2,
+        }})
+        assert_health(begin(selected_team, "1.1.2"), TEAM[0], 0.2)
+        begin(selected_team, QID)
+        assert move(1, QID)["progression"]["currentBattleId"]
+        stop()
+        probe = subprocess.run([str(health_probe), PAYLOAD], env=env, text=True,
+                              capture_output=True, check=True, timeout=10)
+        assert probe.stdout.strip() == "1.0000", probe.stdout + probe.stderr
+        start()
+        request("/matches/resolve-match/quests_fight", {"results": {"result": "WON"}})
+        state = state_path.read_text()
+        assert "Q|1.1.2|17|16|1|0|16,16|0.2000" in state, state
+        assert "Q|2.1.1|1|1|0|1|0,1;1,1|1.0000" in state, state
+        assert request("/quests/quest-movedir/1.1.2-0/0/0", {})["progression"]["currentBattleId"]
+        assert "currentBattleId" not in request("/quests/quest-movedir/2.1.1-0/0/0", {})["progression"]
+        print("PASS: Karma Six partial play preserves its fight and health while the selected story quest resolves")
 
     finally:
         if process is not None and process.poll() is None:
