@@ -21,6 +21,13 @@ generated Cpp2IL assemblies; the repository contains neither those assemblies no
 game method bodies. A handful of unresolved debug-prefab script GUIDs receive empty local
 placeholders and are explicitly reported in the generated manifest.
 
+The Unity import-repair script applies newly authored Mono.Cecil rewrites to diagnosed,
+malformed methods in those local generated assemblies. It stores the identifiers needed to
+locate affected types and fields, short tag labels and RVA-data field names needed to rebuild
+standard constructor state, and hand-authored repair logic; it does not embed APK data, assets,
+or recovered method bodies. Repairs whose original mapping values are unrecoverable are
+documented as empty-cache fallbacks, and the generated patched assemblies remain local.
+
 The module descriptions in `Server/mods_catalog.json` are newly AI-authored generic
 gameplay summaries. They were not transcribed or paraphrased from the game. Module names,
 catalog identifiers, categories, rarities, and asset references are retained as the data

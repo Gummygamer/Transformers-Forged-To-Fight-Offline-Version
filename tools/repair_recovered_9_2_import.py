@@ -1134,6 +1134,42 @@ class RepairRecoveredConstructor {
                     il.Append(Instruction.Create(OpCodes.Stfld, field));
                 }
             }
+            if (type.FullName == "AllianceStatsPopup") {
+                // The translated dictionary initializer lost all of its key
+                // and value operands, so it currently throws on the first
+                // Add(null, null). Preserve the constructor's collection
+                // contract; the presentation fills this cache as it loads.
+                FieldDefinition stats = type.Fields.SingleOrDefault(f => f.Name == "mStats");
+                if (stats == null || stats.IsStatic || !(stats.FieldType is GenericInstanceType))
+                    throw new InvalidDataException("missing AllianceStatsPopup stats dictionary");
+                var constructor = new MethodReference(".ctor", module.TypeSystem.Void, stats.FieldType) {
+                    HasThis = true
+                };
+                il.Append(Instruction.Create(OpCodes.Ldarg_0));
+                il.Append(Instruction.Create(OpCodes.Newobj, constructor));
+                il.Append(Instruction.Create(OpCodes.Stfld, stats));
+            }
+            if (type.FullName == "GachaRevealPresentation") {
+                // Cpp2IL loses the operands for every placeholder mapping
+                // entry, producing Dictionary.Add(null, null). Keep the
+                // mapping available as a valid empty cache until those
+                // source strings can be matched to their native literals.
+                FieldDefinition mapping = type.Fields.SingleOrDefault(f => f.Name == "placeholderMapping");
+                FieldDefinition portraitScale = type.Fields.SingleOrDefault(f => f.Name == "_portraitScale");
+                if (mapping == null || mapping.IsStatic || !(mapping.FieldType is GenericInstanceType) ||
+                    portraitScale == null || portraitScale.IsStatic ||
+                    portraitScale.FieldType.MetadataType != MetadataType.Single)
+                    throw new InvalidDataException("missing GachaRevealPresentation constructor fields");
+                var constructor = new MethodReference(".ctor", module.TypeSystem.Void, mapping.FieldType) {
+                    HasThis = true
+                };
+                il.Append(Instruction.Create(OpCodes.Ldarg_0));
+                il.Append(Instruction.Create(OpCodes.Newobj, constructor));
+                il.Append(Instruction.Create(OpCodes.Stfld, mapping));
+                il.Append(Instruction.Create(OpCodes.Ldarg_0));
+                il.Append(Instruction.Create(OpCodes.Ldc_R4, 1.0f));
+                il.Append(Instruction.Create(OpCodes.Stfld, portraitScale));
+            }
             if (type.FullName == "EB.Rendering.EBParticlePal") {
                 string[] initializedFields = { "conditions", "isEnabled" };
                 foreach (string fieldName in initializedFields) {
@@ -1257,6 +1293,9 @@ class RepairRecoveredConstructor {
         else if (method.Name == ".ctor" && type.FullName == "BadgeManager")
             method.Body.MaxStackSize = 4;
         else if (method.Name == ".ctor" && type.FullName == "BuildingPortrait")
+            method.Body.MaxStackSize = 2;
+        else if (method.Name == ".ctor" && (type.FullName == "AllianceStatsPopup" ||
+            type.FullName == "GachaRevealPresentation"))
             method.Body.MaxStackSize = 2;
         else if (method.Name == "add_OnLocalizationChanged" && type.FullName == "EB.Localizer")
             method.Body.MaxStackSize = 2;
@@ -1460,6 +1499,8 @@ def main() -> int:
         ("WindowStateHelper", ".ctor"): -1,
         ("BadgeManager", ".ctor"): -1,
         ("BuildingPortrait", ".ctor"): -1,
+        ("AllianceStatsPopup", ".ctor"): -1,
+        ("GachaRevealPresentation", ".ctor"): -1,
     }
     if args.diagnostics:
         log = args.diagnostics.expanduser().resolve().read_text(errors="replace")
