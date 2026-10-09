@@ -81,6 +81,98 @@ class RepairRecoveredConstructor {
         }
     }
 
+    static int RepairPackedColorConstructor(TypeDefinition type, string assemblyName) {
+        if (assemblyName != "Assembly-CSharp-firstpass.dll" || type.FullName != "EB.Math.Color")
+            return 0;
+
+        ModuleDefinition module = type.Module;
+        TypeDefinition vector3 = module.GetType("EB.Math.Vector3");
+        TypeDefinition vector4 = module.GetType("EB.Math.Vector4");
+        FieldDefinition packed = type.Fields.SingleOrDefault(field => field.Name == "packed");
+        if (vector3 == null || vector4 == null || packed == null || packed.IsStatic ||
+            packed.FieldType.MetadataType != MetadataType.UInt32)
+            throw new InvalidDataException("unexpected EB.Math.Color packed-field metadata");
+
+        int repaired = 0;
+        foreach (TypeDefinition vector in new[] { vector3, vector4 }) {
+            FieldDefinition[] components = (vector == vector3
+                ? new[] { "x", "y", "z" }
+                : new[] { "x", "y", "z", "w" })
+                .Select(name => vector.Fields.SingleOrDefault(field => field.Name == name)).ToArray();
+            MethodDefinition constructor = type.Methods.SingleOrDefault(method => method.Name == ".ctor" &&
+                !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void &&
+                method.Parameters.Count == 1 && method.Parameters[0].ParameterType.FullName == vector.FullName);
+            if (components.Length != (vector == vector3 ? 3 : 4) ||
+                components.Any(field => field == null || field.IsStatic ||
+                    field.FieldType.MetadataType != MetadataType.Single) || constructor == null)
+                throw new InvalidDataException("unexpected EB.Math.Color vector constructor metadata: " + vector.FullName);
+
+            // Native 9.2 at 0x1553240 / 0x1553348 clamps channels to [0,1],
+            // scales by 255, truncates to bytes, then packs RGBA little-endian.
+            // Cpp2IL's emitted bodies compare Vector3/Vector4 values directly
+            // and contain invalid object locals; rebuild only these two overloads.
+            constructor.Body.ExceptionHandlers.Clear();
+            constructor.Body.Variables.Clear();
+            constructor.Body.Instructions.Clear();
+            constructor.Body.InitLocals = true;
+            ILProcessor il = constructor.Body.GetILProcessor();
+            VariableDefinition[] bytes = Enumerable.Range(0, components.Length)
+                .Select(_ => new VariableDefinition(module.TypeSystem.Int32)).ToArray();
+            VariableDefinition[] values = Enumerable.Range(0, components.Length)
+                .Select(_ => new VariableDefinition(module.TypeSystem.Single)).ToArray();
+            foreach (VariableDefinition local in values.Concat(bytes))
+                constructor.Body.Variables.Add(local);
+
+            for (int index = 0; index < components.Length; index++) {
+                Instruction lower = Instruction.Create(OpCodes.Nop);
+                Instruction upper = Instruction.Create(OpCodes.Nop);
+                Instruction done = Instruction.Create(OpCodes.Nop);
+                il.Append(Instruction.Create(OpCodes.Ldarg_1));
+                il.Append(Instruction.Create(OpCodes.Ldfld, components[index]));
+                il.Append(Instruction.Create(OpCodes.Stloc, values[index]));
+                il.Append(Instruction.Create(OpCodes.Ldloc, values[index]));
+                il.Append(Instruction.Create(OpCodes.Ldc_R4, 0.0f));
+                il.Append(Instruction.Create(OpCodes.Blt_S, lower));
+                il.Append(Instruction.Create(OpCodes.Ldloc, values[index]));
+                il.Append(Instruction.Create(OpCodes.Ldc_R4, 1.0f));
+                il.Append(Instruction.Create(OpCodes.Bgt_S, upper));
+                il.Append(Instruction.Create(OpCodes.Br_S, done));
+                il.Append(lower);
+                il.Append(Instruction.Create(OpCodes.Ldc_R4, 0.0f));
+                il.Append(Instruction.Create(OpCodes.Stloc, values[index]));
+                il.Append(Instruction.Create(OpCodes.Br_S, done));
+                il.Append(upper);
+                il.Append(Instruction.Create(OpCodes.Ldc_R4, 1.0f));
+                il.Append(Instruction.Create(OpCodes.Stloc, values[index]));
+                il.Append(done);
+                il.Append(Instruction.Create(OpCodes.Ldloc, values[index]));
+                il.Append(Instruction.Create(OpCodes.Ldc_R4, 255.0f));
+                il.Append(Instruction.Create(OpCodes.Mul));
+                il.Append(Instruction.Create(OpCodes.Conv_I4));
+                il.Append(Instruction.Create(OpCodes.Stloc, bytes[index]));
+            }
+
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldloc, bytes[0]));
+            for (int index = 1; index < bytes.Length; index++) {
+                il.Append(Instruction.Create(OpCodes.Ldloc, bytes[index]));
+                il.Append(Instruction.Create(OpCodes.Ldc_I4, index * 8));
+                il.Append(Instruction.Create(OpCodes.Shl));
+                il.Append(Instruction.Create(OpCodes.Or));
+            }
+            if (bytes.Length == 3) {
+                il.Append(Instruction.Create(OpCodes.Ldc_I4, unchecked((int)0xff000000)));
+                il.Append(Instruction.Create(OpCodes.Or));
+            }
+            il.Append(Instruction.Create(OpCodes.Conv_U4));
+            il.Append(Instruction.Create(OpCodes.Stfld, packed));
+            il.Append(Instruction.Create(OpCodes.Ret));
+            constructor.Body.MaxStackSize = 3;
+            repaired++;
+        }
+        return repaired;
+    }
+
     static bool Repair(MethodDefinition method, TypeDefinition type) {
         if (!method.HasBody) throw new InvalidDataException("method has no body: " + method.FullName);
         method.Body.ExceptionHandlers.Clear();
@@ -1790,6 +1882,18 @@ class RepairRecoveredConstructor {
             string temporary = path + ".repaired-tmp";
             using (AssemblyDefinition assembly = AssemblyDefinition.ReadAssembly(path,
                 new ReaderParameters { AssemblyResolver = resolver })) {
+                if (Path.GetFileName(path) == "Assembly-CSharp-firstpass.dll") {
+                    TypeDefinition color = assembly.MainModule.GetType("EB.Math.Color");
+                    if (color != null) {
+                        int colorConstructorRepairs = RepairPackedColorConstructor(color,
+                            Path.GetFileName(path));
+                        if (colorConstructorRepairs > 0) {
+                            changed = true;
+                            Console.WriteLine("repaired " + colorConstructorRepairs +
+                                " malformed EB.Math.Color vector constructor(s)");
+                        }
+                    }
+                }
                 foreach (TypeDefinition type in AllTypes(assembly.MainModule.Types)) {
                     if (type.FullName == "Cpp2ILInjected.Cpp2ILHelpers" &&
                         !type.IsInterface && type.BaseType == null) {
@@ -1980,9 +2084,10 @@ def main() -> int:
         "repairs": [f"{type_name}::{method}()" for (type_name, method) in sorted(targets)],
         "structural_repairs": [
             "Set Cpp2ILInjected.Cpp2ILHelpers.BaseType to System.Object in every recovered plugin where the helper class has no base reference",
-            "Replace Mono.Security.dll with Unity's 4.5 profile assembly only when its full strong-name identity matches and it contains PKCS12.GetExistingParameters(Boolean&)"
+            "Replace Mono.Security.dll with Unity's 4.5 profile assembly only when its full strong-name identity matches and it contains PKCS12.GetExistingParameters(Boolean&)",
+            "Rebuild EB.Math.Color vector constructors from native 9.2 channel clamp, byte conversion, and packing behavior"
         ],
-        "reason": "Cpp2IL emitted malformed IL. Recovered import repairs rebuild GameboardBuilder's collection fields and three scalar constants, restore BattlegroupColours, reconstruct EBParticlePal's enum counts and observed instance defaults, initialize each Condition tuning entry, initialize UILabel's shared collections and localization subscription, initialize PrefabDiffTracker's modifier map and timeslice default, initialize Localizer's maps, format provider, flags, and a harmless placeholder regex until its lost literal is recovered, preserve QuestNodeTuning's serialized fields, correct a derived-field visibility mismatch, reconstruct EB.Hash static constants and FNV64, EB.SafeValue.Init, and ThreadSafeRandom.get_Randomizer from native 9.2 behavior, and clear only diagnosed parameterless constructors or editor OnValidate callbacks. PrefabDiffTracker's two custom modifier delegates and RAID_START_POS remain unrecovered.",
+        "reason": "Cpp2IL emitted malformed IL. Recovered import repairs rebuild GameboardBuilder's collection fields and three scalar constants, restore BattlegroupColours, reconstruct EBParticlePal's enum counts and observed instance defaults, initialize each Condition tuning entry, initialize UILabel's shared collections and localization subscription, initialize PrefabDiffTracker's modifier map and timeslice default, initialize Localizer's maps, format provider, flags, and a harmless placeholder regex until its lost literal is recovered, preserve QuestNodeTuning's serialized fields, correct a derived-field visibility mismatch, reconstruct EB.Hash static constants and FNV64, EB.SafeValue.Init, EB.Math.Color vector constructors, and ThreadSafeRandom.get_Randomizer from native 9.2 behavior, and clear only diagnosed parameterless constructors or editor OnValidate callbacks. PrefabDiffTracker's two custom modifier delegates and RAID_START_POS remain unrecovered.",
         "notice": "Local generated build input only; untouched Cpp2IL output remains under cpp2il/.",
     }
     (project / "recovered-import-repairs.json").write_text(json.dumps(report, indent=2) + "\n")

@@ -254,6 +254,8 @@ it cannot attribute any change in the error set to the copied bodies. No APK was
 isolated `Assembly-CSharp.dll` was restored; no diagnostic DLL or copied method body was added to
 the repository.
 
+The 2.0.2 trial is guidance only and is not a source of method bodies for the 9.2.0 rebuild. A later isolated body-copy experiment in `Assembly-CSharp.dll` reached UnityLinker but failed because the copied method referenced a compiler-generated lambda cache field absent from the 9.2 type. The experiment was discarded, and the active isolation project was restored to its 9.2 Cpp2IL assemblies before continuing. Native 9.2 inspection also showed that the 11 ownerless generic references above are symptoms of incorrect virtual-call recovery and register-type propagation, not missing concrete generic arguments: for example, apparent `List<T>` calls resolve to `BCGHeroDetailsBase.GetHashKey`, `OldObjectPoolItem.IsObject`, `StashInventoryItemDisplay.Init`, `EB.Sparx.EndPoint.Service`, and `CategoryTabData.get_tabId` in the 9.2 native binary. Substituting concrete generic types would encode the wrong behavior. The next repair must correct 9.2 call recovery or reconstruct the affected methods from 9.2 evidence.
+
 The Unity 2020 ARM64 IL2CPP build is the target workflow. The optional Mono/ARMv7 invocation
 above records an earlier packaging diagnostic only; it is not a required build step or the
 target runtime.
