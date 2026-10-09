@@ -94,7 +94,13 @@ def stage_unity_project(exported: Path, cpp2il_out: Path, destination: Path, out
     missing = [name for name in REBUILD_ASSEMBLIES if not (cpp2il_out / name).is_file()]
     if missing:
         raise RuntimeError("Cpp2IL did not produce required assemblies: " + ", ".join(missing))
-    shutil.copytree(exported, destination)
+    shutil.copytree(
+        exported,
+        destination,
+        ignore=shutil.ignore_patterns(
+            "Library", "Temp", "Logs", "UserSettings", "obj", "Build", "Builds"
+        ),
+    )
     recovered_scripts = output / "RecoveredScripts"
     for source in (destination / "Assets").rglob("*.cs"):
         relative = source.relative_to(destination)

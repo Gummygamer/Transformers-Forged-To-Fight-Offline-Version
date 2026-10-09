@@ -123,6 +123,45 @@ python3 tools/build_recovered_9_2.py build/recovery-9.2/unity-rebuild \
   --output-apk build/recovery-9.2/rebuilt-9.2-arm64.apk
 ```
 
+Before building, recreate the serialized script bindings using the untouched AssetRipper
+export and recovered DLLs:
+
+```bash
+python3 tools/generate_9_2_script_bindings.py \
+  build/recovery-9.2/unity-project/ExportedProject \
+  build/recovery-9.2/cpp2il \
+  build/recovery-9.2/unity-rebuild/Assets \
+  --unity /path/to/2020.3.31f1/Editor/Unity
+```
+
+The generator reads script GUIDs from serialized scenes, prefabs, and assets, then creates
+small `.cs` binders that inherit from the corresponding recovered assembly types. It keeps
+the original `.cs.meta` GUIDs so serialized components bind to code in the recovered DLLs.
+It uses Unity's bundled Mono compiler and Mono.Cecil; no system compiler installation is
+needed. The last verified export produced 776 main and 108 firstpass binders, plus two
+AssetRipper stub fallbacks. Four additional script GUIDs occur only in debug prefabs and have
+no source `.meta`; the manifest records four empty placeholder MonoBehaviours for those
+references. These placeholders preserve project importability, not their missing behavior.
+The generator writes its counts and unresolved GUIDs to
+`recovered-script-bindings-manifest.json` beside the staged project. All generated binders
+and assemblies stay in the local build directory.
+
+On Ubuntu 26.04, the Unity 2020 Editor also needs compatible legacy runtime libraries. Keep
+the extracted Ubuntu 24.04 `libxml2`, ICU 74, and OpenSSL 1.1 libraries under external
+storage and expose them only to the build process. Unity's bundled Roslyn compiler needs
+invariant globalization with this local library set:
+
+```bash
+DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+LD_LIBRARY_PATH=/path/to/Unity/legacy-runtime/usr/lib/x86_64-linux-gnu \
+  python3 tools/build_recovered_9_2.py build/recovery-9.2/unity-rebuild \
+  --unity /path/to/2020.3.31f1/Editor/Unity \
+  --output-apk build/recovery-9.2/rebuilt-9.2-arm64.apk
+```
+
+The compatibility libraries are local tool dependencies and are not added to this
+repository.
+
 `--backend Mono` selects Unity's Mono player backend for a diagnostic build; IL2CPP is the
 default and matches the original scripting backend. Set `--architecture ARMv7` for the Mono
 diagnostic path in this Unity version; ARM64 remains the default for IL2CPP.
@@ -132,9 +171,19 @@ ARM64, and IL2CPP, then builds the enabled scenes (or `Assets/Scenes/1_boot.unit
 are enabled). It creates or reuses a local keystore beside the APK output and signs with it,
 so the result cannot update an installation signed by the original publisher. It points
 Unity to the SDK, NDK, and OpenJDK installed with that Editor. The staged project imported
-successfully. The IL2CPP attempt passed Android tool checks and player-data generation, then
-UnityLinker stopped with a `NullReferenceException` and 1,266 build errors; it produced no
-APK.
+successfully. An initial IL2CPP build stopped in UnityLinker with a `NullReferenceException`
+and produced no APK. The recovered assemblies had lost the PE `IMAGE_FILE_DLL` characteristic
+when the temporary import sanitizer rewrote them. The build helper now restores that flag on
+managed plugin images before launching Unity.
+
+With the DLL flags restored, UnityLinker completed and IL2CPP reached its `WarmNamingComponent`
+pass, then stopped with a `NullReferenceException` in
+`TypeReferenceEqualityComparer.GetHashCodeFor`. A Mono.Cecil scan of the post-link managed
+assemblies found ownerless generic parameter references in recovered method bodies, including
+`ldtoken !!0` in `Fabric.MIDI.MidiSequencer.Process` and `ldtoken !0` in
+`Fabric.InterpolatedDelayParameter` constructors that declare no generic parameters. These
+references are invalid reconstruction output and need correction in the Cpp2IL emission path;
+the ARM64 IL2CPP build still produces no APK.
 
 The Mono ARMv7 diagnostic build produced a signed 36 MB APK. `aapt dump badging` and
 `apksigner verify --print-certs` confirmed package id `com.kabam.bigrobot`, version `9.2.0`,
@@ -142,7 +191,7 @@ version code `9200`, and a valid local signature. That build logged 30,708 unres
 references and 1,263 invalid-IL exceptions from recovered assemblies. It establishes that
 the AssetRipper assets and recovered DLLs can be packaged by Unity, not that the client is
 playable or fully restored. A faithful ARM64 IL2CPP rebuild still needs valid recovered IL,
-script-to-scene mappings, and a successful UnityLinker pass. The original shipped APK's
+script-to-scene mappings, and successful UnityLinker and IL2CPP conversion passes. The original shipped APK's
 signing identity and runtime integrations are not reproduced.
 
 ### Alternative Cpp2IL analysis experiment

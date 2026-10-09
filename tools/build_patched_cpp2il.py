@@ -14,8 +14,8 @@ from pathlib import Path
 
 
 CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
-PATCH_PATH = Path(__file__).resolve().parent / "patches/cpp2il-b5ad444-ilgenerator.patch"
-PATCH_SHA256 = "12f970027fbe0f21a7f8b7df52f6935e0043d84110c3aefe2ca93d5c86f1836c"
+PATCH_PATH = Path(__file__).resolve().parent / "patches/cpp2il-b5ad444-recovery.patch"
+PATCH_SHA256 = "1773d92740c24b7c051ae0e4c2a66955ce63f1041db79794473a30a9a4c7fad6"
 
 
 def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
@@ -25,8 +25,12 @@ def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | No
     return " ".join(command)
 
 
-def output_of(*command: str, cwd: Path | None = None) -> str:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+def output_of(
+    *command: str, cwd: Path | None = None, env: dict[str, str] | None = None
+) -> str:
+    result = subprocess.run(
+        command, cwd=cwd, env=env, text=True, capture_output=True, check=False
+    )
     if result.returncode:
         raise RuntimeError((result.stderr or result.stdout).strip())
     return result.stdout.strip()
@@ -61,8 +65,8 @@ def main() -> int:
     patched_source = output / "source"
     build_dir = output / "build"
     run(["git", "worktree", "add", "--detach", str(patched_source), CPP2IL_COMMIT], cwd=source)
-    run(["git", "apply", "--check", str(PATCH_PATH)], cwd=patched_source)
-    run(["git", "apply", str(PATCH_PATH)], cwd=patched_source)
+    run(["git", "apply", "--unidiff-zero", "--check", str(PATCH_PATH)], cwd=patched_source)
+    run(["git", "apply", "--unidiff-zero", str(PATCH_PATH)], cwd=patched_source)
 
     env = os.environ.copy()
     if dotnet_root:
@@ -80,10 +84,12 @@ def main() -> int:
     executable = build_dir / "Cpp2IL"
     if not executable.is_file():
         executable = dotnet
-        version = output_of(str(dotnet), str(build_dir / "Cpp2IL.dll"), "--version", cwd=output)
+        version = output_of(
+            str(dotnet), str(build_dir / "Cpp2IL.dll"), "--version", cwd=output, env=env
+        )
         executable_path = str(build_dir / "Cpp2IL.dll")
     else:
-        version = output_of(str(executable), "--version", cwd=output)
+        version = output_of(str(executable), "--version", cwd=output, env=env)
         executable_path = str(executable)
 
     manifest = {

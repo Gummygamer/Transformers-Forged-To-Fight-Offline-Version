@@ -15,6 +15,12 @@ upstream revision before building. These files contain no APK bytes, game assets
 game code, or game-authored content. Generated recovery files stay in ignored local build
 directories and must not be committed or redistributed.
 
+The Unity script-binding generator creates only thin class declarations and GUID metadata
+from the operator's local AssetRipper export. The implementation remains in the locally
+generated Cpp2IL assemblies; the repository contains neither those assemblies nor copied
+game method bodies. A handful of unresolved debug-prefab script GUIDs receive empty local
+placeholders and are explicitly reported in the generated manifest.
+
 The module descriptions in `Server/mods_catalog.json` are newly AI-authored generic
 gameplay summaries. They were not transcribed or paraphrased from the game. Module names,
 catalog identifiers, categories, rarities, and asset references are retained as the data

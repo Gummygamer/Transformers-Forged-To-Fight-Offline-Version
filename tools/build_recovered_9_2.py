@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,46 @@ def is_within(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def mark_managed_plugins_as_dll(project: Path) -> int:
+    """Restore the PE DLL characteristic on managed plugin images in the staged project."""
+    plugin_dir = project / "Assets/Plugins"
+    patched = 0
+    for path in plugin_dir.glob("*.dll"):
+        with path.open("r+b") as image:
+            dos_header = image.read(64)
+            if len(dos_header) < 64 or dos_header[:2] != b"MZ":
+                raise ValueError(f"invalid PE image: {path}")
+
+            pe_offset = struct.unpack_from("<I", dos_header, 0x3C)[0]
+            image.seek(pe_offset)
+            if image.read(4) != b"PE\0\0":
+                raise ValueError(f"invalid PE signature: {path}")
+
+            image.seek(pe_offset + 20)
+            optional_header_size = struct.unpack("<H", image.read(2))[0]
+            characteristics_offset = pe_offset + 22
+            characteristics = struct.unpack("<H", image.read(2))[0]
+            optional_header = image.read(optional_header_size)
+            if len(optional_header) != optional_header_size:
+                raise ValueError(f"truncated PE optional header: {path}")
+
+            magic = struct.unpack_from("<H", optional_header)[0]
+            directories_offset = {0x10B: 96, 0x20B: 112}.get(magic)
+            if directories_offset is None:
+                continue
+            clr_directory_offset = directories_offset + 14 * 8
+            if len(optional_header) < clr_directory_offset + 8:
+                continue
+            clr_rva, clr_size = struct.unpack_from("<II", optional_header, clr_directory_offset)
+            if not clr_rva or not clr_size or characteristics & 0x2000:
+                continue
+
+            image.seek(characteristics_offset)
+            image.write(struct.pack("<H", characteristics | 0x2000))
+            patched += 1
+    return patched
 
 
 def main() -> int:
@@ -58,6 +99,12 @@ def main() -> int:
     keytool = unity.parent / "Data/PlaybackEngines/AndroidPlayer/OpenJDK/bin/keytool"
     if not keytool.is_file():
         parser.error(f"Unity's bundled keytool does not exist: {keytool}")
+    try:
+        marked_plugins = mark_managed_plugins_as_dll(project)
+    except (OSError, ValueError, struct.error) as error:
+        parser.error(f"could not normalize staged managed plugin headers: {error}")
+    if marked_plugins:
+        print(f"Marked {marked_plugins} staged managed plugin(s) as DLL images")
 
     helper = Path(__file__).resolve().parent / "unity/RebuildRecoveredAndroid.cs"
     editor_dir = project / "Assets/Editor"
