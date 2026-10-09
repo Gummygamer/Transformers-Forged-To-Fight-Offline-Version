@@ -101,13 +101,27 @@ python3 tools/build_recovered_9_2.py build/recovery-9.2/unity-rebuild \
   --output-apk build/recovery-9.2/rebuilt-9.2-arm64.apk
 ```
 
-The helper sets package id `com.kabam.bigrobot`, version `9.2.0`, ARM64, and IL2CPP, then
-builds the enabled scenes (or `Assets/Scenes/1_boot.unity` if none are enabled). On Linux,
-install Unity 2020.3.31f1 with Android build support and use the editor's configured SDK,
-NDK, and OpenJDK. The recovered Unity project imported successfully with the staged
-assemblies, but an Android player build has not yet been verified. Successful import is the
-current milestone; the original shipped APK's exact behaviour, signing identity, resources,
-and runtime integrations are not guaranteed by this workflow.
+`--backend Mono` selects Unity's Mono player backend for a diagnostic build; IL2CPP is the
+default and matches the original scripting backend. Set `--architecture ARMv7` for the Mono
+diagnostic path in this Unity version; ARM64 remains the default for IL2CPP.
+
+The helper sets package id `com.kabam.bigrobot`, version `9.2.0`, version code `9200`,
+ARM64, and IL2CPP, then builds the enabled scenes (or `Assets/Scenes/1_boot.unity` if none
+are enabled). It creates or reuses a local keystore beside the APK output and signs with it,
+so the result cannot update an installation signed by the original publisher. It points
+Unity to the SDK, NDK, and OpenJDK installed with that Editor. The staged project imported
+successfully. The IL2CPP attempt passed Android tool checks and player-data generation, then
+UnityLinker stopped with a `NullReferenceException` and 1,266 build errors; it produced no
+APK.
+
+The Mono ARMv7 diagnostic build produced a signed 36 MB APK. `aapt dump badging` and
+`apksigner verify --print-certs` confirmed package id `com.kabam.bigrobot`, version `9.2.0`,
+version code `9200`, and a valid local signature. That build logged 30,708 unresolved script
+references and 1,263 invalid-IL exceptions from recovered assemblies. It establishes that
+the AssetRipper assets and recovered DLLs can be packaged by Unity, not that the client is
+playable or fully restored. A faithful ARM64 IL2CPP rebuild still needs valid recovered IL,
+script-to-scene mappings, and a successful UnityLinker pass. The original shipped APK's
+signing identity and runtime integrations are not reproduced.
 
 The script and this recipe contain no APK, assemblies, native library, game assets, or
 decompiled source. Keep generated material local under ignored `build/` or another

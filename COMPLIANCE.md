@@ -671,11 +671,11 @@ binary, captured audiovisual content, or recovered server data is added.
 
 ## 2026-10-09 — reproducible 9.2 recovery recipe
 
-Adds `tools/recover_9_2.py` and documents the local Cpp2IL plus AssetRipper workflow in
-`DECOMPILATION.md`. The script operates on an operator-supplied APK, checks its known
-SHA-256, and writes extracted native inputs, recovered assemblies, a Unity project, logs,
-and a tool/input manifest to an ignored or operator-selected output directory. It does not
-download tools, include generated content, or alter the server's authored data. The
-document records that AssetRipper script outputs are stubs and that a successful export is
-not proof that the client can yet be rebuilt. No APK, asset, binary, captured audiovisual
-content, credential, or recovered server dataset is committed.
+Adds the source-only `tools/recover_9_2.py` and `tools/build_recovered_9_2.py` workflow,
+the Unity Editor build helper, and the local-use recipe in `DECOMPILATION.md`. The scripts
+operate on an operator-supplied APK, verify its known SHA-256 and pinned tool versions, and
+write extracted inputs, recovered assemblies, Unity project copies, logs, signing key, and
+APK to ignored or operator-selected storage. They do not download or commit generated
+content or alter the server's authored data. The documentation records the missing script
+and invalid IL limitations observed during the local build. No APK, asset, binary, captured
+audiovisual content, credential, or recovered server dataset is committed.
