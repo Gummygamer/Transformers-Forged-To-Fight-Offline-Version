@@ -58,7 +58,15 @@ public static class RebuildRecoveredAndroid
         PlayerSettings.Android.keystorePass = keystorePassword;
         PlayerSettings.Android.keyaliasName = "local-rebuild";
         PlayerSettings.Android.keyaliasPass = keystorePassword;
+        string configuredKeystore = PlayerSettings.Android.keystoreName;
+        string projectRoot = Directory.GetParent(Application.dataPath).FullName;
+        string resolvedKeystore = Path.IsPathRooted(configuredKeystore)
+            ? configuredKeystore : Path.Combine(projectRoot, configuredKeystore);
+        Debug.Log("Recovery Android keystore: " + configuredKeystore
+            + " (resolved: " + resolvedKeystore + ", exists: " + File.Exists(resolvedKeystore) + ")");
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, backend);
+        PlayerSettings.SetManagedStrippingLevel(
+            BuildTargetGroup.Android, ManagedStrippingLevel.Disabled);
 
         BuildReport report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
         {

@@ -125,6 +125,18 @@ python3 tools/build_recovered_9_2.py build/recovery-9.2/unity-rebuild \
   --output-apk build/recovery-9.2/rebuilt-9.2-arm64.apk
 ```
 
+If a newer editor has already upgraded that local staged project, pass
+`--allow-upgraded-project`; this only bypasses the original export-version check. Unity's
+Mono.Cecil version is selected from the editor passed to `--unity`, and the builder locates
+the adjacent legacy-runtime library directory when the editor distribution provides one.
+ARM64 IL2CPP remains the default.
+The repair script reads `System.String`'s length-field name from the selected editor's local
+`mscorlib.dll` and retargets recovered field references when that private name changed between
+Unity releases, preserving the original `ldfld`/`stfld` operations. It likewise recognizes
+Unity 6's renamed private fields in `Dictionary<TKey,TValue>`, `List<T>`, and `Hashtable`, plus
+`UnhandledExceptionEventArgs._Exception`, after confirming replacement fields exist in that
+editor's core library.
+
 Before building, recreate the serialized script bindings using the untouched AssetRipper
 export and recovered DLLs:
 
@@ -170,13 +182,17 @@ diagnostic path in this Unity version; ARM64 remains the default for IL2CPP.
 
 The helper sets package id `com.kabam.bigrobot`, version `9.2.0`, version code `9200`,
 ARM64, and IL2CPP, then builds the enabled scenes (or `Assets/Scenes/1_boot.unity` if none
-are enabled). It creates or reuses a local keystore beside the APK output and signs with it,
+are enabled). Managed stripping is disabled so Unity keeps the recovered assemblies and
+generated script bindings. It creates or reuses a local keystore beside the APK output and signs with it,
 so the result cannot update an installation signed by the original publisher. It points
 Unity to the SDK, NDK, and OpenJDK installed with that Editor. The staged project imported
 successfully. An initial IL2CPP build stopped in UnityLinker with a `NullReferenceException`
 and produced no APK. The recovered assemblies had lost the PE `IMAGE_FILE_DLL` characteristic
 when the temporary import sanitizer rewrote them. The build helper now restores that flag on
-managed plugin images before launching Unity.
+managed plugin images before launching Unity. The import repair also restores missing native
+P/Invoke declarations for the packaged Google Play Games, Firebase, Krash, ENet, bug-report,
+and APK-signature wrappers; those declaration-only mappings use linkage names observed in the
+local 9.2 import/native-library inputs.
 
 With the DLL flags restored, UnityLinker completed and IL2CPP reached its `WarmNamingComponent`
 pass, then stopped with a `NullReferenceException` in
@@ -194,8 +210,53 @@ and accepts an open generic parameter only when its owner is in the current meth
 instantiation. The patched builder applies cleanly to the pinned Cpp2IL commit, and a fresh run
 against the exact APK exits successfully, emits 49 assemblies, and reports all 64,447 methods
 decompiled. This is stronger IL-generation evidence, but does not prove semantic equivalence or
-a complete Unity rebuild. The ARM64 Unity build has not yet been rerun with these corrected
-assemblies.
+a complete Unity rebuild. A later Unity 2020 ARM64 IL2CPP diagnostic build was run in a
+plugins-only blank project after the metadata-resolver patch. With the recovered
+`Assembly-CSharp.dll` unchanged, IL2CPP still stopped in `WarmNamingComponent`.
+
+Inspecting Unity 2020.3.31f1's bundled `Unity.Cecil.Awesome.dll` showed that the naming
+comparer hashes generic-parameter owners. A Cecil scan of the recovered plugin set found 11
+ownerless `!0` generic-parameter references in `Assembly-CSharp.dll`, including local types
+and `castclass` operands in five recovered methods. In a disposable diagnostic copy only,
+replacing those 11 references with `System.Object` let IL2CPP pass `WarmNamingComponent` and
+reach method source generation. That substitution is not a semantic repair and was not kept
+in the project. Unity's bundled `Mono.Security.dll` has the same strong-name identity as the
+recovered dependency and contains its failing `PKCS12.GetExistingParameters(Boolean&)` method.
+Replacing it in a disposable build copy passed that method conversion. The import-repair tool
+now applies this substitution only after verifying both the full assembly identity and that
+method signature; this is a framework dependency replacement, not a Mono player build.
+
+With both diagnostic substitutions, IL2CPP reported 15 method-conversion errors plus a fatal
+method-conversion exception across `Assembly-CSharp`, `Assembly-CSharp-firstpass`, Fabric,
+Facebook, SharpZipLib, and NBidi. The main errors include invalid evaluation-stack types and
+by-reference operands in recovered IL. A Cecil resolution check against Unity 2020's managed
+assemblies resolved `System.TimeSpan`, `UnityEngine.Vector2`, and `UnityEngine.Vector3` to their
+expected definitions, so these errors are in method-body stack analysis rather than missing
+Mono/player or Unity type assemblies. The failures include comparisons whose recovered operands
+have incompatible value types and instructions whose recovered method references lost by-reference
+wrappers. This confirms the naming crash is triggered by malformed recovered generic references,
+while also showing that repairing that crash alone is insufficient for an ARM64 APK. The original
+recovered `Assembly-CSharp.dll` and `Mono.Security.dll` were restored after the diagnostic run; no
+APK was produced.
+
+An external-only compatibility trial compared the operator-supplied 2.0.2 managed libraries with
+the recovered 9.2 assemblies. Five exact-signature methods in `Fabric.Core` and `NBidi` were copied
+into disposable 9.2 assembly copies, leaving their 9.2 types and remaining methods intact. Unity
+2020 then crashed with `SIGSEGV` during managed-resource preparation, before it invoked IL2CPP.
+That first run did not establish whether the copied bodies are compatible or reduce the IL2CPP
+errors. In a follow-up plugins-only build, a disposable copy of `Assembly-CSharp.dll` also received
+the 11-reference generic workaround described above. Unity then passed `WarmNamingComponent` and
+entered IL2CPP method conversion, but reported 17 build errors, including invalid stack types for
+recovered value types and invalid casts involving by-reference operands. The failing methods span
+`Assembly-CSharp-firstpass`, Fabric, `Mono.Security`, Facebook, and SharpZipLib. Because this run
+combined the method-body copies with the generic workaround and did not use a matching control,
+it cannot attribute any change in the error set to the copied bodies. No APK was emitted. The
+isolated `Assembly-CSharp.dll` was restored; no diagnostic DLL or copied method body was added to
+the repository.
+
+The Unity 2020 ARM64 IL2CPP build is the target workflow. The optional Mono/ARMv7 invocation
+above records an earlier packaging diagnostic only; it is not a required build step or the
+target runtime.
 
 The Mono ARMv7 diagnostic build produced a signed 36 MB APK. `aapt dump badging` and
 `apksigner verify --print-certs` confirmed package id `com.kabam.bigrobot`, version `9.2.0`,

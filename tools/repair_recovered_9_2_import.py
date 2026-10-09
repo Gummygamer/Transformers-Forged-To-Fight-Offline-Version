@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repair diagnosed recovered IL that prevents Unity's 2020.3 asset importer."""
+"""Repair diagnosed recovered IL and import metadata for Unity Android builds."""
 
 from __future__ import annotations
 
@@ -21,6 +21,59 @@ using Mono.Cecil;
 using Mono.Cecil.Cil;
 
 class RepairRecoveredConstructor {
+    static string NativeModuleFor(string assemblyName, TypeDefinition type) {
+        if (assemblyName == "Assembly-CSharp-firstpass.dll") {
+            if (type.FullName == "APKSignature") return "apkprotect";
+            if (type.FullName == "EB.BugReport") return "android-signal";
+            if (type.FullName == "EB.ENet.Plugin") return "enetlib";
+            if (type.FullName.StartsWith("GooglePlayGames.Native.", StringComparison.Ordinal)) return "gpg";
+        }
+        if (assemblyName == "Firebase.App.dll" && type.FullName.StartsWith("Firebase.AppUtilPINVOKE", StringComparison.Ordinal))
+            return "FirebaseCppApp-5.6.1";
+        if (assemblyName == "Firebase.Messaging.dll" && type.FullName.StartsWith("Firebase.Messaging.FirebaseMessagingPINVOKE", StringComparison.Ordinal))
+            return "FirebaseCppMessaging";
+        if (assemblyName == "Firebase.Platform.dll" && type.FullName == "Firebase.Unity.InstallRootCerts")
+            return "FirebaseCppApp-5.6.1";
+        if (assemblyName == "Kabam.Krash.Native.dll" && type.FullName == "EB.Krash.NativeInterface")
+            return "krash";
+        return null;
+    }
+
+    static int RepairMissingPInvokeMetadata(AssemblyDefinition assembly, TypeDefinition type,
+        string assemblyName) {
+        MethodDefinition[] imports = type.Methods.Where(method => method.IsPInvokeImpl).ToArray();
+        if (imports.Length == 0) return 0;
+        string moduleName = NativeModuleFor(assemblyName, type);
+        if (moduleName == null)
+            throw new InvalidDataException("no evidence-based native module mapping for " +
+                assemblyName + ":" + type.FullName);
+
+        // The module/entry-point pairs are linkage identifiers corroborated by
+        // local 9.2 native-library names, an earlier recovered firstpass import
+        // table, and the matching plugin API types. Restore declarations only.
+        ModuleReference nativeModule = assembly.MainModule.ModuleReferences
+            .SingleOrDefault(reference => reference.Name == moduleName);
+        int changes = 0;
+        foreach (MethodDefinition method in imports) {
+            if (!method.IsStatic)
+                throw new InvalidDataException("unexpected instance P/Invoke declaration: " + method.FullName);
+            if (nativeModule == null) {
+                nativeModule = new ModuleReference(moduleName);
+                assembly.MainModule.ModuleReferences.Add(nativeModule);
+            }
+            if (method.PInvokeInfo == null) {
+                method.PInvokeInfo = new PInvokeInfo(PInvokeAttributes.CallConvWinapi,
+                    method.Name, nativeModule);
+                changes++;
+            } else if (method.PInvokeInfo.Module == null || method.PInvokeInfo.Module.Name != moduleName ||
+                method.PInvokeInfo.EntryPoint != method.Name ||
+                method.PInvokeInfo.Attributes != PInvokeAttributes.CallConvWinapi) {
+                throw new InvalidDataException("unexpected native mapping for " + method.FullName);
+            }
+        }
+        return changes;
+    }
+
     static IEnumerable<TypeDefinition> AllTypes(IEnumerable<TypeDefinition> roots) {
         foreach (TypeDefinition type in roots) {
             yield return type;
@@ -35,6 +88,166 @@ class RepairRecoveredConstructor {
         method.Body.Instructions.Clear();
         ILProcessor il = method.Body.GetILProcessor();
         ModuleDefinition module = method.Module;
+        if (method.Name == ".cctor" && type.FullName == "EB.Hash") {
+            var constants = new[] {
+                new { Name = "HASH_PRIME_64", Type = MetadataType.UInt64, Value = 0x00000100000001b3L },
+                new { Name = "HASH_INIT_64", Type = MetadataType.UInt64, Value = unchecked((long)0xcbf29ce484222325UL) },
+            };
+            foreach (var constant in constants) {
+                FieldDefinition field = type.Fields.SingleOrDefault(f => f.Name == constant.Name);
+                if (field == null || !field.IsStatic || field.FieldType.MetadataType != constant.Type)
+                    throw new InvalidDataException("missing EB.Hash static field: " + constant.Name);
+                il.Append(Instruction.Create(OpCodes.Ldc_I8, constant.Value));
+                il.Append(Instruction.Create(OpCodes.Stsfld, field));
+            }
+            var wordConstants = new[] {
+                new { Name = "HASH_PRIME_32", Value = 0x01000193 },
+                new { Name = "HASH_INIT_32", Value = unchecked((int)0x811c9dc5) },
+            };
+            foreach (var constant in wordConstants) {
+                FieldDefinition field = type.Fields.SingleOrDefault(f => f.Name == constant.Name);
+                if (field == null || !field.IsStatic || field.FieldType.MetadataType != MetadataType.UInt32)
+                    throw new InvalidDataException("missing EB.Hash static field: " + constant.Name);
+                il.Append(Instruction.Create(OpCodes.Ldc_I4, constant.Value));
+                il.Append(Instruction.Create(OpCodes.Stsfld, field));
+            }
+            il.Append(Instruction.Create(OpCodes.Ret));
+        }
+        if (method.Name == "FNV64" && type.FullName == "EB.Hash") {
+            FieldDefinition prime = type.Fields.SingleOrDefault(f => f.Name == "HASH_PRIME_64");
+            if (!method.IsStatic || method.Parameters.Count != 2 ||
+                method.Parameters[0].ParameterType.FullName != "System.Byte[]" ||
+                method.Parameters[1].ParameterType.MetadataType != MetadataType.Int64 ||
+                method.ReturnType.MetadataType != MetadataType.Int64 || prime == null ||
+                !prime.IsStatic || prime.FieldType.MetadataType != MetadataType.UInt64)
+                throw new InvalidDataException("unexpected EB.Hash.FNV64 metadata");
+
+            // Native 9.2 implements the byte loop as (hash * HASH_PRIME_64) ^ byte,
+            // returning the input seed for an empty array. Keep null input's
+            // native NullReferenceException through ldlen on the array.
+            VariableDefinition hash = new VariableDefinition(module.TypeSystem.Int64);
+            VariableDefinition length = new VariableDefinition(module.TypeSystem.Int32);
+            VariableDefinition index = new VariableDefinition(module.TypeSystem.Int32);
+            method.Body.Variables.Add(hash);
+            method.Body.Variables.Add(length);
+            method.Body.Variables.Add(index);
+            method.Body.InitLocals = true;
+            Instruction loop = Instruction.Create(OpCodes.Ldloc, index);
+            Instruction done = Instruction.Create(OpCodes.Ldloc, hash);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldlen));
+            il.Append(Instruction.Create(OpCodes.Conv_I4));
+            il.Append(Instruction.Create(OpCodes.Stloc, length));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Stloc, hash));
+            il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+            il.Append(Instruction.Create(OpCodes.Stloc, index));
+            il.Append(loop);
+            il.Append(Instruction.Create(OpCodes.Ldloc, length));
+            il.Append(Instruction.Create(OpCodes.Bge_S, done));
+            il.Append(Instruction.Create(OpCodes.Ldloc, hash));
+            il.Append(Instruction.Create(OpCodes.Ldsfld, prime));
+            il.Append(Instruction.Create(OpCodes.Mul));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldloc, index));
+            il.Append(Instruction.Create(OpCodes.Ldelem_U1));
+            il.Append(Instruction.Create(OpCodes.Conv_I8));
+            il.Append(Instruction.Create(OpCodes.Xor));
+            il.Append(Instruction.Create(OpCodes.Stloc, hash));
+            il.Append(Instruction.Create(OpCodes.Ldloc, index));
+            il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+            il.Append(Instruction.Create(OpCodes.Add));
+            il.Append(Instruction.Create(OpCodes.Stloc, index));
+            il.Append(Instruction.Create(OpCodes.Br_S, loop));
+            il.Append(done);
+            il.Append(Instruction.Create(OpCodes.Ret));
+            method.Body.MaxStackSize = 3;
+        }
+        if (method.Name == "get_Randomizer" && type.FullName == "EB.Core.ThreadSafeRandom") {
+            FieldDefinition randomizer = type.Fields.SingleOrDefault(f => f.Name == "_kRandomizer");
+            MethodReference utcNow = module.ImportReference(typeof(DateTime).GetProperty("UtcNow").GetGetMethod());
+            MethodReference ticks = module.ImportReference(typeof(DateTime).GetProperty("Ticks").GetGetMethod());
+            MethodReference randomConstructor = module.ImportReference(typeof(Random).GetConstructor(new[] { typeof(int) }));
+            if (!method.IsStatic || method.Parameters.Count != 0 ||
+                method.ReturnType.FullName != "System.Random" || randomizer == null || !randomizer.IsStatic ||
+                randomizer.FieldType.FullName != "System.Random" ||
+                utcNow == null || ticks == null || randomConstructor == null)
+                throw new InvalidDataException("unexpected ThreadSafeRandom.Randomizer metadata");
+
+            if (!randomizer.CustomAttributes.Any(a => a.AttributeType.FullName == "System.ThreadStaticAttribute")) {
+                var threadStaticConstructor = typeof(ThreadStaticAttribute).GetConstructor(Type.EmptyTypes);
+                if (threadStaticConstructor == null)
+                    throw new InvalidDataException("ThreadStaticAttribute constructor is unavailable");
+                randomizer.CustomAttributes.Add(new CustomAttribute(module.ImportReference(threadStaticConstructor)));
+            }
+
+            // The native getter reuses its thread-local Random or seeds a new
+            // instance from (int)(DateTime.UtcNow.Ticks << 4). Cpp2IL's body
+            // has a bad local type at IL_00cc; rebuild the observed sequence.
+            VariableDefinition now = new VariableDefinition(module.ImportReference(typeof(DateTime)));
+            method.Body.Variables.Add(now);
+            method.Body.InitLocals = true;
+            Instruction returnRandomizer = Instruction.Create(OpCodes.Ret);
+            il.Append(Instruction.Create(OpCodes.Ldsfld, randomizer));
+            il.Append(Instruction.Create(OpCodes.Dup));
+            il.Append(Instruction.Create(OpCodes.Brtrue_S, returnRandomizer));
+            il.Append(Instruction.Create(OpCodes.Pop));
+            il.Append(Instruction.Create(OpCodes.Call, utcNow));
+            il.Append(Instruction.Create(OpCodes.Stloc, now));
+            il.Append(Instruction.Create(OpCodes.Ldloca, now));
+            il.Append(Instruction.Create(OpCodes.Call, ticks));
+            il.Append(Instruction.Create(OpCodes.Ldc_I4_4));
+            il.Append(Instruction.Create(OpCodes.Shl));
+            il.Append(Instruction.Create(OpCodes.Conv_I4));
+            il.Append(Instruction.Create(OpCodes.Newobj, randomConstructor));
+            il.Append(Instruction.Create(OpCodes.Dup));
+            il.Append(Instruction.Create(OpCodes.Stsfld, randomizer));
+            il.Append(returnRandomizer);
+            method.Body.MaxStackSize = 2;
+        }
+        if (method.Name == "Init" && type.FullName == "EB.SafeValue") {
+            FieldDefinition value = type.Fields.SingleOrDefault(f => f.Name == "_v");
+            FieldDefinition seed = type.Fields.SingleOrDefault(f => f.Name == "_r");
+            FieldDefinition hashValue = type.Fields.SingleOrDefault(f => f.Name == "_h");
+            TypeDefinition randomType = module.GetType("EB.Core.ThreadSafeRandom");
+            TypeDefinition hashType = module.GetType("EB.Hash");
+            MethodDefinition randomGetter = randomType == null ? null : randomType.Methods.SingleOrDefault(m =>
+                m.Name == "get_value" && m.IsStatic && m.Parameters.Count == 0 &&
+                m.ReturnType.MetadataType == MetadataType.Single);
+            MethodDefinition hash = hashType == null ? null : hashType.Methods.SingleOrDefault(m =>
+                m.Name == "FNV64" && m.IsStatic && m.Parameters.Count == 2 &&
+                m.Parameters[0].ParameterType.FullName == "System.Byte[]" &&
+                m.Parameters[1].ParameterType.MetadataType == MetadataType.Int64 &&
+                m.ReturnType.MetadataType == MetadataType.Int64);
+            if (method.IsStatic || method.Parameters.Count != 1 ||
+                method.Parameters[0].ParameterType.FullName != "System.Byte[]" ||
+                value == null || value.IsStatic || value.FieldType.FullName != "System.Byte[]" ||
+                seed == null || seed.IsStatic || seed.FieldType.MetadataType != MetadataType.Int64 ||
+                hashValue == null || hashValue.IsStatic || hashValue.FieldType.MetadataType != MetadataType.Int64 ||
+                randomGetter == null || hash == null)
+                throw new InvalidDataException("unexpected EB.SafeValue.Init metadata");
+
+            // Cpp2IL's translated random-value comparison has invalid stack
+            // types at IL_00a9. Native 9.2 code confirms Init stores the byte
+            // array, converts ThreadSafeRandom.value to the Int64 _r seed,
+            // then stores EB.Hash.FNV64(_v, _r) in _h.
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Stfld, value));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Call, randomGetter));
+            il.Append(Instruction.Create(OpCodes.Conv_I8));
+            il.Append(Instruction.Create(OpCodes.Stfld, seed));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, value));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, seed));
+            il.Append(Instruction.Create(OpCodes.Call, hash));
+            il.Append(Instruction.Create(OpCodes.Stfld, hashValue));
+            il.Append(Instruction.Create(OpCodes.Ret));
+            method.Body.MaxStackSize = 3;
+        }
         if (method.Name == ".ctor" && (
             type.FullName == "EB.UI.Social.FuseSocialHub/FuseSocialHubPresentationConfig" ||
             type.FullName == "EB.UI.SystemMessage.FuseSystemMessageOverlay/SystemMessagePresentationConfig")) {
@@ -46,6 +259,21 @@ class RepairRecoveredConstructor {
             };
             il.Append(Instruction.Create(OpCodes.Ldarg_0));
             il.Append(Instruction.Create(OpCodes.Call, objectConstructor));
+        }
+        if (method.Name == ".ctor" &&
+            type.FullName == "Facebook.Unity.Settings.FacebookSettings/UrlSchemes") {
+            FieldDefinition list = type.Fields.SingleOrDefault(f => f.Name == "list");
+            if (method.IsStatic || method.Parameters.Count != 1 || list == null || list.IsStatic ||
+                list.FieldType.FullName != method.Parameters[0].ParameterType.FullName)
+                throw new InvalidDataException("unexpected Facebook URL schemes constructor metadata");
+            var objectConstructor = new MethodReference(".ctor", module.TypeSystem.Void, module.TypeSystem.Object) {
+                HasThis = true
+            };
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Call, objectConstructor));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Stfld, list));
         }
         if (method.Name == ".cctor" && type.FullName == "Quests.Presentation.GameboardBuilder") {
             // The malformed Cpp2IL translation retains these initializer
@@ -1297,6 +1525,9 @@ class RepairRecoveredConstructor {
         else if (method.Name == ".ctor" && (type.FullName == "AllianceStatsPopup" ||
             type.FullName == "GachaRevealPresentation"))
             method.Body.MaxStackSize = 2;
+        else if (method.Name == ".ctor" &&
+            type.FullName == "Facebook.Unity.Settings.FacebookSettings/UrlSchemes")
+            method.Body.MaxStackSize = 2;
         else if (method.Name == "add_OnLocalizationChanged" && type.FullName == "EB.Localizer")
             method.Body.MaxStackSize = 2;
         else
@@ -1305,8 +1536,57 @@ class RepairRecoveredConstructor {
         return true;
     }
 
-    static int RepairEditorFieldAccess(TypeDefinition type, string assemblyName) {
+    static int RepairEditorFieldAccess(TypeDefinition type, string assemblyName,
+        string targetStringLengthField, IDictionary<string, string> targetFieldAliases) {
         int changes = 0;
+        if (targetStringLengthField != "m_stringLength" || targetFieldAliases.Count > 0) {
+            foreach (MethodDefinition method in type.Methods) {
+                if (!method.HasBody) continue;
+                foreach (Instruction instruction in method.Body.Instructions) {
+                    FieldReference field = instruction.Operand as FieldReference;
+                    if (field == null) continue;
+                    if (field.Name == "m_stringLength" &&
+                        field.DeclaringType.FullName == "System.String" &&
+                        field.FieldType.MetadataType == MetadataType.Int32 &&
+                        targetStringLengthField != "m_stringLength") {
+                        // Unity 6 renamed Mono's private String length field.
+                        // Keep each original load/store opcode and retarget its
+                        // reference to the corresponding editor-corelib field.
+                        instruction.Operand = new FieldReference(targetStringLengthField,
+                            method.Module.TypeSystem.Int32,
+                            method.Module.ImportReference(field.DeclaringType));
+                        changes++;
+                        continue;
+                    }
+                    string alias;
+                    string declaringName = field.DeclaringType.FullName;
+                    string aliasKey = null;
+                    if (declaringName.StartsWith("System.Collections.Generic.Dictionary`2<",
+                        StringComparison.Ordinal))
+                        aliasKey = "System.Collections.Generic.Dictionary`2|" + field.Name;
+                    else if (declaringName.StartsWith("System.Collections.Generic.List`1<",
+                        StringComparison.Ordinal) && field.Name == "_emptyArray")
+                        aliasKey = "System.Collections.Generic.List`1|_emptyArray";
+                    else if (declaringName == "System.Collections.Hashtable")
+                        aliasKey = "System.Collections.Hashtable|" + field.Name;
+                    else if (declaringName == "System.UnhandledExceptionEventArgs" &&
+                        field.Name == "_Exception")
+                        aliasKey = "System.UnhandledExceptionEventArgs|_Exception";
+                    else if (declaringName == "System.Text.RegularExpressions.Capture")
+                        aliasKey = "System.Text.RegularExpressions.Capture|" + field.Name;
+                    else if (declaringName == "System.Net.IPEndPoint")
+                        aliasKey = "System.Net.IPEndPoint|" + field.Name;
+                    if (aliasKey == null || !targetFieldAliases.TryGetValue(aliasKey, out alias))
+                        continue;
+                    // These Unity 2020 to Unity 6 corelib private-field renames
+                    // preserve the original instruction and its field type.
+                    instruction.Operand = new FieldReference(alias,
+                        method.Module.ImportReference(field.FieldType),
+                        method.Module.ImportReference(field.DeclaringType));
+                    changes++;
+                }
+            }
+        }
         if (assemblyName == "Assembly-CSharp.dll" && type.FullName == "TutorialWidget") {
             FieldDefinition field = type.Fields.SingleOrDefault(f => f.Name == "_offset");
             if (field != null && field.IsPrivate) {
@@ -1323,6 +1603,18 @@ class RepairRecoveredConstructor {
                 // UIScrollBar's recovered constructor writes the inherited value.
                 field.Attributes = (field.Attributes & ~FieldAttributes.FieldAccessMask) |
                     FieldAttributes.Family;
+                changes++;
+            }
+        }
+        if (assemblyName == "Assembly-CSharp-firstpass.dll" && type.FullName == "EB.SafeValue") {
+            MethodDefinition initializer = type.Methods.SingleOrDefault(m => m.Name == "Init" &&
+                m.Parameters.Count == 1 && m.Parameters[0].ParameterType is ArrayType array &&
+                array.ElementType.MetadataType == MetadataType.Byte);
+            if (initializer != null && initializer.IsPrivate) {
+                // SafeFloat and SafeValue are in the same recovered assembly;
+                // the source helper must be assembly-visible to its sibling.
+                initializer.Attributes = (initializer.Attributes & ~MethodAttributes.MemberAccessMask) |
+                    MethodAttributes.Assembly;
                 changes++;
             }
         }
@@ -1383,11 +1675,110 @@ class RepairRecoveredConstructor {
         return field.Module.TypeSystem.Void;
     }
 
+    static void ReplaceMatchingMonoSecurity(string pluginDirectory, string frameworkAssemblyPath) {
+        string recoveredPath = Path.Combine(pluginDirectory, "Mono.Security.dll");
+        if (!File.Exists(recoveredPath) || !File.Exists(frameworkAssemblyPath)) return;
+
+        using (AssemblyDefinition recovered = AssemblyDefinition.ReadAssembly(recoveredPath))
+        using (AssemblyDefinition framework = AssemblyDefinition.ReadAssembly(frameworkAssemblyPath)) {
+            if (!String.Equals(recovered.Name.FullName, framework.Name.FullName, StringComparison.Ordinal))
+                throw new InvalidDataException("Unity Mono.Security identity does not match recovered dependency");
+            TypeDefinition pkcs12 = framework.MainModule.GetType("Mono.Security.X509.PKCS12");
+            bool hasExistingParameters = pkcs12 != null && pkcs12.Methods.Any(method =>
+                method.Name == "GetExistingParameters" && method.Parameters.Count == 1 &&
+                method.Parameters[0].ParameterType is ByReferenceType byReference &&
+                byReference.ElementType.FullName == "System.Boolean");
+            if (!hasExistingParameters)
+                throw new InvalidDataException("Unity Mono.Security is missing PKCS12.GetExistingParameters(Boolean&)");
+        }
+        File.Copy(frameworkAssemblyPath, recoveredPath, true);
+        Console.WriteLine("replaced Mono.Security with the identity-matched Unity 4.5 profile assembly");
+    }
+
     static int Main(string[] args) {
-        if (args.Length != 3) throw new ArgumentException("plugin directory, plan, and editor assemblies directory required");
+        if (args.Length != 6) throw new ArgumentException("plugin directory, plan, editor assemblies directory, core library, System assembly, and Mono.Security assembly required");
         string pluginDirectory = Path.GetFullPath(args[0]);
         string planPath = Path.GetFullPath(args[1]);
         string engineDirectory = Path.GetFullPath(args[2]);
+        string targetStringLengthField;
+        var targetFieldAliases = new Dictionary<string, string>();
+        using (AssemblyDefinition coreLibrary = AssemblyDefinition.ReadAssembly(Path.GetFullPath(args[3]))) {
+            TypeDefinition stringType = coreLibrary.MainModule.GetType("System.String");
+            if (stringType == null) throw new InvalidDataException("target core library has no System.String type");
+            if (stringType.Fields.Any(field => field.Name == "m_stringLength" &&
+                field.FieldType.MetadataType == MetadataType.Int32)) targetStringLengthField = "m_stringLength";
+            else if (stringType.Fields.Any(field => field.Name == "_stringLength" &&
+                field.FieldType.MetadataType == MetadataType.Int32)) targetStringLengthField = "_stringLength";
+            else throw new InvalidDataException("target core library has no known System.String length field");
+            TypeDefinition dictionaryType = coreLibrary.MainModule.GetType(
+                "System.Collections.Generic.Dictionary`2");
+            if (dictionaryType != null) {
+                foreach (string[] names in new[] {
+                    new[] { "buckets", "_buckets" }, new[] { "entries", "_entries" },
+                    new[] { "count", "_count" }, new[] { "version", "_version" },
+                    new[] { "freeList", "_freeList" }, new[] { "freeCount", "_freeCount" },
+                    new[] { "comparer", "_comparer" }, new[] { "keys", "_keys" },
+                    new[] { "values", "_values" }, new[] { "syncRoot", "_syncRoot" }
+                }) {
+                    FieldDefinition replacement = dictionaryType.Fields.SingleOrDefault(field => field.Name == names[1]);
+                    if (replacement != null && !dictionaryType.Fields.Any(field => field.Name == names[0]))
+                        targetFieldAliases.Add("System.Collections.Generic.Dictionary`2|" + names[0], names[1]);
+                }
+            }
+            TypeDefinition listType = coreLibrary.MainModule.GetType("System.Collections.Generic.List`1");
+            if (listType != null && listType.Fields.Any(field => field.Name == "s_emptyArray" &&
+                field.FieldType is ArrayType array && array.ElementType is GenericParameter) &&
+                !listType.Fields.Any(field => field.Name == "_emptyArray"))
+                targetFieldAliases.Add("System.Collections.Generic.List`1|_emptyArray", "s_emptyArray");
+            TypeDefinition hashtableType = coreLibrary.MainModule.GetType("System.Collections.Hashtable");
+            if (hashtableType != null) {
+                foreach (string[] names in new[] {
+                    new[] { "buckets", "_buckets" }, new[] { "count", "_count" },
+                    new[] { "occupancy", "_occupancy" }, new[] { "loadsize", "_loadsize" },
+                    new[] { "loadFactor", "_loadFactor" }, new[] { "version", "_version" },
+                    new[] { "isWriterInProgress", "_isWriterInProgress" },
+                    new[] { "keys", "_keys" }, new[] { "values", "_values" }
+                }) {
+                    FieldDefinition replacement = hashtableType.Fields.SingleOrDefault(field => field.Name == names[1]);
+                    if (replacement != null &&
+                        !hashtableType.Fields.Any(field => field.Name == names[0]))
+                        targetFieldAliases.Add("System.Collections.Hashtable|" + names[0], names[1]);
+                }
+            }
+            TypeDefinition exceptionArgsType = coreLibrary.MainModule.GetType(
+                "System.UnhandledExceptionEventArgs");
+            if (exceptionArgsType != null && exceptionArgsType.Fields.Any(field => field.Name == "_exception" &&
+                field.FieldType.FullName == "System.Object") &&
+                !exceptionArgsType.Fields.Any(field => field.Name == "_Exception"))
+                targetFieldAliases.Add("System.UnhandledExceptionEventArgs|_Exception", "_exception");
+        }
+        using (AssemblyDefinition systemLibrary = AssemblyDefinition.ReadAssembly(Path.GetFullPath(args[4]))) {
+            TypeDefinition captureType = systemLibrary.MainModule.GetType("System.Text.RegularExpressions.Capture");
+            if (captureType != null) {
+                foreach (string[] names in new[] {
+                    new[] { "_text", "<Text>k__BackingField" },
+                    new[] { "_index", "<Index>k__BackingField" },
+                    new[] { "_length", "<Length>k__BackingField" }
+                }) {
+                    FieldDefinition replacement = captureType.Fields.SingleOrDefault(field => field.Name == names[1]);
+                    if (replacement != null && !captureType.Fields.Any(field => field.Name == names[0]))
+                        targetFieldAliases.Add("System.Text.RegularExpressions.Capture|" + names[0], names[1]);
+                }
+            }
+            TypeDefinition ipEndPointType = systemLibrary.MainModule.GetType("System.Net.IPEndPoint");
+            if (ipEndPointType != null) {
+                foreach (string[] names in new[] {
+                    new[] { "m_Address", "_address" }, new[] { "m_Port", "_port" }
+                }) {
+                    FieldDefinition replacement = ipEndPointType.Fields.SingleOrDefault(field => field.Name == names[1]);
+                    if (replacement != null && !ipEndPointType.Fields.Any(field => field.Name == names[0]))
+                        targetFieldAliases.Add("System.Net.IPEndPoint|" + names[0], names[1]);
+                }
+            }
+        }
+        Console.WriteLine("target System.String length field: " + targetStringLengthField);
+        foreach (var alias in targetFieldAliases)
+            Console.WriteLine("target corelib field alias: " + alias.Key + " -> " + alias.Value);
         var targets = File.ReadAllLines(planPath).Where(line => !String.IsNullOrWhiteSpace(line))
             .Select(line => line.Split('\t')).ToDictionary(row => row[0] + "\t" + row[1], row => row);
         var found = new Dictionary<string, int>();
@@ -1400,7 +1791,25 @@ class RepairRecoveredConstructor {
             using (AssemblyDefinition assembly = AssemblyDefinition.ReadAssembly(path,
                 new ReaderParameters { AssemblyResolver = resolver })) {
                 foreach (TypeDefinition type in AllTypes(assembly.MainModule.Types)) {
-                    int compatibilityChanges = RepairEditorFieldAccess(type, Path.GetFileName(path));
+                    if (type.FullName == "Cpp2ILInjected.Cpp2ILHelpers" &&
+                        !type.IsInterface && type.BaseType == null) {
+                        // Cpp2IL's injected helper is a class, but its emitted
+                        // TypeDefinition has no base reference. Unity 2020
+                        // IL2CPP's WarmNamingComponent passes that null into
+                        // TypeReferenceEqualityComparer and aborts the build.
+                        type.BaseType = assembly.MainModule.TypeSystem.Object;
+                        changed = true;
+                        Console.WriteLine("restored System.Object base type for " + type.FullName);
+                    }
+                    int pInvokeChanges = RepairMissingPInvokeMetadata(assembly, type,
+                        Path.GetFileName(path));
+                    if (pInvokeChanges > 0) {
+                        changed = true;
+                        Console.WriteLine("restored " + pInvokeChanges +
+                            " P/Invoke mapping(s) for " + Path.GetFileName(path) + ":" + type.FullName);
+                    }
+                    int compatibilityChanges = RepairEditorFieldAccess(type, Path.GetFileName(path),
+                        targetStringLengthField, targetFieldAliases);
                     if (compatibilityChanges > 0) {
                         changed = true;
                         Console.WriteLine("repaired " + compatibilityChanges +
@@ -1413,9 +1822,18 @@ class RepairRecoveredConstructor {
                             (row[1] == ".cctor" ? m.IsStatic :
                              row[1] == "GetInterpolator" ? m.IsStatic && m.Parameters.Count == 1 &&
                                 m.Parameters[0].ParameterType.FullName == "EZAnimation/EASING_TYPE" :
+                             row[0] == "Facebook.Unity.Settings.FacebookSettings/UrlSchemes" && row[1] == ".ctor" ?
+                                !m.IsStatic && m.Parameters.Count == 1 &&
+                                m.Parameters[0].ParameterType.FullName == "System.Collections.Generic.List`1<System.String>" :
                              row[1] == "add_OnLocalizationChanged" ? m.IsStatic && m.Parameters.Count == 1 :
                              row[1] == "SetupTuneables_Internal" ? !m.IsStatic && m.Parameters.Count == 3 :
+                             row[0] == "EB.Hash" && row[1] == "FNV64" ? m.IsStatic && m.Parameters.Count == 2 &&
+                                m.Parameters[0].ParameterType.FullName == "System.Byte[]" &&
+                                m.Parameters[1].ParameterType.MetadataType == MetadataType.Int64 :
+                             row[0] == "EB.Core.ThreadSafeRandom" && row[1] == "get_Randomizer" ? m.IsStatic && m.Parameters.Count == 0 :
                              row[1] == "Init" && row[0] == "AIRageSettings" ? !m.IsStatic && m.Parameters.Count == 1 :
+                             row[1] == "Init" && row[0] == "EB.SafeValue" ? !m.IsStatic && m.Parameters.Count == 1 &&
+                                m.Parameters[0].ParameterType.FullName == "System.Byte[]" :
                              !m.IsStatic && m.Parameters.Count == 0)).ToArray();
                         if (methods.Length != 1) throw new InvalidDataException("expected one target method: " + type.FullName + row[1]);
                         int expectedFields = Int32.Parse(row[2]);
@@ -1429,8 +1847,13 @@ class RepairRecoveredConstructor {
                 if (changed) assembly.Write(temporary);
             }
             if (changed) {
-                File.Copy(temporary, path, true);
-                File.Delete(temporary);
+                string backup = path + ".repair-backup";
+                if (File.Exists(backup)) {
+                    if (!File.Exists(path)) File.Move(backup, path);
+                    else File.Delete(backup);
+                }
+                File.Replace(temporary, path, backup);
+                File.Delete(backup);
             }
         }
         foreach (var entry in targets) {
@@ -1438,6 +1861,7 @@ class RepairRecoveredConstructor {
                 throw new InvalidDataException("target type not found exactly once: " + entry.Key);
             Console.WriteLine("sanitized " + entry.Key.Replace('\t', ' '));
         }
+        ReplaceMatchingMonoSecurity(pluginDirectory, Path.GetFullPath(args[5]));
         return 0;
     }
 }
@@ -1447,7 +1871,7 @@ class RepairRecoveredConstructor {
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", type=Path, help="staged 9.2 Unity project")
-    parser.add_argument("--unity", type=Path, required=True, help="Unity 2020.3.31f1 Editor")
+    parser.add_argument("--unity", type=Path, required=True, help="Unity Editor executable")
     parser.add_argument("--diagnostics", type=Path, help="Unity log whose malformed constructor errors should be repaired")
     args = parser.parse_args()
 
@@ -1463,8 +1887,17 @@ def main() -> int:
     mono_root = editor_root / "Data/MonoBleedingEdge"
     mcs = mono_root / "bin/mcs"
     mono = mono_root / "bin/mono"
-    cecil = mono_root / "lib/mono/gac/Mono.Cecil/0.10.0.0__0738eb9f132ed756/Mono.Cecil.dll"
-    if not all(path.is_file() for path in (mcs, mono, cecil)):
+    core_library = mono_root / "lib/mono/4.5/mscorlib.dll"
+    system_library = mono_root / "lib/mono/4.5/System.dll"
+    mono_security = mono_root / "lib/mono/4.5/Mono.Security.dll"
+    cecil_gac = mono_root / "lib/mono/gac/Mono.Cecil"
+    cecil_versions = list(cecil_gac.glob("*/Mono.Cecil.dll"))
+    def version_key(path: Path) -> tuple[int, ...]:
+        match = re.match(r"([0-9]+(?:\.[0-9]+)+)_", path.parent.name)
+        return tuple(int(part) for part in match.group(1).split(".")) if match else ()
+    cecil_versions.sort(key=version_key, reverse=True)
+    cecil = cecil_versions[0] if cecil_versions else cecil_gac / "0.10.0.0__0738eb9f132ed756/Mono.Cecil.dll"
+    if not all(path.is_file() for path in (mcs, mono, cecil, core_library, system_library, mono_security)):
         parser.error(f"Unity's bundled Mono compiler or Mono.Cecil is missing under {mono_root}")
 
     targets: dict[tuple[str, str], int] = {
@@ -1501,6 +1934,11 @@ def main() -> int:
         ("BuildingPortrait", ".ctor"): -1,
         ("AllianceStatsPopup", ".ctor"): -1,
         ("GachaRevealPresentation", ".ctor"): -1,
+        ("Facebook.Unity.Settings.FacebookSettings/UrlSchemes", ".ctor"): -1,
+        ("EB.Hash", ".cctor"): -1,
+        ("EB.Hash", "FNV64"): -1,
+        ("EB.SafeValue", "Init"): -1,
+        ("EB.Core.ThreadSafeRandom", "get_Randomizer"): -1,
     }
     if args.diagnostics:
         log = args.diagnostics.expanduser().resolve().read_text(errors="replace")
@@ -1532,14 +1970,19 @@ def main() -> int:
         env["MONO_PATH"] = str(cecil.parent)
         subprocess.run(
             [str(mono), str(executable), str(plugin_dir), str(plan),
-             str(editor_root / "Data/Managed/UnityEngine")],
+             str(editor_root / "Data/Managed/UnityEngine"), str(core_library), str(system_library),
+             str(mono_security)],
             check=True,
             env=env,
         )
 
     report = {
         "repairs": [f"{type_name}::{method}()" for (type_name, method) in sorted(targets)],
-        "reason": "Cpp2IL emitted malformed IL. Recovered import repairs rebuild GameboardBuilder's collection fields and three scalar constants, restore BattlegroupColours, reconstruct EBParticlePal's enum counts and observed instance defaults, initialize each Condition tuning entry, initialize UILabel's shared collections and localization subscription, initialize PrefabDiffTracker's modifier map and timeslice default, initialize Localizer's maps, format provider, flags, and a harmless placeholder regex until its lost literal is recovered, preserve QuestNodeTuning's serialized fields, correct a derived-field visibility mismatch, and clear only diagnosed parameterless constructors or editor OnValidate callbacks. PrefabDiffTracker's two custom modifier delegates and RAID_START_POS remain unrecovered.",
+        "structural_repairs": [
+            "Set Cpp2ILInjected.Cpp2ILHelpers.BaseType to System.Object in every recovered plugin where the helper class has no base reference",
+            "Replace Mono.Security.dll with Unity's 4.5 profile assembly only when its full strong-name identity matches and it contains PKCS12.GetExistingParameters(Boolean&)"
+        ],
+        "reason": "Cpp2IL emitted malformed IL. Recovered import repairs rebuild GameboardBuilder's collection fields and three scalar constants, restore BattlegroupColours, reconstruct EBParticlePal's enum counts and observed instance defaults, initialize each Condition tuning entry, initialize UILabel's shared collections and localization subscription, initialize PrefabDiffTracker's modifier map and timeslice default, initialize Localizer's maps, format provider, flags, and a harmless placeholder regex until its lost literal is recovered, preserve QuestNodeTuning's serialized fields, correct a derived-field visibility mismatch, reconstruct EB.Hash static constants and FNV64, EB.SafeValue.Init, and ThreadSafeRandom.get_Randomizer from native 9.2 behavior, and clear only diagnosed parameterless constructors or editor OnValidate callbacks. PrefabDiffTracker's two custom modifier delegates and RAID_START_POS remain unrecovered.",
         "notice": "Local generated build input only; untouched Cpp2IL output remains under cpp2il/.",
     }
     (project / "recovered-import-repairs.json").write_text(json.dumps(report, indent=2) + "\n")

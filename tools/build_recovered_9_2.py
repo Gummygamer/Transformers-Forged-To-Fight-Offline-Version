@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -59,6 +60,74 @@ def mark_managed_plugins_as_dll(project: Path) -> int:
             image.write(struct.pack("<H", characteristics | 0x2000))
             patched += 1
     return patched
+
+
+def remove_empty_missing_script_components(project: Path) -> tuple[int, int]:
+    """Drop only empty MonoBehaviour placeholders with a null script reference."""
+    assets = project / "Assets"
+    extensions = {".prefab", ".unity", ".asset"}
+    known_fields = {
+        "m_ObjectHideFlags", "m_CorrespondingSourceObject", "m_PrefabInstance",
+        "m_PrefabAsset", "m_GameObject", "m_Enabled", "m_EditorHideFlags",
+        "m_Script", "m_Name", "m_EditorClassIdentifier",
+    }
+    document_start = re.compile(r"(?m)(?=^--- !u!)")
+    header = re.compile(r"^--- !u!114 &(-?\d+)\s*$")
+    removed = 0
+    changed_files = 0
+
+    for path in assets.rglob("*"):
+        if path.suffix not in extensions or not path.is_file():
+            continue
+        try:
+            contents = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        documents = document_start.split(contents)
+        candidates: list[tuple[int, str]] = []
+        for index, document in enumerate(documents):
+            first_line = document.splitlines()[0] if document.splitlines() else ""
+            match = header.match(first_line)
+            if not match or "MonoBehaviour:" not in document or "m_Script: {fileID: 0}" not in document:
+                continue
+            field_names = set(re.findall(r"(?m)^  ([A-Za-z_][A-Za-z0-9_]*):", document))
+            if field_names - known_fields:
+                continue
+            candidates.append((index, match.group(1)))
+
+        if not candidates:
+            continue
+
+        removable_ids = {file_id for _, file_id in candidates}
+        # A null-script component contains only Unity's base MonoBehaviour
+        # fields. Require its GameObject's component-list reference too, so
+        # malformed or data-bearing objects are left intact for recovery.
+        for file_id in tuple(removable_ids):
+            reference = re.compile(
+                rf"(?m)^\s*- component: \{{fileID: {re.escape(file_id)}\}}\s*$"
+            )
+            if not reference.search(contents):
+                removable_ids.remove(file_id)
+        if not removable_ids:
+            continue
+
+        removable_indexes = {index for index, file_id in candidates if file_id in removable_ids}
+        kept_documents = [document for index, document in enumerate(documents) if index not in removable_indexes]
+        updated = "".join(kept_documents)
+        for file_id in removable_ids:
+            reference = re.compile(
+                rf"(?m)^\s*- component: \{{fileID: {re.escape(file_id)}\}}\s*\n?"
+            )
+            updated, count = reference.subn("", updated)
+            if count != 1:
+                raise ValueError(f"expected one GameObject reference for missing script {file_id} in {path}")
+        if updated != contents:
+            path.write_text(updated, encoding="utf-8")
+            removed += len(removable_ids)
+            changed_files += 1
+
+    return removed, changed_files
 
 
 def ensure_unity_ui_package(project: Path) -> bool:
@@ -124,6 +193,14 @@ def main() -> int:
         "--architecture", choices=("ARM64", "ARMv7"), default="ARM64",
         help="Android CPU architecture (default: ARM64)",
     )
+    parser.add_argument(
+        "--graphics", action="store_true",
+        help="run Unity with the host display/GPU instead of -nographics",
+    )
+    parser.add_argument(
+        "--allow-upgraded-project", action="store_true",
+        help="allow a recovered 2020.3.31f1 project previously upgraded by a newer Unity Editor",
+    )
     args = parser.parse_args()
 
     project = args.project.expanduser().resolve()
@@ -133,7 +210,7 @@ def main() -> int:
     if not (project / "ProjectSettings/ProjectVersion.txt").is_file():
         parser.error(f"not a Unity project: {project}")
     version = (project / "ProjectSettings/ProjectVersion.txt").read_text()
-    if "2020.3.31f1" not in version:
+    if "2020.3.31f1" not in version and not args.allow_upgraded_project:
         parser.error(f"project was not exported for Unity 2020.3.31f1: {version.strip()}")
     for assembly in ("Assembly-CSharp.dll", "Assembly-CSharp-firstpass.dll"):
         if not (project / "Assets/Plugins" / assembly).is_file():
@@ -146,6 +223,20 @@ def main() -> int:
         parser.error(f"refusing to overwrite existing APK: {output}")
 
     try:
+        scriptable_converter = Path(__file__).resolve().with_name(
+            "convert_9_2_scriptable_prefabs.py"
+        )
+        scriptable_backup = project.parent / "recovered-9.2-scriptable-prefab-backup"
+        subprocess.run(
+            [sys.executable, str(scriptable_converter), str(project / "Assets"), str(scriptable_backup)],
+            check=True,
+        )
+        removed_components, changed_assets = remove_empty_missing_script_components(project)
+        if removed_components:
+            print(
+                f"Removed {removed_components} empty null-script component(s) "
+                f"from {changed_assets} staged asset file(s)"
+            )
         if ensure_unity_ui_package(project):
             print("Added Unity built-in package com.unity.ugui@1.0.0 to the staged project")
         disabled_asmdefs = disable_empty_plugin_shadow_asmdefs(project)
@@ -204,9 +295,20 @@ def main() -> int:
             print(f"Could not create a local signing key: {keygen.stderr.strip()}", file=sys.stderr)
             return keygen.returncode
 
+    # Unity stores external absolute keystore paths relative to its configured
+    # dedicated-keystore directory. That path is host-specific and may not
+    # exist inside a container, so stage the local key inside this disposable
+    # recovered project for the duration of the build.
+    project_keystore = project / ".recovered-local.keystore"
+    shutil.copyfile(keystore, project_keystore)
+
     env = os.environ.copy()
-    legacy_runtime_libraries = unity.parents[4] / "legacy-runtime/usr/lib/x86_64-linux-gnu"
-    if (legacy_runtime_libraries / "libxml2.so.2").is_file():
+    legacy_runtime_libraries = next((
+        parent / "legacy-runtime/usr/lib/x86_64-linux-gnu"
+        for parent in unity.parents
+        if (parent / "legacy-runtime/usr/lib/x86_64-linux-gnu/libxml2.so.2").is_file()
+    ), None)
+    if legacy_runtime_libraries is not None:
         inherited_library_path = env.get("LD_LIBRARY_PATH", "")
         env["LD_LIBRARY_PATH"] = os.pathsep.join(
             path for path in (str(legacy_runtime_libraries), inherited_library_path) if path
@@ -218,14 +320,20 @@ def main() -> int:
     env["RECOVERED_ANDROID_APK"] = str(output)
     env["RECOVERED_SCRIPTING_BACKEND"] = args.backend
     env["RECOVERED_ANDROID_ARCH"] = args.architecture
-    env["RECOVERED_ANDROID_KEYSTORE"] = str(keystore)
+    env["RECOVERED_ANDROID_KEYSTORE"] = str(project_keystore)
     env["RECOVERED_ANDROID_KEYSTORE_PASSWORD"] = password
     command = [
-        str(unity), "-batchmode", "-nographics", "-quit", "-buildTarget", "Android",
+        str(unity), "-batchmode", "-disableManagedDebugger", "-quit",
+        "-buildTarget", "Android",
         "-projectPath", str(project), "-executeMethod", "RebuildRecoveredAndroid.Build",
         "-logFile", str(log), "-stackTraceLogType", "Full",
     ]
-    result = subprocess.run(command, env=env, check=False)
+    if not args.graphics:
+        command.insert(2, "-nographics")
+    try:
+        result = subprocess.run(command, env=env, check=False)
+    finally:
+        project_keystore.unlink(missing_ok=True)
     repair_queue = log.with_suffix(log.suffix + ".repair-queue.md")
     queue_builder = Path(__file__).resolve().with_name("summarize_unity_repair_queue.py")
     subprocess.run(
