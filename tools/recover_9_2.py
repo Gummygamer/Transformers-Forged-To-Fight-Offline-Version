@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 APK_SHA256 = "68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9"
-CPP2IL_VERSION = "2022.1.0-development.1743+b5ad444.b5ad444b82267cb1e4b88b8b373c008105bdea52"
+CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
 ASSETRIPPER_VERSION = "2.0.0+1ac666f47d8e9dedf96afb0b914c70d7656151ea"
 UNITY_VERSION = "2020.3.31f1"
 REBUILD_ASSEMBLIES = (
@@ -150,8 +150,10 @@ def main() -> int:
         parser.error("provide --assetripper or set ASSETRIPPER_BIN to AssetRipper.GUI.Free")
     cpp2il_version = run_version(cpp2il, "--version")
     assetripper_version = run_version(assetripper, "--version")
-    if CPP2IL_VERSION not in cpp2il_version:
-        parser.error(f"Cpp2IL version does not match pinned build: {cpp2il_version}")
+    if CPP2IL_COMMIT not in cpp2il_version:
+        parser.error(
+            f"Cpp2IL build does not identify pinned commit {CPP2IL_COMMIT}: {cpp2il_version}"
+        )
     if ASSETRIPPER_VERSION not in assetripper_version:
         parser.error(f"AssetRipper version does not match pinned build: {assetripper_version}")
     if output.exists() and any(output.iterdir()):
@@ -184,8 +186,11 @@ def main() -> int:
     cpp2il_out = output / "cpp2il"
     cpp2il_result = subprocess.run(
         [
-            str(cpp2il), f"--game-path={apk}", "--output-as", "dll_il_recovery",
-            "--output-to", str(cpp2il_out),
+            str(cpp2il), f"--game-path={apk}",
+            f"--force-binary-path={native_dir / 'libil2cpp.so'}",
+            f"--force-metadata-path={native_dir / 'global-metadata.dat'}",
+            f"--force-unity-version={UNITY_VERSION}",
+            "--output-as", "dll_il_recovery", "--output-to", str(cpp2il_out),
         ],
         check=False,
     )

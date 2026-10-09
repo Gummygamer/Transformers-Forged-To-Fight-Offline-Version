@@ -4,6 +4,17 @@ This file records how the backend-content reconstruction in this package was don
 that it stays on the right side of copyright and stays defensive/interoperability-only.
 It covers the data added in `Server/gamedata.lbl` and the regenerated response files.
 
+## 9.2.0 local recovery tooling
+
+The optional 9.2.0 decompilation workflow includes a source patch for
+[SamboyCoding/Cpp2IL](https://github.com/SamboyCoding/Cpp2IL), pinned to upstream commit
+`b5ad444b82267cb1e4b88b8b373c008105bdea52`. The patch changes generic IL generation in
+`IlGenerator.cs`; its upstream MIT license and copyright notice are preserved in
+`tools/patches/CPP2IL-MIT-LICENSE`. The accompanying builder verifies the patch hash and
+upstream revision before building. These files contain no APK bytes, game assets, recovered
+game code, or game-authored content. Generated recovery files stay in ignored local build
+directories and must not be committed or redistributed.
+
 The module descriptions in `Server/mods_catalog.json` are newly AI-authored generic
 gameplay summaries. They were not transcribed or paraphrased from the game. Module names,
 catalog identifiers, categories, rarities, and asset references are retained as the data

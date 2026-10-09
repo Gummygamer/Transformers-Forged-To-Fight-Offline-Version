@@ -62,6 +62,28 @@ chosen output directory. The default is ignored `build/recovery-9.2/`; set it to
 directory on external storage when space is limited. The script keeps the untouched
 AssetRipper export and creates a second staged copy, so budget several gigabytes for both.
 
+The pinned upstream Cpp2IL build needs a small generic IL-generation correction for this
+input. The source patch and MIT notice are included in `tools/patches/`; build it from an
+operator-local Cpp2IL clone at the exact commit using .NET 10:
+
+```bash
+mkdir -p build/tooling
+git clone https://github.com/SamboyCoding/Cpp2IL.git build/tooling/cpp2il-source
+git -C build/tooling/cpp2il-source checkout b5ad444b82267cb1e4b88b8b373c008105bdea52
+python3 tools/build_patched_cpp2il.py build/tooling/cpp2il-source \
+  --dotnet /path/to/dotnet10/dotnet \
+  --dotnet-root /path/to/dotnet10 \
+  --output build/tooling/cpp2il-patched
+```
+
+The builder creates a detached worktree, verifies the pinned commit and patch hash, applies
+the MIT-licensed patch, builds the CLI, and records its provenance in `manifest.json`. It
+does not alter the original clone. Use its printed executable path as `--cpp2il` below and
+set `DOTNET_ROOT` to the same .NET 10 installation when running the apphost. The recovery
+script checks the full pinned commit id in the tool's version output, extracts the matching
+ARM64 library and metadata from the APK, and passes both explicitly with Unity version
+`2020.3.31f1` to Cpp2IL.
+
 ```bash
 python3 tools/recover_9_2.py "/path/to/Transformers 9.2 offline.apk" \
   --cpp2il /path/to/Cpp2IL \
@@ -75,8 +97,8 @@ verify its package/version yourself and explicitly pass `--allow-unverified-apk`
 extracts the matching arm64 IL2CPP library and global metadata, runs Cpp2IL's
 `dll_il_recovery` output, asks AssetRipper to export the Unity project, checks that the
 export has `Assets/` and `ProjectSettings/ProjectVersion.txt`, and records tool/input
-hashes in `recovery-manifest.json`. It checks the Cpp2IL and AssetRipper versions against
-the recovered versions used here, and refuses a non-empty output directory so existing
+hashes in `recovery-manifest.json`. It checks the Cpp2IL commit and AssetRipper version
+against the recovered versions used here, and refuses a non-empty output directory so existing
 local work is not overwritten. The pinned versions are Cpp2IL
 `2022.1.0-development.1743+b5ad444` and AssetRipper GUI Free
 `2.0.0+1ac666f47d8e9dedf96afb0b914c70d7656151ea`.
@@ -135,7 +157,11 @@ pinned build, but it is not yet a rebuild input. ILSpy 9.1 emitted 2,191 C# file
 `BT.NodeTypeMetadata.CanAddMoreChildren`. The sampled `QuestFlow` state-machine output
 also contains incomplete control flow and placeholder exceptions. The percentage is an
 analysis success metric, not a measure of recovered behavior or source completeness.
-These outputs remain local and are not part of the reproducible pinned workflow.
+The pinned patched generator now reproduces a 49-assembly set (58,055,680 bytes) from the
+exact 9.2 input and reports all 64,447 methods emitted. This establishes repeatable
+assembly generation, not semantic correctness: generated DLL hashes vary between runs,
+and invalid or incomplete methods can still prevent a faithful client rebuild. The
+original and rebuilt output remain local.
 
 The script and this recipe contain no APK, assemblies, native library, game assets, or
 decompiled source. Keep generated material local under ignored `build/` or another
