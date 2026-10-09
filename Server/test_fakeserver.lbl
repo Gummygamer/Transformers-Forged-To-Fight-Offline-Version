@@ -132,6 +132,13 @@ function test_dynamic_returns_empty_for_unhandled_path(): boolean
   fakeserver.dynamic("/some/unknown/path", "") == ""
 end
 
+function test_hero_xp_curve_route_returns_level_thresholds(): boolean
+  intent: test
+  let curve: Json = result(fakeserver.dynamic("/bcg/getHeroXPCurve?bid=optimusprime_cin_tf&rank=1", ""))
+  let levels: a list of Json = jsonout.list_items(curve)
+  length(levels) == 30 and jsonout.as_int(unwrap_or(get(levels, 0), jsonout.json_int(0))) == 100 and jsonout.as_int(unwrap_or(get(levels, 29), jsonout.json_int(0))) == 3000
+end
+
 function test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part1(session: Session, profile: Json, prefixed: Json, level_rewards: Json, stat_level: integer, reward_level: integer): boolean
   intent: test
   jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and stat_level == fakeserver.account_level() and reward_level == fakeserver.account_level() and stat_level == reward_level and jsonout.type_name(level_rewards) == "object" and jsonout.as_bool(jsonout.obj_get(level_rewards, "enabled")) and jsonout.as_bool(jsonout.obj_get(level_rewards, "isEnabled")) and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list"
@@ -575,6 +582,7 @@ function main_group_1(): integer
   set failed = failed + report("test_sparse_and_overflow_quest_team_fields_follow_capacity_rules", test_sparse_and_overflow_quest_team_fields_follow_capacity_rules())
   set failed = failed + report("test_resp_path_for_maps_routes_to_response_files", test_resp_path_for_maps_routes_to_response_files())
   set failed = failed + report("test_dynamic_returns_empty_for_unhandled_path", test_dynamic_returns_empty_for_unhandled_path())
+  set failed = failed + report("test_hero_xp_curve_route_returns_level_thresholds", test_hero_xp_curve_route_returns_level_thresholds())
   set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_tutorial_login_reports_complete_for_fresh_and_returning_accounts", test_tutorial_login_reports_complete_for_fresh_and_returning_accounts())
@@ -631,7 +639,7 @@ function main(): nothing
   set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(28 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(29 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

@@ -1699,6 +1699,17 @@ function base_hero_response(btxt: text): text
   spaced_envelope(gamedata.build_base_hero_details(json_list_or_empty(request_object(btxt), "heroes")))
 end
 
+function hero_xp_curve_response(path: text): text
+  intent: return the level XP thresholds used by the hero upgrade screen
+  mutable thresholds: a list of Json = []
+  mutable level: integer = 1
+  while level <= 30 do
+    set thresholds = append(thresholds, jsonout.json_int(level * 100))
+    set level = level + 1
+  end
+  compact_envelope(jsonout.json_list(thresholds))
+end
+
 function quest_detail_response(p: text, btxt: text): text
   intent: encode the quest detail for the quest named at the end of the path
   let req: Json = request_object(btxt)
@@ -1722,6 +1733,8 @@ function static_dynamic_second(path: text, p: text, btxt: text): text
     tutorial_response(p, btxt)
   else if ends_with(p, "/bcg/getBaseHeroData") then
     base_hero_response(btxt)
+  else if ends_with(p, "/bcg/getHeroXPCurve") then
+    hero_xp_curve_response(path)
   else if contains_text(p, "/quests/quest-detail/") then
     quest_detail_response(p, btxt)
   else if contains_text(p, "/quests/quest-map/") then

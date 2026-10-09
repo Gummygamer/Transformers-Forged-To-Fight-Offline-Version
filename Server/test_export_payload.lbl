@@ -464,6 +464,7 @@ function test_dynamic_parity(blob: integer, payload: Payload): TestResult
   intent: test
   let cases: a list of DynamicCase = [
     DynamicCase { key: "GET /base/active", path: "/base/active", body: "" },
+    DynamicCase { key: "GET /bcg/getHeroXPCurve", path: "/bcg/getHeroXPCurve?bid=optimusprime_cin_tf&rank=1", body: "" },
     DynamicCase { key: "@grouprefresh:missionsconfig", path: "/autorefresh/grouprefresh?groups.0.name=missionsconfig", body: "" },
     DynamicCase { key: "@grouprefresh:", path: "/autorefresh/grouprefresh?groups.0.name=other", body: "" },
     DynamicCase { key: "POST /quests/quest-detail/1.1.1", path: "/quests/quest-detail/1.1.1", body: "\{\"setId\":\"story_act1\"\}" },

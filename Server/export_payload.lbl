@@ -704,10 +704,15 @@ function add_team_entries(): Batch
   merge_batches([roster_entries(), quest_member_entries(members), saved_hero_entries(members)])
 end
 
+function hero_xp_curve_entries(): Batch
+  intent: build
+  single_batch("GET /bcg/getHeroXPCurve", fakeserver.dynamic("/bcg/getHeroXPCurve", ""))
+end
+
 function static_entries(): Batch
   intent: build
   let base: Batch = single_batch("GET /base/active", envelope(gamedata.build_base_active()))
-  merge_batches([response_file_entries(), base, refresh_entries(), tutorial_entries(), add_team_entries()])
+  merge_batches([response_file_entries(), base, hero_xp_curve_entries(), refresh_entries(), tutorial_entries(), add_team_entries()])
 end
 
 function text_array_json(values: a list of text): Json
@@ -753,7 +758,7 @@ function build_entries(listen_port: integer, shard_paths: a list of text): Entri
   if listen_port < 1 or listen_port > 65535 then fail("listen_port must be in the range 1..65535") end
   let base: Batch = single_batch("GET /base/active", envelope(gamedata.build_base_active()))
   let heavy: Batch = if length(shard_paths) == 0 then merge_batches([add_quests(), add_heroes()]) else shard_batches(shard_paths) end
-  let all: Batch = merge_batches([response_file_entries(), base, heavy, refresh_entries(), tutorial_entries(), add_team_entries()])
+  let all: Batch = merge_batches([response_file_entries(), base, hero_xp_curve_entries(), heavy, refresh_entries(), tutorial_entries(), add_team_entries()])
   finish(all.keys, all.bodies)
 end
 

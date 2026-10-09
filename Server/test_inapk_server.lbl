@@ -303,7 +303,9 @@ function session_first_ok(base: text, port: integer): boolean
   let ok_3: boolean = ok_2 and session_first_ok_part3(saved_reply, detail_reply)
   let begin_reply: HttpReply = request(base, port, "POST", "/quests/quest-begin/1.1.1", "\{\"setId\":\"story_act1\",\"tm0\":\"optimusprime_cin_tf\",\"tm1\":\"optimusprimal_bw_mp32\"\}", false, true)
   let ok_4: boolean = ok_3 and session_first_ok_part4(begin_reply)
-  ok_4
+  let curve_reply: HttpReply = request(base, port, "GET", "/bcg/getHeroXPCurve?bid=optimusprime_cin_tf&rank=1", "", false, false)
+  let curve_ok: boolean = expect("xp curve", curve_reply.body, fakeserver.dynamic("/bcg/getHeroXPCurve?bid=optimusprime_cin_tf&rank=1", ""))
+  ok_4 and curve_ok
 end
 
 function session_movedir_ok(base: text, port: integer): boolean
