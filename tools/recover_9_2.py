@@ -236,6 +236,12 @@ def main() -> int:
         log_stream.close()
 
     version_file = unity_project / "ProjectSettings/ProjectVersion.txt"
+    exported_subproject = unity_project / "ExportedProject"
+    if not version_file.is_file() and (
+        exported_subproject / "ProjectSettings/ProjectVersion.txt"
+    ).is_file():
+        unity_project = exported_subproject
+        version_file = unity_project / "ProjectSettings/ProjectVersion.txt"
     if not version_file.is_file() or not (unity_project / "Assets").is_dir():
         raise RuntimeError(f"AssetRipper export is incomplete; inspect {asset_log}")
     if UNITY_VERSION not in version_file.read_text():

@@ -24,24 +24,62 @@ public function tsv_escape(value: text): text
   replace(returns, "\n", "\\n")
 end
 
+function build_metadata_labels(root: a mapping from text to text): text
+  intent: label IL2CPP type metadata addresses
+  let metadata_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMetadata"), [])
+  mutable rows: a list of text = []
+  for metadata in metadata_entries do
+    let address: integer = unwrap_or(get(metadata, "Address"), 0)
+    let name: text = unwrap_or(get(metadata, "Name"), "")
+    set rows = append(rows, "D\t" ++ to_hex_lower(address) ++ "\t" ++ tsv_escape(replace(name, " ", "-")))
+  end
+  if length(rows) == 0 then "" else join(rows, "\n") ++ "\n" end
+end
+
+function build_metadata_method_labels(root: a mapping from text to text): text
+  intent: label IL2CPP method metadata addresses
+  let metadata_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMetadataMethod"), [])
+  mutable rows: a list of text = []
+  for metadata in metadata_entries do
+    let address: integer = unwrap_or(get(metadata, "Address"), 0)
+    let name: text = unwrap_or(get(metadata, "Name"), "")
+    set rows = append(rows, "P\t" ++ to_hex_lower(address) ++ "\t" ++ tsv_escape(replace(name, " ", "-")))
+  end
+  if length(rows) == 0 then "" else join(rows, "\n") ++ "\n" end
+end
+
+function build_method_labels(root: a mapping from text to text): text
+  intent: label IL2CPP methods
+  let entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMethod"), [])
+  mutable rows: a list of text = []
+  for entry in entries do
+    let address: integer = unwrap_or(get(entry, "Address"), 0)
+    let name: text = unwrap_or(get(entry, "Name"), "")
+    set rows = append(rows, "M\t" ++ to_hex_lower(address) ++ "\t" ++ tsv_escape(replace(name, " ", "-")))
+  end
+  if length(rows) == 0 then "" else join(rows, "\n") ++ "\n" end
+end
+
+function build_string_labels(root: a mapping from text to text): text
+  intent: label IL2CPP strings
+  let entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptString"), [])
+  mutable rows: a list of text = []
+  mutable index: integer = 0
+  for entry in entries do
+    let address: integer = unwrap_or(get(entry, "Address"), 0)
+    let value: text = unwrap_or(get(entry, "Value"), "")
+    set rows = append(rows, "S\t" ++ to_hex_lower(address) ++ "\tSTR_" ++ to_text(index) ++ "\t" ++ tsv_escape(value))
+    set index = index + 1
+  end
+  if length(rows) == 0 then "" else join(rows, "\n") ++ "\n" end
+end
+
 public function build_labels_tsv(root: a mapping from text to text): text
   intent: build label TSV records
   let method_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptMethod"), [])
   let string_entries: a list of a mapping from text to text = unwrap_or(get(root, "ScriptString"), [])
-  mutable out: text = ""
-  for method in method_entries do
-    let address: integer = unwrap_or(get(method, "Address"), 0)
-    let name: text = unwrap_or(get(method, "Name"), "")
-    set out = out ++ "M\t" ++ to_hex_lower(address) ++ "\t" ++ tsv_escape(replace(name, " ", "-")) ++ "\n"
-  end
-  mutable index: integer = 0
-  for string in string_entries do
-    let address: integer = unwrap_or(get(string, "Address"), 0)
-    let value: text = unwrap_or(get(string, "Value"), "")
-    set out = out ++ "S\t" ++ to_hex_lower(address) ++ "\tSTR_" ++ to_text(index) ++ "\t" ++ tsv_escape(value) ++ "\n"
-    set index = index + 1
-  end
-  out
+  build_method_labels(root) ++ build_string_labels(root) ++
+    build_metadata_labels(root) ++ build_metadata_method_labels(root)
 end
 
 function main(): nothing

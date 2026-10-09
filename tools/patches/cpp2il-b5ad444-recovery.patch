@@ -570,3 +570,77 @@ index 26ad284..2fdc1cf 100644
 +++ b/Cpp2IL.Core/OutputFormats/AsmResolverDllOutputFormat.cs
 @@ -228,0 +229 @@ public abstract class AsmResolverDllOutputFormat : Cpp2IlOutputFormat
 +        managedModule.FileCharacteristics |= AsmResolver.PE.File.Characteristics.Dll;
+
+diff --git a/Cpp2IL.Core/Analysis/MetadataResolver.cs b/Cpp2IL.Core/Analysis/MetadataResolver.cs
+--- a/Cpp2IL.Core/Analysis/MetadataResolver.cs
++++ b/Cpp2IL.Core/Analysis/MetadataResolver.cs
+@@ -59,0 +60,16 @@
++    private static bool IsGenericParameterInScope(MethodAnalysisContext method, GenericParameterTypeAnalysisContext parameter)
++    {
++        if (ReferenceEquals(parameter.Owner, method) || ReferenceEquals(parameter.Owner, method.DeclaringType))
++            return true;
++
++        if (method.DeclaringType is GenericInstanceTypeAnalysisContext declaringInstance
++            && (ReferenceEquals(parameter.Owner, declaringInstance.GenericType)
++                || declaringInstance.GenericArguments.Contains(parameter)))
++            return true;
++
++        return method is ConcreteGenericMethodAnalysisContext concrete
++            && (ReferenceEquals(parameter.Owner, concrete.BaseMethodContext)
++                || concrete.TypeGenericParameters.Contains(parameter)
++                || concrete.MethodGenericParameters.Contains(parameter));
++    }
++
+@@ -78,0 +95 @@
++            var pointerSize = (ulong)method.AppContext.Binary.PointerSizeBytes;
+@@ -81,2 +98,3 @@
+-                MemoryOperand { Base: null, Index: null, Scale: 0 } memory => (ulong)memory.Addend,
+-                Immediate immediate => immediate.UnsignedValue,
++                MemoryOperand { Base: null, Index: null, Scale: 0 } memory
++                    when memory.Addend >= 0 && (ulong)memory.Addend % pointerSize == 0 => (ulong)memory.Addend,
++                Immediate immediate when immediate.UnsignedValue % pointerSize == 0 => immediate.UnsignedValue,
+@@ -103 +121,6 @@
+-                    instruction.SetOperand(1, declaringType.AppContext.ResolveIl2CppType(typeGlobal));
++                    var resolvedType = declaringType.AppContext.ResolveIl2CppType(typeGlobal);
++                    if (resolvedType is GenericParameterTypeAnalysisContext genericParameter
++                        && !IsGenericParameterInScope(method, genericParameter))
++                        continue;
++
++                    instruction.SetOperand(1, resolvedType);
+diff --git a/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs b/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
+index 0ba9188..e92c21a 100644
+--- a/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
++++ b/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
+@@ -23,4 +23,13 @@
+     private static Immediate Imm(long value) => new(value);
+     private static Immediate Imm(ulong value) => new(unchecked((long)value));
+-
++
++    private static MethodAnalysisContext? ResolveMathMethod(ApplicationAnalysisContext app, string name, bool isDouble)
++    {
++        var mathType = app.SystemTypes.SystemDoubleType.DeclaringAssembly.GetTypeByFullName("System.Math");
++        var operandType = isDouble ? app.SystemTypes.SystemDoubleType : app.SystemTypes.SystemSingleType;
++        return mathType?.Methods.FirstOrDefault(method =>
++            method.IsStatic && method.Name == name && method.Parameters.Count == 1 &&
++            method.Parameters[0].ParameterType == operandType);
++    }
++
+     private static string NormalizeRegister(Arm64Register reg) => reg switch
+@@ -420,4 +429,17 @@
+                 Add(address, OpCode.Move, ConvertOperand(instruction, 0), ConvertOperand(instruction, 1));
+                 break;
++            case Arm64Mnemonic.FABS:
++                {
++                    bool isDouble = instruction.Op0Reg is >= Arm64Register.D0 and <= Arm64Register.D31;
++                    bool isSingle = instruction.Op0Reg is >= Arm64Register.S0 and <= Arm64Register.S31;
++                    var abs = isDouble || isSingle
++                        ? ResolveMathMethod(context.AppContext, "Abs", isDouble)
++                        : null;
++                    if (abs == null)
++                        Add(address, OpCode.NotImplemented, new StringLiteral("FABS vector form or System.Math.Abs overload not resolved"));
++                    else
++                        Add(address, OpCode.Call, abs, ConvertOperand(instruction, 0), ConvertOperand(instruction, 1));
++                    break;
++                }
+             case Arm64Mnemonic.MOVI:
+             case Arm64Mnemonic.MVNI when instruction.Op1Kind == Arm64OperandKind.Immediate:

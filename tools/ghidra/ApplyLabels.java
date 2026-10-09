@@ -34,9 +34,11 @@ public class ApplyLabels extends GhidraScript {
         Path input = Path.of(args.length > 0 ? args[0] : "il2cpp_out/labels.tsv");
         List<String> methods = new ArrayList<>();
         List<String> strings = new ArrayList<>();
+        List<String> metadata = new ArrayList<>();
         for (String line : Files.readAllLines(input, StandardCharsets.UTF_8)) {
             if (line.startsWith("M\t")) methods.add(line);
             else if (line.startsWith("S\t")) strings.add(line);
+            else if (line.startsWith("D\t") || line.startsWith("P\t")) metadata.add(line);
         }
 
         Address base = currentProgram.getImageBase();
@@ -70,6 +72,21 @@ public class ApplyLabels extends GhidraScript {
             monitor.incrementProgress(1);
         }
         println("string labels: " + k);
+
+        monitor.initialize(metadata.size());
+        monitor.setMessage("metadata labels");
+        int m = 0;
+        for (String line : metadata) {
+            try {
+                String[] field = line.split("\\t", -1);
+                createLabel(base.add(Long.parseLong(field[1], 16)), unescape(field[2]), true,
+                    SourceType.USER_DEFINED);
+                m++;
+            } catch (Exception e) {
+            }
+            monitor.incrementProgress(1);
+        }
+        println("metadata labels: " + m);
         println("apply_labels done");
     }
 }

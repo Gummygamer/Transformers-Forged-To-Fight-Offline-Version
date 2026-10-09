@@ -15,7 +15,7 @@ from pathlib import Path
 
 CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
 PATCH_PATH = Path(__file__).resolve().parent / "patches/cpp2il-b5ad444-recovery.patch"
-PATCH_SHA256 = "1773d92740c24b7c051ae0e4c2a66955ce63f1041db79794473a30a9a4c7fad6"
+PATCH_SHA256 = "5b656b5437a4de2d6e5608531ff51d078865df74c5ecabe42a03708ad45282f5"
 
 
 def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:

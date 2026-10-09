@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import struct
@@ -60,12 +61,61 @@ def mark_managed_plugins_as_dll(project: Path) -> int:
     return patched
 
 
+def ensure_unity_ui_package(project: Path) -> bool:
+    """Add Unity's built-in UGUI package, required by recovered Unity UI references."""
+    manifest = project / "Packages/manifest.json"
+    if not manifest.is_file():
+        raise ValueError(f"Unity package manifest is missing: {manifest}")
+    data = json.loads(manifest.read_text())
+    dependencies = data.setdefault("dependencies", {})
+    if dependencies.get("com.unity.ugui") == "1.0.0":
+        return False
+    dependencies["com.unity.ugui"] = "1.0.0"
+    manifest.write_text(json.dumps(data, indent=2) + "\n")
+    return True
+
+
+def disable_empty_plugin_shadow_asmdefs(project: Path) -> int:
+    """Keep empty AssetRipper asmdef placeholders from shadowing shipped plugin DLLs."""
+    plugins = project / "Assets/Plugins"
+    scripts = project / "Assets/Scripts"
+    if not plugins.is_dir() or not scripts.is_dir():
+        return 0
+    plugin_names = {path.stem for path in plugins.glob("*.dll")}
+    # UnityEngine.UI comes from the editor's built-in com.unity.ugui package,
+    # not from game-authored scripts; AssetRipper leaves an empty asmdef stub.
+    plugin_names.add("UnityEngine.UI")
+    disabled = 0
+    for definition in scripts.rglob("*.asmdef"):
+        try:
+            name = json.loads(definition.read_text()).get("name", definition.stem)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if name not in plugin_names:
+            continue
+        if any(definition.parent.rglob("*.cs")):
+            continue
+        disabled_path = definition.with_name(definition.name + ".recovery-disabled")
+        if disabled_path.exists():
+            continue
+        definition.rename(disabled_path)
+        meta = definition.with_name(definition.name + ".meta")
+        if meta.exists():
+            meta.rename(disabled_path.with_name(disabled_path.name + ".meta"))
+        disabled += 1
+    return disabled
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("project", type=Path, help="writable staged Unity project directory")
     parser.add_argument("--unity", type=Path, required=True, help="Unity 2020.3.31f1 Editor executable")
     parser.add_argument("--output-apk", type=Path, required=True, help="local output APK path")
     parser.add_argument("--log", type=Path, help="Unity log path (defaults beside the APK)")
+    parser.add_argument(
+        "--repair-diagnostics", type=Path,
+        help="prior Unity log used to repair diagnosed malformed import callbacks",
+    )
     parser.add_argument(
         "--backend", choices=("IL2CPP", "Mono"), default="IL2CPP",
         help="Android scripting backend (default: IL2CPP)",
@@ -95,10 +145,24 @@ def main() -> int:
     if output.exists():
         parser.error(f"refusing to overwrite existing APK: {output}")
 
+    try:
+        if ensure_unity_ui_package(project):
+            print("Added Unity built-in package com.unity.ugui@1.0.0 to the staged project")
+        disabled_asmdefs = disable_empty_plugin_shadow_asmdefs(project)
+        if disabled_asmdefs:
+            print(f"Disabled {disabled_asmdefs} empty asmdef placeholder(s) shadowing shipped plugin assemblies")
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        parser.error(f"could not configure recovered Unity UI package: {error}")
+
     keystore = output.with_suffix(".keystore")
     keytool = unity.parent / "Data/PlaybackEngines/AndroidPlayer/OpenJDK/bin/keytool"
     if not keytool.is_file():
         parser.error(f"Unity's bundled keytool does not exist: {keytool}")
+    repair = Path(__file__).resolve().with_name("repair_recovered_9_2_import.py")
+    repair_command = [sys.executable, str(repair), str(project), "--unity", str(unity)]
+    if args.repair_diagnostics:
+        repair_command.extend(("--diagnostics", str(args.repair_diagnostics.expanduser().resolve())))
+    subprocess.run(repair_command, check=True)
     try:
         marked_plugins = mark_managed_plugins_as_dll(project)
     except (OSError, ValueError, struct.error) as error:
@@ -141,6 +205,16 @@ def main() -> int:
             return keygen.returncode
 
     env = os.environ.copy()
+    legacy_runtime_libraries = unity.parents[4] / "legacy-runtime/usr/lib/x86_64-linux-gnu"
+    if (legacy_runtime_libraries / "libxml2.so.2").is_file():
+        inherited_library_path = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(
+            path for path in (str(legacy_runtime_libraries), inherited_library_path) if path
+        )
+        # The Unity editor's bundled compatibility tree has ICU 74, while the
+        # host's CoreCLR/Roslyn expects the system ICU 78. The launcher needs
+        # this tree for libxml2, but child CoreCLR tools can run invariantly.
+        env.setdefault("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1")
     env["RECOVERED_ANDROID_APK"] = str(output)
     env["RECOVERED_SCRIPTING_BACKEND"] = args.backend
     env["RECOVERED_ANDROID_ARCH"] = args.architecture
@@ -152,6 +226,13 @@ def main() -> int:
         "-logFile", str(log), "-stackTraceLogType", "Full",
     ]
     result = subprocess.run(command, env=env, check=False)
+    repair_queue = log.with_suffix(log.suffix + ".repair-queue.md")
+    queue_builder = Path(__file__).resolve().with_name("summarize_unity_repair_queue.py")
+    subprocess.run(
+        [sys.executable, str(queue_builder), str(log), "--output", str(repair_queue)],
+        check=True,
+    )
+    print(f"Unity repair queue: {repair_queue}")
     if result.returncode:
         print(f"Unity exited with status {result.returncode}; inspect {log}", file=sys.stderr)
         return result.returncode

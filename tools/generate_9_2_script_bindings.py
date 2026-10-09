@@ -223,8 +223,9 @@ def main() -> int:
         run([str(mcs), f"-r:{cecil}", f"-out:{dumper}", str(dumper_source)])
         metadata_env = os.environ.copy()
         metadata_env["MONO_PATH"] = str(cecil.parent)
+        assemblies = sorted(cpp2il.glob("*.dll"))
         dumped = run(
-            [str(mono), str(dumper), str(required[0]), str(required[1])],
+            [str(mono), str(dumper), *(str(path) for path in assemblies)],
             env=metadata_env,
         )
         definitions, by_name = read_types(dumped.stdout.splitlines())
@@ -233,6 +234,7 @@ def main() -> int:
             "Assembly-CSharp": [],
             "Assembly-CSharp-firstpass": [],
         }
+        binary_fallbacks: list[tuple[str, Path, str, str, str]] = []
         for group, scripts in groups.items():
             for item in scripts:
                 guid, meta, namespace, name = item
@@ -253,11 +255,55 @@ def main() -> int:
                 else:
                     source_fallbacks.append((guid, meta, group, namespace, name))
 
+        # AssetRipper can export a MonoBehaviour's source even when its compiled
+        # implementation lives in a plugin DLL (for example Fabric.Core.dll).
+        # Keep the serialized GUID but bind that script to the recovered DLL type
+        # instead of compiling a second, conflicting copy of the exported source.
+        still_source_fallbacks: list[tuple[str, Path, str, str, str]] = []
+        for guid, meta, group, namespace, name in source_fallbacks:
+            identity = source_identity(meta.with_suffix(""))
+            if identity is None:
+                still_source_fallbacks.append((guid, meta, group, namespace, name))
+                continue
+            namespace, name, full_name = identity
+            candidates = []
+            for key in by_name.get(full_name, []):
+                definition = definitions[key]
+                eligible = (
+                    bool(definition["class"])
+                    and bool(definition["public"])
+                    and not bool(definition["sealed"])
+                    and int(definition["generic_count"]) == 0
+                    and is_unity_component(key, definitions, by_name)
+                )
+                if eligible:
+                    candidates.append(key)
+            if len(candidates) == 1:
+                binary_fallbacks.append(
+                    (guid, meta, namespace, name, candidates[0][0])
+                )
+            else:
+                still_source_fallbacks.append((guid, meta, group, namespace, name))
+        source_fallbacks = still_source_fallbacks
+
+        extra_assemblies = sorted(
+            {
+                assembly
+                for _guid, _meta, _namespace, _name, assembly in binary_fallbacks
+                if assembly not in ("Assembly-CSharp", "Assembly-CSharp-firstpass")
+            }
+        )
+        aliases = {
+            assembly: f"RecoveredExtra_{index}"
+            for index, assembly in enumerate(extra_assemblies)
+        }
+
         generated_root.mkdir(parents=True)
         base_source = temp / "RecoveredBindingBases.cs"
         base_lines = [
             "extern alias RecoveredMain;",
             "extern alias RecoveredFirstPass;",
+            *(f"extern alias {alias};" for alias in aliases.values()),
             "namespace RecoveredBindingBases",
             "{",
         ]
@@ -269,15 +315,29 @@ def main() -> int:
                 base_lines.append(
                     f"    public abstract class ScriptBase_{guid} : {base_type} {{ }}"
                 )
+        for guid, _meta, namespace, name, assembly in binary_fallbacks:
+            alias = {
+                "Assembly-CSharp": "RecoveredMain",
+                "Assembly-CSharp-firstpass": "RecoveredFirstPass",
+            }.get(assembly, aliases.get(assembly))
+            if alias is None:
+                raise RuntimeError(f"no extern alias assigned to recovered assembly {assembly}")
+            full_name = f"{namespace}.{name}" if namespace else name
+            base_type = f"{alias}::{csharp_qualified_name(full_name)}"
+            base_lines.append(
+                f"    public abstract class ScriptBase_{guid} : {base_type} {{ }}"
+            )
         base_lines.append("}")
         base_source.write_text("\n".join(base_lines) + "\n")
 
         references: list[str] = []
-        for assembly in sorted(cpp2il.glob("*.dll")):
+        for assembly in assemblies:
             if assembly.name == "Assembly-CSharp.dll":
                 references.append(f"-r:RecoveredMain={assembly}")
             elif assembly.name == "Assembly-CSharp-firstpass.dll":
                 references.append(f"-r:RecoveredFirstPass={assembly}")
+            elif assembly.stem in aliases:
+                references.append(f"-r:{aliases[assembly.stem]}={assembly}")
             else:
                 references.append(f"-r:{assembly}")
         if not references:
@@ -334,7 +394,7 @@ def main() -> int:
                 shutil.copy2(meta, output_source.with_suffix(".cs.meta"))
 
         fallback_dir = generated_root / "Fallback"
-        if source_fallbacks or unmatched:
+        if source_fallbacks or binary_fallbacks or unmatched:
             fallback_dir.mkdir()
             (fallback_dir / "RecoveredBindings.Fallback.asmdef").write_text(
                 json.dumps({"name": "RecoveredBindings.Fallback", "autoReferenced": True}, indent=2)
@@ -351,6 +411,23 @@ def main() -> int:
                     output_source = fallback_dir / "Other" / source.name
                 output_source.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, output_source)
+                shutil.copy2(meta, output_source.with_suffix(".cs.meta"))
+
+            for guid, meta, namespace, name, _assembly in binary_fallbacks:
+                source = meta.with_suffix("")
+                output_source = fallback_dir / "Other" / source.name
+                output_source.parent.mkdir(parents=True, exist_ok=True)
+                code = (
+                    f"public class {csharp_identifier(name)} : "
+                    f"RecoveredBindingBases.ScriptBase_{guid} {{ }}\n"
+                )
+                if namespace:
+                    code = (
+                        f"namespace {csharp_qualified_name(namespace)}\n{{\n"
+                        f"    {code.rstrip()}\n"
+                        "}\n"
+                    )
+                output_source.write_text(code)
                 shutil.copy2(meta, output_source.with_suffix(".cs.meta"))
 
             if unmatched:
@@ -381,6 +458,7 @@ def main() -> int:
             "main_script_bindings": len(selected["Assembly-CSharp"]),
             "firstpass_script_bindings": len(selected["Assembly-CSharp-firstpass"]),
             "fallback_script_count": len(source_fallbacks),
+            "recovered_plugin_script_binding_count": len(binary_fallbacks),
             "unmatched_script_guids": unmatched,
             "synthetic_placeholder_guids": unmatched,
             "missing_cpp2il_types": sorted(set(metadata_missing)),
@@ -390,7 +468,11 @@ def main() -> int:
     manifest_path = assets.parent / "recovered-script-bindings-manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"Generated {manifest['main_script_bindings']} main and {manifest['firstpass_script_bindings']} firstpass script bindings")
-    print(f"Fallback scripts: {manifest['fallback_script_count']}; unmatched GUIDs: {len(unmatched)}")
+    print(
+        f"Fallback source scripts: {manifest['fallback_script_count']}; "
+        f"recovered plugin bindings: {manifest['recovered_plugin_script_binding_count']}; "
+        f"unmatched GUIDs: {len(unmatched)}"
+    )
     print(f"Unity Assets: {assets}")
     print(f"Manifest: {manifest_path}")
     return 0

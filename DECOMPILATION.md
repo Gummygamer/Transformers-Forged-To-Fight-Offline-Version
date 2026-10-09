@@ -102,6 +102,8 @@ against the recovered versions used here, and refuses a non-empty output directo
 local work is not overwritten. The pinned versions are Cpp2IL
 `2022.1.0-development.1743+b5ad444` and AssetRipper GUI Free
 `2.0.0+1ac666f47d8e9dedf96afb0b914c70d7656151ea`.
+If AssetRipper wraps its export in `ExportedProject/`, the recovery script follows that
+directory as the Unity project root.
 
 Cpp2IL reconstructs managed assemblies from IL2CPP metadata and native code without an AI
 agent. Those assemblies can be inspected or decompiled to C# locally with ILSpy. AssetRipper
@@ -178,16 +180,22 @@ managed plugin images before launching Unity.
 
 With the DLL flags restored, UnityLinker completed and IL2CPP reached its `WarmNamingComponent`
 pass, then stopped with a `NullReferenceException` in
-`TypeReferenceEqualityComparer.GetHashCodeFor`. A Mono.Cecil scan found ownerless generic
-parameter references in recovered method bodies. More importantly, source-stage diagnostics
-show that Cpp2IL already places these incorrect type operands in ISIL, before writing any
-assembly: `InterpolatedDelayParameter::.ctor` contains `typeof(T) | 0x3D4C0000`, where `T` is
-owned by the unrelated `BlockingUiAction+<>c__DisplayClass3_0` generic type. The original ARM64
-instructions at the constructor address instead load `0xCCCD` and `0x3D4C0000`, the bit pattern
-for `0.05f`; no type lookup occurs. `MidiSequencer.Process` likewise receives a `typeof(T)`
-operand from `System.Activator.CreateInstance<T>` in a double addition, although its method and
-declaring type are nongeneric. The fix must correct generic/type operand recovery before IL
-emission, rather than only changing the PE writer. The ARM64 IL2CPP build still produces no APK.
+`TypeReferenceEqualityComparer.GetHashCodeFor`. Source-stage diagnostics traced the bad generic
+operands to Cpp2IL's metadata resolver: for metadata v27+, it tried every immediate and absolute
+load address as a possible metadata-usage slot. In `InterpolatedDelayParameter::.ctor(System.Single)`,
+the immediate `0xCCCD` decoded by coincidence as `T`, owned by the unrelated
+`BlockingUiAction+<>c__DisplayClass3_0` generic type. The native `MOVZ`/`MOVK` sequence instead
+forms `0x3D4CCCCD`, the bit pattern for `0.05f`. `MidiSequencer.Process` also received an open
+`T` from `System.Activator.CreateInstance<T>` in a double addition; that generic parameter was
+owned by an unrelated method, not by `MidiSequencer.Process` or its declaring type.
+
+The reproducible source patch now limits candidate metadata slots to pointer-aligned addresses
+and accepts an open generic parameter only when its owner is in the current method/type
+instantiation. The patched builder applies cleanly to the pinned Cpp2IL commit, and a fresh run
+against the exact APK exits successfully, emits 49 assemblies, and reports all 64,447 methods
+decompiled. This is stronger IL-generation evidence, but does not prove semantic equivalence or
+a complete Unity rebuild. The ARM64 Unity build has not yet been rerun with these corrected
+assemblies.
 
 The Mono ARMv7 diagnostic build produced a signed 36 MB APK. `aapt dump badging` and
 `apksigner verify --print-certs` confirmed package id `com.kabam.bigrobot`, version `9.2.0`,
