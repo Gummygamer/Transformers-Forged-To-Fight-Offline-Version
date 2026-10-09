@@ -178,12 +178,16 @@ managed plugin images before launching Unity.
 
 With the DLL flags restored, UnityLinker completed and IL2CPP reached its `WarmNamingComponent`
 pass, then stopped with a `NullReferenceException` in
-`TypeReferenceEqualityComparer.GetHashCodeFor`. A Mono.Cecil scan of the post-link managed
-assemblies found ownerless generic parameter references in recovered method bodies, including
-`ldtoken !!0` in `Fabric.MIDI.MidiSequencer.Process` and `ldtoken !0` in
-`Fabric.InterpolatedDelayParameter` constructors that declare no generic parameters. These
-references are invalid reconstruction output and need correction in the Cpp2IL emission path;
-the ARM64 IL2CPP build still produces no APK.
+`TypeReferenceEqualityComparer.GetHashCodeFor`. A Mono.Cecil scan found ownerless generic
+parameter references in recovered method bodies. More importantly, source-stage diagnostics
+show that Cpp2IL already places these incorrect type operands in ISIL, before writing any
+assembly: `InterpolatedDelayParameter::.ctor` contains `typeof(T) | 0x3D4C0000`, where `T` is
+owned by the unrelated `BlockingUiAction+<>c__DisplayClass3_0` generic type. The original ARM64
+instructions at the constructor address instead load `0xCCCD` and `0x3D4C0000`, the bit pattern
+for `0.05f`; no type lookup occurs. `MidiSequencer.Process` likewise receives a `typeof(T)`
+operand from `System.Activator.CreateInstance<T>` in a double addition, although its method and
+declaring type are nongeneric. The fix must correct generic/type operand recovery before IL
+emission, rather than only changing the PE writer. The ARM64 IL2CPP build still produces no APK.
 
 The Mono ARMv7 diagnostic build produced a signed 36 MB APK. `aapt dump badging` and
 `apksigner verify --print-certs` confirmed package id `com.kabam.bigrobot`, version `9.2.0`,
