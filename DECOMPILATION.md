@@ -10,7 +10,7 @@ There are two client generations in this repository:
 | input | runtime | recovery path |
 | --- | --- | --- |
 | `com.kabam.bigrobot_2.0.2-812553_minAPI19(armeabi-v7a,x86)(nodpi)_apkmirror.com.apk` | Mono | `tools/decompilation.py export` |
-| `Transformers 9.2 offline.apk` | IL2CPP | `Il2CppDumper`, `tools/index_il2cpp_dump.py`, and the Ghidra workflows |
+| `Transformers 9.2 offline.apk` | IL2CPP | `tools/recover_9_2.py`, `tools/index_il2cpp_dump.py`, and the Ghidra workflows |
 
 The Mono path is a complete managed assembly export. It extracts every DLL below
 `assets/bin/Data/Managed/`, records SHA-256 hashes and the decompiler version, writes one
@@ -37,7 +37,9 @@ gets a fresh `build/decompilation/mono-*` directory. Inspect `manifest.json` fir
 open `Recovered.sln` or the individual projects in an IDE. The managed DLLs in the same
 workspace are the exact references used by the generated projects.
 
-The script rejects an IL2CPP APK with a clear message. Use the native path for 9.2:
+The script rejects an IL2CPP APK with a clear message. For the 9.2 native path, use the
+repeatable recovery command below. The lower-level Il2CppDumper recipe remains useful when
+only a type/offset dump is needed:
 
 ```bash
 mkdir -p /tmp/tftf-il2cpp
@@ -50,6 +52,67 @@ python3 tools/index_il2cpp_dump.py /tmp/tftf-il2cpp-out/dump.cs \
   --script-json /tmp/tftf-il2cpp-out/script.json \
   --out build/analysis/9.2-index.json
 ```
+
+## Recreate the 9.2 managed and Unity project outputs
+
+Supply the APK you are entitled to use and local copies of the pinned Cpp2IL build and
+AssetRipper GUI Free. The recovery script installs nothing and stores all generated
+assemblies, extracted files, project assets, logs, and its provenance manifest in the
+chosen output directory. The default is ignored `build/recovery-9.2/`; set it to a
+directory on external storage when space is limited. The script keeps the untouched
+AssetRipper export and creates a second staged copy, so budget several gigabytes for both.
+
+```bash
+python3 tools/recover_9_2.py "/path/to/Transformers 9.2 offline.apk" \
+  --cpp2il /path/to/Cpp2IL \
+  --assetripper /path/to/AssetRipper.GUI.Free \
+  --output build/recovery-9.2
+```
+
+Or set `CPP2IL_BIN` and `ASSETRIPPER_BIN` in the environment and omit those options. The
+script verifies the known APK SHA-256 before processing; for a different 9.2 package,
+verify its package/version yourself and explicitly pass `--allow-unverified-apk`. It
+extracts the matching arm64 IL2CPP library and global metadata, runs Cpp2IL's
+`dll_il_recovery` output, asks AssetRipper to export the Unity project, checks that the
+export has `Assets/` and `ProjectSettings/ProjectVersion.txt`, and records tool/input
+hashes in `recovery-manifest.json`. It checks the Cpp2IL and AssetRipper versions against
+the recovered versions used here, and refuses a non-empty output directory so existing
+local work is not overwritten. The pinned versions are Cpp2IL
+`2022.1.0-development.1743+b5ad444` and AssetRipper GUI Free
+`2.0.0+1ac666f47d8e9dedf96afb0b914c70d7656151ea`.
+
+Cpp2IL reconstructs managed assemblies from IL2CPP metadata and native code without an AI
+agent. Those assemblies can be inspected or decompiled to C# locally with ILSpy. AssetRipper
+recovers Unity assets and project structure, but its generated C# script files are stubs;
+the recovered assemblies are separate inputs that need to be staged as plugin assemblies.
+No reverse-engineering tool currently turns this output into the original authoring sources
+or guarantees a runnable rebuilt 9.2 client. The exact Unity Editor used for this package is
+2020.3.31f1 with Android support.
+
+The recovery script prepares `unity-rebuild/`: it preserves the AssetRipper export, moves
+generated script stubs and their `.meta` files to `RecoveredScripts/`, and stages the 19
+recovered game/plugin assemblies listed in `assembly-set.txt` under `Assets/Plugins/`. This
+is the assembly set used by the successful Unity import in this investigation. Build that
+staged project with the included editor helper:
+
+```bash
+python3 tools/build_recovered_9_2.py build/recovery-9.2/unity-rebuild \
+  --unity /path/to/2020.3.31f1/Editor/Unity \
+  --output-apk build/recovery-9.2/rebuilt-9.2-arm64.apk
+```
+
+The helper sets package id `com.kabam.bigrobot`, version `9.2.0`, ARM64, and IL2CPP, then
+builds the enabled scenes (or `Assets/Scenes/1_boot.unity` if none are enabled). On Linux,
+install Unity 2020.3.31f1 with Android build support and use the editor's configured SDK,
+NDK, and OpenJDK. The recovered Unity project imported successfully with the staged
+assemblies, but an Android player build has not yet been verified. Successful import is the
+current milestone; the original shipped APK's exact behaviour, signing identity, resources,
+and runtime integrations are not guaranteed by this workflow.
+
+The script and this recipe contain no APK, assemblies, native library, game assets, or
+decompiled source. Keep generated material local under ignored `build/` or another
+operator-controlled storage location; do not commit or redistribute those outputs. The
+source-only compliance boundary is described in [`COMPLIANCE.md`](COMPLIANCE.md).
 
 ## Compilation status
 
