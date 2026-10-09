@@ -123,6 +123,20 @@ playable or fully restored. A faithful ARM64 IL2CPP rebuild still needs valid re
 script-to-scene mappings, and a successful UnityLinker pass. The original shipped APK's
 signing identity and runtime integrations are not reproduced.
 
+### Alternative Cpp2IL analysis experiment
+
+The official Cpp2IL `new-analysis` branch was also built locally and run against the
+same matched 9.2 ARM64 library and metadata under its .NET 6 runtime. With its experimental
+IL-to-assembly option, it mapped 89,278 method definitions and reported analysis for
+33,516 methods, with 31,984 successful (95%). It wrote 50 assemblies, including a 9.9 MB
+`Assembly-CSharp.dll`; this is a useful second reconstruction to compare against the
+pinned build, but it is not yet a rebuild input. ILSpy 9.1 emitted 2,191 C# files (about
+15.9 MB) before stopping on an invalid method body in
+`BT.NodeTypeMetadata.CanAddMoreChildren`. The sampled `QuestFlow` state-machine output
+also contains incomplete control flow and placeholder exceptions. The percentage is an
+analysis success metric, not a measure of recovered behavior or source completeness.
+These outputs remain local and are not part of the reproducible pinned workflow.
+
 The script and this recipe contain no APK, assemblies, native library, game assets, or
 decompiled source. Keep generated material local under ignored `build/` or another
 operator-controlled storage location; do not commit or redistribute those outputs. The
