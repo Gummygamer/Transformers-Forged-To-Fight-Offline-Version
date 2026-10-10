@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import gzip
+import hashlib
 import json
 import os
 import re
@@ -11,7 +13,10 @@ import shutil
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+from recovery_environment import check_external_build_storage
 
 
 def is_within(path: Path, parent: Path) -> bool:
@@ -60,6 +65,30 @@ def mark_managed_plugins_as_dll(project: Path) -> int:
             image.write(struct.pack("<H", characteristics | 0x2000))
             patched += 1
     return patched
+
+
+def managed_build_fingerprint(project: Path, build_configuration: dict[str, object]) -> str:
+    """Fingerprint IL2CPP inputs so failed, unchanged compiler runs can be skipped."""
+    digest = hashlib.sha256()
+    inputs = [
+        project / "ProjectSettings/ProjectVersion.txt",
+        project / "Packages/manifest.json",
+        project / "Assets/Editor/RebuildRecoveredAndroid.cs",
+        Path(__file__).resolve().with_name("RepairRecoveredConstructor.cs"),
+        Path(__file__).resolve().with_name("repair_recovered_9_2_import.py"),
+    ]
+    inputs.extend(sorted(Path(__file__).resolve().parent.joinpath("recovery_sources").glob("*.cs")))
+    inputs.extend(sorted((project / "Assets/Plugins").glob("*.dll")))
+    digest.update(json.dumps(build_configuration, sort_keys=True).encode("utf-8"))
+    for path in inputs:
+        if not path.is_file():
+            continue
+        digest.update(path.relative_to(project).as_posix().encode("utf-8")
+                      if is_within(path, project) else path.name.encode("utf-8"))
+        with path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+    return digest.hexdigest()
 
 
 def remove_empty_missing_script_components(project: Path) -> tuple[int, int]:
@@ -144,6 +173,27 @@ def ensure_unity_ui_package(project: Path) -> bool:
     return True
 
 
+def legacy_runtime_is_compatible(library_dir: Path, inherited_library_path: str) -> tuple[bool, str]:
+    """Check whether Unity's optional bundled native libraries fit this host runtime."""
+    libxml = library_dir / "libxml2.so.2"
+    if not libxml.is_file() or shutil.which("ldd") is None:
+        return False, "libxml2 or ldd is unavailable"
+
+    probe_env = os.environ.copy()
+    probe_env["LD_LIBRARY_PATH"] = os.pathsep.join(
+        path for path in (str(library_dir), inherited_library_path) if path
+    )
+    probe = subprocess.run(
+        ["ldd", "-v", str(libxml)], env=probe_env, capture_output=True, text=True, check=False
+    )
+    diagnostics = (probe.stdout or "") + (probe.stderr or "")
+    if probe.returncode != 0 or re.search(r"\bnot found\b", diagnostics, re.IGNORECASE):
+        detail = next((line.strip() for line in diagnostics.splitlines()
+                       if "not found" in line.lower()), "dependency inspection failed")
+        return False, detail
+    return True, ""
+
+
 def disable_empty_plugin_shadow_asmdefs(project: Path) -> int:
     """Keep empty AssetRipper asmdef placeholders from shadowing shipped plugin DLLs."""
     plugins = project / "Assets/Plugins"
@@ -182,6 +232,10 @@ def main() -> int:
     parser.add_argument("--output-apk", type=Path, required=True, help="local output APK path")
     parser.add_argument("--log", type=Path, help="Unity log path (defaults beside the APK)")
     parser.add_argument(
+        "--compress-log", action="store_true",
+        help="gzip the Unity log after the repair queue is summarized (keeps diagnostic history compact)",
+    )
+    parser.add_argument(
         "--repair-diagnostics", type=Path,
         help="prior Unity log used to repair diagnosed malformed import callbacks",
     )
@@ -200,6 +254,14 @@ def main() -> int:
     parser.add_argument(
         "--allow-upgraded-project", action="store_true",
         help="allow a recovered 2020.3.31f1 project previously upgraded by a newer Unity Editor",
+    )
+    parser.add_argument(
+        "--repeat-unchanged", action="store_true",
+        help="run Unity again even when the same managed inputs already produced an IL2CPP failure",
+    )
+    parser.add_argument(
+        "--legacy-runtime", choices=("auto", "always", "never"), default="auto",
+        help="use Unity's optional legacy native-library directory (default: only when host-compatible)",
     )
     args = parser.parse_args()
 
@@ -222,6 +284,13 @@ def main() -> int:
     if output.exists():
         parser.error(f"refusing to overwrite existing APK: {output}")
 
+    try:
+        check_external_build_storage(Path(__file__).resolve().parent.parent)
+    except RuntimeError as error:
+        parser.error(str(error))
+
+    cycle_started = time.monotonic()
+    cycle_storage_before = shutil.disk_usage(project)
     try:
         scriptable_converter = Path(__file__).resolve().with_name(
             "convert_9_2_scriptable_prefabs.py"
@@ -253,7 +322,26 @@ def main() -> int:
     repair_command = [sys.executable, str(repair), str(project), "--unity", str(unity)]
     if args.repair_diagnostics:
         repair_command.extend(("--diagnostics", str(args.repair_diagnostics.expanduser().resolve())))
-    subprocess.run(repair_command, check=True)
+    prepare_log = output.with_suffix(".prepare.log")
+    repair_result = subprocess.run(repair_command, capture_output=True, text=True, check=False)
+    prepare_output = repair_result.stdout + repair_result.stderr
+    prepare_log.write_text(prepare_output)
+    if repair_result.returncode:
+        print(
+            f"Recovery preflight failed with status {repair_result.returncode}; "
+            f"last repair output is in {prepare_log}:",
+            file=sys.stderr,
+        )
+        print("\n".join(prepare_output.splitlines()[-60:]), file=sys.stderr)
+        return repair_result.returncode
+    repair_actions = sum(
+        line.startswith(("reconstructed ", "repaired ", "restored ", "sanitized "))
+        for line in prepare_output.splitlines()
+    )
+    print(
+        f"Recovery preflight: {repair_actions} repair actions in "
+        f"{len(prepare_output.splitlines())} output lines; transcript {prepare_log}"
+    )
     try:
         marked_plugins = mark_managed_plugins_as_dll(project)
     except (OSError, ValueError, struct.error) as error:
@@ -267,6 +355,50 @@ def main() -> int:
     shutil.copyfile(helper, editor_dir / helper.name)
     output.parent.mkdir(parents=True, exist_ok=True)
     log.parent.mkdir(parents=True, exist_ok=True)
+    build_configuration = {
+        "unity": str(unity),
+        "backend": args.backend,
+        "architecture": args.architecture,
+        "graphics": args.graphics,
+    }
+    input_fingerprint = managed_build_fingerprint(project, build_configuration)
+    failed_input_record = output.parent / f".{project.name}.last-failed-il2cpp-inputs.json"
+    if failed_input_record.is_file() and not args.repeat_unchanged:
+        try:
+            previous_failure = json.loads(failed_input_record.read_text())
+        except (OSError, json.JSONDecodeError):
+            previous_failure = {}
+        if (previous_failure.get("fingerprint") == input_fingerprint and
+                int(previous_failure.get("repair_queue_items", 0)) > 0):
+            skipped_seconds = time.monotonic() - cycle_started
+            skipped_storage_after = shutil.disk_usage(project)
+            free_delta = skipped_storage_after.free - cycle_storage_before.free
+            skip_report = Path(str(log) + ".skip.cycle.json")
+            skip_report.write_text(json.dumps({
+                "unity": str(unity),
+                "project": str(project),
+                "backend": args.backend,
+                "architecture": args.architecture,
+                "preflight_seconds": round(skipped_seconds, 2),
+                "unity_seconds": 0,
+                "skipped_unchanged_inputs": True,
+                "previous_repair_queue_items": int(previous_failure["repair_queue_items"]),
+                "external_free_before_bytes": cycle_storage_before.free,
+                "external_free_after_bytes": skipped_storage_after.free,
+                "net_free_space_delta_bytes": free_delta,
+            }, indent=2) + "\n")
+            print(
+                "Unity build skipped: these managed inputs already failed IL2CPP with "
+                f"{previous_failure['repair_queue_items']} unique queue item(s). "
+                "Change the managed inputs or pass --repeat-unchanged to probe intermittency."
+            )
+            print(f"Previous failure log: {previous_failure.get('log', 'unknown')}")
+            print(
+                f"Skip cost: preflight {skipped_seconds:.1f} s; Unity 0 s; "
+                f"external free-space delta {free_delta / 1024**2:+.2f} MiB"
+            )
+            print(f"Cycle metadata: {skip_report}")
+            return 1
     password = "local-rebuild-only"
     if keystore.exists():
         keycheck = subprocess.run(
@@ -308,15 +440,20 @@ def main() -> int:
         for parent in unity.parents
         if (parent / "legacy-runtime/usr/lib/x86_64-linux-gnu/libxml2.so.2").is_file()
     ), None)
-    if legacy_runtime_libraries is not None:
+    if legacy_runtime_libraries is not None and args.legacy_runtime != "never":
         inherited_library_path = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = os.pathsep.join(
-            path for path in (str(legacy_runtime_libraries), inherited_library_path) if path
+        compatible, reason = legacy_runtime_is_compatible(
+            legacy_runtime_libraries, inherited_library_path
         )
-        # The Unity editor's bundled compatibility tree has ICU 74, while the
-        # host's CoreCLR/Roslyn expects the system ICU 78. The launcher needs
-        # this tree for libxml2, but child CoreCLR tools can run invariantly.
-        env.setdefault("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1")
+        if compatible or args.legacy_runtime == "always":
+            env["LD_LIBRARY_PATH"] = os.pathsep.join(
+                path for path in (str(legacy_runtime_libraries), inherited_library_path) if path
+            )
+            # Unity's bundled compatibility tree may carry a different ICU from
+            # the host; child .NET tools can use invariant globalization.
+            env.setdefault("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT", "1")
+        elif args.legacy_runtime == "auto":
+            print(f"Skipping incompatible Unity legacy runtime: {reason}")
     env["RECOVERED_ANDROID_APK"] = str(output)
     env["RECOVERED_SCRIPTING_BACKEND"] = args.backend
     env["RECOVERED_ANDROID_ARCH"] = args.architecture
@@ -330,17 +467,86 @@ def main() -> int:
     ]
     if not args.graphics:
         command.insert(2, "-nographics")
+    # Capture the cost of the expensive phase without another project copy.
+    unity_started = time.monotonic()
+    preflight_seconds = unity_started - cycle_started
+    storage_before = shutil.disk_usage(project)
     try:
         result = subprocess.run(command, env=env, check=False)
     finally:
         project_keystore.unlink(missing_ok=True)
+    unity_seconds = time.monotonic() - unity_started
     repair_queue = log.with_suffix(log.suffix + ".repair-queue.md")
     queue_builder = Path(__file__).resolve().with_name("summarize_unity_repair_queue.py")
-    subprocess.run(
-        [sys.executable, str(queue_builder), str(log), "--output", str(repair_queue)],
-        check=True,
+    if log.is_file():
+        queue_result = subprocess.run(
+            [sys.executable, str(queue_builder), str(log), "--output", str(repair_queue)],
+            check=False,
+        )
+        if queue_result.returncode == 0:
+            print(f"Unity repair queue: {repair_queue}")
+        else:
+            print(f"Could not summarize Unity repair queue; inspect {log}", file=sys.stderr)
+    else:
+        print(f"Unity exited before creating its log: {log}", file=sys.stderr)
+    raw_log_bytes = log.stat().st_size if log.is_file() else 0
+    if args.compress_log and log.is_file():
+        compressed_log = log.with_suffix(log.suffix + ".gz")
+        try:
+            with log.open("rb") as source, gzip.open(compressed_log, "wb", compresslevel=6) as destination:
+                shutil.copyfileobj(source, destination)
+            log.unlink()
+            log = compressed_log
+            print(f"Compressed Unity log: {log}")
+        except OSError as error:
+            compressed_log.unlink(missing_ok=True)
+            print(f"Could not compress Unity log; original retained at {log}: {error}", file=sys.stderr)
+    storage_after = shutil.disk_usage(project)
+    queue_items = 0
+    if repair_queue.is_file():
+        queue_items = sum(
+            line.startswith("- **")
+            for line in repair_queue.read_text(errors="replace").splitlines()
+        )
+    retained_log_bytes = log.stat().st_size if log.is_file() else 0
+    cycle_report = log.with_suffix(log.suffix + ".cycle.json")
+    cycle_report.write_text(json.dumps({
+        "unity": str(unity),
+        "project": str(project),
+        "backend": args.backend,
+        "architecture": args.architecture,
+        "preflight_seconds": round(preflight_seconds, 2),
+        "unity_seconds": round(unity_seconds, 2),
+        "result_code": result.returncode,
+        "raw_log_bytes": raw_log_bytes,
+        "retained_log_bytes": retained_log_bytes,
+        "repair_queue_items": queue_items,
+        "external_free_before_bytes": storage_before.free,
+        "external_free_after_bytes": storage_after.free,
+        "net_free_space_delta_bytes": storage_after.free - storage_before.free,
+        "apk_bytes": output.stat().st_size if output.is_file() else 0,
+    }, indent=2) + "\n")
+    if result.returncode and queue_items:
+        failed_input_record.write_text(json.dumps({
+            "fingerprint": input_fingerprint,
+            "repair_queue_items": queue_items,
+            "result_code": result.returncode,
+            "log": str(log),
+        }, indent=2) + "\n")
+    elif output.is_file():
+        failed_input_record.unlink(missing_ok=True)
+    free_delta = storage_after.free - storage_before.free
+    if abs(free_delta) < 1024**3:
+        free_delta_label = f"{free_delta / 1024**2:+.2f} MiB"
+    else:
+        free_delta_label = f"{free_delta / 1024**3:+.2f} GiB"
+    print(
+        f"Cycle cost: preflight {preflight_seconds:.1f} s; Unity {unity_seconds / 60:.1f} min; "
+        f"log {raw_log_bytes / 1024**2:.1f} MiB → {retained_log_bytes / 1024**2:.2f} MiB; "
+        f"queue {queue_items} unique item(s); "
+        f"net free-space change {free_delta_label}"
     )
-    print(f"Unity repair queue: {repair_queue}")
+    print(f"Cycle metadata: {cycle_report}")
     if result.returncode:
         print(f"Unity exited with status {result.returncode}; inspect {log}", file=sys.stderr)
         return result.returncode

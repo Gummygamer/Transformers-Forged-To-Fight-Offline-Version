@@ -24,9 +24,39 @@ placeholders and are explicitly reported in the generated manifest.
 The Unity import-repair script applies newly authored Mono.Cecil rewrites to diagnosed,
 malformed methods in those local generated assemblies. It stores the identifiers needed to
 locate affected types and fields, short tag labels and RVA-data field names needed to rebuild
-standard constructor state, and hand-authored repair logic; it does not embed APK data, assets,
+standard constructor state, and newly authored AI-assisted repair logic; it does not embed APK data, assets,
 or recovered method bodies. Repairs whose original mapping values are unrecoverable are
 documented as empty-cache fallbacks, and the generated patched assemblies remain local.
+For five ARM64-invalid methods, the repair workflow now starts from a short, human-readable
+C#-equivalent reconstruction and verifies field types and values against retained constructor
+IL and local 9.2 native trace evidence before emitting replacement IL. The
+`EBRBSimulationChunk` constructor preserves its zero-initialized vector state and two `-1`
+mapping sentinels; `TrailConfig` preserves the traced scalar defaults, two width-curve keyframes,
+and white color; `MoveSequencer` restores the 64-entry event pool, three priorities, and both
+capacity tables (`[32,16,8]` and `[8,2,2]`) from the native trace and preserved RVA data;
+`DynamicScrollView` restores its item pool, enabled defaults, zero offsets, and two caches from
+the native field offsets and constructor call trace; `HeroPortrait` restores its colors, overlay
+map, border dimensions, and other traced constructor defaults. Earlier-version method behavior
+is used only as a cross-check where identified in the tool; no earlier-version method body is
+copied. These C#-equivalent reconstructions are versionable repair/tool source, not standalone
+replacement game source or a complete project rebuild path. The C# Cecil repair implementation
+is kept in `tools/RepairRecoveredConstructor.cs`; the Python entry point only prepares its input
+plan, compiles it, and applies it to local assemblies. This authored repair source is directly
+buildable as a tool, while the decompiler-generated C# and base assemblies remain local. Do not
+check in initial Ghidra/Rosetta output; if local decompiler C# needs source-level edits, version
+only narrow authored patch files against that external base.
+
+AI-assisted source is labeled as such. Its presence does not by itself establish that every
+portion is copyrightable or that the repository owner holds exclusive copyright in it. Human
+review, selection, technical reconstruction, and edits should be preserved in the normal Git
+history; do not describe AI-generated portions as wholly human-authored. The U.S. Copyright
+Office treats copyrightability of AI-assisted work as dependent on human-authored expressive
+contributions, such as sufficiently creative selection, arrangement, or modification; this
+project note is not a legal opinion and does not resolve other jurisdictions. See the
+[Copyright Office's Part 2 report](https://www.copyright.gov/ai/Copyright-and-Artificial-Intelligence-Part-2-Copyrightability-Report.pdf).
+
+The checked-in tool contains only these newly authored semantic rewrites and field identifiers,
+not the recovered method bodies or assets; repaired assemblies remain in ignored local staging.
 It also restores missing P/Invoke linkage metadata for the APK-signature, bug-report, ENet,
 Google Play Games, Firebase, and Krash wrappers. Module names are corroborated by a prior local
 recovered import table, the native-library names in the operator-supplied 9.2 APK, and the
@@ -721,3 +751,114 @@ APK to ignored or operator-selected storage. They do not download or commit gene
 content or alter the server's authored data. The documentation records the missing script
 and invalid IL limitations observed during the local build. No APK, asset, binary, captured
 audiovisual content, credential, or recovered server dataset is committed.
+
+## 2026-10-10 — recovered SharpZipLib IL2CPP compatibility fallback
+
+The local import repair may replace the malformed Cpp2IL body of
+`DeflaterOutputStream.InitializeAESPassword` with an authored fallback that clears its two
+byte-array output parameters. It applies only when the expected 0.86.0.518 method signature
+and Cpp2IL debug-artifact markers are present. The original generated assembly remains
+untouched under the ignored recovery directory; the fallback source contains no recovered
+method body. AES-encrypted SharpZipLib ZIP entries are unsupported in APKs built with this
+fallback. No APK, assembly, asset, or game-authored content is committed.
+
+When a Unity 2020 IL2CPP log rejects a recovered method body, the import repair can match
+that diagnostic by assembly, declaring type, method name, parameter count, and full signature,
+then replace only that method body with an authored `NotSupportedException` stub. The generated
+repair manifest records the affected methods. This preserves their API metadata but does not
+reconstruct their behavior; a runtime call to one of them will fail explicitly. Constructors
+and bodyless methods are excluded from this fallback.
+
+## 2026-10-10 — UIBasicSprite constructor reconstruction
+
+The local import repair reconstructs the malformed parameterless `UIBasicSprite`
+constructor as a hand-authored IL body: call the verified `UIWidget` base constructor,
+set `topType` to the recovered `AdvancedType.Sliced` value, and return. The Cpp2IL
+body contained dead native-pointer scratch operations and invalid native-int stack
+types; no game method body or asset is copied into the repository. The rewrite applies
+only to the local generated `Assembly-CSharp-firstpass.dll` and validates the target
+base type, field name, and field type before changing it.
+
+## 2026-10-10 — packed color interpolation repair
+
+The local Cpp2IL output for `EB.Math.Color.Lerp` contains unsupported ARM64 SIMD
+instructions and invalid stack types. The versioned Cecil tool now reconstructs the
+operation from the recovered packed RGBA field layout and the existing per-channel
+integer interpolation helper. It writes only to the ignored generated
+`Assembly-CSharp-firstpass.dll`, validates the target method and field signatures, and
+contains no decompiled method block, APK bytes, or game assets.
+
+The same Cecil repair also reconstructs `EB.Math.Color.Equals(Color)`, `op_Equality`,
+and `op_Inequality` as packed-`UInt32` comparisons. This is an algorithmic rewrite from
+the verified type layout and native comparison trace; it does not copy recovered method
+text.
+
+The color batch now also rebuilds non-premultiplied RGBA conversion, scalar channel
+multiplication, and normalized `Vector3`/`Vector4` conversions from the 9.2 native traces.
+It keeps the recovered packed field and existing constructor/helper signatures; no method
+body text is copied.
+
+The geometry batch reconstructs the `BoundingBox.Contains` point/box overloads from the
+9.2 native comparison traces, plus the value-returning wrappers. It also reconstructs
+`CameraData.Lerp` from the 9.2 native field layout and calls to the retained matrix and
+Unity interpolation routines. These are new Cecil instruction sequences, not copied
+method bodies or assets.
+
+The follow-up geometry batch reconstructs `BoundingSphere.Contains` for points and spheres,
+and `BoundingSphere.Intersects` for spheres and planes. It uses the traced enum outcomes,
+center-distance calculations, and plane signed-distance comparisons.
+
+`EB.Cache.PurgeCache(TimeSpan)` is rebuilt from the 9.2 native file-age sweep: it reads the
+cache folder, compares each file's UTC age with the supplied shelf life, deletes expired
+files, and retains the trace's `DiskCache`-gated failure logging. It does not copy decompiled
+method text.
+
+`EB.BitStream.Serialize(ref byte[])` is reconstructed from its native 9.2 trace. The rebuilt
+method reads/writes the inline byte-length or `0xFF` plus little-endian 16-bit length prefix,
+uses the retained `EB.Buffer` methods, and copies read data from the traced `ArraySegment<byte>`
+into the by-reference output array. It retains the native 65,535-byte rejection and exception
+message; the output is newly authored IL rather than copied decompiled text.
+
+`EB.BitStream.Serialize(ref EB.Buffer)` is reconstructed independently from its native 9.2
+trace. It uses the same inline/extended length prefix, constructs a `Buffer` over the traced
+`ArraySegment<byte>` when reading, and delegates payload writes to `EB.Buffer.WriteBuffer`.
+The 65,535-byte rejection is retained; this is newly authored IL, not copied method text.
+
+`EB.BitStream.Serialize(ref string)` is reconstructed from the native 9.2 branch trace: it
+assigns `EB.Buffer.ReadString()` through the by-reference parameter when reading and passes the
+referenced string to `EB.Buffer.WriteString()` when writing. The serializer does not add framing
+or transformation beyond those traced calls; this is newly authored IL.
+
+`EB.Rendering.BeamRenderer.FloatEvlautation` is reconstructed from its native 9.2 ARM64 trace.
+It returns the cached `List<float>` item after evaluations have been added; before then it
+evaluates the supplied `AnimationCurve`, appends that value to the storage list, and returns it.
+The replacement is newly authored IL based on the trace, not copied source text.
+
+`EB.Rendering.BeamRenderer.Update` is reconstructed from its native 9.2 ARM64 trace. It applies
+the Unity-object endpoint checks, records the elapsed time and endpoint transform positions,
+performs the startup-duration interpolation, and calls `UpdateMesh` only while looping or before
+the configured duration expires. The replacement is newly authored from the native field and
+call flow; the older 2.0.2 method is not used as source text.
+
+`Crash.DoAnim` is reconstructed from its native 9.2 ARM64 trace. It stops when the transform
+compares equal to null, computes the elapsed damping factor, applies a per-axis random offset
+within the shrinking magnitude, and writes the resulting local position when the transform is
+present. The method is newly authored IL, not copied decompiled method text.
+
+`EB.Base.BaseAPI.PlaceEntity` is reconstructed from its native 9.2 ARM64 trace. The replacement
+builds the observed seven-argument `/base/place/{0}/{1}/{2}/{3}/{4}/{5}/{6}` route, including the
+socket coordinate integer sentinel, then calls the retained `Post` and `Service` methods with
+the 9.2 `Action<string, IDictionary>` callback type. The earlier 2.0.2 behavior was used only as
+a field/order cross-check; its method body was not copied.
+
+`EB.UI.DataBinding.CopyMemberBinding.EnsureTypeMatches` is reconstructed from the native 9.2
+assignability, nullable-value, string-default, and `Activator.CreateInstance` paths. Its exception
+handler retains the observed `EB.Debug.LogError` reporting behavior. The 2.0.2 implementation was
+used only to cross-check the branch intent; no decompiled method body is copied.
+
+The story-panel constructor repairs and `AlignUIElements.GetObjectBounds` use newly authored
+control flow and IL based on the retained 9.2 native traces and recovered type metadata. The
+`SocialHubTrayButton` constructor similarly uses newly authored vector initializers whose fields
+and constants were checked against its 9.2 ARM64 field writes. These changes contain no APK
+bytes, assets, or copied game method bodies; repaired assemblies and trace dumps remain in ignored
+local recovery storage.

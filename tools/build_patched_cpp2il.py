@@ -12,10 +12,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from recovery_environment import check_external_build_storage
+
 
 CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
 PATCH_PATH = Path(__file__).resolve().parent / "patches/cpp2il-b5ad444-recovery.patch"
-PATCH_SHA256 = "5b656b5437a4de2d6e5608531ff51d078865df74c5ecabe42a03708ad45282f5"
+PATCH_SHA256 = "4b84ec9fe3d0662bdc07d34d6e80af512da1870668df719c5116d0f1cf2f8565"
 
 
 def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
@@ -57,6 +59,11 @@ def main() -> int:
     actual_sha256 = hashlib.sha256(PATCH_PATH.read_bytes()).hexdigest()
     if actual_sha256 != PATCH_SHA256:
         parser.error(f"Cpp2IL patch SHA-256 is {actual_sha256}, expected {PATCH_SHA256}")
+
+    try:
+        check_external_build_storage(Path(__file__).resolve().parent.parent)
+    except RuntimeError as error:
+        parser.error(str(error))
 
     head = output_of("git", "rev-parse", "HEAD", cwd=source)
     if head != CPP2IL_COMMIT:

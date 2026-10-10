@@ -19,6 +19,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from recovery_environment import check_external_build_storage
+
 
 APK_SHA256 = "68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9"
 CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
@@ -55,9 +57,29 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def tool_launch(executable: Path) -> tuple[list[str], dict[str, str]]:
+    """Launch a packaged .NET apphost with the SDK recorded in its build manifest."""
+    env = os.environ.copy()
+    managed_assembly = executable.with_suffix(".dll")
+    manifest = executable.parent.parent / "manifest.json"
+    if managed_assembly.is_file() and manifest.is_file():
+        try:
+            details = json.loads(manifest.read_text())
+            build_command = details.get("build_command", [])
+            dotnet = Path(build_command[0]).expanduser() if build_command else None
+        except (OSError, json.JSONDecodeError, IndexError, TypeError):
+            dotnet = None
+        if dotnet is not None and dotnet.is_file():
+            dotnet = dotnet.resolve()
+            env["DOTNET_ROOT"] = str(dotnet.parent)
+            return [str(dotnet), str(managed_assembly)], env
+    return [str(executable)], env
+
+
 def run_version(executable: Path, *args: str) -> str:
+    command, env = tool_launch(executable)
     result = subprocess.run(
-        [str(executable), *args], capture_output=True, text=True, check=False
+        [*command, *args], capture_output=True, text=True, check=False, env=env
     )
     return (result.stdout + result.stderr).strip()
 
@@ -165,6 +187,11 @@ def main() -> int:
     if output.exists() and any(output.iterdir()):
         parser.error(f"output directory must be empty or absent: {output}")
 
+    try:
+        check_external_build_storage(Path(__file__).resolve().parent.parent)
+    except RuntimeError as error:
+        parser.error(str(error))
+
     input_hash = sha256(apk)
     if input_hash != APK_SHA256 and not args.allow_unverified_apk:
         parser.error(
@@ -172,6 +199,7 @@ def main() -> int:
             "use --allow-unverified-apk only after checking its package/version"
         )
 
+    cpp2il_command, cpp2il_env = tool_launch(cpp2il)
     output.mkdir(parents=True, exist_ok=True)
     native_dir = output / "apk-native"
     native_dir.mkdir()
@@ -192,12 +220,13 @@ def main() -> int:
     cpp2il_out = output / "cpp2il"
     cpp2il_result = subprocess.run(
         [
-            str(cpp2il), f"--game-path={apk}",
+            *cpp2il_command, f"--game-path={apk}",
             f"--force-binary-path={native_dir / 'libil2cpp.so'}",
             f"--force-metadata-path={native_dir / 'global-metadata.dat'}",
             f"--force-unity-version={UNITY_VERSION}",
             "--output-as", "dll_il_recovery", "--output-to", str(cpp2il_out),
         ],
+        env=cpp2il_env,
         check=False,
     )
     if cpp2il_result.returncode:

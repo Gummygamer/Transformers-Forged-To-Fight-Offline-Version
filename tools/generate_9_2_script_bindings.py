@@ -379,16 +379,13 @@ def main() -> int:
                 group_index = relative.parts.index(group)
                 output_dir = group_dir / Path(*relative.parts[group_index + 1 : -1])
                 output_dir.mkdir(parents=True, exist_ok=True)
+                binding_namespace = f"RecoveredBindings.Generated.Guid_{guid}"
                 code = (
-                    f"public class {csharp_identifier(name)} : "
+                    f"namespace {binding_namespace}\n{{\n"
+                    f"    public class {csharp_identifier(name)} : "
                     f"RecoveredBindingBases.ScriptBase_{guid} {{ }}\n"
+                    "}\n"
                 )
-                if namespace:
-                    code = (
-                        f"namespace {csharp_qualified_name(namespace)}\n{{\n"
-                        f"    {code.rstrip()}\n"
-                        "}\n"
-                    )
                 output_source = output_dir / (name + ".cs")
                 output_source.write_text(code)
                 shutil.copy2(meta, output_source.with_suffix(".cs.meta"))
@@ -417,16 +414,13 @@ def main() -> int:
                 source = meta.with_suffix("")
                 output_source = fallback_dir / "Other" / source.name
                 output_source.parent.mkdir(parents=True, exist_ok=True)
+                binding_namespace = f"RecoveredBindings.Generated.Guid_{guid}"
                 code = (
-                    f"public class {csharp_identifier(name)} : "
+                    f"namespace {binding_namespace}\n{{\n"
+                    f"    public class {csharp_identifier(name)} : "
                     f"RecoveredBindingBases.ScriptBase_{guid} {{ }}\n"
+                    "}\n"
                 )
-                if namespace:
-                    code = (
-                        f"namespace {csharp_qualified_name(namespace)}\n{{\n"
-                        f"    {code.rstrip()}\n"
-                        "}\n"
-                    )
                 output_source.write_text(code)
                 shutil.copy2(meta, output_source.with_suffix(".cs.meta"))
 
