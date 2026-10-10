@@ -590,3 +590,40 @@ playable progress is still zero: there is no clean-source Unity build or runtime
 rough 3–8 focused-week estimate for the first playable story build is low confidence; the next
 clean-source Unity checkpoint will establish a useful repair queue and either tighten or widen it.
 Continue to use memory/storage guards and avoid repeating same-input builds without new fixes.
+
+## v32: confirmed-source Unity checkpoint and offline-story path
+
+Ran the first confirmed-source ARM64/IL2CPP Unity 2020.3.31f1 checkpoint after script binding
+generation and the passing import preflight. The warm-cache run imported about 15,085 assets and
+Unity exited with SIGSEGV (`-11`) after 863 seconds; it produced no APK. The cycle record reports
+peak process-tree RSS 2.13 GiB, minimum host-available memory 15.1 GiB, and 1.29 GiB net storage
+use. Memory pressure is not supported as the cause of this failure. The failed run's cache is
+retained for an evidence-backed retry; do not rerun this exact input without repairs.
+
+The generated repair queue contains eleven observations: repeated `EB.Collections.Pool<T>` and
+`EB.MoveEditor.MoveSequencer` initialization failures, five invalid-IL methods, one missing Unity
+Color conversion in a recovered binding base, and the terminal Unity crash. The queue groups
+observed failures; it does not establish which one caused the native crash. There is no core dump
+or native stack: the process had core dumps disabled (`ulimit -c 0`). REA's managed parser did
+complete on the staged `Assembly-CSharp-firstpass.dll` (Evidence
+`ev_25cdde6ac67e7ec6a8922935bacd88587515d1a08ceb5c741ff81410d8487329`); the `Pool<T>` constructor
+has a present 181-instruction / 662-byte body. That is structural CIL evidence only, not execution
+validation. The REA transport exceeded its 10 MiB inline limit, so its full retained session
+bundle (467 MB) was streamed for the needed method anchors and then removed; no evidence export is
+kept in the repository.
+
+The existing offline backend and authored story data remain the route for a playable build. The
+project already documents a fake Sparx server and in-APK server; the 32-bit path has a prior live
+STORY 1.1.1 test. A pristine Kabam APK is only the source client and still expects Kabam services.
+The confirmed-source rebuild has not yet been connected to the offline server or runtime-tested,
+and generated ARM64 IL2CPP output may need a new integration/patch path. Do not rewrite existing
+server behavior or authored data while resolving the clean rebuild gate.
+
+Progress rate remains split by milestone: source verification, 64,447-method recovery and managed
+preflight are complete, while clean ARM64 APK production and story runtime validation are both at
+zero. The 14-minute Unity checkpoint advances the failure map but did not advance playable output.
+Given the existing server/story work and the unresolved Unity crash plus ARM64 integration, the
+current estimate is 2–6 focused weeks to a first playable story path on the rebuilt client (low
+confidence), and longer for broad campaign/progression coverage. The next useful step is to use
+the existing REA CIL and source evidence to repair the queued methods as one validated batch, then
+retry Unity against the retained cache under the same memory and disk guards.
