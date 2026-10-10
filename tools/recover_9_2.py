@@ -25,10 +25,17 @@ from recovery_environment import check_external_build_storage
 # This exact 9.2 APK was inspected and found to be debug-signed and offline-patched.
 # It is retained as a denylist identity, never as an accepted pristine source hash.
 KNOWN_OFFLINE_PATCHED_APK_SHA256 = "68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9"
+# Full Kabam-signed 9.2.0 APK supplied in the project root. This is the
+# preferred source; its v1/v2/v3 signatures and Google Source Stamp verify.
+KNOWN_CONFIRMED_CLEAN_9_2_APK_SHA256 = "77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb"
 # This exact APK was reconstructed from the 9.2 package payload and retains the
 # original EBG JAR content signature. Its Android v2/v3 signing block was
 # stripped, so it is an extraction source, not a directly installable APK.
 KNOWN_CLEAN_9_2_APK_SHA256 = "cae78579898a002b65b766d816584331972de79ed6183d7c7e9c943fc4403406"
+KNOWN_CLEAN_9_2_APK_SHA256S = {
+    KNOWN_CLEAN_9_2_APK_SHA256,
+    KNOWN_CONFIRMED_CLEAN_9_2_APK_SHA256,
+}
 KNOWN_CLEAN_9_2_SIGNER_SHA256 = "A8213D062F720775260A2F96E01AE5AD279AFEDFA4D63050EB815149F369C521"
 KNOWN_CLEAN_9_2_LIBIL2CPP_SHA256 = "575aa973ed8fd54e79c70abdaed5b5a3b013e8e3ec68e0fa64e98f6bdfba9b8a"
 KNOWN_CLEAN_9_2_METADATA_SHA256 = "636458c3bd9319d1b9112077c2396fabcfef9d60f3f5f7ebb350b27e1a47ade7"
@@ -72,7 +79,57 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_known_clean_signature(apk: Path) -> dict[str, str | bool]:
+def find_apksigner() -> str | None:
+    configured = shutil.which("apksigner")
+    if configured:
+        return configured
+    sdk_roots = [os.environ.get("ANDROID_SDK_ROOT"), os.environ.get("ANDROID_HOME"),
+                 str(Path.home() / "Android" / "Sdk")]
+    candidates = []
+    for sdk_root in filter(None, sdk_roots):
+        candidates.extend((Path(sdk_root) / "build-tools").glob("*/apksigner"))
+    if not candidates:
+        return None
+    def version_key(path: Path) -> tuple[int, ...]:
+        try:
+            return tuple(int(part) for part in path.parent.name.split(".") if part.isdigit())
+        except ValueError:
+            return (0,)
+    return str(max(candidates, key=version_key))
+
+
+def verify_known_clean_signature(apk: Path, input_hash: str) -> dict[str, str | bool]:
+    if input_hash.lower() == KNOWN_CONFIRMED_CLEAN_9_2_APK_SHA256:
+        apksigner = find_apksigner()
+        if not apksigner:
+            raise RuntimeError("apksigner is required to verify the confirmed clean 9.2 APK")
+        signature = subprocess.run(
+            [apksigner, "verify", "--verbose", "--print-certs", str(apk)],
+            capture_output=True, text=True, check=False,
+        )
+        output = signature.stdout + signature.stderr
+        if signature.returncode:
+            raise RuntimeError("confirmed clean APK Android signature verification failed")
+        verified_lines = output.splitlines()
+        required_schemes = ("v1", "v2", "v3")
+        if any(not any(
+            line.startswith(f"Verified using {scheme} scheme") and line.endswith(": true")
+            for line in verified_lines
+        ) for scheme in required_schemes):
+            raise RuntimeError("confirmed clean APK is missing an expected v1/v2/v3 signature")
+        fingerprints = [
+            line.split(":", 1)[1].replace(":", "").replace(" ", "").upper()
+            for line in output.splitlines()
+            if "certificate SHA-256 digest:" in line
+        ]
+        if KNOWN_CLEAN_9_2_SIGNER_SHA256 not in fingerprints:
+            raise RuntimeError("confirmed clean APK signer certificate does not match EBG")
+        return {
+            "android_v1_v2_v3_signatures_verified": True,
+            "google_source_stamp_verified": "Verified for SourceStamp: true" in output,
+            "signer_sha256": KNOWN_CLEAN_9_2_SIGNER_SHA256,
+        }
+
     jarsigner = shutil.which("jarsigner")
     keytool = shutil.which("keytool")
     if not jarsigner or not keytool:
@@ -114,7 +171,7 @@ def validate_source_apk(apk: Path, input_hash: str) -> dict[str, object]:
 
     hook_entry_found = False
     hook_dependency_marker_found = False
-    clean_source = input_hash.lower() == KNOWN_CLEAN_9_2_APK_SHA256
+    clean_source = input_hash.lower() in KNOWN_CLEAN_9_2_APK_SHA256S
     with zipfile.ZipFile(apk) as archive:
         names = set(archive.namelist())
         required = {
@@ -168,24 +225,30 @@ def validate_source_apk(apk: Path, input_hash: str) -> dict[str, object]:
     }
     if clean_source:
         checks["known_clean_9_2_source_hash"] = True
-        checks["release_signature"] = verify_known_clean_signature(apk)
+        checks["release_signature"] = verify_known_clean_signature(apk, input_hash)
     return checks
 
 
 def verify_asset_source_pair(source_apk: Path, clean_apk: Path) -> dict[str, object]:
     if sha256(source_apk) != KNOWN_OFFLINE_ASSET_SOURCE_SHA256:
         raise RuntimeError("AssetRipper source APK is not the pinned offline asset export source")
-    if sha256(clean_apk) != KNOWN_CLEAN_9_2_APK_SHA256:
+    if sha256(clean_apk) not in KNOWN_CLEAN_9_2_APK_SHA256S:
         raise RuntimeError("asset reuse is allowed only for the pinned clean 9.2 APK")
     with zipfile.ZipFile(source_apk) as source, zipfile.ZipFile(clean_apk) as clean:
         source_infos = {i.filename: i for i in source.infolist()}
         clean_infos = {i.filename: i for i in clean.infolist()}
         differing = set(source_infos) ^ set(clean_infos)
-        differing |= {
-            name for name in set(source_infos) & set(clean_infos)
-            if (source_infos[name].file_size, source_infos[name].CRC, source_infos[name].compress_type)
-            != (clean_infos[name].file_size, clean_infos[name].CRC, clean_infos[name].compress_type)
-        }
+        for name in set(source_infos) & set(clean_infos):
+            source_digest = hashlib.sha256()
+            clean_digest = hashlib.sha256()
+            with source.open(name) as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    source_digest.update(block)
+            with clean.open(name) as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    clean_digest.update(block)
+            if source_digest.digest() != clean_digest.digest():
+                differing.add(name)
     allowed = REUSE_ALLOWED_APK_ENTRY_DIFFERENCES | {
         name for name in differing if name.startswith("META-INF/")
     }
@@ -196,10 +259,10 @@ def verify_asset_source_pair(source_apk: Path, clean_apk: Path) -> dict[str, obj
         raise RuntimeError("APK pair no longer has the expected native/certificate-stamp differences")
     return {
         "asset_source_apk_sha256": KNOWN_OFFLINE_ASSET_SOURCE_SHA256,
-        "clean_apk_sha256": KNOWN_CLEAN_9_2_APK_SHA256,
+        "clean_apk_sha256": sha256(clean_apk),
         "differing_entries": sorted(differing),
         "matching_non_signature_entries": len(set(source_infos) - differing),
-        "comparison": "ZIP entry name, uncompressed size, CRC-32, and compression method",
+        "comparison": "ZIP entry names and SHA-256 of every uncompressed member",
     }
 
 
@@ -357,7 +420,7 @@ def main() -> int:
         source_checks = validate_source_apk(apk, input_hash)
     except (RuntimeError, zipfile.BadZipFile) as error:
         parser.error(str(error))
-    if input_hash.lower() != KNOWN_CLEAN_9_2_APK_SHA256 and not args.allow_unverified_apk:
+    if input_hash.lower() not in KNOWN_CLEAN_9_2_APK_SHA256S and not args.allow_unverified_apk:
         parser.error(
             f"no pristine Kabam 9.2.0 APK hash is verified in this workspace (input SHA-256 {input_hash}); "
             "verify package/version with REA and the release signer with apksigner, then pass "
@@ -472,6 +535,7 @@ def main() -> int:
         "apk_sha256": input_hash,
         "known_offline_patched_apk_sha256": KNOWN_OFFLINE_PATCHED_APK_SHA256,
         "known_clean_9_2_apk_sha256": KNOWN_CLEAN_9_2_APK_SHA256,
+        "known_clean_9_2_apk_sha256s": sorted(KNOWN_CLEAN_9_2_APK_SHA256S),
         "source_checks": source_checks,
         "reused_asset_export_checks": asset_pair_checks,
         "libil2cpp_sha256": sha256(native_dir / "libil2cpp.so"),

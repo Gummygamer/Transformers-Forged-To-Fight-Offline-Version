@@ -538,3 +538,55 @@ UILabel world corners, widget bounds, transform conversion, and four `0.1f` thre
 confirms the helper's compiled structure, not runtime behavior or a match against the now-verified
 clean native library. Keep the current Unity stage intact until clean-source Cpp2IL output has
 been regenerated and the repair preflight run.
+
+## v31: authenticated Kabam APK and clean-source preflight
+
+The new root APK `transformers-forged-to-fight-9-2-0.apk` is the strongest source identified so
+far. REA MCP `inspect_android_package` evidence
+`ev_20ea46ca8263a36e16a41da1c22f061eb6a410e2b60cd3c97da0a1f16be42eaf` confirms package
+`com.kabam.bigrobot`, version 9.2.0 / code 123129100, 10,395 classes, and 4,133 resources.
+REA `inspect_artifact` evidence `ev_9247e8c95191fdd858a58b8bc1ebd5ab0c6be518ad2fb5e8cd09b1886654f399`
+completed with 8,086 observations and 4,133 relationships. Its inline response exceeded the MCP
+frame, so the retained bundle was exported, parsed locally, and removed. REA `inspect_signature`
+is unsupported for APK signing on this Linux host (the provider requires macOS); this is a
+provider limitation, not an MCP registration problem.
+
+The new APK SHA-256 is `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`.
+Android `apksigner` verifies v1, v2, and v3 signatures plus the Google Source Stamp; signer SHA-256
+is `A8213D062F720775260A2F96E01AE5AD279AFEDFA4D63050EB815149F369C521`. Comparison against the
+previous content-authenticated clean extraction found identical uncompressed SHA-256 payloads for
+all 4,133 entries. The 2,360 ZIP compression-method differences explain why the whole-APK digest
+differs. The new file is now the direct Cpp2IL input; the old extraction remains a pinned fallback.
+
+`tools/recover_9_2.py` now pins this full signed APK, verifies its Android signatures and signer,
+checks exact clean ARM64 library and metadata hashes, rejects the known offline-patched APK, and
+compares every asset-source entry by SHA-256 rather than ZIP compression. A fresh external stage
+`recovery-9.2-confirmed-source-v1` was generated directly from the new APK. Cpp2IL completed
+64,447/64,447 methods in about 44.6 seconds under a 6 GiB .NET heap cap. It reused the existing
+Unity 2020.3.31f1 AssetRipper export only after the full payload check. The previous stages remain
+intact; no Unity player build was run.
+
+The first repair preflight caught stale local indices in the clean Cpp2IL output. Those assumptions
+were removed or corrected from the raw IL: `BCGManager` locals V_44 and V_55 are `!0`, with V_55
+receiving `List<BCGHeroDetails>.get_Item()` and V_44 receiving V_55, so both are repaired to
+`BCGHeroDetails`. Other prior indices pointed at unused `System.Object` locals or a concrete
+`List<CategoryTabData>.Enumerator` and no longer get rewritten. The failed partial output was
+preserved under `partial-preflight-1`; the stage was restored byte-for-byte from Cpp2IL before the
+next run. The updated preflight exited 0, compiled its repair helpers, transplanted
+`AlignUIElements.GetObjectBounds`, and completed the remaining import repairs. It did not invoke
+the Unity Editor build.
+
+REA `inspect_managed_members` evidence `ev_501c1bbe712d9b7b575bf6b8d0254913d90989c089924f428af0c2cfb86d3643`
+inspected the post-preflight firstpass assembly. For `AlignUIElements.GetObjectBounds`, REA reports
+a present body, 169 decoded instructions / 535 CIL bytes, and no decode issue. The exact clean
+ARM64 library hash matches the previous clean candidate, and its existing native trace matched
+all 298/298 instruction words. This validates the source-to-assembly transplant and evidence
+identity, but not runtime behavior. No Unity build or APK has yet been produced from the confirmed
+APK, and the existing server code/authored story data remain untouched.
+
+At this point REA-backed progress has gone from an uncertain source to a fully authenticated APK,
+64,447 recovered methods, and a passing low-cost import preflight in this work session. User-facing
+playable progress is still zero: there is no clean-source Unity build or runtime story test. A
+rough 3–8 focused-week estimate for the first playable story build is low confidence; the next
+clean-source Unity checkpoint will establish a useful repair queue and either tighten or widen it.
+Continue to use memory/storage guards and avoid repeating same-input builds without new fixes.

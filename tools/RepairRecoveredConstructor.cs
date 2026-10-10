@@ -2708,9 +2708,19 @@ class RepairRecoveredConstructor {
         owner.Module.ImportReference(method);
 
     static MethodReference FindConstructor(MethodDefinition method, string declaringType) {
-        return method.Body.Instructions.Where(instruction => instruction.OpCode == OpCodes.Newobj)
+        MethodReference[] constructors = method.Body.Instructions
+            .Where(instruction => instruction.OpCode == OpCodes.Newobj)
             .Select(instruction => instruction.Operand as MethodReference)
-            .SingleOrDefault(reference => reference != null && reference.DeclaringType.FullName == declaringType);
+            .Where(reference => reference != null && reference.Name == ".ctor" &&
+                reference.DeclaringType.FullName == declaringType && reference.Parameters.Count == 0)
+            .ToArray();
+        // Recovered constructors may also allocate a capacity-sized collection
+        // of the same generic type. These repairs initialize serialized fields
+        // with the parameterless collection constructor; calls are repeated for
+        // separate fields, so only distinct signatures are ambiguous.
+        string[] signatures = constructors.Select(reference => reference.FullName)
+            .Distinct(StringComparer.Ordinal).ToArray();
+        return signatures.Length == 1 ? constructors[0] : null;
     }
 
     static MethodReference FindCall(MethodDefinition method, string name, string declaringType) {
@@ -3695,30 +3705,19 @@ class RepairRecoveredConstructor {
         int repaired = 0;
         if (type.FullName == "BCGManager/<>c__DisplayClass7_0") {
             MethodDefinition method = RequireUniqueBody(type, "<GetHeroBaseAttributes>b__0");
-            SetKnownOwnerlessLocal(method, 46, module.TypeSystem.String, ref repaired);
-            SetKnownOwnerlessLocal(method, 57, module.TypeSystem.String, ref repaired);
+            TypeDefinition heroDetails = module.GetType("BCGHeroDetails");
+            if (heroDetails == null)
+                throw new InvalidDataException("missing BCGHeroDetails type for GetHeroBaseAttributes");
+            // The clean Cpp2IL output leaves both of these locals as !0. V_55
+            // receives List<BCGHeroDetails>.get_Item(), and V_44 receives V_55.
+            SetKnownOwnerlessLocal(method, 44, heroDetails, ref repaired);
+            SetKnownOwnerlessLocal(method, 55, heroDetails, ref repaired);
             ReplaceKnownOwnerlessCast(method, 0x04d8, module.TypeSystem.String, ref repaired);
         } else if (type.FullName == "OldObjectPool") {
             MethodDefinition method = RequireUniqueBody(type, "Release");
             if (method.Parameters.Count != 1 || method.Parameters[0].ParameterType.FullName != "UnityEngine.Object")
                 throw new InvalidDataException("unexpected OldObjectPool.Release signature");
             ReplaceKnownOwnerlessCast(method, 0x009e, method.Parameters[0].ParameterType, ref repaired);
-        } else if (type.FullName == "TransformersInventoryScreenPresentation") {
-            MethodDefinition method = RequireUniqueBody(type, "OnSortFilterParamsChanged");
-            SetKnownOwnerlessLocal(method, 62, module.TypeSystem.Boolean, ref repaired);
-            SetKnownOwnerlessLocal(method, 65, module.TypeSystem.Boolean, ref repaired);
-        } else if (type.FullName == "Legacy.QuestsAPI") {
-            MethodDefinition method = RequireUniqueBody(type, "BeginQuest");
-            SetKnownOwnerlessLocal(method, 49, module.TypeSystem.Int32, ref repaired);
-        } else if (type.FullName == "EB.UI.StoreScreen.StoreScreenDataProvider") {
-            MethodDefinition method = RequireUniqueBody(type, "GetGameStoreTabs");
-            if (!(method.ReturnType is GenericInstanceType tabs) || tabs.GenericArguments.Count != 1 ||
-                tabs.GenericArguments[0].FullName != "EB.UI.DataBinding.StoreTab")
-                throw new InvalidDataException("unexpected GetGameStoreTabs return type");
-            TypeReference tabType = tabs.GenericArguments[0];
-            SetKnownOwnerlessLocal(method, 55, tabType, ref repaired);
-            foreach (int offset in new[] { 0x01d1, 0x02b3, 0x05d0 })
-                ReplaceKnownOwnerlessCast(method, offset, tabType, ref repaired);
         }
         return repaired;
     }
