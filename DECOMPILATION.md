@@ -92,8 +92,11 @@ python3 tools/recover_9_2.py "/path/to/Transformers 9.2 offline.apk" \
 ```
 
 Or set `CPP2IL_BIN` and `ASSETRIPPER_BIN` in the environment and omit those options. The
-script verifies the known APK SHA-256 before processing; for a different 9.2 package,
-verify its package/version yourself and explicitly pass `--allow-unverified-apk`. It
+previously pinned APK hash is now treated as a known offline-patched input and is rejected.
+The script also rejects a bundled `libdothook.so` or a `libil2cpp.so` dependency marker for it.
+No pristine Kabam 9.2.0 hash is verified in this workspace yet. For a replacement APK, first
+verify its package and version with REA and its release signer with `apksigner`; then explicitly
+pass `--allow-unverified-apk`. The script records the supplied APK hash and its source checks. It
 extracts the matching arm64 IL2CPP library and global metadata, runs Cpp2IL's
 `dll_il_recovery` output, asks AssetRipper to export the Unity project, checks that the
 export has `Assets/` and `ProjectSettings/ProjectVersion.txt`, and records tool/input

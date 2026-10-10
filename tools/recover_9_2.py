@@ -22,7 +22,9 @@ from pathlib import Path
 from recovery_environment import check_external_build_storage
 
 
-APK_SHA256 = "68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9"
+# This exact 9.2 APK was inspected and found to be debug-signed and offline-patched.
+# It is retained as a denylist identity, never as an accepted pristine source hash.
+KNOWN_OFFLINE_PATCHED_APK_SHA256 = "68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9"
 CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
 ASSETRIPPER_VERSION = "2.0.0+1ac666f47d8e9dedf96afb0b914c70d7656151ea"
 UNITY_VERSION = "2020.3.31f1"
@@ -55,6 +57,55 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def validate_source_apk(apk: Path, input_hash: str) -> dict[str, bool]:
+    if input_hash.lower() == KNOWN_OFFLINE_PATCHED_APK_SHA256:
+        raise RuntimeError(
+            "this is the known debug-signed offline-patched 9.2 APK, not a pristine source: "
+            "use a full Kabam-signed APK"
+        )
+
+    hook_entry_found = False
+    hook_dependency_marker_found = False
+    with zipfile.ZipFile(apk) as archive:
+        names = set(archive.namelist())
+        required = {
+            "lib/arm64-v8a/libil2cpp.so",
+            "assets/bin/Data/Managed/Metadata/global-metadata.dat",
+        }
+        missing = sorted(required - names)
+        if missing:
+            raise RuntimeError("APK is missing required ARM64 IL2CPP inputs: " + ", ".join(missing))
+
+        hook_entry_found = any(
+            name.startswith("lib/") and name.endswith("/libdothook.so") for name in names
+        )
+        if not hook_entry_found:
+            marker = b"libdothook.so\x00"
+            with archive.open("lib/arm64-v8a/libil2cpp.so") as library:
+                overlap = b""
+                while block := library.read(1024 * 1024):
+                    candidate = overlap + block
+                    if marker in candidate:
+                        hook_dependency_marker_found = True
+                        break
+                    overlap = candidate[-(len(marker) - 1):]
+
+    if hook_entry_found or hook_dependency_marker_found:
+        details = []
+        if hook_entry_found:
+            details.append("bundled libdothook.so")
+        if hook_dependency_marker_found:
+            details.append("libil2cpp.so references libdothook.so")
+        raise RuntimeError(
+            "offline hook marker found (" + "; ".join(details) + "); refusing a patched APK"
+        )
+    return {
+        "known_offline_patched_hash_rejected": True,
+        "libdothook_entry_absent": True,
+        "libdothook_dependency_marker_absent": True,
+    }
 
 
 def tool_launch(executable: Path) -> tuple[list[str], dict[str, str]]:
@@ -162,7 +213,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--allow-unverified-apk", action="store_true",
-        help="continue when the APK SHA-256 differs from the known 9.2.0 input",
+        help="accept a new APK hash only after independently verifying package, version, and Kabam release signer",
     )
     args = parser.parse_args()
 
@@ -193,10 +244,15 @@ def main() -> int:
         parser.error(str(error))
 
     input_hash = sha256(apk)
-    if input_hash != APK_SHA256 and not args.allow_unverified_apk:
+    try:
+        source_checks = validate_source_apk(apk, input_hash)
+    except (RuntimeError, zipfile.BadZipFile) as error:
+        parser.error(str(error))
+    if not args.allow_unverified_apk:
         parser.error(
-            f"APK SHA-256 is {input_hash}, expected known 9.2.0 input {APK_SHA256}; "
-            "use --allow-unverified-apk only after checking its package/version"
+            f"no pristine Kabam 9.2.0 APK hash is verified in this workspace (input SHA-256 {input_hash}); "
+            "verify package/version with REA and the release signer with apksigner, then pass "
+            "--allow-unverified-apk"
         )
 
     cpp2il_command, cpp2il_env = tool_launch(cpp2il)
@@ -282,7 +338,8 @@ def main() -> int:
     manifest = {
         "apk": str(apk),
         "apk_sha256": input_hash,
-        "known_9_2_sha256": APK_SHA256,
+        "known_offline_patched_apk_sha256": KNOWN_OFFLINE_PATCHED_APK_SHA256,
+        "source_checks": source_checks,
         "libil2cpp_sha256": sha256(native_dir / "libil2cpp.so"),
         "global_metadata_sha256": sha256(native_dir / "global-metadata.dat"),
         "cpp2il_version": cpp2il_version,

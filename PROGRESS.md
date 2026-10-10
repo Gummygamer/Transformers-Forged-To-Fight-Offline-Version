@@ -488,3 +488,15 @@ matched the retained signed `.scratch/verify-special-mode.apk` for every non-`ME
 final APK's three extra entries are signing metadata. The retained final passed `zipalign -c 4`
 and `apksigner verify` (v1/v2/v3). Screenshots, logs, `.idsig`, and the signed APK remain. `.scratch`
 is now 1.1 GB instead of 2.9 GB. No source APK or generated Unity stage was deleted.
+
+## v29: reject the known patched source in recovery tooling
+
+`tools/recover_9_2.py` no longer treats the prior debug-signed offline APK hash as an accepted
+9.2.0 source identity. It rejects that exact digest even when the override is present, rejects
+any APK bundling `libdothook.so` or whose ARM64 library contains its dependency marker, and
+requires the operator to verify package/version with REA and the Kabam release signer with
+`apksigner` before accepting a new hash. The manifest records the rejected offline-patched hash
+and the source checks. `DECOMPILATION.md` and `COMPLIANCE.md` now describe this policy.
+
+Validation: `py_compile` and CLI help passed. Direct checks reject both the full offline APK
+(known digest) and `exact-pair-input.apk` (native hook dependency marker). No Unity build ran.

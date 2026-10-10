@@ -745,12 +745,13 @@ binary, captured audiovisual content, or recovered server data is added.
 
 Adds the source-only `tools/recover_9_2.py` and `tools/build_recovered_9_2.py` workflow,
 the Unity Editor build helper, and the local-use recipe in `DECOMPILATION.md`. The scripts
-operate on an operator-supplied APK, verify its known SHA-256 and pinned tool versions, and
-write extracted inputs, recovered assemblies, Unity project copies, logs, signing key, and
-APK to ignored or operator-selected storage. They do not download or commit generated
-content or alter the server's authored data. The documentation records the missing script
-and invalid IL limitations observed during the local build. No APK, asset, binary, captured
-audiovisual content, credential, or recovered server dataset is committed.
+operate on an operator-supplied APK and verify pinned tool versions. The previously pinned
+APK hash is now denied as a known debug-signed offline-patched artifact; the workflow rejects
+its `libdothook` entry/dependency marker and requires independent package, version, and release
+signer verification before accepting another hash. Generated inputs, assemblies, Unity project
+copies, logs, signing keys, and APKs remain in ignored or operator-selected storage. The workflow
+does not alter server-authored data. No APK, asset, binary, captured audiovisual content,
+credential, or recovered server dataset is committed.
 
 ## 2026-10-10 — recovered SharpZipLib IL2CPP compatibility fallback
 
