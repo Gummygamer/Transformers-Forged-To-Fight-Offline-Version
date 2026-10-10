@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import gzip
 import hashlib
 import json
@@ -17,6 +18,55 @@ import time
 from pathlib import Path
 
 from recovery_environment import check_external_build_storage
+
+
+def available_memory_bytes() -> int | None:
+    """Return Linux MemAvailable, or None when the host does not expose it."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def process_tree_rss_bytes(root_pid: int) -> int:
+    """Sample resident memory for a process and its currently visible children."""
+    pending = [root_pid]
+    visited: set[int] = set()
+    total = 0
+    while pending:
+        pid = pending.pop()
+        if pid in visited:
+            continue
+        visited.add(pid)
+        proc = Path("/proc") / str(pid)
+        try:
+            for line in (proc / "status").read_text().splitlines():
+                if line.startswith("VmRSS:"):
+                    total += int(line.split()[1]) * 1024
+                    break
+            children = (proc / "task" / str(pid) / "children").read_text().split()
+            pending.extend(int(child) for child in children)
+        except (OSError, ValueError, IndexError):
+            # Processes can exit between reading /proc entries.
+            continue
+    return total
+
+
+def run_with_memory_sampling(command: list[str], env: dict[str, str]) -> tuple[int, int, int | None]:
+    """Run Unity while sampling its process-tree RSS and host low-water mark."""
+    process = subprocess.Popen(command, env=env)
+    peak_tree_rss = 0
+    minimum_available = available_memory_bytes()
+    while process.poll() is None:
+        peak_tree_rss = max(peak_tree_rss, process_tree_rss_bytes(process.pid))
+        available = available_memory_bytes()
+        if available is not None:
+            minimum_available = available if minimum_available is None else min(minimum_available, available)
+        time.sleep(0.75)
+    return process.wait(), peak_tree_rss, minimum_available
 
 
 def is_within(path: Path, parent: Path) -> bool:
@@ -260,6 +310,11 @@ def main() -> int:
         help="run Unity again even when the same managed inputs already produced an IL2CPP failure",
     )
     parser.add_argument(
+        "--min-available-memory-mib", type=int, default=6144,
+        help=("skip Unity when host MemAvailable is below this many MiB "
+              "(default: 6144; use 0 to disable the guard)"),
+    )
+    parser.add_argument(
         "--legacy-runtime", choices=("auto", "always", "never"), default="auto",
         help="use Unity's optional legacy native-library directory (default: only when host-compatible)",
     )
@@ -283,6 +338,24 @@ def main() -> int:
         parser.error("write the APK outside the Unity project directory")
     if output.exists():
         parser.error(f"refusing to overwrite existing APK: {output}")
+    if args.min_available_memory_mib < 0:
+        parser.error("--min-available-memory-mib must be non-negative")
+
+    # Serialize Unity/IL2CPP builds across output directories and Codex tasks.
+    lock_path = Path("/tmp/transformers-recovered-unity-2020.3.31f1.lock")
+    build_lock = lock_path.open("a+")
+    try:
+        fcntl.flock(build_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        build_lock.seek(0)
+        owner = build_lock.read().strip() or "unknown process"
+        print(f"Unity build not started: another recovery build holds the host lock ({owner})",
+              file=sys.stderr)
+        return 75
+    build_lock.seek(0)
+    build_lock.truncate()
+    build_lock.write(json.dumps({"pid": os.getpid(), "project": str(project), "output": str(output)}))
+    build_lock.flush()
 
     try:
         check_external_build_storage(Path(__file__).resolve().parent.parent)
@@ -399,6 +472,32 @@ def main() -> int:
             )
             print(f"Cycle metadata: {skip_report}")
             return 1
+    current_available_memory = available_memory_bytes()
+    minimum_available_memory = args.min_available_memory_mib * 1024**2
+    if (args.min_available_memory_mib and current_available_memory is not None and
+            current_available_memory < minimum_available_memory):
+        skipped_seconds = time.monotonic() - cycle_started
+        skipped_storage_after = shutil.disk_usage(project)
+        free_delta = skipped_storage_after.free - cycle_storage_before.free
+        skip_report = Path(str(log) + ".memory-skip.cycle.json")
+        skip_report.write_text(json.dumps({
+            "unity": str(unity),
+            "project": str(project),
+            "skipped_low_memory": True,
+            "minimum_available_memory_bytes": minimum_available_memory,
+            "available_memory_bytes": current_available_memory,
+            "preflight_seconds": round(skipped_seconds, 2),
+            "external_free_before_bytes": cycle_storage_before.free,
+            "external_free_after_bytes": skipped_storage_after.free,
+            "net_free_space_delta_bytes": free_delta,
+        }, indent=2) + "\n")
+        print(
+            f"Unity build skipped: only {current_available_memory / 1024**2:.0f} MiB "
+            f"is available; the configured minimum is {args.min_available_memory_mib} MiB. "
+            "Close other workloads or pass --min-available-memory-mib 0 to override."
+        )
+        print(f"Cycle metadata: {skip_report}")
+        return 75
     password = "local-rebuild-only"
     if keystore.exists():
         keycheck = subprocess.run(
@@ -471,8 +570,11 @@ def main() -> int:
     unity_started = time.monotonic()
     preflight_seconds = unity_started - cycle_started
     storage_before = shutil.disk_usage(project)
+    unity_peak_tree_rss_bytes = 0
+    unity_min_available_memory_bytes = current_available_memory
     try:
-        result = subprocess.run(command, env=env, check=False)
+        result_code, unity_peak_tree_rss_bytes, unity_min_available_memory_bytes = \
+            run_with_memory_sampling(command, env)
     finally:
         project_keystore.unlink(missing_ok=True)
     unity_seconds = time.monotonic() - unity_started
@@ -517,7 +619,10 @@ def main() -> int:
         "architecture": args.architecture,
         "preflight_seconds": round(preflight_seconds, 2),
         "unity_seconds": round(unity_seconds, 2),
-        "result_code": result.returncode,
+        "result_code": result_code,
+        "unity_peak_process_tree_rss_bytes": unity_peak_tree_rss_bytes,
+        "host_min_available_memory_bytes": unity_min_available_memory_bytes,
+        "host_available_memory_before_unity_bytes": current_available_memory,
         "raw_log_bytes": raw_log_bytes,
         "retained_log_bytes": retained_log_bytes,
         "repair_queue_items": queue_items,
@@ -526,11 +631,11 @@ def main() -> int:
         "net_free_space_delta_bytes": storage_after.free - storage_before.free,
         "apk_bytes": output.stat().st_size if output.is_file() else 0,
     }, indent=2) + "\n")
-    if result.returncode and queue_items:
+    if result_code and queue_items:
         failed_input_record.write_text(json.dumps({
             "fingerprint": input_fingerprint,
             "repair_queue_items": queue_items,
-            "result_code": result.returncode,
+            "result_code": result_code,
             "log": str(log),
         }, indent=2) + "\n")
     elif output.is_file():
@@ -547,9 +652,9 @@ def main() -> int:
         f"net free-space change {free_delta_label}"
     )
     print(f"Cycle metadata: {cycle_report}")
-    if result.returncode:
-        print(f"Unity exited with status {result.returncode}; inspect {log}", file=sys.stderr)
-        return result.returncode
+    if result_code:
+        print(f"Unity exited with status {result_code}; inspect {log}", file=sys.stderr)
+        return result_code
     if not output.is_file() or output.stat().st_size == 0:
         print(f"Unity completed without producing the requested APK; inspect {log}", file=sys.stderr)
         return 1

@@ -232,6 +232,14 @@ usable as future `--repair-diagnostics` inputs.
   unique summarized queue-item count, APK size, and net free-space change. Historical v10-v14
   runs predate this instrumentation, so their precise durations and per-run storage deltas are
   unavailable.
+- The recovery launcher now serializes Unity builds through a host-wide `flock`, skips the
+  expensive Unity phase below 6 GiB `MemAvailable` by default (override with
+  `--min-available-memory-mib`), and samples peak Unity process-tree RSS and host minimum
+  available RAM in the cycle sidecar. It does not hard-cap Unity's memory. A current host
+  snapshot showed 22 GiB total, 15 GiB available, 2.7 GiB swap used, and negligible recent
+  memory PSI; Unity was not running. An idle Unity Roslyn server held about 560 MiB, while
+  several REA MCP Node workers and Codex renderers accounted for additional resident memory.
+  No user or MCP process was terminated.
 - Preserve the active `Library` and IL2CPP caches between repair batches. Delete caches only
   for demonstrated corruption or measured storage pressure; the active external volume
   currently has 119 GiB free. Do not create a full duplicate staged project for a repair
