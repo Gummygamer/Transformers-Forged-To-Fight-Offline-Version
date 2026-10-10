@@ -92,12 +92,33 @@ python3 tools/recover_9_2.py "/path/to/Transformers 9.2 offline.apk" \
 ```
 
 Or set `CPP2IL_BIN` and `ASSETRIPPER_BIN` in the environment and omit those options. The
-previously pinned APK hash is now treated as a known offline-patched input and is rejected.
-The script also rejects a bundled `libdothook.so` or a `libil2cpp.so` dependency marker for it.
-No pristine Kabam 9.2.0 hash is verified in this workspace yet. For a replacement APK, first
-verify its package and version with REA and its release signer with `apksigner`; then explicitly
-pass `--allow-unverified-apk`. The script records the supplied APK hash and its source checks. It
-extracts the matching arm64 IL2CPP library and global metadata, runs Cpp2IL's
+previously pinned APK hash is rejected as an offline-patched input, as is any APK bundling
+`libdothook.so` or referencing it from ARM64 `libil2cpp.so`. A full 9.2 package candidate is now
+available at `build/workspace-build/pristine-rebuild/Transformers-9.2-pristine-rebuilt.apk`.
+REA evidence `ev_f689c9aac2aacee4772be15c563aed4433242501aa3124842b673294f3c05058` identifies it as
+`com.kabam.bigrobot` 9.2.0 / code 123129100; evidence
+`ev_3a27eeacb306ebc1f5d36ec53defcdc121715e9a2b5964eab7908fa357e5f2af` records its complete
+4,133-edge package graph. The candidate SHA-256 is
+`cae78579898a002b65b766d816584331972de79ed6183d7c7e9c943fc4403406`; its JAR v1 content signature
+verifies under the Exploding Barrel Games certificate (SHA-256
+`A8213D062F720775260A2F96E01AE5AD279AFEDFA4D63050EB815149F369C521`), which matches the signer
+on the older Kabam APK. `apksigner` does not verify this repacked archive because its Android
+v2/v3 signing block was stripped. Treat it as authenticated extraction input, not a byte-for-byte
+original or installable APK. Its ARM64 library hash is
+`575aa973ed8fd54e79c70abdaed5b5a3b013e8e3ec68e0fa64e98f6bdfba9b8a`; it contains no
+`libdothook.so` or hook dependency marker. This full package is the decompilation/recompilation
+source; the debug-signed APK is not.
+
+The script pins this candidate and checks its JAR signature, signer fingerprint, ARM64 library,
+metadata, and hook absence. For another APK, first verify its package/version with REA and its
+release signer with `apksigner` or a verified JAR content signature, then explicitly pass
+`--allow-unverified-apk`. To avoid another multi-gigabyte AssetRipper export,
+`--reuse-unity-project` with `--asset-source-apk` may reuse the retained export only when the
+source APK is the pinned debug-patched package and all 4,128 shared unchanged entries match
+the candidate by name, uncompressed size, CRC-32, and compression method. Only the ARM64 native
+libraries, certificate stamp, and `META-INF` signature files may differ. The manifest records the
+comparison and source checks. The script extracts the matching arm64 IL2CPP library and global
+metadata, runs Cpp2IL's
 `dll_il_recovery` output, asks AssetRipper to export the Unity project, checks that the
 export has `Assets/` and `ProjectSettings/ProjectVersion.txt`, and records tool/input
 hashes in `recovery-manifest.json`. It checks the Cpp2IL commit and AssetRipper version

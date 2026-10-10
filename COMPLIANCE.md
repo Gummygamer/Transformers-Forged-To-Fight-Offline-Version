@@ -753,6 +753,13 @@ copies, logs, signing keys, and APKs remain in ignored or operator-selected stor
 does not alter server-authored data. No APK, asset, binary, captured audiovisual content,
 credential, or recovered server dataset is committed.
 
+The local full 9.2 candidate is accepted only by its exact SHA-256 plus verified EBG JAR content
+signature and clean ARM64 library/metadata hashes; its Android v2/v3 signing block is missing,
+so it is extraction input rather than a directly installable original package. AssetRipper output
+may be reused only after checking the candidate against the known patched APK and documenting the
+limited native/signature-entry differences. No proprietary game code, assets, or generated build
+artifacts are added to Git.
+
 ## 2026-10-10 — recovered SharpZipLib IL2CPP compatibility fallback
 
 The local import repair may replace the malformed Cpp2IL body of

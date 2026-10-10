@@ -500,3 +500,41 @@ and the source checks. `DECOMPILATION.md` and `COMPLIANCE.md` now describe this 
 
 Validation: `py_compile` and CLI help passed. Direct checks reject both the full offline APK
 (known digest) and `exact-pair-input.apk` (native hook dependency marker). No Unity build ran.
+
+## v30: authenticate the clean 9.2 source and reuse verified assets
+
+REA MCP inspected the full candidate package. `ev_f689c9aac2aacee4772be15c563aed4433242501aa3124842b673294f3c05058`
+identifies package `com.kabam.bigrobot`, version 9.2.0 / code 123129100, with 10,395 classes
+and 4,133 resources. `ev_3a27eeacb306ebc1f5d36ec53defcdc121715e9a2b5964eab7908fa357e5f2af` records
+the complete static archive graph: 3,951 artifacts and 4,133 relationships. The MCP frame was
+too small for the full graph; REA retained the evidence, and its 19.8 MB bundle was exported to
+`/tmp` for bounded local inspection, then removed after the summary was recorded.
+
+Candidate `build/workspace-build/pristine-rebuild/Transformers-9.2-pristine-rebuilt.apk` has
+SHA-256 `cae78579898a002b65b766d816584331972de79ed6183d7c7e9c943fc4403406`. `jarsigner -verify`
+reports its JAR content signature valid, and `keytool` reports EBG signer SHA-256
+`A8213D062F720775260A2F96E01AE5AD279AFEDFA4D63050EB815149F369C521`, matching the certificate
+on the older Kabam APK. Its v2/v3 Android signing block was stripped; it is therefore authenticated
+content for extraction, not a byte-for-byte original or installable APK. The clean ARM64 library
+is `575aa973ed8fd54e79c70abdaed5b5a3b013e8e3ec68e0fa64e98f6bdfba9b8a`, contains no `libdothook`
+dependency, and shares the metadata hash with the prior APK. A ZIP directory comparison found
+4,128 unchanged shared entries; differences are limited to signature records, the certificate
+stamp, the two ARM64 native-library entries (including the patched hook), and no Unity asset
+payload. This makes the candidate suitable for a clean code recovery while preserving the
+existing AssetRipper export.
+
+`tools/recover_9_2.py` now accepts only this pinned clean candidate without an override, verifies
+its JAR signer and exact native/metadata hashes, and has a guarded asset-export reuse path. The
+reuse path requires the pinned source APK pair, rejects any unexpected ZIP entry differences, and
+records the equivalence check in the recovery manifest. Validation: `py_compile`, CLI help,
+clean-candidate/signature checks, and the two-APK reuse comparison passed; the debug-signed full
+APK was rejected. The carrier is still excluded by the prior REA finding. No Cpp2IL recovery,
+Unity build, APK, or runtime test has yet been run on the clean candidate.
+
+REA also inspected `/tmp/AlignUIElementsGetObjectBounds.dll` from the authored method-body
+replacement: `ev_71996a840ccfd36854a50e63813d721b5e5c5254cad368473d8734d1d1635b39` reports complete
+metadata and CIL coverage, 176 decoded instructions, and no decode issues. It includes calls for
+UILabel world corners, widget bounds, transform conversion, and four `0.1f` thresholds. This
+confirms the helper's compiled structure, not runtime behavior or a match against the now-verified
+clean native library. Keep the current Unity stage intact until clean-source Cpp2IL output has
+been regenerated and the repair preflight run.
