@@ -471,3 +471,20 @@ Next required input: a legally obtained, full pristine Kabam 9.2.0 APK (or a com
 package with its clean native libraries and matching metadata). Verify its signer and hashes, then
 rebuild the recovery manifest and Unity stage from that artifact before continuing. Preserve the
 current local stage and authored work until that comparison is complete.
+
+## v28: carrier check and safe storage cleanup
+
+REA opened and inventoried `exact-pair-input.apk` as an APK archive (root SHA-256
+`32b4cf244d9acd64b5457782164f8ae7ec70d789816eb8b2be4dd25d98d21b48`). Its complete graph has
+three nodes: the carrier plus only `global-metadata.dat` and ARM64 `libil2cpp.so`. REA extraction
+Evidence `ev_ac77ae647db2c564bc2ce29cec853f4f308408cb3c8c734d54ca3c145deda558` reports the
+metadata hash `636458c3...ade7` and native hash `e54cb5a1...91bac`, both identical to the active
+full offline APK's manifest. Thus the carrier is not a clean-source replacement. The temporary
+58.6 MB REA extraction was removed, and the archive analysis session was closed.
+
+Freed 1,860,883,051 bytes by deleting only `.scratch/verify-special-mode-unsigned.apk` and
+`.scratch/verify-special-mode-aligned.apk`. Before deletion, their ZIP entry names, sizes, and CRCs
+matched the retained signed `.scratch/verify-special-mode.apk` for every non-`META-INF` entry; the
+final APK's three extra entries are signing metadata. The retained final passed `zipalign -c 4`
+and `apksigner verify` (v1/v2/v3). Screenshots, logs, `.idsig`, and the signed APK remain. `.scratch`
+is now 1.1 GB instead of 2.9 GB. No source APK or generated Unity stage was deleted.
