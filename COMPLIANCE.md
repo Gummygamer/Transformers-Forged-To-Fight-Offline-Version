@@ -862,3 +862,8 @@ control flow and IL based on the retained 9.2 native traces and recovered type m
 and constants were checked against its 9.2 ARM64 field writes. These changes contain no APK
 bytes, assets, or copied game method bodies; repaired assemblies and trace dumps remain in ignored
 local recovery storage.
+
+The current follow-up batch reconstructs `MatineeStage`'s traced position/rotation defaults, three
+list fields, empty playback filter, completion flag, and base call. `SpecialAttackIcon` receives
+the traced `FadeTime` value (`0.2f`) and base call. Both are newly authored CIL from the retained
+9.2 ARM64 field writes; original generated assemblies and native dumps remain local.

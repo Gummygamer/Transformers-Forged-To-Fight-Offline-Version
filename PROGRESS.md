@@ -406,3 +406,26 @@ story/UI repairs do not copy game method bodies. The 1 GiB temporary REA export 
 complete retained evidence was deleted after validation. Next, batch several high-frequency
 failures with exact native evidence, rerun preflight, and use one Unity checkpoint to measure the
 combined effect. The queue is volatile because later failures surface as earlier ones are removed.
+
+## v26: batched constructor preflight and resource check
+
+Used the retained 9.2 ARM64 traces to add `MatineeStage` and `SpecialAttackIcon` constructor
+repairs to the same pass as `SocialHubTrayButton`. The first preflight caught a helper-order bug
+(the method body was cleared before its Unity method references were captured); the repair now
+captures and validates those references first. The rerun completed successfully and logged both
+new repairs. `MatineeStage` initializes the two positions with `Vector3.zero`, both rotations
+with `Quaternion.identity`, `playbackFilter` to the observed empty string, its three traced lists,
+and `_destroyStageOnCompletion=true`. `SpecialAttackIcon.FadeTime` is set to traced `0.2f`.
+
+REA's managed artifact inspections report complete metadata for the changed main assembly
+(`c8ade12b...`) and firstpass assembly (`281589be...`). Full member responses exceed the 10 MiB
+MCP transport cap, so REA retained the records and offered evidence export. The complete export
+was 1.65 GB; I interrupted the whole-bundle scan when it became a needless resource cost and
+deleted the export. REA's earlier direct validation of `SocialHubTrayButton` remains complete;
+the combined Unity checkpoint is still needed to validate these two new bodies against IL2CPP.
+
+At the memory check, the machine had 12 GiB available out of 22 GiB RAM and 3.4 GiB of 8 GiB
+swap in use. The temporary evidence export was the main avoidable storage/I/O cost; after its
+removal `/tmp` usage fell by 1.65 GB. No heavy analysis process was running for the constructor
+preflight. Future checks will avoid whole-session REA exports unless a specific body cannot be
+verified through a smaller MCP result or Unity import.

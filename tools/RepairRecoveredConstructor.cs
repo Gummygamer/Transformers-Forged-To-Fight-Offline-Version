@@ -5719,6 +5719,83 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairSpecialAttackIconConstructor(TypeDefinition type, string assemblyName) {
+        if (assemblyName != "Assembly-CSharp.dll" || type.FullName != "SpecialAttackIcon") return 0;
+        MethodDefinition method = RequireNGUIConstructor(type);
+        FieldDefinition fadeTime = type.Fields.SingleOrDefault(field => field.Name == "FadeTime" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single);
+        if (fadeTime == null || type.BaseType.FullName != "UnityEngine.MonoBehaviour")
+            throw new InvalidDataException("unexpected SpecialAttackIcon constructor metadata");
+        ILProcessor il = method.Body.GetILProcessor();
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldc_R4, 0.2f));
+        il.Append(il.Create(OpCodes.Stfld, fadeTime));
+        AppendNGUIBaseCall(il, type);
+        return 1;
+    }
+
+    static int RepairMatineeStageConstructor(TypeDefinition type, string assemblyName) {
+        if (assemblyName != "Assembly-CSharp-firstpass.dll" ||
+            type.FullName != "EB.Animation.Matinee.MatineeStage") return 0;
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate => candidate.Name == ".ctor" &&
+            !candidate.IsStatic && candidate.Parameters.Count == 0 && candidate.HasBody);
+        if (method == null) throw new InvalidDataException("missing parameterless MatineeStage constructor");
+        if (type.BaseType.FullName != "UnityEngine.MonoBehaviour")
+            throw new InvalidDataException("unexpected MatineeStage base type");
+
+        FieldDefinition position = RequireNGUIField(type, "position", "UnityEngine.Vector3");
+        FieldDefinition rotation = RequireNGUIField(type, "rotation", "UnityEngine.Quaternion");
+        FieldDefinition originalPosition = RequireNGUIField(type, "originalPosition", "UnityEngine.Vector3");
+        FieldDefinition originalRotation = RequireNGUIField(type, "originalRotation", "UnityEngine.Quaternion");
+        FieldDefinition playbackFilter = RequireNGUIField(type, "playbackFilter", "System.String");
+        FieldDefinition actorInfoList = RequireNGUIField(type, "actorInfoList",
+            "System.Collections.Generic.List`1<EB.Animation.Matinee.MatineeStage/ActorInfo>");
+        FieldDefinition clipList = RequireNGUIField(type, "_matineeAnimationClipList",
+            "System.Collections.Generic.List`1<EB.Animation.Matinee.MatineeStage/MatineeAnimationClip>");
+        FieldDefinition trackEntityList = RequireNGUIField(type, "_trackEntityLibrary",
+            "System.Collections.Generic.List`1<UnityEngine.GameObject>");
+        FieldDefinition destroyOnComplete = RequireNGUIField(type, "_destroyStageOnCompletion", "System.Boolean");
+
+        MethodReference vector3Zero = FindCall(method, "get_zero", "UnityEngine.Vector3");
+        MethodReference quaternionIdentity = FindCall(method, "get_identity", "UnityEngine.Quaternion");
+        MethodReference actorListConstructor = FindConstructor(method, actorInfoList.FieldType.FullName);
+        MethodReference clipListConstructor = FindConstructor(method, clipList.FieldType.FullName);
+        MethodReference trackEntityListConstructor = FindConstructor(method, trackEntityList.FieldType.FullName);
+        MethodReference baseConstructor = FindCall(method, ".ctor", "UnityEngine.MonoBehaviour");
+        if (vector3Zero == null || quaternionIdentity == null || actorListConstructor == null ||
+            clipListConstructor == null || trackEntityListConstructor == null || baseConstructor == null)
+            throw new InvalidDataException("missing MatineeStage constructor call metadata");
+
+        ResetMethodBody(method);
+        method.Body.MaxStackSize = 2;
+        ILProcessor il = method.Body.GetILProcessor();
+        foreach (FieldDefinition field in new[] { position, originalPosition }) {
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Call, moduleImport(type, vector3Zero)));
+            il.Append(il.Create(OpCodes.Stfld, field));
+        }
+        foreach (FieldDefinition field in new[] { rotation, originalRotation }) {
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Call, moduleImport(type, quaternionIdentity)));
+            il.Append(il.Create(OpCodes.Stfld, field));
+        }
+        StoreStringField(il, type, "playbackFilter", String.Empty);
+        foreach (var item in new[] {
+            Tuple.Create(actorInfoList, actorListConstructor),
+            Tuple.Create(clipList, clipListConstructor),
+            Tuple.Create(trackEntityList, trackEntityListConstructor)
+        }) {
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Newobj, moduleImport(type, item.Item2)));
+            il.Append(il.Create(OpCodes.Stfld, item.Item1));
+        }
+        StoreBoolField(il, type, "_destroyStageOnCompletion", true);
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Call, moduleImport(type, baseConstructor)));
+        il.Append(il.Create(OpCodes.Ret));
+        return 1;
+    }
+
     static int RepairStoryPanelConstructor(TypeDefinition type, string assemblyName) {
         if (assemblyName != "Assembly-CSharp.dll") return 0;
         if (type.FullName != "QuestSelectPanelBase" && type.FullName != "ActPanel" &&
@@ -6131,6 +6208,16 @@ class RepairRecoveredConstructor {
                     if (socialHubTrayButtonConstructorRepairs > 0) {
                         changed = true;
                         Console.WriteLine("reconstructed SocialHubTrayButton defaults from retained 9.2 ARM64 field writes");
+                    }
+                    int specialAttackIconConstructorRepairs = RepairSpecialAttackIconConstructor(type, assemblyName);
+                    if (specialAttackIconConstructorRepairs > 0) {
+                        changed = true;
+                        Console.WriteLine("reconstructed SpecialAttackIcon fade default from retained 9.2 ARM64 field write");
+                    }
+                    int matineeStageConstructorRepairs = RepairMatineeStageConstructor(type, assemblyName);
+                    if (matineeStageConstructorRepairs > 0) {
+                        changed = true;
+                        Console.WriteLine("reconstructed MatineeStage defaults and lists from retained 9.2 ARM64 field writes");
                     }
                     int redeemerDisplayRepairs = RepairDefaultRedeemerDisplayConstructor(type, assemblyName);
                     if (redeemerDisplayRepairs > 0) {
