@@ -5796,6 +5796,129 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairEBLightShadowConstructor(TypeDefinition type, string assemblyName) {
+        if (assemblyName != "Assembly-CSharp-firstpass.dll" ||
+            type.FullName != "EB.Rendering.EBLightShadow") return 0;
+
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate => candidate.Name == ".ctor" &&
+            !candidate.IsStatic && candidate.Parameters.Count == 0 && candidate.HasBody);
+        if (method == null || type.BaseType.FullName != "UnityEngine.MonoBehaviour")
+            throw new InvalidDataException("unexpected EBLightShadow constructor metadata");
+
+        FieldDefinition lightRotation = RequireNGUIField(type, "_LightUpToShadowCamera", "UnityEngine.Quaternion");
+        FieldDefinition isOrthographic = RequireNGUIField(type, "IsOrthoGraphic", "System.Boolean");
+        FieldDefinition exponentialValue = RequireNGUIField(type, "ExponentialValue", "System.Single");
+        FieldDefinition priorityCascade = type.Fields.SingleOrDefault(field => field.Name == "PriorityCascade" &&
+            !field.IsStatic && field.FieldType.Name == "eNUM_CASCADES");
+        FieldDefinition shadowIsStatic = RequireNGUIField(type, "_ShadowIsStatic", "System.Boolean[]");
+        FieldDefinition textureName = RequireNGUIField(type, "_TextureName", "System.String");
+        FieldDefinition matrixName = RequireNGUIField(type, "_VPMatrixName", "System.String");
+        FieldDefinition nearFarName = RequireNGUIField(type, "_ShadowZBufferParam", "System.String");
+        FieldDefinition zBiasName = RequireNGUIField(type, "_ZBiasName", "System.String");
+        FieldDefinition exponentialName = RequireNGUIField(type, "_ExponentialFactorName", "System.String");
+        FieldDefinition textureProperty = RequireNGUIField(type, "_TextureProperty", "System.Int32");
+        FieldDefinition matrixProperties = RequireNGUIField(type, "_VPMatrixProperty", "EB.Rendering.EBShaderGlobalProperty[]");
+        FieldDefinition nearFarProperties = RequireNGUIField(type, "_ShadowZBufferProperty", "EB.Rendering.EBShaderGlobalProperty[]");
+        FieldDefinition zBiasProperties = RequireNGUIField(type, "_ZBiasProperty", "EB.Rendering.EBShaderGlobalProperty[]");
+        FieldDefinition exponentialProperty = RequireNGUIField(type, "_ExponentialFactorProperty", "System.Int32");
+        FieldDefinition shadowSettings = RequireNGUIField(type, "ShadowSettings", "EB.Rendering.EBLightShadow/EBShadowSetting[]");
+        FieldDefinition textureSizes = RequireNGUIField(type, "_ShadowTextureSizes", "System.Int32[][]");
+        FieldDefinition numCascades = RequireNGUIField(type, "_NumCascades", "System.Int32");
+        if (priorityCascade == null || priorityCascade.FieldType.MetadataType != MetadataType.ValueType)
+            throw new InvalidDataException("unexpected EBLightShadow.PriorityCascade field metadata");
+
+        ArrayType boolArray = shadowIsStatic.FieldType as ArrayType;
+        ArrayType propertyArray = matrixProperties.FieldType as ArrayType;
+        ArrayType settingsArray = shadowSettings.FieldType as ArrayType;
+        ArrayType jaggedSizes = textureSizes.FieldType as ArrayType;
+        ArrayType sizeRow = jaggedSizes?.ElementType as ArrayType;
+        if (boolArray == null || propertyArray == null || settingsArray == null || sizeRow == null ||
+            nearFarProperties.FieldType.FullName != matrixProperties.FieldType.FullName ||
+            zBiasProperties.FieldType.FullName != matrixProperties.FieldType.FullName ||
+            boolArray.ElementType.MetadataType != MetadataType.Boolean ||
+            propertyArray.ElementType.FullName != "EB.Rendering.EBShaderGlobalProperty" ||
+            settingsArray.ElementType.FullName != "EB.Rendering.EBLightShadow/EBShadowSetting" ||
+            sizeRow.ElementType.MetadataType != MetadataType.Int32)
+            throw new InvalidDataException("unexpected EBLightShadow array metadata");
+
+        MethodReference euler = FindCall(method, "Euler", "UnityEngine.Quaternion");
+        TypeDefinition settingType = type.NestedTypes.SingleOrDefault(nested => nested.Name == "EBShadowSetting");
+        MethodDefinition[] settingConstructors = settingType?.Methods.Where(candidate => candidate.Name == ".ctor" &&
+            !candidate.IsStatic && candidate.Parameters.Count == 0).ToArray() ?? new MethodDefinition[0];
+        if (euler == null || euler.HasThis || euler.ReturnType.FullName != "UnityEngine.Quaternion" ||
+            euler.Parameters.Count != 3 || euler.Parameters.Any(parameter => parameter.ParameterType.MetadataType != MetadataType.Single) ||
+            settingConstructors.Length != 1 || shadowSettings.FieldType.FullName != "EB.Rendering.EBLightShadow/EBShadowSetting[]")
+            throw new InvalidDataException("missing EBLightShadow constructor call metadata");
+
+        // Authored from the retained ARM64 trace at 0x1D3D0DC-0x1D3D39C.
+        // No original managed method body or asset data is copied here.
+        ResetMethodBody(method);
+        method.Body.InitLocals = false;
+        method.Body.MaxStackSize = 6;
+        ILProcessor il = method.Body.GetILProcessor();
+
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldc_R4, 90f));
+        il.Append(il.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(il.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(il.Create(OpCodes.Call, moduleImport(type, euler)));
+        il.Append(il.Create(OpCodes.Stfld, lightRotation));
+        StoreBoolField(il, type, "IsOrthoGraphic", true);
+        StoreFloatField(il, type, "ExponentialValue", 250f);
+        StoreIntField(il, type, "PriorityCascade", 2);
+
+        foreach (FieldDefinition arrayField in new[] { shadowIsStatic, matrixProperties, nearFarProperties, zBiasProperties }) {
+            ArrayType array = (ArrayType)arrayField.FieldType;
+            il.Append(il.Create(OpCodes.Ldarg_0));
+            il.Append(il.Create(OpCodes.Ldc_I4_2));
+            il.Append(il.Create(OpCodes.Newarr, array.ElementType));
+            il.Append(il.Create(OpCodes.Stfld, arrayField));
+        }
+        StoreStringField(il, type, "_TextureName", "_ShadowMap");
+        StoreStringField(il, type, "_VPMatrixName", "_ShadowMapVP");
+        StoreStringField(il, type, "_ShadowZBufferParam", "_ShadowNearFar");
+        StoreStringField(il, type, "_ZBiasName", "_ZBias");
+        StoreStringField(il, type, "_ExponentialFactorName", "_ExponentialFactor");
+        StoreIntField(il, type, "_TextureProperty", -1);
+        StoreIntField(il, type, "_ExponentialFactorProperty", -1);
+
+        MethodReference settingConstructor = moduleImport(type, settingConstructors[0]);
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldc_I4_2));
+        il.Append(il.Create(OpCodes.Newarr, settingsArray.ElementType));
+        for (int index = 0; index < 2; index++) {
+            il.Append(il.Create(OpCodes.Dup));
+            il.Append(il.Create(OpCodes.Ldc_I4, index));
+            il.Append(il.Create(OpCodes.Newobj, settingConstructor));
+            il.Append(il.Create(OpCodes.Stelem_Ref));
+        }
+        il.Append(il.Create(OpCodes.Stfld, shadowSettings));
+
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldc_I4_3));
+        il.Append(il.Create(OpCodes.Newarr, jaggedSizes.ElementType));
+        int[] resolutions = { 256, 512, 1024 };
+        for (int index = 0; index < resolutions.Length; index++) {
+            il.Append(il.Create(OpCodes.Dup));
+            il.Append(il.Create(OpCodes.Ldc_I4, index));
+            il.Append(il.Create(OpCodes.Ldc_I4_2));
+            il.Append(il.Create(OpCodes.Newarr, sizeRow.ElementType));
+            il.Append(il.Create(OpCodes.Dup));
+            il.Append(il.Create(OpCodes.Ldc_I4_0));
+            il.Append(il.Create(OpCodes.Ldc_I4, resolutions[index]));
+            il.Append(il.Create(OpCodes.Stelem_I4));
+            il.Append(il.Create(OpCodes.Dup));
+            il.Append(il.Create(OpCodes.Ldc_I4_1));
+            il.Append(il.Create(OpCodes.Ldc_I4, resolutions[index]));
+            il.Append(il.Create(OpCodes.Stelem_I4));
+            il.Append(il.Create(OpCodes.Stelem_Ref));
+        }
+        il.Append(il.Create(OpCodes.Stfld, textureSizes));
+        StoreIntField(il, type, "_NumCascades", -1);
+        AppendNGUIBaseCall(il, type);
+        return 1;
+    }
+
     static int RepairStoryPanelConstructor(TypeDefinition type, string assemblyName) {
         if (assemblyName != "Assembly-CSharp.dll") return 0;
         if (type.FullName != "QuestSelectPanelBase" && type.FullName != "ActPanel" &&
@@ -6218,6 +6341,11 @@ class RepairRecoveredConstructor {
                     if (matineeStageConstructorRepairs > 0) {
                         changed = true;
                         Console.WriteLine("reconstructed MatineeStage defaults and lists from retained 9.2 ARM64 field writes");
+                    }
+                    int lightShadowConstructorRepairs = RepairEBLightShadowConstructor(type, assemblyName);
+                    if (lightShadowConstructorRepairs > 0) {
+                        changed = true;
+                        Console.WriteLine("reconstructed EBLightShadow constructor from retained 9.2 ARM64 field and array traces");
                     }
                     int redeemerDisplayRepairs = RepairDefaultRedeemerDisplayConstructor(type, assemblyName);
                     if (redeemerDisplayRepairs > 0) {

@@ -228,6 +228,7 @@ def main() -> int:
             "Rebuild EB.BitStream.Serialize(ref string) from the traced 9.2 isReading branch and EB.Buffer.ReadString/WriteString calls",
             "Rebuild EB.Rendering.BeamRenderer.FloatEvlautation from the 9.2 added-evaluations branch, AnimationCurve.Evaluate call, and List<float> cache accesses",
             "Rebuild EB.Rendering.BeamRenderer.Update from the native 9.2 endpoint null checks, transform positions, startup interpolation, and duration/loop gate",
+            "Rebuild EB.Rendering.EBLightShadow parameterless constructor from the native 9.2 field defaults, shadow-setting objects, and texture-size arrays",
             "Rebuild Crash.DoAnim from the native 9.2 sub-transform null check, damping factor, per-axis random displacement, and local-position write",
             "Rebuild EB.Base.BaseAPI.PlaceEntity from the native 9.2 seven-value route, infinity coordinate sentinel, and Post/Service calls",
             "Rebuild CopyMemberBinding.EnsureTypeMatches from the native 9.2 assignability, nullable-value, string-empty, and default-instance paths",

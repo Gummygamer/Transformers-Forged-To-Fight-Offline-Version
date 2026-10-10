@@ -867,3 +867,7 @@ The current follow-up batch reconstructs `MatineeStage`'s traced position/rotati
 list fields, empty playback filter, completion flag, and base call. `SpecialAttackIcon` receives
 the traced `FadeTime` value (`0.2f`) and base call. Both are newly authored CIL from the retained
 9.2 ARM64 field writes; original generated assemblies and native dumps remain local.
+
+`EB.Rendering.EBLightShadow`'s constructor is reconstructed from its retained 9.2 ARM64 field and
+array traces, including the shadow-setting and texture-size defaults. This is newly authored CIL;
+no APK bytes, assets, or copied managed method body are included.

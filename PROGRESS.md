@@ -437,3 +437,37 @@ swap in use. The temporary evidence export was the main avoidable storage/I/O co
 removal `/tmp` usage fell by 1.65 GB. No heavy analysis process was running for the constructor
 preflight. Future checks will avoid whole-session REA exports unless a specific body cannot be
 verified through a smaller MCP result or Unity import.
+
+## v27: APK provenance correction and bounded IL2CPP checkpoint
+
+REA MCP inspected the full `Transformers 9.2 offline.apk` directly: evidence
+`ev_62cf84d2213808ea6b9e261548a16409b24dda5f3c55a0226c6af1d106657f89` records
+`com.kabam.bigrobot`, version 9.2.0 / code 123129100, 10,395 classes, and 4,133 resources.
+Its SHA-256 matches the pinned hash in `tools/recover_9_2.py` and the active
+`recovery-manifest.json`, and AssetRipper logs name that APK as input. This proves the active
+stage's file lineage, but not that the APK is pristine Kabam software.
+
+That distinction is material: `apksigner` verifies the APK but reports signer `CN=Android Debug`
+(certificate SHA-256 `4e136f2c457dc656a3503da96734608decb00764a91bdfdd9767c4fe412fa0e0`), not a
+Kabam release signer. The embedded ARM64 `libil2cpp.so` SHA-256 is
+`e54cb5a1b57d6df1a70958a5c5ca29784eb35ee7c060b045ae53d95a94d91bac`, equal to the repository's
+misleadingly named `pristine_libil2cpp.so`; `readelf -d` shows that library depends on
+`libdothook.so`, which the APK also bundles. `Server/provision_emulator.sh` explicitly describes
+this input APK as already bundling the patched library and hook. Therefore this input is an
+offline-patched/re-signed APK, not verified pristine Kabam source. No further Unity builds should
+use it for the pristine recompilation objective; the carrier `exact-pair-input.apk` is only 58.6 MB
+and is not a replacement full APK.
+
+Before discovering the signer/patch marker, one memory-guarded Unity 2020.3.31f1 ARM64 IL2CPP
+checkpoint was run after the constructor preflight. The authored `EBLightShadow` constructor
+repair passed preflight and removed its 12 repeated invalid-IL reports; the distinct queue moved
+40 -> 39, and Unity's total error count moved 134 -> 122. Unity still produced no APK. The log
+compressed from 115.4 MiB to 1.12 MiB, net storage use was 14.94 MiB, and minimum available RAM
+was 7.9 GiB. These are results for the patched input only and do not count as progress toward a
+pristine-source build. The `AlignUIElements.GetObjectBounds` authored body also passed the import
+preflight and was not among the remaining IL2CPP queue items.
+
+Next required input: a legally obtained, full pristine Kabam 9.2.0 APK (or a complete original
+package with its clean native libraries and matching metadata). Verify its signer and hashes, then
+rebuild the recovery manifest and Unity stage from that artifact before continuing. Preserve the
+current local stage and authored work until that comparison is complete.
