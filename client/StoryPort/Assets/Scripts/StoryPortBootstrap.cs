@@ -2307,6 +2307,7 @@ namespace StoryPort
             evadeUntil = Time.time + (towardEnemy ? .38f : .72f);
             nextEnemyTurn = Time.time + .8f;
             UpdateFightHud();
+            if (towardEnemy) SetBoolIfPresent(playerAnimator, "Running", true);
             StartCoroutine(FightMovement(target, .32f));
         }
 
@@ -2317,7 +2318,8 @@ namespace StoryPort
             if (fightWalkDirection == 0 && playerBusy) return;
             fightWalkDirection = direction;
             playerBusy = true;
-            PlayState(playerAnimator, direction > 0 ? "Run" : "Dash");
+            PlayState(playerAnimator, "Run");
+            SetBoolIfPresent(playerAnimator, "Running", true);
             guarding = false;
             SetBoolIfPresent(playerAnimator, "Blocking", false);
         }
@@ -2351,6 +2353,7 @@ namespace StoryPort
         {
             if (fightWalkDirection == 0) return;
             fightWalkDirection = 0;
+            SetBoolIfPresent(playerAnimator, "Running", false);
             playerBusy = false;
             if (screen == "fight" && playerActor != null && !guarding) PlayState(playerAnimator, "Idle");
             RunQueuedAttack();
@@ -2359,6 +2362,7 @@ namespace StoryPort
         IEnumerator FightMovement(Vector3 target, float duration)
         {
             yield return MoveActor(playerActor, target, duration);
+            SetBoolIfPresent(playerAnimator, "Running", false);
             playerBusy = false;
             if (screen == "fight" && playerActor != null && !guarding) PlayState(playerAnimator, "Idle");
             RunQueuedAttack();
@@ -2518,8 +2522,10 @@ namespace StoryPort
                 if (gap > 5.8f)
                 {
                     float runIn = Mathf.Min(1.5f, gap - 5.2f);
+                    SetBoolIfPresent(enemyAnimator, "Running", true);
                     PlayState(enemyAnimator, "Run");
                     yield return StartCoroutine(MoveActor(enemyActor, enemyHome + towardPlayer.normalized * runIn, .34f));
+                    SetBoolIfPresent(enemyAnimator, "Running", false);
                     if (screen != "fight" || playerHp <= 0 || enemyHp <= 0) { enemyBusy = false; yield break; }
                     enemyHome = enemyActor.transform.position;
                     towardPlayer = playerActor.transform.position - enemyActor.transform.position;
