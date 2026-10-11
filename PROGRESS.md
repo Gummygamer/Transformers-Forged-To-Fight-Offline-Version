@@ -1546,3 +1546,33 @@ provider bound, so `analyze_function` correctly refuses archive input. No cold f
 import was repeated. Prioritize repairing the generalized ARM64 aggregate/value-type lowering and
 CIL emission before the next build; do not turn these diagnostic placeholders into accepted game
 behavior.
+
+## v68: aggregate-lowering root cause and build pin repair (2026-10-11)
+
+REA MCP is live and remains bound to the confirmed pristine APK (SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`). The provider
+correctly reports that Ghidra cannot analyze the APK archive directly; no MCP
+restart or cold native import is needed for the existing evidence. REA also
+re-inspected the current staged `Assembly-CSharp.dll` (Evidence
+`ev_32370c13a5f0849615014eea4d9f162e8ef247a9a7ade0c1843796033f18155c`, SHA-256
+`31a6f8e10e6b81e7f5530ec13151e460c02e2db67d3d143e5d45d19d82910736`).
+
+Focused CIL review narrowed the shared blocker to ARM64 aggregate value and
+address lowering, beyond method-entry HFA reconstruction. `StateMachine.SwitchState`
+uses a whole `QueuedState` result as if one register held the struct; its later
+comparison and call arguments are consequently malformed. `QuestCameraController`
+has a whole `Vector3` passed through scalar conversion, and an unresolved
+aggregate load leaves the actual `get_position()` result unused. `MetadataResolver`
+also only resolves exact outer-field offsets and leaves nested-field offsets
+unhandled. The existing Cpp2IL patch explicitly defers outgoing aggregate calls,
+so rebuilding that patch would reproduce the same class of failure. Preserve
+this as an emitter issue; do not replace the bad values with defaults or stubs.
+
+Corrected `tools/build_patched_cpp2il.py` to pin the current patch bytes
+(`0d67b5a63bea9f80df90fcb25d54bde80139056a7ca02f6678055a1677bd4e80`). The
+patch-pin assertion and `git diff --check` pass. The built stage's seven changed
+Cpp2IL source files match the patch's resulting blob IDs, so this is a
+reproducibility repair and does not change the compiler output. No Unity build
+was run; last cycle required 5.23 GB peak Unity RSS. Next, implement and verify
+aggregate call/return reconstruction and nested scalar loads with a small
+three-method CIL check before another ARM64 checkpoint.

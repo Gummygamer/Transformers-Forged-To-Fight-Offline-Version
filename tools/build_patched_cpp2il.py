@@ -17,7 +17,7 @@ from recovery_environment import check_external_build_storage
 
 CPP2IL_COMMIT = "b5ad444b82267cb1e4b88b8b373c008105bdea52"
 PATCH_PATH = Path(__file__).resolve().parent / "patches/cpp2il-b5ad444-recovery.patch"
-PATCH_SHA256 = "4b84ec9fe3d0662bdc07d34d6e80af512da1870668df719c5116d0f1cf2f8565"
+PATCH_SHA256 = "0d67b5a63bea9f80df90fcb25d54bde80139056a7ca02f6678055a1677bd4e80"
 
 
 def run(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
