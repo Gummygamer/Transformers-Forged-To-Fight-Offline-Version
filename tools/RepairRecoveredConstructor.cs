@@ -6054,6 +6054,7 @@ class RepairRecoveredConstructor {
             return RepairBadgeStateConstructor(targetModule);
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
         int repairs = RepairRecoveredPool(targetModule);
+        repairs += RepairMatrixAdd(targetModule);
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeFloat", typeof(float));
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeInt", typeof(int));
         repairs += RepairStringUtilInitializer(targetModule);
@@ -6079,6 +6080,42 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
         repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         return repairs;
+    }
+
+    static int RepairMatrixAdd(ModuleDefinition module) {
+        TypeDefinition matrix = module.GetType("EB.Math.Matrix");
+        if (matrix == null) throw new InvalidDataException("missing EB.Math.Matrix metadata");
+        string matrixRef = "EB.Math.Matrix&";
+        MethodDefinition add = matrix.Methods.SingleOrDefault(method => method.Name == "Add" &&
+            method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void &&
+            method.Parameters.Count == 3 && method.Parameters.All(parameter =>
+                parameter.ParameterType.FullName == matrixRef));
+        if (add == null) throw new InvalidDataException("missing EB.Math.Matrix.Add(ref,ref,ref)");
+
+        string[] fieldNames = {
+            "m11", "m12", "m13", "m14", "m21", "m22", "m23", "m24",
+            "m31", "m32", "m33", "m34", "m41", "m42", "m43", "m44"
+        };
+        FieldDefinition[] fields = fieldNames.Select(name => matrix.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (fields.Any(field => field == null) || fields.Distinct().Count() != fieldNames.Length)
+            throw new InvalidDataException("unexpected EB.Math.Matrix scalar field layout");
+
+        ILProcessor il;
+        MethodBody body = ResetBody(add, out il);
+        foreach (FieldDefinition field in fields) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Add));
+            il.Append(Instruction.Create(OpCodes.Stfld, field));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Matrix.Add(ref,ref,ref) across 16 traced float fields");
+        return 1;
     }
 
     static int RepairSafeNumberSetter(ModuleDefinition module, string typeName, Type valueType) {

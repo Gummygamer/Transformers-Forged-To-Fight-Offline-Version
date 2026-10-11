@@ -916,3 +916,7 @@ assemblies, the APK, or trace output is tracked.
 `UnityEngine.Color32.op_Implicit(Color32) -> Color` member through its actual declaring type,
 `Color32`. This is a metadata-owner correction to newly authored constructor IL; no game method
 body is copied.
+
+`EB.Math.Matrix.Add(ref,ref,ref)` is newly authored IL that adds its 16 traced scalar fields. The
+field sequence and source bytes were checked against the clean 9.2 native image; no APK bytes,
+assets, or decompiled game method body are included in the repository.

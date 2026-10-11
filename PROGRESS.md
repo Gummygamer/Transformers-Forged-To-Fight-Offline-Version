@@ -949,3 +949,36 @@ identity; the repaired `Assembly-CSharp.dll` was then inspected with a bounded C
 four calls resolve to `UnityEngine.Color32::op_Implicit(UnityEngine.Color32)` returning `Color`.
 The short import preflight compiled successfully with the same 12 existing warnings. No Unity
 build was repeated; the next guarded run should be combined with the remaining IL2CPP repair batch.
+
+## v42: traced Matrix.Add repair passes preflight
+
+Verified the selected source again: `transformers-forged-to-fight-9-2-0.apk` is 839,039,239
+bytes with SHA-256 `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`; its recovery
+manifest records the Kabam signer stamp and rejects the known offline-patched APK hash. The
+actual REA MCP session is connected, but its active target is the APK archive, which Ghidra cannot
+analyze as an executable. REA's bounded managed-artifact inspections observed complete metadata
+for the repaired staged assemblies (`Assembly-CSharp-firstpass.dll` evidence
+`ev_cf3df9c25f86fff28a2ec9014acf4f49b225074910ceb9abaad365d9c91c2edf`; `Assembly-CSharp.dll`
+evidence `ev_6000b0bff3c79026ce14cc5682e4a400583b44a391bb7d60bdc4adace6d0feea`). No cold Ghidra
+import or broad managed-member scan was repeated.
+
+`EB.Math.Matrix.Add(ref,ref,ref)` now adds each of the 16 traced `Single` fields into the output
+matrix, reading both inputs before each write so output aliasing remains valid. The focused
+Unity-bundled Mono check passed across all fields and aliasing; the new import preflight also
+passed with 12 existing CS0219 warnings and re-transplanted the authored
+`AlignUIElements.GetObjectBounds` body. This validates managed compilation/import and the matrix
+semantics, not Unity's ARM64 IL2CPP conversion. The latest IL2CPP queue was measured before this
+repair at 16 method-level failures; no APK or playable story session exists yet. Defer the next
+Unity build until the story-map/deferred/UI batch has additional trace-backed repairs.
+
+The latest Unity checkpoint took about 116 seconds in Editor plus 29 seconds of preflight, peaked
+at 4.92 GiB process-tree RSS, and left 6.60 GiB host memory available at its low-water mark. There
+are 13 GiB currently available and 130 GiB free on external storage. An attempted cleanup of the
+old root-owned Unity `Temp` cache remains blocked by permissions; no ownership changes were made.
+The full REA evidence export was 1.73 GB and was removed after recognizing that it provided no
+additional useful bounded finding; the session's oversized response was not retained locally.
+
+Progress rate for this batch: one additional IL2CPP-rejected method reconstructed and validated by
+focused Mono plus Unity import preflight; no APK output yet. First playable story-route estimate
+remains **3–8 focused weeks, low confidence**. Next, continue trace-backed work on `Map.SetupBuffs`
+and the deferred/UI methods, then run one memory-guarded IL2CPP cycle after the batch changes.
