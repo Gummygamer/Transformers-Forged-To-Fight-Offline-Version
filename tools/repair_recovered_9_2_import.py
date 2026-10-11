@@ -213,6 +213,7 @@ def main() -> int:
             "Methods explicitly rejected by Unity IL2CPP diagnostics are replaced with throwing stubs; their recovered bodies remain unverified and those APIs are unsupported at runtime"
         ],
         "structural_repairs": [
+            "Reconstruct EB.Collections.Pool<T> with a conventional Stack<T> implementation because the recovered method bodies contain generated placeholders; pool semantics remain approximate",
             "Transplant authored AlignUIElements.GetObjectBounds C# method body, reconstructed from the 9.2 ARM64 trace, into the recovered game assembly",
             "Set Cpp2ILInjected.Cpp2ILHelpers.BaseType to System.Object in every recovered plugin where the helper class has no base reference",
             "Replace Mono.Security.dll with Unity's 4.5 profile assembly only when its full strong-name identity matches and it contains PKCS12.GetExistingParameters(Boolean&)",

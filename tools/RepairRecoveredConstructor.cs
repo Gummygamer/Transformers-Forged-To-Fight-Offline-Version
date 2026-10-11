@@ -6047,6 +6047,7 @@ class RepairRecoveredConstructor {
     static int RepairAuthoredMethodBodies(ModuleDefinition targetModule,
         ModuleDefinition sourceModule, string assemblyName) {
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
+        int repairs = RepairRecoveredPool(targetModule);
         TypeDefinition sourceType = sourceModule.GetType("RecoverySources.AlignUIElementsGetObjectBounds");
         MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method => method.Name == "Replace");
         TypeDefinition targetType = targetModule.GetType("AlignUIElements");
@@ -6057,7 +6058,137 @@ class RepairRecoveredConstructor {
             method.Parameters[2].ParameterType.FullName == "UnityEngine.Vector3&");
         if (source == null || target == null)
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
-        return ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
+        repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
+        return repairs;
+    }
+
+    // Cpp2IL emitted placeholder Console.WriteLine stubs for this generic
+    // collection. Reconstruct its conventional stack-backed pool behavior so
+    // Unity's importer and runtime do not execute those placeholders.
+    static int RepairRecoveredPool(ModuleDefinition module) {
+        TypeDefinition type = module.GetType("EB.Collections.Pool`1");
+        if (type == null) throw new InvalidDataException("missing recovered EB.Collections.Pool<T>");
+        if (type.GenericParameters.Count != 1)
+            throw new InvalidDataException("unexpected EB.Collections.Pool<T> arity");
+        GenericParameter item = type.GenericParameters[0];
+        FieldDefinition items = type.Fields.SingleOrDefault(field => field.Name == "_items");
+        FieldDefinition constructor = type.Fields.SingleOrDefault(field => field.Name == "_constructor");
+        FieldDefinition onRecycle = type.Fields.SingleOrDefault(field => field.Name == "_onRecycle");
+        FieldDefinition initialSize = type.Fields.SingleOrDefault(field => field.Name == "<InitialSize>k__BackingField");
+        MethodDefinition ctor = type.Methods.SingleOrDefault(method => method.IsConstructor && !method.IsStatic && method.Parameters.Count == 3);
+        MethodDefinition use = type.Methods.SingleOrDefault(method => method.Name == "Use" && method.Parameters.Count == 0);
+        MethodDefinition recycle = type.Methods.SingleOrDefault(method => method.Name == "Recycle" && method.Parameters.Count == 1);
+        MethodDefinition clear = type.Methods.SingleOrDefault(method => method.Name == "Clear" && method.Parameters.Count == 0);
+        MethodDefinition count = type.Methods.SingleOrDefault(method => method.Name == "get_NumAvailable" && method.Parameters.Count == 0);
+        if (items == null || constructor == null || onRecycle == null || initialSize == null || ctor == null || use == null ||
+            recycle == null || clear == null || count == null)
+            throw new InvalidDataException("unexpected recovered EB.Collections.Pool<T> members");
+
+        GenericInstanceType stack = new GenericInstanceType(module.ImportReference(typeof(Stack<>)));
+        stack.GenericArguments.Add(item);
+        GenericInstanceType pool = new GenericInstanceType(type);
+        pool.GenericArguments.Add(item);
+        FieldReference itemsRef = module.ImportReference(new FieldReference(items.Name, items.FieldType, pool));
+        FieldReference constructorRef = module.ImportReference(new FieldReference(constructor.Name, constructor.FieldType, pool));
+        FieldReference onRecycleRef = module.ImportReference(new FieldReference(onRecycle.Name, onRecycle.FieldType, pool));
+        FieldReference initialSizeRef = module.ImportReference(new FieldReference(initialSize.Name, initialSize.FieldType, pool));
+        MethodReference objectCtor = new MethodReference(".ctor", module.TypeSystem.Void,
+            module.TypeSystem.Object) { HasThis = true };
+        MethodReference stackCtor = new MethodReference(".ctor", module.TypeSystem.Void, stack) { HasThis = true };
+        MethodReference push = new MethodReference("Push", module.TypeSystem.Void, stack) { HasThis = true };
+        push.Parameters.Add(new ParameterDefinition(item));
+        MethodReference pop = new MethodReference("Pop", item, stack) { HasThis = true };
+        MethodReference getCount = new MethodReference("get_Count", module.TypeSystem.Int32, stack) { HasThis = true };
+        var function = (GenericInstanceType)constructor.FieldType;
+        MethodReference create = new MethodReference("Invoke", item, function) { HasThis = true };
+        var action = (GenericInstanceType)onRecycle.FieldType;
+        MethodReference callback = new MethodReference("Invoke", module.TypeSystem.Void, action) { HasThis = true };
+        callback.Parameters.Add(new ParameterDefinition(item));
+
+        // Pool(int size, Function<T> constructor, Action<T> onRecycle)
+        ctor.Body.ExceptionHandlers.Clear(); ctor.Body.Variables.Clear(); ctor.Body.Instructions.Clear();
+        ctor.Body.InitLocals = true; ctor.Body.MaxStackSize = 3;
+        var ctorIndex = new VariableDefinition(module.TypeSystem.Int32); ctor.Body.Variables.Add(ctorIndex);
+        ILProcessor il = ctor.Body.GetILProcessor();
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Call, objectCtor));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Newobj, stackCtor)); il.Append(il.Create(OpCodes.Stfld, itemsRef));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldarg_2)); il.Append(il.Create(OpCodes.Stfld, constructorRef));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldarg_3)); il.Append(il.Create(OpCodes.Stfld, onRecycleRef));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldarg_1)); il.Append(il.Create(OpCodes.Stfld, initialSizeRef));
+        il.Append(il.Create(OpCodes.Ldc_I4_0)); il.Append(il.Create(OpCodes.Stloc, ctorIndex));
+        Instruction ctorLoop = il.Create(OpCodes.Ldloc, ctorIndex);
+        Instruction ctorDone = il.Create(OpCodes.Ret);
+        il.Append(ctorLoop); il.Append(il.Create(OpCodes.Ldarg_1)); il.Append(il.Create(OpCodes.Bge, ctorDone));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, itemsRef));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, constructorRef));
+        var ctorValue = new VariableDefinition(item); ctor.Body.Variables.Add(ctorValue);
+        Instruction defaultItem = il.Create(OpCodes.Pop);
+        Instruction pushItem = il.Create(OpCodes.Ldloc, ctorValue);
+        il.Append(il.Create(OpCodes.Dup)); il.Append(il.Create(OpCodes.Brfalse, defaultItem));
+        il.Append(il.Create(OpCodes.Callvirt, create)); il.Append(il.Create(OpCodes.Stloc, ctorValue));
+        il.Append(il.Create(OpCodes.Br, pushItem));
+        il.Append(defaultItem); il.Append(il.Create(OpCodes.Initobj, item)); il.Append(il.Create(OpCodes.Ldloc, ctorValue));
+        il.Append(pushItem); il.Append(il.Create(OpCodes.Callvirt, push));
+        il.Append(il.Create(OpCodes.Ldloc, ctorIndex)); il.Append(il.Create(OpCodes.Ldc_I4_1));
+        il.Append(il.Create(OpCodes.Add)); il.Append(il.Create(OpCodes.Stloc, ctorIndex)); il.Append(il.Create(OpCodes.Br, ctorLoop));
+        il.Append(ctorDone);
+
+        // Use(): pop an available item, otherwise call the factory or return default(T).
+        use.Body.ExceptionHandlers.Clear(); use.Body.Variables.Clear(); use.Body.Instructions.Clear();
+        use.Body.InitLocals = true; use.Body.MaxStackSize = 2;
+        var useValue = new VariableDefinition(item); use.Body.Variables.Add(useValue);
+        il = use.Body.GetILProcessor();
+        Instruction useFactory = il.Create(OpCodes.Ldarg_0);
+        Instruction invokeFactory = il.Create(OpCodes.Callvirt, create);
+        Instruction useDefault = il.Create(OpCodes.Pop);
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Callvirt, getCount));
+        il.Append(il.Create(OpCodes.Brfalse, useFactory));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Callvirt, pop)); il.Append(il.Create(OpCodes.Ret));
+        il.Append(useFactory); il.Append(il.Create(OpCodes.Ldfld, constructorRef)); il.Append(il.Create(OpCodes.Dup));
+        il.Append(il.Create(OpCodes.Brtrue, invokeFactory)); il.Append(useDefault);
+        il.Append(il.Create(OpCodes.Ldloca, useValue)); il.Append(il.Create(OpCodes.Initobj, item));
+        il.Append(il.Create(OpCodes.Ldloc, useValue)); il.Append(il.Create(OpCodes.Ret));
+        il.Append(invokeFactory); il.Append(il.Create(OpCodes.Ret));
+
+        // Recycle() invokes the optional callback, then returns non-null items to the stack.
+        recycle.Body.ExceptionHandlers.Clear(); recycle.Body.Variables.Clear(); recycle.Body.Instructions.Clear();
+        recycle.Body.InitLocals = true; recycle.Body.MaxStackSize = 3;
+        var recycler = new VariableDefinition(onRecycle.FieldType); recycle.Body.Variables.Add(recycler);
+        il = recycle.Body.GetILProcessor();
+        Instruction recycleDone = il.Create(OpCodes.Ret);
+        Instruction skipCallback = il.Create(OpCodes.Ldarg_0);
+        il.Append(il.Create(OpCodes.Ldarg_1)); il.Append(il.Create(OpCodes.Box, item)); il.Append(il.Create(OpCodes.Brfalse, recycleDone));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, onRecycleRef)); il.Append(il.Create(OpCodes.Stloc, recycler));
+        il.Append(il.Create(OpCodes.Ldloc, recycler)); il.Append(il.Create(OpCodes.Brfalse, skipCallback));
+        il.Append(il.Create(OpCodes.Ldloc, recycler)); il.Append(il.Create(OpCodes.Ldarg_1)); il.Append(il.Create(OpCodes.Callvirt, callback));
+        il.Append(skipCallback); il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Ldarg_1));
+        il.Append(il.Create(OpCodes.Callvirt, push)); il.Append(recycleDone);
+
+        // Clear() drains the stack and runs the same optional recycle callback for each item.
+        clear.Body.ExceptionHandlers.Clear(); clear.Body.Variables.Clear(); clear.Body.Instructions.Clear();
+        clear.Body.InitLocals = true; clear.Body.MaxStackSize = 3;
+        var clearValue = new VariableDefinition(item); clear.Body.Variables.Add(clearValue);
+        recycler = new VariableDefinition(onRecycle.FieldType); clear.Body.Variables.Add(recycler);
+        il = clear.Body.GetILProcessor();
+        Instruction clearLoop = il.Create(OpCodes.Ldarg_0);
+        Instruction clearDone = il.Create(OpCodes.Ret);
+        Instruction clearNext = il.Create(OpCodes.Ldarg_0);
+        il.Append(clearLoop); il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Callvirt, getCount));
+        il.Append(il.Create(OpCodes.Brfalse, clearDone)); il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Callvirt, pop)); il.Append(il.Create(OpCodes.Stloc, clearValue));
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, onRecycleRef)); il.Append(il.Create(OpCodes.Stloc, recycler));
+        il.Append(il.Create(OpCodes.Ldloc, recycler)); il.Append(il.Create(OpCodes.Brfalse, clearNext));
+        il.Append(il.Create(OpCodes.Ldloc, recycler)); il.Append(il.Create(OpCodes.Ldloc, clearValue));
+        il.Append(il.Create(OpCodes.Callvirt, callback)); il.Append(clearNext); il.Append(il.Create(OpCodes.Br, clearLoop));
+        il.Append(clearDone);
+
+        // NumAvailable is the count in the initialized stack.
+        count.Body.ExceptionHandlers.Clear(); count.Body.Variables.Clear(); count.Body.Instructions.Clear();
+        count.Body.InitLocals = false; count.Body.MaxStackSize = 1;
+        il = count.Body.GetILProcessor(); il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, itemsRef));
+        il.Append(il.Create(OpCodes.Callvirt, getCount)); il.Append(il.Create(OpCodes.Ret));
+        Console.WriteLine("reconstructed EB.Collections.Pool<T> with a conventional Stack<T> approximation; original method bodies were unavailable");
+        return 1;
     }
 
     static int Main(string[] args) {

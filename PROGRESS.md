@@ -627,3 +627,41 @@ current estimate is 2–6 focused weeks to a first playable story path on the re
 confidence), and longer for broad campaign/progression coverage. The next useful step is to use
 the existing REA CIL and source evidence to repair the queued methods as one validated batch, then
 retry Unity against the retained cache under the same memory and disk guards.
+
+
+## v33: recovered pool approximation and faster import checkpoint
+
+The actionable Unity startup failure was isolated with REA MCP evidence. The confirmed-source
+`Assembly-CSharp-firstpass.dll` `EB.Collections.Pool<T>..ctor` (token `0x06005459`) has a present
+181-instruction / 662-byte body, but its call anchors target generated logging placeholders rather
+than the stack/factory operations required by the exposed `IPool<T>` contract. Evidence
+`ev_25cdde6ac67e7ec6a8922935bacd88587515d1a08ceb5c741ff81410d8487329` was exported and filtered
+locally after REA's inline response exceeded 10 MiB. A small REA metadata inspection of the
+patched assembly completed with full PE/CLI coverage (`ev_7a17f7e466232a89878a45cfb46ddfe9575dc1ec2b00dad79656248769b03b28`): 23,856 methods, 3,506 types, SHA-256
+`2ebe256161a70190c8002e026d7ea213b9be8497ff9e018a1ab7939621895110`.
+
+The repair tool now emits a conventional `Stack<T>` pool: eager initial fill, factory fallback,
+recycle callback, draining `Clear`, and available-count reporting. This is an explicitly approximate
+implementation because original behavior was not recovered; it contains no copied game method
+body, game data, or assets. An isolated 9.2 plugin preflight completed and a Unity-bundled Mono
+smoke check passed for reference and value types, factory fallback, callback invocation, and clear.
+The previous assembly was preserved beside the warm project as
+`Assembly-CSharp-firstpass.dll.before-pool-approx`.
+
+A warm-cache Unity 2020.3.31f1 ARM64/IL2CPP retry took 64.5 seconds and still ended in SIGSEGV,
+now at `mono_callspec_cleanup`; no APK was produced. The repair queue changed from 11 to 34 unique
+items. The prior 17 `Pool<T>` / `MoveSequencer` initialization failures and the
+`Color.op_Implicit(Color32)` MissingMethodException are gone. Peak RSS was 2.13 GiB, minimum
+available RAM 15.2 GiB, and net disk use 479 MiB; memory pressure remains unsupported. The new
+highest-frequency errors are invalid-IL constructors for `EB.Rendering.EBReflectionProbe` (60),
+`BCGBlueprintBase` (36), `BaseBuilding` (15), and `EB.Gameplay.AttachTransform` (14), followed by
+smaller groups and a remaining native crash. REA evidence on the installed Unity 2020.3.31f1
+`UnityEngine.CoreModule.dll` confirms that `Color.op_Implicit(Color32)` exists there, while the game
+binding path's exact resolution failure remains unexplained.
+
+This is build-pipeline progress, not player progress: the confirmed-source ARM64 APK and story
+runtime are still at zero. Keep the original clean-source stage, warm Library, server implementation,
+and authored story data. Next, use the refreshed repair queue to test a diagnostics-driven constructor
+batch in the warm stage, preserving plugin backups; do not treat a generated stubbed build as a
+playable-story success. Estimate stays 2–6 focused weeks to a first playable story route, low
+confidence, because no APK or runtime path exists yet.

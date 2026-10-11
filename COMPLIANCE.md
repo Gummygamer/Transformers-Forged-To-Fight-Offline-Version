@@ -21,6 +21,12 @@ generated Cpp2IL assemblies; the repository contains neither those assemblies no
 game method bodies. A handful of unresolved debug-prefab script GUIDs receive empty local
 placeholders and are explicitly reported in the generated manifest.
 
+`EB.Collections.Pool<T>` is a special local import repair: REA inspection of the user's
+confirmed 9.2 assembly showed generated placeholder logging in its recovered method bodies,
+so the tool emits a conventional `Stack<T>` pool implementation from the exposed member
+signatures. This is an approximation, not a claim of exact Kabam behavior. The repository
+contains only newly authored repair logic; patched assemblies remain in ignored local staging.
+
 The Unity import-repair script applies newly authored Mono.Cecil rewrites to diagnosed,
 malformed methods in those local generated assemblies. It stores the identifiers needed to
 locate affected types and fields, short tag labels and RVA-data field names needed to rebuild
