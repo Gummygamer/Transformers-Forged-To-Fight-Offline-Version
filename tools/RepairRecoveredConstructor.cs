@@ -6054,6 +6054,7 @@ class RepairRecoveredConstructor {
             int mainRepairs = RepairBadgeStateConstructor(targetModule);
             mainRepairs += RepairDamageTypeComparerEquals(targetModule);
             mainRepairs += RepairCoordinateConstraintsHasConstraints(targetModule);
+            mainRepairs += RepairQuestBegin(targetModule, sourceModule);
             mainRepairs += RepairQuestMapTileIncomingBuffList(targetModule, sourceModule);
             return mainRepairs;
         }
@@ -6292,6 +6293,223 @@ class RepairRecoveredConstructor {
         ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         Console.WriteLine("reconstructed Quests.MapTile.GetIncomingBuffList from its 9.2 ARM64 trace");
         return 1;
+    }
+
+    static TypeReference ImportQuestBeginType(ModuleDefinition targetModule,
+        TypeReference sourceType, TypeDefinition sourceClosure, TypeDefinition targetClosure) {
+        if (sourceType.FullName == sourceClosure.FullName)
+            return targetModule.ImportReference(targetClosure);
+        if (sourceType is GenericInstanceType) {
+            GenericInstanceType sourceGeneric = (GenericInstanceType)sourceType;
+            var imported = new GenericInstanceType(ImportQuestBeginType(targetModule,
+                sourceGeneric.ElementType, sourceClosure, targetClosure));
+            foreach (TypeReference argument in sourceGeneric.GenericArguments)
+                imported.GenericArguments.Add(ImportQuestBeginType(targetModule,
+                    argument, sourceClosure, targetClosure));
+            return imported;
+        }
+        return targetModule.ImportReference(sourceType);
+    }
+
+    static MethodDefinition AddOrUpdateQuestBeginService(TypeDefinition api,
+        ModuleDefinition targetModule) {
+        MethodDefinition method = api.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "RecoveryBeginQuestService" && !candidate.IsStatic &&
+            candidate.Parameters.Count == 2);
+        TypeDefinition firstPassEndpoint = null;
+        MethodDefinition service = null;
+        string firstPassPath = Path.Combine(Path.GetDirectoryName(targetModule.FileName),
+            "Assembly-CSharp-firstpass.dll");
+        using (AssemblyDefinition firstPass = AssemblyDefinition.ReadAssembly(firstPassPath)) {
+            firstPassEndpoint = firstPass.MainModule.GetType("EB.Sparx.EndPoint");
+            if (firstPassEndpoint == null)
+                throw new InvalidDataException("missing EB.Sparx.EndPoint metadata");
+            service = firstPassEndpoint.Methods.SingleOrDefault(candidate =>
+                candidate.Name == "Service" && candidate.Parameters.Count == 3 &&
+                candidate.Parameters[0].ParameterType.FullName == "EB.Sparx.Request" &&
+                candidate.Parameters[1].ParameterType.FullName == "EB.Action`1<EB.Sparx.Response>" &&
+                candidate.ReturnType.MetadataType == MetadataType.Int32);
+            if (service == null)
+                throw new InvalidDataException("missing traced EndPoint.Service(Request, Action<Response>, priority)");
+
+            TypeDefinition requestType = firstPass.MainModule.GetType("EB.Sparx.Request");
+            MethodDefinition post = api.Methods.SingleOrDefault(candidate =>
+                candidate.Name == "Post" && !candidate.IsStatic && candidate.Parameters.Count == 1 &&
+                candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+                candidate.ReturnType.FullName == "EB.Sparx.Request");
+            FieldDefinition endpoint = api.Fields.SingleOrDefault(field =>
+                field.Name == "_endPoint" && !field.IsStatic &&
+                field.FieldType.FullName == "EB.Sparx.EndPoint");
+            if (post == null || endpoint == null || requestType == null)
+                throw new InvalidDataException("missing Legacy.QuestsAPI.Post or _endPoint metadata");
+
+            TypeReference request = targetModule.ImportReference(requestType);
+            TypeReference callback = targetModule.ImportReference(service.Parameters[1].ParameterType);
+            if (method == null) {
+                method = new MethodDefinition("RecoveryBeginQuestService",
+                    MethodAttributes.Private | MethodAttributes.HideBySig,
+                    targetModule.TypeSystem.Void);
+                method.Parameters.Add(new ParameterDefinition("request", ParameterAttributes.None, request));
+                method.Parameters.Add(new ParameterDefinition("callback", ParameterAttributes.None, callback));
+                api.Methods.Add(method);
+            } else if (method.Parameters[0].ParameterType.FullName != request.FullName ||
+                method.Parameters[1].ParameterType.FullName != callback.FullName) {
+                throw new InvalidDataException("unexpected existing RecoveryBeginQuestService signature");
+            }
+
+            ILProcessor il;
+            MethodBody body = ResetBody(method, out il);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, endpoint));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+            il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(service)));
+            il.Append(Instruction.Create(OpCodes.Pop));
+            il.Append(Instruction.Create(OpCodes.Ret));
+            body.MaxStackSize = 4;
+        }
+        return method;
+    }
+
+    static int ReplaceQuestBeginMethodBody(ModuleDefinition targetModule,
+        MethodDefinition target, MethodDefinition source, TypeDefinition sourceClosure,
+        TypeDefinition targetClosure, TypeDefinition api, MethodDefinition targetService) {
+        bool sourceReceiverParameter = source.IsStatic;
+        if (sourceReceiverParameter) {
+            if (source.Parameters.Count != target.Parameters.Count + 1 ||
+                source.Parameters[0].ParameterType.FullName != api.FullName)
+                throw new InvalidDataException("quest begin recovery receiver does not match " + target.FullName);
+        } else if (source.Parameters.Count != target.Parameters.Count) {
+            throw new InvalidDataException("quest begin callback signature does not match " + target.FullName);
+        }
+        int parameterOffset = sourceReceiverParameter ? 1 : 0;
+        for (int i = 0; i < target.Parameters.Count; i++) {
+            if (source.Parameters[i + parameterOffset].ParameterType.FullName !=
+                target.Parameters[i].ParameterType.FullName)
+                throw new InvalidDataException("quest begin recovery parameter mismatch: " + target.FullName);
+        }
+        if (!source.HasBody || source.Body.ExceptionHandlers.Count != 0)
+            throw new InvalidDataException("quest begin authored body requires a body without exception handlers");
+
+        MethodBody sourceBody = source.Body;
+        ILProcessor unusedProcessor;
+        MethodBody targetBody = ResetBody(target, out unusedProcessor);
+        targetBody.InitLocals = sourceBody.InitLocals;
+        targetBody.MaxStackSize = sourceBody.MaxStackSize;
+        var variables = new Dictionary<VariableDefinition, VariableDefinition>();
+        foreach (VariableDefinition variable in sourceBody.Variables) {
+            TypeReference variableType = ImportQuestBeginType(targetModule,
+                variable.VariableType, sourceClosure, targetClosure);
+            var imported = new VariableDefinition(variableType);
+            targetBody.Variables.Add(imported);
+            variables.Add(variable, imported);
+        }
+
+        var instructions = new Dictionary<Instruction, Instruction>();
+        foreach (Instruction instruction in sourceBody.Instructions) {
+            Instruction copy = Instruction.Create(OpCodes.Nop);
+            copy.OpCode = instruction.OpCode;
+            instructions.Add(instruction, copy);
+            targetBody.Instructions.Add(copy);
+        }
+
+        foreach (Instruction instruction in sourceBody.Instructions) {
+            Instruction copy = instructions[instruction];
+            object operand = instruction.Operand;
+            if (operand == null) continue;
+            if (operand is Instruction targetInstruction) {
+                copy.Operand = instructions[targetInstruction];
+            } else if (operand is Instruction[]) {
+                copy.Operand = ((Instruction[])operand).Select(branch => instructions[branch]).ToArray();
+            } else if (operand is VariableDefinition variable) {
+                copy.Operand = variables[variable];
+            } else if (operand is ParameterDefinition parameter) {
+                if (sourceReceiverParameter && parameter.Index == 0) {
+                    if (instruction.OpCode.Code == Code.Ldarg || instruction.OpCode.Code == Code.Ldarg_S)
+                        copy.OpCode = OpCodes.Ldarg_0;
+                    else
+                        throw new InvalidDataException("quest begin recovery takes receiver address");
+                } else {
+                    int targetIndex = parameter.Index - parameterOffset;
+                    if (targetIndex < 0 || targetIndex >= target.Parameters.Count)
+                        throw new InvalidDataException("quest begin recovery parameter index is outside destination");
+                    copy.Operand = target.Parameters[targetIndex];
+                }
+            } else if (operand is MethodReference) {
+                MethodReference method = (MethodReference)operand;
+                if (method.DeclaringType.FullName == "RecoverySources.QuestBeginEndpointBridge") {
+                    MethodDefinition mapped = method.Name == "Post"
+                        ? api.Methods.Single(candidate => candidate.Name == "Post" &&
+                            candidate.Parameters.Count == 1 && candidate.ReturnType.FullName == "EB.Sparx.Request")
+                        : method.Name == "Service" ? targetService : null;
+                    if (mapped == null)
+                        throw new InvalidDataException("unknown quest begin bridge call: " + method.FullName);
+                    copy.Operand = targetModule.ImportReference(mapped);
+                } else if (method.DeclaringType.FullName == sourceClosure.FullName) {
+                    MethodDefinition mapped = method.Name == ".ctor"
+                        ? targetClosure.Methods.Single(candidate => candidate.IsConstructor &&
+                            !candidate.IsStatic && candidate.Parameters.Count == 0)
+                        : targetClosure.Methods.Single(candidate => candidate.Name == "<BeginQuest>b__0" &&
+                            candidate.Parameters.Count == 1 &&
+                            candidate.Parameters[0].ParameterType.FullName == "EB.Sparx.Response");
+                    copy.Operand = targetModule.ImportReference(mapped);
+                } else if (method.DeclaringType.FullName == source.DeclaringType.FullName) {
+                    throw new InvalidDataException("quest begin authored body calls its helper type: " + method.FullName);
+                } else {
+                    copy.Operand = targetModule.ImportReference(method);
+                }
+            } else if (operand is FieldReference) {
+                FieldReference field = (FieldReference)operand;
+                if (field.DeclaringType.FullName == sourceClosure.FullName) {
+                    FieldDefinition mapped = targetClosure.Fields.Single(candidate =>
+                        candidate.Name == field.Name && candidate.FieldType.FullName == field.FieldType.FullName);
+                    copy.Operand = targetModule.ImportReference(mapped);
+                } else {
+                    copy.Operand = targetModule.ImportReference(field);
+                }
+            } else if (operand is TypeReference) {
+                copy.Operand = ImportQuestBeginType(targetModule,
+                    (TypeReference)operand, sourceClosure, targetClosure);
+            } else if (operand is CallSite) {
+                throw new InvalidDataException("quest begin authored body contains an unsupported call site");
+            } else {
+                copy.Operand = operand;
+            }
+        }
+        return 1;
+    }
+
+    static int RepairQuestBegin(ModuleDefinition targetModule, ModuleDefinition sourceModule) {
+        TypeDefinition api = targetModule.GetType("Legacy.QuestsAPI");
+        TypeDefinition sourceApi = sourceModule.GetType("RecoverySources.QuestBeginRequest");
+        TypeDefinition sourceClosure = sourceModule.GetType("RecoverySources.QuestBeginResponse");
+        TypeDefinition targetClosure = api == null ? null : api.NestedTypes.SingleOrDefault(type =>
+            type.Name == "<>c__DisplayClass12_0");
+        if (api == null || sourceApi == null || sourceClosure == null || targetClosure == null)
+            throw new InvalidDataException("missing quest begin API or response-closure metadata");
+
+        MethodDefinition begin = api.Methods.SingleOrDefault(method => method.Name == "BeginQuest" &&
+            !method.IsStatic && method.Parameters.Count == 8);
+        MethodDefinition response = targetClosure.Methods.SingleOrDefault(method =>
+            method.Name == "<BeginQuest>b__0" && !method.IsStatic && method.Parameters.Count == 1);
+        MethodDefinition sourceBegin = sourceApi.Methods.SingleOrDefault(method =>
+            method.Name == "Begin" && method.IsStatic);
+        MethodDefinition sourceResponse = sourceClosure.Methods.SingleOrDefault(method =>
+            method.Name == "Handle" && !method.IsStatic);
+        FieldDefinition callback = targetClosure.Fields.SingleOrDefault(field =>
+            field.Name == "callback" && field.FieldType.FullName ==
+            "EB.Action`2<System.String,System.Collections.IDictionary>");
+        if (begin == null || response == null || sourceBegin == null || sourceResponse == null || callback == null)
+            throw new InvalidDataException("unexpected 9.2 quest begin member signatures");
+
+        MethodDefinition service = AddOrUpdateQuestBeginService(api, targetModule);
+        ReplaceQuestBeginMethodBody(targetModule, begin, sourceBegin,
+            sourceClosure, targetClosure, api, service);
+        ReplaceQuestBeginMethodBody(targetModule, response, sourceResponse,
+            sourceClosure, targetClosure, api, service);
+        Console.WriteLine("reconstructed Legacy.QuestsAPI.BeginQuest request and response callback from 9.2 ARM64 traces");
+        return 3;
     }
 
     static int RepairMapTilePositionGetter(TypeDefinition tile) {

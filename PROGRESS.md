@@ -1451,3 +1451,43 @@ SHA-256 `1846a89f9d1a9370893daf9d7f87ef62b0fe895517f5e10226506bcdd4701cc8`, Evid
 `ev_8ee6647491b9e6bfe32f73fd190f3f9579ef55adc52ab608a124c998860a95c2`). This verifies the staged
 assembly's structure, not execution. No Unity build was run; reduction of the prior 16-method
 IL2CPP error queue remains unverified until the next batched ARM64 checkpoint.
+
+## v65: reconstruct the client story quest-start request
+
+The retained `Legacy.QuestsAPI.BeginQuest` and generated callback traces were sufficient to recover
+the client request and response path. Added new authored recovery code in
+`tools/recovery_sources/QuestBeginRequest.cs`: it posts to `/quests/quest-begin/{qid}`, preserves the
+traced `hash`, `setId`, `quitExisting`, optional `difficulty`, `costs`, and `tm{index}` data, and
+dispatches through the existing `EndPoint.Service` path. Its callback handles success, the `nsf`
+redeemer message, raw error strings, and the `costsChanged` localized-error path. It returns after
+the `nsf` callback and leaves null failures as exceptions, matching the native control flow. The C#
+source is newly authored from ARM64 evidence; it does not copy decompiled proprietary source. The
+existing in-project server route remains unchanged.
+
+Extended the Cecil importer to map the authored callback type onto the existing
+`Legacy.QuestsAPI/<>c__DisplayClass12_0` closure and its `callback` field. A small private
+`RecoveryBeginQuestService` wrapper reaches the existing `_endPoint.Service` method; no reflection
+or `RecoverySources` references remain in the transplanted bodies. The compiler and importer-only
+corrected importer-only preflight passed with the same 12 existing `CS0219` warnings. Focused Cecil
+inspection found 89 instructions in `BeginQuest`, 62 in its response callback, and 8 in the service
+wrapper, all with no exception regions or `RecoverySources` references. Read-only review against the
+raw callback trace found and corrected double invocation on `nsf`, error routing, and extra silent
+null handling before commit.
+
+REA MCP inspected the final staged `Assembly-CSharp.dll` with complete PE/CLI coverage and no
+metadata issues. Its full managed-member inspection completed but exceeded the MCP 10.48 MB receive
+budget. A complete session export was 1,206,331,329 bytes (21 records, 0 open unknowns); its
+temporary `/tmp` file was removed to save storage. REA directly inspected the candidate source APK:
+SHA-256 `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`, package
+`com.kabam.bigrobot`, version `9.2.0` / code `123129100`, complete manifest (Evidence
+`ev_cefcbd64e0e47921aa2fcbc97a821fddca3f87894176684220dbcfb097c56244`). REA notes signature
+verification was not performed. Its selected Ghidra provider does not support the APK archive, so
+no new full-binary analysis was started. The retained ARM64 callback dumps in
+`recovery-9.2-gpfix-final/.../Legacy.QuestsAPI/BeginQuest.dump.txt` and
+`.../<>c__DisplayClass12_0/<BeginQuest>b__0.dump.txt` supplied the branch-level correction. The
+final staged `Assembly-CSharp.dll` is SHA-256
+`8d1cb5abd5a8dea197ddfbb7a2f9ef8be9e3df8c635676c43d627d30c89bb1c1`; REA reports complete PE/CLI
+coverage, managed Unity-Mono CIL, no metadata issues (Evidence
+`ev_3481bad642684df514337a3bef2503a733992e1c1e2d0b6f495a3f735c0292d2`). No Unity/IL2CPP build or
+runtime quest was run, so error-queue reduction and playable story behavior remain unverified. Keep
+this batch with the other story-path fixes for the next guarded ARM64 checkpoint.
