@@ -8256,7 +8256,8 @@ class RepairRecoveredConstructor {
         il.Append(il.Create(OpCodes.Dup)); il.Append(il.Create(OpCodes.Brfalse, defaultItem));
         il.Append(il.Create(OpCodes.Callvirt, create)); il.Append(il.Create(OpCodes.Stloc, ctorValue));
         il.Append(il.Create(OpCodes.Br, pushItem));
-        il.Append(defaultItem); il.Append(il.Create(OpCodes.Initobj, item)); il.Append(il.Create(OpCodes.Ldloc, ctorValue));
+        il.Append(defaultItem); il.Append(il.Create(OpCodes.Ldloca, ctorValue));
+        il.Append(il.Create(OpCodes.Initobj, item));
         il.Append(pushItem); il.Append(il.Create(OpCodes.Callvirt, push));
         il.Append(il.Create(OpCodes.Ldloc, ctorIndex)); il.Append(il.Create(OpCodes.Ldc_I4_1));
         il.Append(il.Create(OpCodes.Add)); il.Append(il.Create(OpCodes.Stloc, ctorIndex)); il.Append(il.Create(OpCodes.Br, ctorLoop));
@@ -8293,23 +8294,13 @@ class RepairRecoveredConstructor {
         il.Append(skipCallback); il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Ldarg_1));
         il.Append(il.Create(OpCodes.Callvirt, push)); il.Append(recycleDone);
 
-        // Clear() drains the stack and runs the same optional recycle callback for each item.
+        // Recycle() has already run the callback when items entered the pool; Clear() drops cached items.
         clear.Body.ExceptionHandlers.Clear(); clear.Body.Variables.Clear(); clear.Body.Instructions.Clear();
-        clear.Body.InitLocals = true; clear.Body.MaxStackSize = 3;
-        var clearValue = new VariableDefinition(item); clear.Body.Variables.Add(clearValue);
-        recycler = new VariableDefinition(onRecycle.FieldType); clear.Body.Variables.Add(recycler);
+        clear.Body.InitLocals = false; clear.Body.MaxStackSize = 1;
         il = clear.Body.GetILProcessor();
-        Instruction clearLoop = il.Create(OpCodes.Ldarg_0);
-        Instruction clearDone = il.Create(OpCodes.Ret);
-        Instruction clearNext = il.Create(OpCodes.Ldarg_0);
-        il.Append(clearLoop); il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Callvirt, getCount));
-        il.Append(il.Create(OpCodes.Brfalse, clearDone)); il.Append(il.Create(OpCodes.Ldarg_0));
-        il.Append(il.Create(OpCodes.Ldfld, itemsRef)); il.Append(il.Create(OpCodes.Callvirt, pop)); il.Append(il.Create(OpCodes.Stloc, clearValue));
-        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, onRecycleRef)); il.Append(il.Create(OpCodes.Stloc, recycler));
-        il.Append(il.Create(OpCodes.Ldloc, recycler)); il.Append(il.Create(OpCodes.Brfalse, clearNext));
-        il.Append(il.Create(OpCodes.Ldloc, recycler)); il.Append(il.Create(OpCodes.Ldloc, clearValue));
-        il.Append(il.Create(OpCodes.Callvirt, callback)); il.Append(clearNext); il.Append(il.Create(OpCodes.Br, clearLoop));
-        il.Append(clearDone);
+        MethodReference clearStack = new MethodReference("Clear", module.TypeSystem.Void, stack) { HasThis = true };
+        il.Append(il.Create(OpCodes.Ldarg_0)); il.Append(il.Create(OpCodes.Ldfld, itemsRef));
+        il.Append(il.Create(OpCodes.Callvirt, clearStack)); il.Append(il.Create(OpCodes.Ret));
 
         // NumAvailable is the count in the initialized stack.
         count.Body.ExceptionHandlers.Clear(); count.Body.Variables.Clear(); count.Body.Instructions.Clear();

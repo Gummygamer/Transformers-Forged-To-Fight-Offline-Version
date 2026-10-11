@@ -944,3 +944,8 @@ recovered control flow is incomplete; no APK bytes, assets, or copied game metho
 The `EB.Math.Matrix.Subtract`, `EB.Math.Point.Equals`, `EB.Math.Vector4` component getters, and
 `EB.Math.Plane.Dot` repairs are newly authored from recovered signatures and scalar-field metadata.
 No APK bytes, assets, or copied game method body are retained.
+
+`EB.Collections.Pool<T>`'s stack constructor, default-value branch, and `Clear` operation are
+newly authored from the recovered generic field and method signatures. `Clear` drops cached stack
+items because recycled objects already receive the configured callback; no APK bytes, assets, or
+copied game method body are retained.
