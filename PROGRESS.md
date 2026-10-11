@@ -1191,3 +1191,31 @@ progress is eight pushed repair batches and several successful smoke groups, but
 queues remain flat at 16 unique methods. There is still no APK or playable story session; a rough
 3–8 focused-week estimate remains low-confidence until these math fixes compile and the rebuilt
 client is exercised against the existing offline server.
+
+## v51: four geometry failures cleared; second math batch smoke-checked
+
+The guarded Unity run after v50 still produced no APK. Comparing its exact IL2CPP signatures with
+the prior run shows 14 cleared and 14 newly surfaced, leaving 16 total. The four fixes from v50
+are confirmed clear: `Matrix.Divide`, `Point.op_Equality`, `Rectangle.Contains(Point)`, and
+`Plane.DotCoordinate`. Other newly surfaced first-pass methods include `Matrix.Lerp`,
+`Plane.DotNormal`, `Quaternion.Add`, `Point.op_Inequality`, and a by-reference rectangle result
+overload.
+
+This checkpoint used a 29.01-second preflight and 108.08 seconds in Unity. Peak process-tree RSS was
+5.06 GiB; host available memory fell from 14.70 GiB to 6.26 GiB. The 121.3 MiB Unity log compressed
+to 1.00 MiB, external free space decreased by 18.81 MiB, and no APK was created. The 10 GiB
+pre-build memory guard passed; no Unity or IL2CPP process remains.
+
+Authored a second batch for all five surfaced math overloads: component-wise `Matrix.Lerp`,
+`Point.op_Inequality`, `Plane.DotNormal`, four-component `Quaternion.Add`, and the rectangle
+by-reference/out-boolean containment overload. The rectangle overloads use the documented
+half-open approximation. Preflight compiled and transplanted the authored `AlignUIElements`
+replacement again. Unity-bundled Mono smoke passed both 16-component matrix operations, point
+equality and inequality, rectangle interior/edge behavior and its out-result overload, quaternion
+addition, and plane coordinate/normal dot results. These five fixes await a Unity checkpoint.
+
+REA MCP inspected the post-preflight staged first-pass assembly as complete PE/CLI metadata, SHA-256
+`229282c1e7f1bd69e897e7b33fff0c7c2647d616c1b45518f1df0a758bc844ff`, MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75` (evidence
+`ev_b0794940e25405abc7534bb826333e7fc7b637177504b187cf0558c021efae31`). The active REA package
+target remains the pristine 9.2.0 APK; the generated managed assembly is only local staging.
