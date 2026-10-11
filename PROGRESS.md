@@ -665,3 +665,46 @@ and authored story data. Next, use the refreshed repair queue to test a diagnost
 batch in the warm stage, preserving plugin backups; do not treat a generated stubbed build as a
 playable-story success. Estimate stays 2–6 focused weeks to a first playable story route, low
 confidence, because no APK or runtime path exists yet.
+
+
+## v34: warm ARM64 conversion progressed; core method failures isolated
+
+The live REA MCP remains connected (rea 6.3.0, 139 advertised tools). Its active
+package is the confirmed full 9.2.0 APK at
+`transformers-forged-to-fight-9-2-0.apk` (SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`). Bounded
+REA managed-artifact inspections verified complete PE/CLI metadata on the staged
+firstpass assembly after repairs (23,856 methods, 3,506 types; SHA-256
+`b405758ea041893cf302c4c8344e840ebfe6e7e7c7491a355d54b7e00842056b`), plus
+complete metadata for Fabric.Core and NBidi. REA inspected the NBidi
+`Paragraph.ReorderString` fallback as a valid six-byte CIL body (`newobj`,
+`throw`); this is intentionally unsupported at runtime.
+
+The second diagnostics-driven warm cycle reached ARM64 IL2CPP, then failed with
+30 errors after 141.8 seconds. It used 5.0 GiB peak process-tree RSS, retained a
+1.07 MiB compressed log from 131.4 MiB raw, and produced no APK. The repair queue
+fell from 11 to 9 unique items. A batch of 15 explicitly rejected methods was
+then given marked unsupported-method fallbacks and validated offline with REA
+metadata inspections before one further warm build. That build failed after
+127.6 seconds with 27 errors, again at ARM64 IL2CPP, with 5.0 GiB peak RSS and
+no APK; log storage was 1.00 MiB compressed from 127.2 MiB raw. Its startup
+queue fell from 9 to 5, but IL2CPP then exposed 16 different methods, including
+`EB.Hash.FNV64(byte[], long)`, `EB.Sparx.HttpEndPoint.Sign`, inventory updates,
+map buffs, and `EB.Deferred.Dispatch`. Those paths can affect local-server or
+story behavior, so blanket stubbing them would not establish a playable build.
+
+The retry ladder is cheaper and no longer crashes at importer startup, but it
+has not yet produced player output: zero APKs and zero story-runtime checks.
+During these cycles the lowest observed available RAM was about 6.0 GiB, with
+no OOM termination; Unity peak RSS was about 5.0 GiB. External-volume free space
+fell by only 40 MiB on the third cycle. The 789 MiB REA export remains an
+untracked analysis duplicate; its bounded facts are now in MCP evidence and
+this checkpoint, so remove that export after any remaining needed extraction.
+
+Next, repair the newly exposed server/gameplay methods from exact 9.2 evidence
+and validate those bodies cheaply before another Unity run. Do not apply
+diagnostic stubs to request signing, hashing, inventory, map, or deferred-work
+paths without proving they are outside the story path. Current estimate remains
+2–6 focused weeks to a first playable story route, low confidence: the warm
+build cycle is now around two minutes, but the APK and runtime milestones remain
+at zero.
