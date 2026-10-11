@@ -57,12 +57,12 @@ the full Act I and Act II route):
   heavy attack states, with damage and meter taken from the server move table;
   heavy attacks also break a held block. This source change still needs an
   on-device fight comparison before its hit cadence is considered matched.
-- Mobility update: a long right swipe or held right drag runs toward the enemy;
-  left swipes and held left drags retreat. Short right swipes remain medium
-  attacks in reach, while vertical swipes play directional sidestep states and
-  move the player laterally for a brief evade. Movement is eased and distance
-  bounded. The targeted Unity Editor check passes; touch feel still needs a
-  device comparison.
+- Mobility update: a held horizontal drag continuously runs toward or away from
+  the enemy, with a safe fighting-distance limit; releasing the touch stops the
+  run. Quick left swipes play the Dodge state and retreat, while vertical swipes
+  play directional sidestep states and move the player laterally for a brief
+  evade. Short right swipes remain medium attacks in reach. The targeted Unity
+  Editor check passes; touch feel still needs a device comparison.
 - Enemy movement update: a wide gap now triggers a Run-state approach before the
   combo, and the enemy keeps ground after a landed attack. A clean evade returns
   it to its pre-lunge position. Defensive dodges retreat from the player and

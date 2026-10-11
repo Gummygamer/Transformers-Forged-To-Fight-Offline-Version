@@ -112,6 +112,7 @@ namespace StoryPort
         string squadStatsLoadedKey = "";
         string squadStatsFailedKey = "";
         bool guarding;
+        int fightWalkDirection;
         bool pendingEncounter;
         bool enemyBusy;
         bool playerBusy;
@@ -1462,6 +1463,7 @@ namespace StoryPort
             bufferedAttacks.Clear();
             fightGesture.Cancel();
             fightTouchFingerId = -1;
+            fightWalkDirection = 0;
             lightCombo = 0;
             comboHits = 0;
             lastPlayerHit = 0;
@@ -2294,13 +2296,59 @@ namespace StoryPort
             float stride = towardEnemy ? Mathf.Min(1.45f, Mathf.Max(0f, gap - 2.25f)) : Mathf.Min(1.15f, Mathf.Max(0f, 7f - gap));
             if (stride < .01f) return;
             playerBusy = true;
-            PlayState(playerAnimator, towardEnemy ? "Run" : "Dash");
+            PlayState(playerAnimator, towardEnemy ? "Run" : "Dodge");
             Combat(playerKey, towardEnemy ? "dash" : "dodge", .7f);
             var target = playerActor.transform.position + direction * (towardEnemy ? stride : -stride);
             evadeUntil = Time.time + (towardEnemy ? .38f : .72f);
             nextEnemyTurn = Time.time + .8f;
             UpdateFightHud();
             StartCoroutine(FightMovement(target, .32f));
+        }
+
+        void SetFightWalk(int direction)
+        {
+            if (screen != "fight" || playerActor == null || enemyActor == null || direction == 0) return;
+            if (fightWalkDirection == direction) return;
+            if (fightWalkDirection == 0 && playerBusy) return;
+            fightWalkDirection = direction;
+            playerBusy = true;
+            PlayState(playerAnimator, direction > 0 ? "Run" : "Dash");
+            guarding = false;
+            SetBoolIfPresent(playerAnimator, "Blocking", false);
+        }
+
+        void UpdateFightWalk()
+        {
+            if (fightWalkDirection == 0) return;
+            if (paused || screen != "fight" || playerActor == null || enemyActor == null)
+            {
+                StopFightWalk();
+                return;
+            }
+
+            Vector3 towardEnemy = enemyActor.transform.position - playerActor.transform.position;
+            towardEnemy.y = 0f;
+            float gap = towardEnemy.magnitude;
+            if (gap < .001f) return;
+            towardEnemy /= gap;
+            float remaining = fightWalkDirection > 0 ? gap - 2.25f : 7f - gap;
+            if (remaining <= .01f)
+            {
+                StopFightWalk();
+                return;
+            }
+
+            float distance = Mathf.Min(2.6f * Time.deltaTime, remaining);
+            playerActor.transform.position += towardEnemy * (fightWalkDirection * distance);
+        }
+
+        void StopFightWalk()
+        {
+            if (fightWalkDirection == 0) return;
+            fightWalkDirection = 0;
+            playerBusy = false;
+            if (screen == "fight" && playerActor != null && !guarding) PlayState(playerAnimator, "Idle");
+            RunQueuedAttack();
         }
 
         IEnumerator FightMovement(Vector3 target, float duration)
@@ -2566,6 +2614,7 @@ namespace StoryPort
         void Update()
         {
             if (screen == "fight" && !paused) HandleFightTouch();
+            UpdateFightWalk();
             if (screen == "fight") UpdateHealthTrails();
             // The enemy's turn comes on its own timer, not only when the player is idle.
             if (screen == "fight" && !paused && !requestBusy && !enemyBusy && Time.time >= nextEnemyTurn && playerHp > 0 && enemyHp > 0)
@@ -3337,6 +3386,7 @@ namespace StoryPort
             {
                 if (fightGesture.Tracking) HandleGestureAction(fightGesture.Cancel());
                 fightTouchFingerId = -1;
+                StopFightWalk();
                 return;
             }
             Touch touch = default(Touch);
@@ -3357,6 +3407,7 @@ namespace StoryPort
                 {
                     HandleGestureAction(fightGesture.Cancel());
                     fightTouchFingerId = -1;
+                    StopFightWalk();
                 }
                 return;
             }
@@ -3367,6 +3418,7 @@ namespace StoryPort
                 {
                     HandleGestureAction(fightGesture.Cancel());
                     fightTouchFingerId = -1;
+                    StopFightWalk();
                     return;
                 }
                 HandleGestureAction(fightGesture.Begin(point, Time.time));
@@ -3378,11 +3430,13 @@ namespace StoryPort
             {
                 HandleGestureAction(fightGesture.End(point, Time.time));
                 fightTouchFingerId = -1;
+                StopFightWalk();
             }
             else if (touch.phase == TouchPhase.Canceled)
             {
                 HandleGestureAction(fightGesture.Cancel());
                 fightTouchFingerId = -1;
+                StopFightWalk();
             }
         }
 
@@ -3421,12 +3475,16 @@ namespace StoryPort
                     AdvanceOrMediumAttack();
                     break;
                 case StoryPortFightGesture.Action.Advance:
-                case StoryPortFightGesture.Action.WalkForward:
                     Dash(true);
                     break;
-                case StoryPortFightGesture.Action.WalkBackward:
                 case StoryPortFightGesture.Action.LeftSwipe:
                     Dash(false);
+                    break;
+                case StoryPortFightGesture.Action.WalkForward:
+                    SetFightWalk(1);
+                    break;
+                case StoryPortFightGesture.Action.WalkBackward:
+                    SetFightWalk(-1);
                     break;
                 case StoryPortFightGesture.Action.SidestepLeft:
                     Sidestep(true);
