@@ -712,8 +712,17 @@ at zero.
 ## v35: REA transport limits confirmed; no new player output
 
 The active REA MCP session remains healthy and still targets the exact confirmed
-full APK (SHA-256 above); `binary_session` reports that Ghidra cannot import the
-APK container directly. The earlier targeted Ghidra import of the extracted
+full APK `transformers-forged-to-fight-9-2-0.apk` (SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`). A
+filename/hash reconciliation found `Transformers 9.2 offline.apk` is a separate
+985,381,137-byte APK with SHA-256
+`68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9`; that
+identity is explicitly denylisted by `tools/recover_9_2.py` as the debug-signed,
+offline-patched build. The confirmed source is 839,039,239 bytes, and its
+verified Kabam signer/source stamp and clean ARM64 library identity are recorded
+in v31. Both archives have 4,133 entries, so matching entry counts alone are
+not a provenance check. `binary_session` reports Ghidra cannot import the APK
+container directly. The earlier targeted Ghidra import of the extracted
 ARM64 `libil2cpp.so` timed out without returning a function dossier. Existing
 native labels and bounded ARM64 disassembly remain the practical route for that
 library.
