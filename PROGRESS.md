@@ -1605,3 +1605,54 @@ story-mode estimate at **3–8 focused weeks, low confidence**. Next, implement 
 and nested scalar-load rules against the three known methods; gather bounded ARM64 native evidence
 before accepting emitter semantics. The pristine APK and exact extracted ARM64 library identities
 remain verified above; no full APK extraction or cold Ghidra import was repeated.
+
+## v70: ARM64 aggregate calls survive late generic resolution (2026-10-11)
+
+The exact APK confirmed by its SHA-256 (`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`)
+was inspected through REA's Android package provider: `com.kabam.bigrobot`, version 9.2.0,
+version code 123129100, min SDK 23, target SDK 30 (Evidence
+`ev_5b3dafb9f619cefbfdd0605dc3e7d3e067c77ae482312ac89ffd55aa251a87a3`). REA also inventories
+10,395 DEX classes and 4,133 resources. Name searches found only Google Play Games quest APIs,
+not story-mode application classes; the game logic remains in IL2CPP.
+
+Extended the pinned Cpp2IL patch to retain aggregate leaf bindings after shared-generic call
+resolution. The remapper now handles register-resident ARM64 aggregates no larger than 16 bytes,
+HFAs of up to four members, and only provable sequential layouts; explicit, spilled, or ambiguous
+layouts keep the existing fallback. Reference fields are treated as pointer-sized leaves. Updated
+SSA register versions are carried into the aggregate adapter. The patch SHA-256 is
+`a40826feb23948e4503d9924d9ebda1c392cab8fb11a615c5bf812fb3c04ba41`.
+
+The repository's `tools/build_patched_cpp2il.py` applied the patch to clean upstream
+`b5ad444b82267cb1e4b88b8b373c008105bdea52` and built net10.0 in 13.98 seconds with zero compiler
+warnings/errors. A final low-memory-mode run on the APK's SHA-verified ARM64 library and metadata
+completed in 44.1 seconds and emitted 64,447/64,447 method bodies. Focused Cecil inspection of the
+result confirmed that `StateMachine.SwitchState` initializes a typed `QueuedState` from its `X1`
+and `X2` field components before `Queue<QueuedState>.Enqueue`; the earlier output passed a separate
+uninitialized local. `QuestCameraController.UpdateTurnAngle` and `Legacy.QuestProgression::.ctor`
+also retain their `Vector3`/`Vector2` aggregate call shapes. REA's static managed-artifact report
+for the final Assembly-CSharp is complete (Evidence `ev_190837aa2097fbf1b80fe1b315213e7292f4fd06d40589d30999dd6a55c6cec8`;
+5,362 types, 34,761 methods).
+
+Before any Unity build, ran the import-repair preflight on a temporary minimal project assembled
+from this fresh Cpp2IL output. It reported 38 standard import repairs and zero unsupported
+IL2CPP methods. The authored `AlignUIElements.GetObjectBounds` body was transplanted into
+Assembly-CSharp-firstpass; focused CIL inspection found 169 instructions, max stack 3, eight
+locals, no exception regions, bad branches, diagnostic placeholders, or helper references. REA's
+complete inspection of the separately compiled authored helper remains Evidence
+`ev_71996a840ccfd36854a50e63813d721b5e5c5254cad368473d8734d1d1635b39`. The 6.7 GB source
+project was not modified and Unity was not launched.
+
+REA's bounded `inspect_managed_members` operation still exceeds its 10 MiB response budget even
+for the reduced firstpass assembly (retained Evidence `ev_095a9afea97469797ca3519127fe6cc1ba67edf0f95e14ec3282301a5cc6b302`).
+The complete APK archive listing also remains over budget; no full evidence-bundle export was
+made. The previous cold Ghidra import timed out, so this pass used existing ARM64 traces whose
+relevant ranges were byte-compared with the pristine library. REA MCP remains registered and
+available; its active target is the confirmed APK, with no native-analysis provider bound while
+that archive is selected.
+
+This is compiler/import-pipeline progress, not player progress: no rebuilt APK or playable story
+route exists yet. The prior **3–8 focused weeks, low-confidence** story-mode estimate remains
+unchanged; measured progress this turn is one validated aggregate-lowering repair and zero new
+runtime story behaviors. Next, install these fresh assemblies into an isolated full Unity staging
+project and run the first bounded Unity/IL2CPP build to see whether this repair reduces the
+rejection queue.

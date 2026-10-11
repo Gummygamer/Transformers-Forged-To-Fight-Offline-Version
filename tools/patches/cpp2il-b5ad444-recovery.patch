@@ -1,5 +1,5 @@
 diff --git a/Cpp2IL.Core/Analysis/LocalVariables.cs b/Cpp2IL.Core/Analysis/LocalVariables.cs
-index 0c148d26b493f98074e54612c107289d0975809c..817bffda3d4545474cd10791d2bb8d72ab1b4bcf 100644
+index 0c148d2..7f8ba54 100644
 --- a/Cpp2IL.Core/Analysis/LocalVariables.cs
 +++ b/Cpp2IL.Core/Analysis/LocalVariables.cs
 @@ -128,0 +129 @@ public static class LocalVariables
@@ -18,15 +18,38 @@ index 0c148d26b493f98074e54612c107289d0975809c..817bffda3d4545474cd10791d2bb8d72
 +                componentLocal.Type = component.ComponentType;
 +        }
 +
-@@ -701 +715,2 @@ public static class LocalVariables
+@@ -677,0 +692,22 @@ public static class LocalVariables
++
++            foreach (var binding in instruction.ManagedParameterBindings)
++            foreach (var component in binding.Components)
++            {
++                var componentLocal = method.Locals.FirstOrDefault(local =>
++                    local.Register == component.Register)
++                    ?? method.Locals.FirstOrDefault(local =>
++                        local.Register.Name == component.Register.Name && local.Register.Version == -1);
++                if (componentLocal != null)
++                    changed |= SetTypeIfUnknown(componentLocal, component.ComponentType);
++            }
++
++            if (instruction.ManagedReturnBinding is { } returnBinding)
++            foreach (var component in returnBinding.Components)
++            {
++                var componentLocal = method.Locals.FirstOrDefault(local =>
++                    local.Register == component.Register)
++                    ?? method.Locals.FirstOrDefault(local =>
++                        local.Register.Name == component.Register.Name && local.Register.Version == -1);
++                if (componentLocal != null)
++                    changed |= SetTypeIfUnknown(componentLocal, component.ComponentType);
++            }
+@@ -701 +737,2 @@ public static class LocalVariables
 -        // Normal params
 +        // Normal params. Explicit indices prevent an unused or multi-register
 +        // parameter from shifting the type assigned to later parameters.
-@@ -708 +723,2 @@ public static class LocalVariables
+@@ -708 +745,2 @@ public static class LocalVariables
 -            if (paramIndex >= method.Parameters.Count)
 +            var parameterIndex = local.ManagedParameterIndex ?? paramIndex;
 +            if (parameterIndex >= method.Parameters.Count)
-@@ -711,2 +727,11 @@ public static class LocalVariables
+@@ -711,2 +749,13 @@ public static class LocalVariables
 -            local.Type = method.Parameters[paramIndex].ParameterType;
 -            paramIndex++;
 +            local.Type = method.Parameters[parameterIndex].ParameterType;
@@ -37,18 +60,33 @@ index 0c148d26b493f98074e54612c107289d0975809c..817bffda3d4545474cd10791d2bb8d72
 +        foreach (var component in binding.Components)
 +        {
 +            var componentLocal = method.Locals.FirstOrDefault(local =>
-+                local.Register.Name == component.Register.Name && local.Register.Version == -1);
++                local.Register == component.Register)
++                ?? method.Locals.FirstOrDefault(local =>
++                    local.Register.Name == component.Register.Name && local.Register.Version == -1);
 +            if (componentLocal != null)
 +                componentLocal.Type = component.ComponentType;
+diff --git a/Cpp2IL.Core/ISIL/Instruction.cs b/Cpp2IL.Core/ISIL/Instruction.cs
+index 7f9bdce..9236155 100644
+--- a/Cpp2IL.Core/ISIL/Instruction.cs
++++ b/Cpp2IL.Core/ISIL/Instruction.cs
+@@ -33,0 +34,8 @@ public class Instruction : IOperand
++    // Managed aggregate arguments are represented by their native register components
++    // in ISIL, then reconstructed as one typed value when emitting the managed call.
++    public List<ManagedParameterBinding> ManagedParameterBindings = [];
++
++    // AAPCS64 HFA returns arrive in V registers even though the managed call returns
++    // one value-type value.
++    public ManagedParameterBinding? ManagedReturnBinding;
++
 diff --git a/Cpp2IL.Core/ISIL/LocalVariable.cs b/Cpp2IL.Core/ISIL/LocalVariable.cs
-index a026c7d107c36c36b6b5f241c02ed9896030bb23..fbfb638946742297d0b6067fad180fe60f383aec 100644
+index a026c7d..fbfb638 100644
 --- a/Cpp2IL.Core/ISIL/LocalVariable.cs
 +++ b/Cpp2IL.Core/ISIL/LocalVariable.cs
 @@ -17,0 +18 @@ public class LocalVariable(string name, Register register, TypeAnalysisContext?
 +    public int? ManagedParameterIndex;
 diff --git a/Cpp2IL.Core/ISIL/ManagedParameterBinding.cs b/Cpp2IL.Core/ISIL/ManagedParameterBinding.cs
 new file mode 100644
-index 0000000000000000000000000000000000000000..1a4f54fde1c75cc9a9a446906aa2aa3f1cfcfe25
+index 0000000..c300be4
 --- /dev/null
 +++ b/Cpp2IL.Core/ISIL/ManagedParameterBinding.cs
 @@ -0,0 +1,27 @@
@@ -75,12 +113,12 @@ index 0000000000000000000000000000000000000000..1a4f54fde1c75cc9a9a446906aa2aa3f
 +public sealed class ManagedParameterComponent(Register register, TypeAnalysisContext componentType,
 +    IReadOnlyList<FieldAnalysisContext> fieldPath)
 +{
-+    public Register Register { get; } = register;
++    public Register Register { get; set; } = register;
 +    public TypeAnalysisContext ComponentType { get; } = componentType;
 +    public IReadOnlyList<FieldAnalysisContext> FieldPath { get; } = fieldPath;
 +}
 diff --git a/Cpp2IL.Core/IlGenerator.cs b/Cpp2IL.Core/IlGenerator.cs
-index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b53793cd3b9a3 100644
+index 8562038..5d01b01 100644
 --- a/Cpp2IL.Core/IlGenerator.cs
 +++ b/Cpp2IL.Core/IlGenerator.cs
 @@ -0,0 +1 @@
@@ -182,7 +220,33 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            }
 +        }
 +
-@@ -110 +189,11 @@ public static class IlGenerator
+@@ -102,0 +182,25 @@ public static class IlGenerator
++        // Aggregate call components are attached as ABI metadata rather than
++        // ordinary operands. Make their live-in/live-out registers available to
++        // the local map so the typed aggregate adapter can read and write them.
++        foreach (var instruction in context.ControlFlowGraph.Instructions)
++        {
++            var bindings = instruction.ManagedParameterBindings.AsEnumerable();
++            if (instruction.ManagedReturnBinding is { } returnBinding)
++                bindings = bindings.Append(returnBinding);
++
++            foreach (var component in bindings.SelectMany(binding => binding.Components))
++            {
++                var componentLocal = context.Locals.FirstOrDefault(local =>
++                    local.Register.Name == component.Register.Name && local.Register.Version == -1);
++                if (componentLocal == null)
++                {
++                    context.Locals.Add(new LocalVariable(component.Register.Name,
++                        component.Register, component.ComponentType));
++                }
++                else if (componentLocal.Type == null)
++                {
++                    componentLocal.Type = component.ComponentType;
++                }
++            }
++        }
++
+@@ -110 +214,11 @@ public static class IlGenerator
 -            if (local.Type != null && local.Type != context.AppContext.SystemTypes.SystemVoidType)
 +            if (local.Type != null
 +                && local.Type.FullName != "System.Void"
@@ -195,7 +259,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            else if (int32Results.Contains(local))
 +                ilType = module.CorLibTypeFactory.Int32;
 +            else if (local.Type != null && local.Type.FullName != "System.Void")
-@@ -119,0 +209,83 @@ public static class IlGenerator
+@@ -119,0 +234,83 @@ public static class IlGenerator
 +        // AAPCS64 passes homogeneous floating-point aggregates (HFAs) as scalar
 +        // values in SIMD registers. The managed signature still has one struct
 +        // parameter, so materialize each component into its native live-in local
@@ -279,15 +343,15 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            }
 +        }
 +
-@@ -143 +315,2 @@ public static class IlGenerator
+@@ -143 +340,2 @@ public static class IlGenerator
 -                var generated = GenerateInstructions(instruction, context, definition, locals, writeLine);
 +                var generated = GenerateInstructions(instruction, context, definition, locals, writeLine,
 +                    nativeIntResults, int32Results);
-@@ -217 +390,2 @@ public static class IlGenerator
+@@ -217 +415,2 @@ public static class IlGenerator
 -        // Add analysis warnings
 +        // Repair stack types after all ISIL operations have been lowered. Some constants
 +        // bypass StoreToOperand and reach object locals as raw int32 values.
-@@ -218,0 +393,25 @@ public static class IlGenerator
+@@ -218,0 +418,25 @@ public static class IlGenerator
 +        for (var i = 1; i < instructions.Count; i++)
 +        {
 +            var current = instructions[i];
@@ -313,11 +377,11 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +        }
 +
 +        // Add analysis warnings
-@@ -264 +463,2 @@ public static class IlGenerator
+@@ -264 +488,2 @@ public static class IlGenerator
 -        MethodDefinition method, Dictionary<LocalVariable, CilLocalVariable> locals, IMethodDescriptor writeLine)
 +        MethodDefinition method, Dictionary<LocalVariable, CilLocalVariable> locals, IMethodDescriptor writeLine,
 +        HashSet<LocalVariable> nativeIntResults, HashSet<LocalVariable> int32Results)
-@@ -312 +512,50 @@ public static class IlGenerator
+@@ -312 +537,50 @@ public static class IlGenerator
 -                LoadOperand(instruction.Operands[1], method, locals, writeLine, DestinationType(instruction.Operands[0]));
 +                if (instruction.Operands[0] is LocalVariable nativeIntDestination
 +                    && nativeIntResults.Contains(nativeIntDestination)
@@ -369,7 +433,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    instructions.Add(CilOpCodes.Box,
 +                        method.DeclaringModule!.CorLibTypeFactory.Int32.ToTypeDefOrRef());
 +                }
-@@ -403,0 +653,26 @@ public static class IlGenerator
+@@ -403,0 +678,26 @@ public static class IlGenerator
 +                if (instruction.OpCode == OpCode.CallVoid
 +                    && !targetMethod.IsStatic
 +                    && targetMethod.Name == ".ctor"
@@ -396,10 +460,80 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    StoreToOperand(constructorReceiver, method, locals, writeLine);
 +                    break;
 +                }
-@@ -430 +705 @@ public static class IlGenerator
+@@ -426,0 +727,39 @@ public static class IlGenerator
++                    var aggregateBinding = instruction.ManagedParameterBindings
++                        .FirstOrDefault(binding => binding.ParameterIndex == i);
++                    if (aggregateBinding != null)
++                    {
++                        var aggregateValue = new CilLocalVariable(parameterType.ToTypeSignature());
++                        method.CilMethodBody!.LocalVariables.Add(aggregateValue);
++                        foreach (var component in aggregateBinding.Components)
++                        {
++                            if (component.FieldPath.Count == 0)
++                                throw new InvalidOperationException(
++                                    $"Aggregate argument {i} in {method.FullName} has no field path.");
++
++                            instructions.Add(CilOpCodes.Ldloca, aggregateValue);
++                            for (var fieldIndex = 0; fieldIndex < component.FieldPath.Count - 1; fieldIndex++)
++                            {
++                                var aggregateField = component.FieldPath[fieldIndex];
++                                if (aggregateField.IsStatic)
++                                    throw new InvalidOperationException(
++                                        $"Static field {aggregateField} appears in an aggregate argument field path.");
++                                instructions.Add(CilOpCodes.Ldflda, aggregateField.ToFieldDescriptor());
++                            }
++
++                            var registerLocal = context.Locals.FirstOrDefault(local =>
++                                    local.Register == component.Register)
++                                ?? context.Locals.FirstOrDefault(local =>
++                                    local.Register.Name == component.Register.Name && local.Register.Version == -1);
++                            if (registerLocal == null)
++                                throw new InvalidOperationException(
++                                    $"Aggregate argument component {component.Register} is missing in {method.FullName}.");
++
++                            LoadOperand(registerLocal, method, locals, writeLine, component.ComponentType);
++                            var leaf = component.FieldPath[^1];
++                            instructions.Add(CilOpCodes.Stfld, leaf.ToFieldDescriptor());
++                        }
++
++                        instructions.Add(CilOpCodes.Ldloc, aggregateValue);
++                        continue;
++                    }
++
+@@ -430 +769 @@ public static class IlGenerator
 -                        PushDefaultOf(parameterType, instructions);
 +                        PushDefaultOf(parameterType, method, instructions);
-@@ -449,0 +725,15 @@ public static class IlGenerator
+@@ -444,0 +784,29 @@ public static class IlGenerator
++                if (instruction.ManagedReturnBinding is { } returnBinding
++                    && instruction.OpCode == OpCode.Call
++                    && instruction.Operands[1] is { } returnValue)
++                {
++                    foreach (var component in returnBinding.Components)
++                    {
++                        if (component.FieldPath.Count == 0)
++                            throw new InvalidOperationException(
++                                $"Aggregate return in {method.FullName} has no field path.");
++
++                        LoadOperand(returnValue, method, locals, writeLine, returnBinding.ParameterType);
++                        foreach (var aggregateField in component.FieldPath)
++                        {
++                            if (aggregateField.IsStatic)
++                                throw new InvalidOperationException(
++                                    $"Static field {aggregateField} appears in an aggregate return field path.");
++                            instructions.Add(CilOpCodes.Ldfld, aggregateField.ToFieldDescriptor());
++                        }
++
++                        var registerLocal = context.Locals.FirstOrDefault(local =>
++                            local.Register.Name == component.Register.Name && local.Register.Version == -1);
++                        if (registerLocal == null)
++                            throw new InvalidOperationException(
++                                $"Aggregate return component {component.Register} is missing in {method.FullName}.");
++
++                        StoreToOperand(registerLocal, method, locals, writeLine);
++                    }
++                }
++
+@@ -449,0 +818,15 @@ public static class IlGenerator
 +                if (instruction.Operands.Count > 1 && instruction.Operands[1] is LocalVariable indirectResult)
 +                {
 +                    if (int32Results.Contains(indirectResult))
@@ -415,14 +549,14 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                        instructions.Add(CilOpCodes.Ldnull);
 +                    StoreToOperand(indirectResult, method, locals, writeLine);
 +                }
-@@ -474,0 +765,6 @@ public static class IlGenerator
+@@ -474,0 +858,6 @@ public static class IlGenerator
 +                // This instruction terminates the native control-flow path. Leaving the
 +                // generated method open makes execution fall through into the next method body.
 +                // The indirect target remains unresolved, so return a typed placeholder here.
 +                if (!context.IsVoid)
 +                    PushDefaultOf(context.ReturnType!, method, instructions);
 +                instructions.Add(CilOpCodes.Ret);
-@@ -505,0 +802,20 @@ public static class IlGenerator
+@@ -505,0 +895,20 @@ public static class IlGenerator
 +                // ISIL can retain whole managed structs as arithmetic/comparison operands.
 +                // CIL has no arithmetic stack form for these values, so use the exact
 +                // managed operator recovered from the value type when one is available.
@@ -443,7 +577,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    break;
 +                }
 +
-@@ -510 +826,18 @@ public static class IlGenerator
+@@ -510 +919,18 @@ public static class IlGenerator
 -                LoadOperand(instruction.Operands[1], method, locals, writeLine);
 +                if (instruction.OpCode == OpCode.Add
 +                    && instruction.Operands[0] is LocalVariable addResult
@@ -463,7 +597,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    && nativeIntResults.Contains(firstNativeResult)
 +                    && instruction.Operands[1] is AddressOf)
 +                    instructions.Add(CilOpCodes.Conv_I);
-@@ -513 +846,6 @@ public static class IlGenerator
+@@ -513 +939,6 @@ public static class IlGenerator
 -                LoadOperand(instruction.Operands[2], method, locals, writeLine);
 +                LoadOperand(instruction.Operands[2], method, locals, writeLine,
 +                    IsZeroConstant(instruction.Operands[2]) ? OperandType(instruction.Operands[1]) : null);
@@ -471,7 +605,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    && nativeIntResults.Contains(secondNativeResult)
 +                    && instruction.Operands[2] is AddressOf)
 +                    instructions.Add(CilOpCodes.Conv_I);
-@@ -627,0 +966,53 @@ public static class IlGenerator
+@@ -627,0 +1059,53 @@ public static class IlGenerator
 +    private static MethodAnalysisContext? TryGetManagedOperator(Instruction instruction)
 +    {
 +        var operatorName = instruction.OpCode switch
@@ -525,7 +659,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +        return method;
 +    }
 +
-@@ -643,0 +1035,14 @@ public static class IlGenerator
+@@ -643,0 +1128,14 @@ public static class IlGenerator
 +        if (IsZeroConstant(operand)
 +            && expectedType is { IsValueType: true } valueType
 +            && EnumUnderlyingType(valueType) == null
@@ -540,7 +674,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            return;
 +        }
 +
-@@ -645,0 +1051,17 @@ public static class IlGenerator
+@@ -645,0 +1144,17 @@ public static class IlGenerator
 +            case Immediate immediate when expectedType?.FullName is "System.IntPtr" or "System.UIntPtr":
 +                if (immediate.Value is >= int.MinValue and <= int.MaxValue)
 +                    instructions.Add(CilOpCodes.Ldc_I4, unchecked((int)immediate.Value));
@@ -558,7 +692,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            case Immediate immediate when EnumUnderlyingType(expectedType)?.FullName is "System.Int64" or "System.UInt64":
 +                instructions.Add(CilOpCodes.Ldc_I8, immediate.Value);
 +                break;
-@@ -670 +1092,8 @@ public static class IlGenerator
+@@ -670 +1185,8 @@ public static class IlGenerator
 -                instructions.Add(CilOpCodes.Ldloca, locals[addressed]);
 +                // The lifter sometimes models a reference-value move as AddressOf. If the
 +                // destination is an object value, loading the reference itself keeps the CLI
@@ -568,7 +702,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    LoadLocal(addressed, method, locals);
 +                else
 +                    instructions.Add(CilOpCodes.Ldloca, locals[addressed]);
-@@ -709,2 +1138,7 @@ public static class IlGenerator
+@@ -709,2 +1231,7 @@ public static class IlGenerator
 -                instructions.Add(CilOpCodes.Ldc_I4_0);
 -                instructions.Add(CilOpCodes.Conv_I);
 +                if (expectedType is { } memoryValueType)
@@ -578,22 +712,22 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                    instructions.Add(CilOpCodes.Ldc_I4_0);
 +                    instructions.Add(CilOpCodes.Conv_I);
 +                }
-@@ -811 +1245,2 @@ public static class IlGenerator
+@@ -811 +1338,2 @@ public static class IlGenerator
 -    private static void PushDefaultOf(TypeAnalysisContext type, CilInstructionCollection instructions)
 +    private static void PushDefaultOf(TypeAnalysisContext type, MethodDefinition method,
 +        CilInstructionCollection instructions)
-@@ -815 +1250 @@ public static class IlGenerator
+@@ -815 +1343 @@ public static class IlGenerator
 -        if (!type.IsValueType)
 +        if (type is ByRefTypeAnalysisContext byRef)
-@@ -817 +1252,3 @@ public static class IlGenerator
+@@ -817 +1345,3 @@ public static class IlGenerator
 -            instructions.Add(CilOpCodes.Ldnull);
 +            var pointee = new CilLocalVariable(byRef.ElementType.ToTypeSignature());
 +            method.CilMethodBody!.LocalVariables.Add(pointee);
 +            instructions.Add(CilOpCodes.Ldloca, pointee);
-@@ -821 +1258 @@ public static class IlGenerator
+@@ -821 +1351 @@ public static class IlGenerator
 -        switch (type.FullName)
 +        if (type is PointerTypeAnalysisContext)
-@@ -823,4 +1260,3 @@ public static class IlGenerator
+@@ -823,4 +1353,3 @@ public static class IlGenerator
 -            case "System.Single": instructions.Add(CilOpCodes.Ldc_R4, 0f); break;
 -            case "System.Double": instructions.Add(CilOpCodes.Ldc_R8, 0d); break;
 -            case "System.Int64" or "System.UInt64": instructions.Add(CilOpCodes.Ldc_I8, 0L); break;
@@ -601,7 +735,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            instructions.Add(CilOpCodes.Ldc_I4_0);
 +            instructions.Add(CilOpCodes.Conv_I);
 +            return;
-@@ -827,0 +1264,12 @@ public static class IlGenerator
+@@ -827,0 +1357,12 @@ public static class IlGenerator
 +
 +        if (!type.IsValueType && type is not GenericParameterTypeAnalysisContext)
 +        {
@@ -614,11 +748,11 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +        var value = new CilLocalVariable(type.ToTypeSignature());
 +        method.CilMethodBody!.LocalVariables.Add(value);
 +        instructions.Add(CilOpCodes.Ldloc, value);
-@@ -829,0 +1278,3 @@ public static class IlGenerator
+@@ -829,0 +1371,3 @@ public static class IlGenerator
 +    private static TypeAnalysisContext? EnumUnderlyingType(TypeAnalysisContext? type) =>
 +        type?.Definition?.IsEnumType == true ? type.EnumUnderlyingType : null;
 +
-@@ -832,0 +1284,14 @@ public static class IlGenerator
+@@ -832,0 +1377,14 @@ public static class IlGenerator
 +    private static bool IsInt32Constant(CilOpCode opCode) =>
 +        opCode == CilOpCodes.Ldc_I4_M1
 +        || opCode == CilOpCodes.Ldc_I4_0
@@ -633,7 +767,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +        || opCode == CilOpCodes.Ldc_I4_S
 +        || opCode == CilOpCodes.Ldc_I4;
 +
-@@ -834,0 +1300,9 @@ public static class IlGenerator
+@@ -834,0 +1393,9 @@ public static class IlGenerator
 +    private static TypeAnalysisContext? OperandType(IOperand operand) =>
 +        operand switch
 +        {
@@ -643,13 +777,13 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +            _ => null
 +        };
 +
-@@ -854 +1328,4 @@ public static class IlGenerator
+@@ -854 +1421,4 @@ public static class IlGenerator
 -        var parameter = method.Parameters.FirstOrDefault(p => p.Name == local.Name);
 +        var parameter = local.ManagedParameterIndex is { } parameterIndex
 +            && parameterIndex >= 0 && parameterIndex < method.Parameters.Count
 +                ? method.Parameters[parameterIndex]
 +                : method.Parameters.FirstOrDefault(p => p.Name == local.Name);
-@@ -869,0 +1347,20 @@ public static class IlGenerator
+@@ -869,0 +1440,20 @@ public static class IlGenerator
 +                // Some non-Move ISIL operations also leave an untyped zero as native int.
 +                // Locals with no recovered type are emitted as object, where that zero must
 +                // be represented as null instead.
@@ -671,7 +805,7 @@ index 85620388a7e2c5976a4f7abbc48235f2478f085a..dbe2efa1394254a5388e6fe2195b5379
 +                        method.DeclaringModule!.CorLibTypeFactory.Int32.ToTypeDefOrRef());
 +                }
 diff --git a/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs b/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
-index 0ba9188f1c01dfdbeeae27e963bb558da4df2f09..6e7cce01eabecc3e36f912257cc6fdbee11aade9 100644
+index 0ba9188..16aa27f 100644
 --- a/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
 +++ b/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
 @@ -25,0 +26,9 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
@@ -687,7 +821,12 @@ index 0ba9188f1c01dfdbeeae27e963bb558da4df2f09..6e7cce01eabecc3e36f912257cc6fdbe
 @@ -78 +87 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
 -        return CallingConventions.ResolveForManaged(context).ToList();
 +        return CallingConventions.ResolveForManagedEntry(context).ToList();
-@@ -422,0 +432,13 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+@@ -233 +242,3 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+-                call.AddOperands(CallingConventions.ResolveForManaged(ctx));
++                call.AddOperands(CallingConventions.ResolveForManagedCall(ctx, out var bindings));
++                call.ManagedParameterBindings.AddRange(bindings);
++                call.ManagedReturnBinding = CallingConventions.ResolveManagedReturn(ctx);
+@@ -422,0 +434,13 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
 +            case Arm64Mnemonic.FABS:
 +                {
 +                    bool isDouble = instruction.Op0Reg is >= Arm64Register.D0 and <= Arm64Register.D31;
@@ -702,7 +841,7 @@ index 0ba9188f1c01dfdbeeae27e963bb558da4df2f09..6e7cce01eabecc3e36f912257cc6fdbe
 +                    break;
 +                }
 diff --git a/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs b/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs
-index d47abcef477b5d525a8f89f5ada1737f19049c2f..fc69926d32d6357112388d7fd2b38382ad779875 100644
+index d47abce..fc69926 100644
 --- a/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs
 +++ b/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs
 @@ -60,0 +61,7 @@ public class MethodAnalysisContext : HasGenericParameters, IMethodInfoProvider,
@@ -714,13 +853,165 @@ index d47abcef477b5d525a8f89f5ada1737f19049c2f..fc69926d32d6357112388d7fd2b38382
 +    public List<ManagedParameterBinding> ManagedParameterBindings = [];
 +
 diff --git a/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs b/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs
-index d77fff8ff1f4741a45ccedd8f69114a32007da76..41ec455f56c823d54fa30ece8e491da0ad230521 100644
+index d77fff8..571d6b8 100644
 --- a/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs
 +++ b/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs
 @@ -1,0 +2,2 @@ using System.Collections.Generic;
 +using System.Linq;
 +using System.Reflection;
-@@ -80,0 +83,170 @@ public class Arm64CallingConventionResolver : BaseCallingConventionResolver
+@@ -80,0 +83,435 @@ public class Arm64CallingConventionResolver : BaseCallingConventionResolver
++
++    public override IOperand[] ResolveForManagedCall(MethodAnalysisContext ctx,
++        out List<ManagedParameterBinding> bindings)
++    {
++        var hfas = ctx.Parameters.ToDictionary(parameter => parameter.ParameterIndex,
++            parameter => TryGetHfaComponents(parameter.ParameterType, out var components) ? components : null);
++        var integerAggregates = ctx.Parameters.ToDictionary(parameter => parameter.ParameterIndex,
++            parameter => hfas[parameter.ParameterIndex] == null
++                && TryGetIntegerAggregateComponents(parameter.ParameterType, out var components)
++                    ? components : null);
++
++        var integerRequired = (ctx.IsStatic ? 0 : 1) + 1; // this + MethodInfo
++        var floatingRequired = 0;
++        foreach (var parameter in ctx.Parameters)
++        {
++            if (hfas[parameter.ParameterIndex] is { } hfa)
++                floatingRequired += hfa.Count;
++            else if (integerAggregates[parameter.ParameterIndex] is { } aggregate)
++                integerRequired += aggregate.Count;
++            else if (IsFloatingPoint(parameter.ParameterType))
++                floatingRequired++;
++            else
++                integerRequired++;
++        }
++
++        // This patch handles register-resident aggregates. Keep the established
++        // mapping intact when a signature spills, rather than assigning only part
++        // of an aggregate to registers and corrupting all later arguments.
++        if (integerRequired > IntegerRegisters.Length || floatingRequired > FloatRegisters.Length)
++        {
++            bindings = [];
++            return ResolveForManaged(ctx);
++        }
++
++        var args = new List<IOperand>();
++        bindings = [];
++        var integer = 0;
++        var floating = 0;
++
++        Register NextInteger() => new(null, IntegerRegisters[integer++]);
++        Register NextFloat() => new(null, FloatRegisters[floating++]);
++
++        if (!ctx.IsStatic)
++            args.Add(NextInteger());
++
++        foreach (var parameter in ctx.Parameters)
++        {
++            var parameterIndex = parameter.ParameterIndex;
++            var components = hfas[parameterIndex] ?? integerAggregates[parameterIndex];
++            if (components == null)
++            {
++                args.Add(IsFloatingPoint(parameter.ParameterType)
++                    ? NextFloat()
++                    : NextInteger());
++                continue;
++            }
++
++            var logicalParameter = new Register(null, $"__managed_arg_{parameterIndex}");
++            args.Add(logicalParameter);
++            var binding = new ManagedParameterBinding(parameterIndex, parameter.ParameterType,
++                logicalParameter, isAggregate: true);
++            var isHfa = hfas[parameterIndex] != null;
++            foreach (var component in components)
++            {
++                var register = isHfa ? NextFloat() : NextInteger();
++                binding.Components.Add(new ManagedParameterComponent(register,
++                    component.ComponentType, component.FieldPath));
++            }
++            bindings.Add(binding);
++        }
++
++        args.Add(NextInteger()); // The MethodInfo argument
++        return args.ToArray();
++    }
++
++    public override ManagedParameterBinding? ResolveManagedReturn(MethodAnalysisContext ctx)
++    {
++        if (ctx.IsVoid || !TryGetHfaComponents(ctx.ReturnType, out var components))
++            return null;
++
++        var result = new ManagedParameterBinding(-1, ctx.ReturnType,
++            ReturnRegister(ctx), isAggregate: true);
++        for (var i = 0; i < components.Count; i++)
++            result.Components.Add(new ManagedParameterComponent(
++                new Register(null, FloatRegisters[i]), components[i].ComponentType,
++                components[i].FieldPath));
++        return result;
++    }
++
++    public override void RemapRawArguments(Instruction call, MethodAnalysisContext resolved)
++    {
++        if (!HasRawArgumentLayout(call, resolved.AppContext))
++        {
++            // Some shared-generic calls were first mapped as a scalar parameter
++            // plus MethodInfo, then specialized later from the concrete MethodInfo.
++            // At that point only the original argument registers remain in the
++            // call operands. Preserve their SSA versions and attach aggregate leaf
++            // bindings when every required component is already present.
++            var availableRegisters = call.Operands.Skip(ArgBase(call))
++                .OfType<LocalVariable>()
++                .GroupBy(local => local.Register.Name)
++                .ToDictionary(group => group.Key, group => group.First());
++            ResolveForManagedCall(resolved, out var specializedBindings);
++            var allComponentsAvailable = specializedBindings.Count > 0
++                && specializedBindings.SelectMany(binding => binding.Components)
++                    .All(component => availableRegisters.ContainsKey(component.Register.Name));
++            if (allComponentsAvailable)
++            {
++                foreach (var component in specializedBindings.SelectMany(binding => binding.Components))
++                    component.Register = availableRegisters[component.Register.Name].Register;
++
++                call.ManagedParameterBindings.Clear();
++                call.ManagedParameterBindings.AddRange(specializedBindings);
++                call.ManagedReturnBinding = ResolveManagedReturn(resolved);
++                return;
++            }
++
++            base.RemapRawArguments(call, resolved);
++            return;
++        }
++
++        var argBase = ArgBase(call);
++        var rawArguments = call.Operands.Skip(argBase).ToArray();
++        var rawByRegister = rawArguments
++            .Select(operand => (Operand: operand, Name: operand switch
++            {
++                Register register => register.Name,
++                LocalVariable { Register.Name: var name } => name,
++                _ => null
++            }))
++            .Where(item => item.Name != null)
++            .GroupBy(item => item.Name!)
++            .ToDictionary(group => group.Key, group => group.First().Operand);
++
++        var managedArguments = ResolveForManagedCall(resolved, out var bindings);
++        var remapped = new List<IOperand>(argBase + managedArguments.Length);
++        for (var i = 0; i < argBase; i++)
++            remapped.Add(call.Operands[i]);
++
++        foreach (var argument in managedArguments)
++        {
++            if (argument is Register register && rawByRegister.TryGetValue(register.Name, out var raw))
++                remapped.Add(raw);
++            else
++                remapped.Add(argument);
++        }
++
++        call.SetOperands(remapped);
++        call.ManagedParameterBindings.Clear();
++        call.ManagedParameterBindings.AddRange(bindings);
++        call.ManagedReturnBinding = ResolveManagedReturn(resolved);
++    }
 +
 +    /// <summary>
 +    /// Resolve managed method-entry arguments while preserving one logical operand
@@ -840,6 +1131,109 @@ index d77fff8ff1f4741a45ccedd8f69114a32007da76..41ec455f56c823d54fa30ece8e491da0
 +        return true;
 +    }
 +
++    private static bool TryGetIntegerAggregateComponents(TypeAnalysisContext type,
++        out List<HfaComponentLayout> components)
++    {
++        components = [];
++        if (!type.IsValueType || type.IsEnumType || IsFloatingPoint(type)
++            || type.Fields.Count == 0 || TypeSizes.UnboxedSize(type, PtrSize) is not (>= 1 and <= 16))
++            return false;
++
++        var definition = type is GenericInstanceTypeAnalysisContext generic ? generic.GenericType : type;
++        if ((definition.Attributes & TypeAttributes.LayoutMask) == TypeAttributes.ExplicitLayout)
++            return false;
++
++        var size = TypeSizes.UnboxedSize(type, PtrSize);
++        if (type.Fields.All(field => field.Offset < 0))
++        {
++            // Some Unity metadata omits field offsets even for sequential-layout
++            // structs. Recover only the no-padding case: every field is a direct
++            // pointer-sized reference and the known value size matches the field
++            // count exactly. This covers QueuedState without guessing at packing.
++            var sequentialFields = type is GenericInstanceTypeAnalysisContext sequentialGeneric
++                ? sequentialGeneric.GenericType.Fields
++                    .Select(field => (Field: (FieldAnalysisContext)field.MakeConcreteGenericField(sequentialGeneric.GenericArguments),
++                        Type: GenericInstantiation.Instantiate(field.FieldType, sequentialGeneric.GenericArguments, [])))
++                    .ToList()
++                : type.Fields.Select(field => (Field: field, Type: field.FieldType)).ToList();
++            sequentialFields = sequentialFields.Where(field => !field.Field.IsStatic
++                    && !field.Field.Attributes.HasFlag(FieldAttributes.Literal))
++                .ToList();
++            if ((definition.Attributes & TypeAttributes.LayoutMask) != TypeAttributes.SequentialLayout
++                || sequentialFields.Count == 0
++                || sequentialFields.Any(field => field.Type.IsValueType
++                    || TypeSizes.UnboxedSize(field.Type, PtrSize) is not (0 or PtrSize))
++                || size != sequentialFields.Count * PtrSize)
++                return false;
++
++            components = sequentialFields.Select(field => new HfaComponentLayout(field.Type,
++                new FieldAnalysisContext[] { field.Field })).ToList();
++            return true;
++        }
++
++        var slotCount = (size + PtrSize - 1) / PtrSize;
++        var flattened = FlattenIntegerAggregate(type, [], 0, new HashSet<TypeAnalysisContext>());
++        if (flattened == null || flattened.Count != slotCount
++            || flattened.Select(item => item.Offset / PtrSize).Distinct().Count() != slotCount
++            || flattened.Any(item => item.Offset % PtrSize != 0))
++            return false;
++
++        components = flattened.OrderBy(item => item.Offset).Select(item => item.Component).ToList();
++        return true;
++    }
++
++    private static List<(int Offset, HfaComponentLayout Component)>? FlattenIntegerAggregate(
++        TypeAnalysisContext type, List<FieldAnalysisContext> prefix, int baseOffset,
++        HashSet<TypeAnalysisContext> visiting)
++    {
++        var definition = type is GenericInstanceTypeAnalysisContext generic ? generic.GenericType : type;
++        var fields = type is GenericInstanceTypeAnalysisContext genericType
++            ? genericType.GenericType.Fields
++                .Select(field => (Field: (FieldAnalysisContext)field.MakeConcreteGenericField(genericType.GenericArguments),
++                    Type: GenericInstantiation.Instantiate(field.FieldType, genericType.GenericArguments, [])))
++                .ToList()
++            : type.Fields.Select(field => (Field: field, Type: field.FieldType)).ToList();
++        fields = fields.Where(field => !field.Field.IsStatic
++                && !field.Field.Attributes.HasFlag(FieldAttributes.Literal))
++            .OrderBy(field => field.Field.Offset).ToList();
++
++        if (!type.IsValueType || type.IsEnumType || fields.Count == 0)
++        {
++            // Managed references occupy one native pointer even when this
++            // metadata helper reports no unboxed size for the referenced class.
++            var leafSize = type.IsValueType ? TypeSizes.UnboxedSize(type, PtrSize) : PtrSize;
++            if (leafSize is < 1 or > PtrSize || baseOffset % PtrSize != 0)
++                return null;
++            return [(baseOffset, new HfaComponentLayout(type, prefix.ToArray()))];
++        }
++
++        if (!visiting.Add(type))
++            return null;
++
++        try
++        {
++            if ((definition.Attributes & TypeAttributes.LayoutMask) == TypeAttributes.ExplicitLayout
++                || fields.Any(field => field.Field.Offset < 0))
++                return null;
++
++            var result = new List<(int Offset, HfaComponentLayout Component)>();
++            foreach (var (field, fieldType) in fields)
++            {
++                var fieldPath = new List<FieldAnalysisContext>(prefix) { field };
++                var nested = FlattenIntegerAggregate(fieldType, fieldPath,
++                    baseOffset + field.Offset, visiting);
++                if (nested == null)
++                    return null;
++                result.AddRange(nested);
++            }
++            return result;
++        }
++        finally
++        {
++            visiting.Remove(type);
++        }
++    }
++
 +    private static List<HfaComponentLayout>? FlattenHfa(TypeAnalysisContext type,
 +        List<FieldAnalysisContext> prefix, HashSet<TypeAnalysisContext> visiting)
 +    {
@@ -864,10 +1258,20 @@ index d77fff8ff1f4741a45ccedd8f69114a32007da76..41ec455f56c823d54fa30ece8e491da0
 +
 +            fields = fields.Where(field => !field.Field.IsStatic
 +                    && !field.Field.Attributes.HasFlag(FieldAttributes.Literal))
-+                .OrderBy(field => field.Field.Offset)
 +                .ToList();
-+            if (fields.Count == 0 || fields.Any(field => field.Field.Offset < 0))
++            if (fields.Count == 0)
 +                return null;
++
++            if (fields.Any(field => field.Field.Offset < 0))
++            {
++                if ((definition.Attributes & TypeAttributes.LayoutMask) != TypeAttributes.SequentialLayout
++                    || fields.Any(field => field.Field.Offset >= 0))
++                    return null;
++            }
++            else
++            {
++                fields = fields.OrderBy(field => field.Field.Offset).ToList();
++            }
 +
 +            var result = new List<HfaComponentLayout>();
 +            foreach (var (field, fieldType) in fields)
@@ -891,3 +1295,20 @@ index d77fff8ff1f4741a45ccedd8f69114a32007da76..41ec455f56c823d54fa30ece8e491da0
 +
 +    private sealed record HfaComponentLayout(TypeAnalysisContext ComponentType,
 +        IReadOnlyList<FieldAnalysisContext> FieldPath);
+diff --git a/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs b/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs
+index 73a1df1..1019006 100644
+--- a/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs
++++ b/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs
+@@ -22,0 +23,9 @@ public abstract class BaseCallingConventionResolver
++    public virtual IOperand[] ResolveForManagedCall(MethodAnalysisContext ctx,
++        out List<ManagedParameterBinding> bindings)
++    {
++        bindings = [];
++        return ResolveForManaged(ctx);
++    }
++
++    public virtual ManagedParameterBinding? ResolveManagedReturn(MethodAnalysisContext ctx) => null;
++
+@@ -59 +68 @@ public abstract class BaseCallingConventionResolver
+-    public void RemapRawArguments(Instruction call, MethodAnalysisContext resolved)
++    public virtual void RemapRawArguments(Instruction call, MethodAnalysisContext resolved)
