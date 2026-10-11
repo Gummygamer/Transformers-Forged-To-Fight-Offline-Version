@@ -965,3 +965,10 @@ copied game method body are retained.
 signatures and scalar field metadata. Quaternion multiplication uses the standard Hamilton product
 with operand snapshots for alias-safe output. Rectangle containment follows the documented
 half-open extent approximation. No APK bytes, assets, or copied game method body are retained.
+
+The following surfaced first-pass methods are also new authored IL: `Vector2.Divide`,
+`Vector4.Multiply`, `Quaternion.Dot`, `Rectangle.Intersect`, `ViewId` equality/ordering,
+`RtLCharInfo.CheckEquals(Color32,Color32)`, and `TextState.AreSameState`. Rectangle intersection
+uses half-open extents and a canonical zero rectangle for empty overlap; `ViewId.CompareTo` uses a
+lexicographic `p`, `n`, `s` ordering inferred from its field layout. Both approximation choices are
+documented reconstruction decisions, not represented as copied 9.2 source.

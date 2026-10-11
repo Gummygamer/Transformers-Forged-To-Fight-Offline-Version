@@ -1267,3 +1267,27 @@ the post-preflight staged first-pass DLL as complete PE/CLI metadata: 16,767,488
 staging, not shipped game code. The previous checkpoint still had 16 unique failures and no APK;
 there is no playable story session yet. A roughly 3–8 focused-week playable-story estimate remains
 low confidence because recent checkpoints expose a replacement queue instead of reducing the total.
+
+## v54: bounded comparison and math batch prepared
+
+The scalar-operations ARM64/IL2CPP checkpoint completed without OOM but produced no APK. It took
+25.1 seconds of preflight and 108.1 seconds in Unity; peak process-tree RSS was 5.09 GiB and host
+available memory bottomed at 6.33 GiB from 13.84 GiB before Unity. The 121.3 MiB log compressed to
+1.00 MiB and used 39.26 MiB of external disk. The checkpoint cleared all four v53 methods
+(`Vector2.Multiply`, `Vector4.Divide`, `Quaternion.Multiply`, and rectangle out-containment), while
+14 signatures surfaced; the unique queue stayed at 16.
+
+Authored eight repairs for the new queue: `Vector2.Divide`, `Vector4.Multiply`, `Quaternion.Dot`,
+`Rectangle.Intersect`, `ViewId` equality and ordering, `RtLCharInfo.CheckEquals(Color32,Color32)`,
+and `TextState.AreSameState`. Recovery preflight compiled with the existing 12 CS0219 warnings,
+transplanted `AlignUIElements.GetObjectBounds`, and Unity Mono smoke passed all eight methods,
+including aliased/empty rectangle intersection and value/state comparisons. Rectangle intersection
+uses half-open extents with a canonical zero rectangle for empty overlap; ViewId ordering by `p`,
+`n`, then `s` is inferred from its field layout. These repairs await the next guarded checkpoint.
+
+REA MCP inspected the latest staged first-pass DLL as complete PE/CLI metadata: 16,728,064 bytes,
+SHA-256 `ece90140b3fa07771cec67ca6cf39775b7bac8ec5003c48c0f5cf7e2cdeca449`, MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`, evidence
+`ev_62596273c795e575aae9e28bdcb7154b6563c4143c21885a7faa8d196ef98bb0`. The active REA APK
+identity was confirmed as the pristine root 9.2.0 APK in v53; this recovery DLL remains generated
+external staging only. Story mode is not playable yet.
