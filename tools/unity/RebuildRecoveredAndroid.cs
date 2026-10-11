@@ -52,6 +52,7 @@ public static class RebuildRecoveredAndroid
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.kabam.bigrobot");
         PlayerSettings.bundleVersion = "9.2.0";
         PlayerSettings.Android.bundleVersionCode = 9200;
+        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, backend);
         PlayerSettings.Android.targetArchitectures = architecture;
         PlayerSettings.Android.useCustomKeystore = true;
         PlayerSettings.Android.keystoreName = keystore;
@@ -64,7 +65,6 @@ public static class RebuildRecoveredAndroid
             ? configuredKeystore : Path.Combine(projectRoot, configuredKeystore);
         Debug.Log("Recovery Android keystore: " + configuredKeystore
             + " (resolved: " + resolvedKeystore + ", exists: " + File.Exists(resolvedKeystore) + ")");
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, backend);
         PlayerSettings.SetManagedStrippingLevel(
             BuildTargetGroup.Android, ManagedStrippingLevel.Disabled);
 

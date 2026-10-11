@@ -1386,3 +1386,43 @@ Follow-up REA routing checks confirm that the existing `.rep` directory cannot b
 Verified the external Unity `2020.3.31f1` Editor and its bundled Mono/JIT/compiler `5.11.0.0`. The existing `tftf-unity2020-ubuntu20` image provides Ubuntu 20.04 runtime dependencies but contains no editor copy. Added `tools/unity/compose.ubuntu20.yaml` and usage notes: Compose mounts the 11 GB external Editor read-only and the staged project writable, so it adds no second Editor installation. `docker compose ... config --quiet`, a container Unity `-version`, and container Mono/mcs version checks all passed. The temporary Compose network was removed after the check.
 
 The external staged project is 6.6 GB (3.6 GB authored/exported Assets and 3.1 GB Unity Library cache). I kept it intact because removing Library would force a large Unity reimport; the staged assets are required input. Global Docker reports 6.96 GB reclaimable build cache, but `docker system df -v` fails on a missing snapshot and the host also has unrelated active containers, so a global prune is not justified by current evidence. The 9.2 project-specific Android 30 AVD exists, but `adb devices -l` reports no connected/running device.
+
+## v63: source APK identity rechecked; Android backend order validated
+
+REA's live `binary_session` still targets the confirmed clean source at
+`transformers-forged-to-fight-9-2-0.apk`, SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`. I also rechecked the
+newly highlighted `Transformers 9.2 offline.apk` directly with REA (`inspect_android_package`,
+Evidence `ev_48ead5043e5173466a87306815ca44bb47b67176f53894d883423fc56059bfa5`): it is package
+`com.kabam.bigrobot` 9.2.0 / code 123129100, with 10,395 classes and 4,133 resources, but its
+SHA-256 `68ad382f3229578084f8590c236acf9a5547bda829e12e8beb929d844af7c1b9` matches the known
+offline-patched APK denylist in `tools/recover_9_2.py`. `apksigner` reports `CN=Android Debug`,
+its ARM64 `libil2cpp.so` is the known hook-bearing `e54cb5a1...` binary, and the archive bundles
+`libdothook.so`. The source validator rejected it. The file is not used as the recompilation base;
+the confirmed source remains the active REA target and the source for the current staged project.
+
+REA directly inspected the current staged `Assembly-CSharp-firstpass.dll` as complete PE/CLI
+metadata: 16,680,960 bytes, SHA-256
+`43c5a6200394bc6faf5a5b7b0c5f35765e979149e2e93da7503f6411f695ae5e`, MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`, 23,857 methods and 3,506 types (Evidence
+`ev_ce09f511949d079342711a7ee345a7da2dbc818a4611852bfb1120f7218056d9`). A full managed-member
+inspection completed and retained Evidence `ev_47613e65696e6bb71cb87cba4d22d8abe423fb13e1264261a657885a1d031754`, but its 10.54 MB response exceeded REA's 10.48 MB MCP receive budget. The current recovery preflight again transplanted the authored `AlignUIElements.GetObjectBounds` body; it is not in the ensuing IL2CPP failure queue. No full-session evidence export was retained.
+
+Moved `SetScriptingBackend` before `targetArchitectures` in the Unity build helper, following the
+Unity Android settings API order. The cheap Mono/ARM64 preview still failed in 12 seconds with
+`Target architecture not specified`, so it produced no APK. The guarded IL2CPP/ARM64 checkpoint
+did accept ARM64 and reached IL2CPP translation, but retained 16 distinct translation failures,
+including `Legacy.QuestsAPI.BeginQuest`, `Legacy.QuestProgression..ctor`,
+`Quests.MapTile.GetIncomingBuffList`, `QuestboardHud.OnIntroTransitionComplete`, and quest player
+and camera updates. No APK was produced. Preflight took 17.91 seconds; Unity took 96.07 seconds;
+peak process-tree RSS was 5.87 GB, minimum host-available memory was 6.33 GB from 15.96 GB before
+Unity, and the 127.14 MiB log compressed to 1.05 MiB. External free space changed by -52.67 MiB.
+The backend-order change did not reduce the queue, so another unchanged Unity build is not useful
+until a batch of those story-path failures has been repaired.
+
+Recent checkpoints continue to clear roughly 14 previously failing methods and expose roughly 14
+others, with a 16-item queue and no APK/runtime milestone. That is positive method-level
+reconstruction but zero net build-queue progress. A playable story route remains a low-confidence
+3–8 focused-week estimate, including the later client/server/runtime work. Next, use the retained
+9.2 ARM64 traces for `Quests.MapTile.GetIncomingBuffList` and the quest-start/progression group,
+batch-authored fixes, then validate them offline before paying for another Unity checkpoint.
