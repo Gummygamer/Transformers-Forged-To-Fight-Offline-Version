@@ -920,3 +920,8 @@ body is copied.
 `EB.Math.Matrix.Add(ref,ref,ref)` is newly authored IL that adds its 16 traced scalar fields. The
 field sequence and source bytes were checked against the clean 9.2 native image; no APK bytes,
 assets, or decompiled game method body are included in the repository.
+
+`EB.Missions.Map.SetupBuffs`, `Map.GetTile(int,int)`, and the MapTile buff-copy/list methods are
+newly authored C# recovery sources compiled and transplanted as IL from clean 9.2 native traces
+and recovered type metadata. The Vector2 membership branch follows the observed floor comparisons;
+no APK bytes, assets, or copied decompiled game method body are tracked.

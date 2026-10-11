@@ -6068,6 +6068,9 @@ class RepairRecoveredConstructor {
         repairs += RepairUriInitializer(targetModule);
         repairs += RepairUriComponentLookup(targetModule);
         repairs += RepairUriParser(targetModule);
+        repairs += RepairMapTileBuffMethods(targetModule, sourceModule);
+        repairs += RepairMapGetTile(targetModule, sourceModule);
+        repairs += RepairMapSetupBuffs(targetModule, sourceModule);
         TypeDefinition sourceType = sourceModule.GetType("RecoverySources.AlignUIElementsGetObjectBounds");
         MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method => method.Name == "Replace");
         TypeDefinition targetType = targetModule.GetType("AlignUIElements");
@@ -6080,6 +6083,171 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
         repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         return repairs;
+    }
+
+    static int RepairMapTileBuffMethods(ModuleDefinition targetModule, ModuleDefinition sourceModule) {
+        TypeDefinition tile = targetModule.GetType("EB.Missions.MapTile");
+        TypeDefinition sourceType = sourceModule.GetType("RecoverySources.MapRecovery");
+        if (tile == null || sourceType == null)
+            throw new InvalidDataException("missing MapTile recovery source or destination metadata");
+        int repairs = RepairMapTilePositionGetter(tile);
+        repairs += ReplaceMethodBodyFromAuthoredSource(targetModule,
+            FindInstanceMethod(tile, "AddBuffsFromTile", "EB.Missions.MapTile"),
+            FindStaticMethod(sourceType, "AddBuffsFromTile", "EB.Missions.MapTile", "EB.Missions.MapTile"));
+        repairs += ReplaceMethodBodyFromAuthoredSource(targetModule,
+            FindInstanceMethod(tile, "AddBuffsFromSummary", "EB.Missions.Summary"),
+            FindStaticMethod(sourceType, "AddBuffsFromSummary", "EB.Missions.MapTile", "EB.Missions.Summary"));
+        repairs += ReplaceMethodBodyReturningList(targetModule,
+            FindInstanceMethod(tile, "AddAttackerBuff", "EB.Missions.Buff"),
+            FindStaticMethod(sourceType, "AddAttackerBuff", "EB.Missions.MapTile", "EB.Missions.Buff"),
+            FindListSetter(tile, "set_attackerBuffs"));
+        repairs += ReplaceMethodBodyReturningList(targetModule,
+            FindInstanceMethod(tile, "AddDefenderBuff", "EB.Missions.Buff"),
+            FindStaticMethod(sourceType, "AddDefenderBuff", "EB.Missions.MapTile", "EB.Missions.Buff"),
+            FindListSetter(tile, "set_defenderBuffs"));
+        Console.WriteLine("reconstructed MapTile attacker/defender buff copy and append methods from 9.2 ARM64 traces");
+        return repairs;
+    }
+
+    static int RepairMapTilePositionGetter(TypeDefinition tile) {
+        FieldDefinition position = tile.Fields.SingleOrDefault(field => field.Name == "<position>k__BackingField" &&
+            !field.IsStatic && field.FieldType.FullName == "UnityEngine.Vector2");
+        MethodDefinition getter = tile.Methods.SingleOrDefault(method => method.Name == "get_position" &&
+            !method.IsStatic && method.Parameters.Count == 0 && method.ReturnType.FullName == "UnityEngine.Vector2");
+        if (position == null || getter == null)
+            throw new InvalidDataException("missing MapTile.position backing field or getter");
+        ILProcessor il;
+        MethodBody body = ResetBody(getter, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, position));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        return 1;
+    }
+
+    static int RepairMapGetTile(ModuleDefinition targetModule, ModuleDefinition sourceModule) {
+        TypeDefinition map = targetModule.GetType("EB.Missions.Map");
+        TypeDefinition sourceType = sourceModule.GetType("RecoverySources.MapRecovery");
+        if (map == null || sourceType == null)
+            throw new InvalidDataException("missing Map.GetTile recovery source or destination metadata");
+        MethodDefinition target = FindInstanceMethod(map, "GetTile", "System.Int32", "System.Int32");
+        MethodDefinition source = FindStaticMethod(sourceType, "GetTile", "EB.Missions.Map",
+            "System.Int32", "System.Int32");
+        int repairs = ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
+        Console.WriteLine("reconstructed EB.Missions.Map.GetTile(int,int) bounds and grid lookup from 9.2 trace");
+        return repairs;
+    }
+
+    static MethodDefinition FindInstanceMethod(TypeDefinition type, string name, params string[] parameters) {
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate => candidate.Name == name &&
+            !candidate.IsStatic && candidate.Parameters.Select(parameter => parameter.ParameterType.FullName)
+                .SequenceEqual(parameters));
+        if (method == null) throw new InvalidDataException("missing method " + type.FullName + "::" + name);
+        return method;
+    }
+
+    static MethodDefinition FindStaticMethod(TypeDefinition type, string name, params string[] parameters) {
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate => candidate.Name == name &&
+            candidate.IsStatic && candidate.Parameters.Select(parameter => parameter.ParameterType.FullName)
+                .SequenceEqual(parameters));
+        if (method == null) throw new InvalidDataException("missing authored source " + type.FullName + "::" + name);
+        return method;
+    }
+
+    static MethodDefinition FindListSetter(TypeDefinition type, string name) {
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate => candidate.Name == name &&
+            !candidate.IsStatic && candidate.ReturnType.MetadataType == MetadataType.Void &&
+            candidate.Parameters.Count == 1 && candidate.Parameters[0].ParameterType.FullName ==
+                "System.Collections.Generic.List`1<EB.Missions.Buff>");
+        if (method == null) throw new InvalidDataException("missing list setter " + type.FullName + "::" + name);
+        return method;
+    }
+
+    static int ReplaceMethodBodyReturningList(ModuleDefinition targetModule, MethodDefinition target,
+        MethodDefinition source, MethodDefinition setter) {
+        if (source.ReturnType.FullName != "System.Collections.Generic.List`1<EB.Missions.Buff>")
+            throw new InvalidDataException("authored list-return method has unexpected return type: " + source.FullName);
+        ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
+        MethodBody body = target.Body;
+        var list = new VariableDefinition(targetModule.ImportReference(source.ReturnType));
+        body.Variables.Add(list);
+        body.InitLocals = true;
+        Instruction[] returns = body.Instructions.Where(instruction => instruction.OpCode.Code == Code.Ret).ToArray();
+        if (returns.Length == 0) throw new InvalidDataException("authored list method has no return: " + source.FullName);
+        foreach (Instruction ret in returns) {
+            ret.OpCode = OpCodes.Stloc;
+            ret.Operand = list;
+            Instruction cursor = ret;
+            Instruction[] writes = {
+                Instruction.Create(OpCodes.Ldarg_0),
+                Instruction.Create(OpCodes.Ldloc, list),
+                Instruction.Create(OpCodes.Call, targetModule.ImportReference(setter)),
+                Instruction.Create(OpCodes.Ret)
+            };
+            foreach (Instruction write in writes) {
+                body.GetILProcessor().InsertAfter(cursor, write);
+                cursor = write;
+            }
+        }
+        body.MaxStackSize = Math.Max(body.MaxStackSize, 2);
+        return 1;
+    }
+
+    static int RepairMapSetupBuffs(ModuleDefinition targetModule, ModuleDefinition sourceModule) {
+        TypeDefinition map = targetModule.GetType("EB.Missions.Map");
+        TypeDefinition sourceType = sourceModule.GetType("RecoverySources.MapSetupBuffs");
+        MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method =>
+            method.Name == "Replace" && method.IsStatic && method.ReturnType.MetadataType == MetadataType.Int32);
+        MethodDefinition target = map == null ? null : map.Methods.SingleOrDefault(method =>
+            method.Name == "SetupBuffs" && !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.FullName == "EB.Missions.Summary" &&
+            method.ReturnType.MetadataType == MetadataType.Void);
+        MethodDefinition setHasBuffs = map == null ? null : map.Methods.SingleOrDefault(method =>
+            method.Name == "set_hasBuffs" && !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.Boolean);
+        MethodDefinition setHasLinkBuffs = map == null ? null : map.Methods.SingleOrDefault(method =>
+            method.Name == "set_hasLinkBuffs" && !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.Boolean);
+        if (map == null || source == null || target == null || setHasBuffs == null || setHasLinkBuffs == null)
+            throw new InvalidDataException("missing authored Map.SetupBuffs source or 9.2 destination metadata");
+
+        ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
+        MethodBody body = target.Body;
+        var flags = new VariableDefinition(targetModule.TypeSystem.Int32);
+        body.Variables.Add(flags);
+        body.InitLocals = true;
+        Instruction[] returns = body.Instructions.Where(instruction => instruction.OpCode.Code == Code.Ret).ToArray();
+        if (returns.Length == 0) throw new InvalidDataException("authored Map.SetupBuffs body has no return");
+        foreach (Instruction ret in returns) {
+            // Keep the original instruction object so existing branches still land on the flag store.
+            ret.OpCode = OpCodes.Stloc;
+            ret.Operand = flags;
+            Instruction cursor = ret;
+            Instruction[] writes = {
+                Instruction.Create(OpCodes.Ldarg_0),
+                Instruction.Create(OpCodes.Ldloc, flags),
+                Instruction.Create(OpCodes.Ldc_I4_1),
+                Instruction.Create(OpCodes.And),
+                Instruction.Create(OpCodes.Ldc_I4_0),
+                Instruction.Create(OpCodes.Cgt_Un),
+                Instruction.Create(OpCodes.Call, targetModule.ImportReference(setHasBuffs)),
+                Instruction.Create(OpCodes.Ldarg_0),
+                Instruction.Create(OpCodes.Ldloc, flags),
+                Instruction.Create(OpCodes.Ldc_I4_2),
+                Instruction.Create(OpCodes.And),
+                Instruction.Create(OpCodes.Ldc_I4_0),
+                Instruction.Create(OpCodes.Cgt_Un),
+                Instruction.Create(OpCodes.Call, targetModule.ImportReference(setHasLinkBuffs)),
+                Instruction.Create(OpCodes.Ret)
+            };
+            foreach (Instruction write in writes) {
+                body.GetILProcessor().InsertAfter(cursor, write);
+                cursor = write;
+            }
+        }
+        body.MaxStackSize = Math.Max(body.MaxStackSize, 3);
+        Console.WriteLine("reconstructed EB.Missions.Map.SetupBuffs from traced global, linked, and summary buff paths");
+        return 1;
     }
 
     static int RepairMatrixAdd(ModuleDefinition module) {

@@ -982,3 +982,36 @@ Progress rate for this batch: one additional IL2CPP-rejected method reconstructe
 focused Mono plus Unity import preflight; no APK output yet. First playable story-route estimate
 remains **3–8 focused weeks, low confidence**. Next, continue trace-backed work on `Map.SetupBuffs`
 and the deferred/UI methods, then run one memory-guarded IL2CPP cycle after the batch changes.
+
+## v43: story-map buff propagation repaired and exercised
+
+REA MCP inspected the current staged `Assembly-CSharp-firstpass.dll` after repair and observed
+complete PE/CLI metadata (17,067,520 bytes; SHA-256
+`333ad1540566ea2be54f4d95d01ce4772165fb0a8b357e82b831e0fb5757ceca`; evidence
+`ev_945d577952007b748df4cb50410fe529dbdb4264103c42e95526848e507a853b`). The connected native
+session still has the APK archive selected, unsupported by Ghidra; the pwntools ELF capability is
+also unavailable because `REA_PWNTOOLS_PYTHON` and its caller-supplied dependencies are absent. No
+cold full-binary import or oversized member scan was repeated.
+
+Reconstructed the story-map path from retained 9.2 traces: `Map.SetupBuffs`, `Map.GetTile(int,int)`,
+`MapTile.AddBuffsFromTile`, `AddBuffsFromSummary`, attacker/defender buff appenders, and the
+`MapTile.position` value getter. The source helper follows global buffs, linked targets, and
+summary buffs, preserves preexisting flags across early exits, and the Cecil transplant writes the
+two private flags through their verified property setters. It inlines the trace-observed floored
+Vector2 membership check so the path does not depend on a separate malformed recovered helper.
+The 141-instruction `SetupBuffs` trace's independent decoders agree; smaller retained traces cover
+the integer grid lookup and buff-copy calls. New IL is authored from these traces and field
+metadata, not copied from a decompiled body.
+
+The Unity 2020.3.31f1 import-repair preflight exited 0 with the same 12 existing CS0219 warnings;
+it applied the Matrix and map repairs and retransplanted `AlignUIElements.GetObjectBounds`. A
+focused Unity-bundled Mono smoke passed global propagation to every tile, single linked targets,
+self-target links, summary buffs, early-exit flag preservation, and invalid grid bounds. That smoke
+also exposed malformed recovered `AddBuffsFromTile`, `GetTile`, `get_position`, and Vector2-list
+helper bodies; the story path replacements bypass or repair those dependencies.
+
+No Unity ARM64 build has run on this combined batch yet. The prior baseline had 16 method-level
+IL2CPP failures; the next useful checkpoint is one compressed-log, 10-GiB-guarded build to measure
+which queued failures the Matrix and map work clears or exposes. There is no rebuilt APK or
+playable story session yet; the current first-route estimate remains **3–8 focused weeks, low
+confidence**.
