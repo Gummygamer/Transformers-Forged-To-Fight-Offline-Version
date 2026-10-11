@@ -1162,7 +1162,7 @@ class RepairRecoveredConstructor {
             .GetProperty("Offset").GetGetMethod());
         MethodReference arrayCopy = module.ImportReference(typeof(Array).GetMethod("Copy",
             new[] { typeof(Array), typeof(int), typeof(Array), typeof(int), typeof(int) }));
-        MethodReference intToString = module.ImportReference(typeof(int).GetMethod("ToString", Type.EmptyTypes));
+        MethodReference intToString = module.ImportReference(typeof(Convert).GetMethod("ToString", new[] { typeof(int) }));
         MethodReference concatenate = module.ImportReference(typeof(string).GetMethod("Concat",
             new[] { typeof(string), typeof(string) }));
         MethodReference argumentExceptionConstructor = module.ImportReference(typeof(ArgumentException)
@@ -6052,6 +6052,13 @@ class RepairRecoveredConstructor {
         repairs += RepairStringUtilSafeKey(targetModule);
         repairs += RepairDotString(targetModule);
         repairs += RepairInventoryManagerOnUpdate(targetModule);
+        repairs += RepairRequestSigning(targetModule);
+        repairs += RepairManagedHmac(targetModule);
+        repairs += RepairEncodingInitializer(targetModule);
+        repairs += RepairHttpEndPointInitializer(targetModule);
+        repairs += RepairUriInitializer(targetModule);
+        repairs += RepairUriComponentLookup(targetModule);
+        repairs += RepairUriParser(targetModule);
         TypeDefinition sourceType = sourceModule.GetType("RecoverySources.AlignUIElementsGetObjectBounds");
         MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method => method.Name == "Replace");
         TypeDefinition targetType = targetModule.GetType("AlignUIElements");
@@ -6064,6 +6071,961 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
         repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         return repairs;
+    }
+
+    static int RepairRequestSigning(ModuleDefinition module) {
+        TypeDefinition digest = module.GetType("EB.Digest");
+        TypeDefinition hmac = module.GetType("EB.Hmac");
+        TypeDefinition encoding = module.GetType("EB.Encoding");
+        TypeDefinition endpoint = module.GetType("EB.Sparx.HttpEndPoint");
+        TypeDefinition request = module.GetType("EB.Sparx.Request");
+        TypeDefinition uri = module.GetType("EB.Uri");
+        if (digest == null || hmac == null || encoding == null || endpoint == null || request == null || uri == null)
+            throw new InvalidDataException("missing 9.2 request-signing types");
+
+        FieldDefinition digestValue = digest.Fields.SingleOrDefault(field => field.Name == "_digest");
+        FieldDefinition hmacDigest = hmac.Fields.SingleOrDefault(field => field.Name == "_digest");
+        FieldDefinition hmacKey = hmac.Fields.SingleOrDefault(field => field.Name == "_key");
+        FieldDefinition hmacMac = hmac.Fields.SingleOrDefault(field => field.Name == "_mac");
+        FieldDefinition endpointHmac = endpoint.Fields.SingleOrDefault(field => field.Name == "_hmac");
+        FieldDefinition endpointMutex = endpoint.Fields.SingleOrDefault(field => field.Name == "_hmacMutex");
+        FieldDefinition endpointSeparator = endpoint.Fields.SingleOrDefault(field => field.Name == "sEndl" && field.IsStatic);
+        MethodDefinition requestUri = request.Properties.SingleOrDefault(property => property.Name == "uri")?.GetMethod;
+        if (digestValue == null || hmacDigest == null || hmacKey == null || hmacMac == null ||
+            endpointHmac == null || endpointMutex == null || endpointSeparator == null || requestUri == null)
+            throw new InvalidDataException("missing 9.2 request-signing fields");
+
+        MethodDefinition digestCtor = digest.Methods.SingleOrDefault(method => method.IsConstructor &&
+            !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.FullName == digestValue.FieldType.FullName);
+        MethodDefinition digestSize = digest.Methods.SingleOrDefault(method => method.Name == "get_DigestSize" &&
+            method.ReturnType.MetadataType == MetadataType.Int32 && method.Parameters.Count == 0);
+        MethodDefinition digestImplementation = digest.Methods.SingleOrDefault(method => method.Name == "get_Implementation" &&
+            method.Parameters.Count == 0 && method.ReturnType.FullName == digestValue.FieldType.FullName);
+        MethodDefinition digestSha1 = digest.Methods.SingleOrDefault(method => method.Name == "Sha1" &&
+            method.IsStatic && method.Parameters.Count == 0 && method.ReturnType.FullName == digest.FullName);
+        MethodDefinition hmacCtor = hmac.Methods.SingleOrDefault(method => method.IsConstructor &&
+            !method.IsStatic && method.Parameters.Count == 2 &&
+            method.Parameters[0].ParameterType.FullName == digest.FullName &&
+            method.Parameters[1].ParameterType.MetadataType == MetadataType.Array);
+        MethodDefinition hmacSize = hmac.Methods.SingleOrDefault(method => method.Name == "get_DigestSize" &&
+            method.ReturnType.MetadataType == MetadataType.Int32 && method.Parameters.Count == 0);
+        MethodDefinition hmacKeyGetter = hmac.Methods.SingleOrDefault(method => method.Name == "get_Key" &&
+            method.ReturnType.MetadataType == MetadataType.Array && method.Parameters.Count == 0);
+        MethodDefinition hmacSha1 = hmac.Methods.SingleOrDefault(method => method.Name == "Sha1" &&
+            method.IsStatic && method.Parameters.Count == 1 && method.ReturnType.FullName == hmac.FullName);
+        MethodDefinition hmacReset = hmac.Methods.SingleOrDefault(method => method.Name == "Reset" &&
+            !method.IsStatic && method.Parameters.Count == 0 && method.ReturnType.FullName == hmac.FullName);
+        MethodDefinition hmacUpdateText = hmac.Methods.SingleOrDefault(method => method.Name == "Update" &&
+            !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.MetadataType == MetadataType.String && method.ReturnType.FullName == hmac.FullName);
+        MethodDefinition hmacUpdateBytes = hmac.Methods.SingleOrDefault(method => method.Name == "Update" &&
+            !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.MetadataType == MetadataType.Array && method.ReturnType.FullName == hmac.FullName);
+        MethodDefinition hmacUpdateRange = hmac.Methods.SingleOrDefault(method => method.Name == "Update" &&
+            !method.IsStatic && method.Parameters.Count == 3 &&
+            method.Parameters[0].ParameterType.MetadataType == MetadataType.Array && method.ReturnType.FullName == hmac.FullName);
+        MethodDefinition hmacFinal = hmac.Methods.SingleOrDefault(method => method.Name == "Final" &&
+            !method.IsStatic && method.Parameters.Count == 0 && method.ReturnType.MetadataType == MetadataType.Array);
+        MethodDefinition getBytes = encoding.Methods.SingleOrDefault(method => method.Name == "GetBytes" &&
+            method.IsStatic && method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+            method.ReturnType.MetadataType == MetadataType.Array);
+        MethodDefinition sign = endpoint.Methods.SingleOrDefault(method => method.Name == "Sign" &&
+            !method.IsStatic && method.Parameters.Count == 4 && method.ReturnType.MetadataType == MetadataType.String);
+        MethodDefinition host = uri.Properties.SingleOrDefault(property => property.Name == "Host")?.GetMethod;
+        MethodDefinition path = uri.Properties.SingleOrDefault(property => property.Name == "Path")?.GetMethod;
+        if (digestCtor == null || digestSize == null || digestImplementation == null || digestSha1 == null ||
+            hmacCtor == null || hmacSize == null || hmacKeyGetter == null || hmacSha1 == null || hmacReset == null ||
+            hmacUpdateText == null || hmacUpdateBytes == null || hmacUpdateRange == null || hmacFinal == null ||
+            getBytes == null || sign == null || host == null || path == null)
+            throw new InvalidDataException("missing 9.2 request-signing methods");
+
+        TypeDefinition objectType = module.TypeSystem.Object.Resolve();
+        MethodReference objectCtor = module.ImportReference(objectType.Methods.Single(method => method.IsConstructor &&
+            !method.IsStatic && method.Parameters.Count == 0));
+        TypeDefinition digestImplType = digestValue.FieldType.Resolve();
+        TypeDefinition macType = hmacMac.FieldType.Resolve();
+        TypeDefinition keyType = hmacKey.FieldType.Resolve();
+        MethodReference digestSizeCall = module.ImportReference(digestImplType.Methods.Single(method =>
+            method.Name == "GetDigestSize" && method.Parameters.Count == 0));
+        MethodReference macResetCall = module.ImportReference(macType.Methods.Single(method =>
+            method.Name == "Reset" && method.Parameters.Count == 0));
+        MethodReference macBlockUpdateCall = module.ImportReference(macType.Methods.Single(method =>
+            method.Name == "BlockUpdate" && method.Parameters.Count == 3));
+        MethodReference macSizeCall = module.ImportReference(macType.Methods.Single(method =>
+            method.Name == "GetMacSize" && method.Parameters.Count == 0));
+        MethodReference macFinalCall = module.ImportReference(macType.Methods.Single(method =>
+            method.Name == "DoFinal" && method.Parameters.Count == 2));
+        MethodReference macInitCall = module.ImportReference(macType.Methods.Single(method =>
+            method.Name == "Init" && method.Parameters.Count == 1));
+        MethodReference keyGetter = module.ImportReference(keyType.Methods.Single(method =>
+            method.Name == "GetKey" && method.Parameters.Count == 0));
+        MethodReference utf8Getter = module.ImportReference(typeof(System.Text.Encoding).GetProperty("UTF8").GetGetMethod());
+        MethodReference utf8GetBytes = module.ImportReference(typeof(System.Text.Encoding).GetMethod("GetBytes", new[] { typeof(string) }));
+        MethodReference waitOne = module.ImportReference(typeof(System.Threading.Mutex).GetMethod("WaitOne", Type.EmptyTypes));
+        MethodReference releaseMutex = module.ImportReference(typeof(System.Threading.Mutex).GetMethod("ReleaseMutex", Type.EmptyTypes));
+        MethodReference base64 = encoding.Methods.SingleOrDefault(method => method.Name == "ToBase64String" &&
+            method.IsStatic && method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.Array);
+        if (base64 == null) throw new InvalidDataException("missing 9.2 EB.Encoding.ToBase64String(byte[])");
+
+        MethodReference sha1Ctor = FindMethodReference(module, "Org.BouncyCastle.Crypto.Digests.Sha1Digest", ".ctor", 0);
+        MethodReference macCtor = FindMethodReference(module, "Org.BouncyCastle.Crypto.Macs.HMac", ".ctor", 1);
+        MethodReference keyCtor = FindMethodReference(module, "Org.BouncyCastle.Crypto.Parameters.KeyParameter", ".ctor", 1);
+        if (sha1Ctor == null || macCtor == null || keyCtor == null)
+            return RepairHttpEndPointSign(module);
+
+        int repaired = 0;
+        ILProcessor il;
+        MethodBody body;
+        body = ResetBody(digestCtor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, objectCtor));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Stfld, digestValue));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        repaired++;
+
+        body = ResetBody(digestImplementation, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, digestValue));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        repaired++;
+
+        body = ResetBody(digestSize, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, digestValue));
+        il.Append(Instruction.Create(OpCodes.Callvirt, digestSizeCall));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        repaired++;
+
+        body = ResetBody(digestSha1, out il);
+        il.Append(Instruction.Create(OpCodes.Newobj, sha1Ctor));
+        il.Append(Instruction.Create(OpCodes.Newobj, digestCtor));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        repaired++;
+
+        body = ResetBody(getBytes, out il);
+        il.Append(Instruction.Create(OpCodes.Call, utf8Getter));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Callvirt, utf8GetBytes));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        repaired++;
+
+        body = ResetBody(hmacCtor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, objectCtor));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Stfld, hmacDigest));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Newobj, keyCtor));
+        il.Append(Instruction.Create(OpCodes.Stfld, hmacKey));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, digestImplementation));
+        il.Append(Instruction.Create(OpCodes.Newobj, macCtor));
+        il.Append(Instruction.Create(OpCodes.Stfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacKey));
+        il.Append(Instruction.Create(OpCodes.Callvirt, macInitCall));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        repaired++;
+
+        body = ResetBody(hmacSize, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Callvirt, macSizeCall));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        repaired++;
+
+        body = ResetBody(hmacKeyGetter, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacKey));
+        il.Append(Instruction.Create(OpCodes.Callvirt, keyGetter));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        repaired++;
+
+        body = ResetBody(hmacReset, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Callvirt, macResetCall));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        repaired++;
+
+        body = ResetBody(hmacUpdateText, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Call, getBytes));
+        il.Append(Instruction.Create(OpCodes.Call, hmacUpdateBytes));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        repaired++;
+
+        body = ResetBody(hmacUpdateBytes, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldlen));
+        il.Append(Instruction.Create(OpCodes.Conv_I4));
+        il.Append(Instruction.Create(OpCodes.Call, hmacUpdateRange));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 4;
+        repaired++;
+
+        body = ResetBody(hmacUpdateRange, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldarg_3));
+        il.Append(Instruction.Create(OpCodes.Callvirt, macBlockUpdateCall));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 4;
+        repaired++;
+
+        VariableDefinition digestBuffer = new VariableDefinition(new ArrayType(module.TypeSystem.Byte));
+        body = ResetBody(hmacFinal, out il);
+        body.InitLocals = true;
+        body.Variables.Add(digestBuffer);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Callvirt, macSizeCall));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.Byte));
+        il.Append(Instruction.Create(OpCodes.Stloc, digestBuffer));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacMac));
+        il.Append(Instruction.Create(OpCodes.Ldloc, digestBuffer));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Callvirt, macFinalCall));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldloc, digestBuffer));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        repaired++;
+
+        body = ResetBody(hmacSha1, out il);
+        il.Append(Instruction.Create(OpCodes.Call, digestSha1));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Newobj, hmacCtor));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        repaired++;
+
+        FieldDefinition endpointHmacRef = module.ImportReference(endpointHmac).Resolve();
+        FieldDefinition endpointMutexRef = module.ImportReference(endpointMutex).Resolve();
+        FieldDefinition endpointSeparatorRef = module.ImportReference(endpointSeparator).Resolve();
+        MethodReference requestUriRef = module.ImportReference(requestUri);
+        VariableDefinition signatureBytes = new VariableDefinition(new ArrayType(module.TypeSystem.Byte));
+        body = ResetBody(sign, out il);
+        body.InitLocals = true;
+        body.Variables.Add(signatureBytes);
+        Instruction returnNull = Instruction.Create(OpCodes.Ldnull);
+        Instruction hasPostData = Instruction.Create(OpCodes.Nop);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointMutexRef));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, requestUriRef));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointMutexRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, waitOne));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacReset));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, endpointSeparatorRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, requestUriRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, host));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, endpointSeparatorRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, requestUriRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, path));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, endpointSeparatorRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldarg_3));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_S, sign.Parameters[3]));
+        il.Append(Instruction.Create(OpCodes.Brfalse, hasPostData));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, endpointSeparatorRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Ldarg_S, sign.Parameters[3]));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacUpdateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(hasPostData);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointHmacRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, hmacFinal));
+        il.Append(Instruction.Create(OpCodes.Stloc, signatureBytes));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, endpointMutexRef));
+        il.Append(Instruction.Create(OpCodes.Callvirt, releaseMutex));
+        il.Append(Instruction.Create(OpCodes.Ldloc, signatureBytes));
+        il.Append(Instruction.Create(OpCodes.Call, base64));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(returnNull);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        repaired++;
+
+        return repaired;
+    }
+
+    static int RepairHttpEndPointSign(ModuleDefinition module) {
+        TypeDefinition endpoint = module.GetType("EB.Sparx.HttpEndPoint");
+        TypeDefinition request = module.GetType("EB.Sparx.Request");
+        TypeDefinition uri = module.GetType("EB.Uri");
+        TypeDefinition encoding = module.GetType("EB.Encoding");
+        if (endpoint == null || request == null || uri == null || encoding == null)
+            throw new InvalidDataException("missing 9.2 HttpEndPoint.Sign metadata");
+        FieldDefinition hmacField = endpoint.Fields.Single(field => field.Name == "_hmac");
+        FieldDefinition mutexField = endpoint.Fields.Single(field => field.Name == "_hmacMutex");
+        FieldDefinition separatorField = endpoint.Fields.Single(field => field.Name == "sEndl" && field.IsStatic);
+        MethodDefinition requestUri = request.Properties.Single(property => property.Name == "uri").GetMethod;
+        MethodDefinition host = uri.Properties.Single(property => property.Name == "Host").GetMethod;
+        MethodDefinition path = uri.Properties.Single(property => property.Name == "Path").GetMethod;
+        MethodDefinition reset = endpoint.Module.GetType("EB.Hmac").Methods.Single(method => method.Name == "Reset" && method.Parameters.Count == 0);
+        MethodDefinition updateText = endpoint.Module.GetType("EB.Hmac").Methods.Single(method => method.Name == "Update" &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.String);
+        MethodDefinition updateBytes = endpoint.Module.GetType("EB.Hmac").Methods.Single(method => method.Name == "Update" &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.Array);
+        MethodDefinition final = endpoint.Module.GetType("EB.Hmac").Methods.Single(method => method.Name == "Final" && method.Parameters.Count == 0);
+        MethodDefinition getBytes = encoding.Methods.Single(method => method.Name == "GetBytes" && method.IsStatic &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.String);
+        MethodDefinition base64 = encoding.Methods.Single(method => method.Name == "ToBase64String" && method.IsStatic &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.Array);
+        MethodReference utf8Getter = module.ImportReference(typeof(System.Text.Encoding).GetProperty("UTF8").GetGetMethod());
+        MethodReference utf8GetBytes = module.ImportReference(typeof(System.Text.Encoding).GetMethod("GetBytes", new[] { typeof(string) }));
+        MethodDefinition sign = endpoint.Methods.Single(method => method.Name == "Sign" && !method.IsStatic &&
+            method.Parameters.Count == 4 && method.ReturnType.MetadataType == MetadataType.String);
+        MethodReference waitOne = module.ImportReference(typeof(System.Threading.Mutex).GetMethod("WaitOne", Type.EmptyTypes));
+        MethodReference releaseMutex = module.ImportReference(typeof(System.Threading.Mutex).GetMethod("ReleaseMutex", Type.EmptyTypes));
+
+        ILProcessor il;
+        MethodBody body = ResetBody(sign, out il);
+        VariableDefinition signatureBytes = new VariableDefinition(new ArrayType(module.TypeSystem.Byte));
+        body.InitLocals = true;
+        body.Variables.Add(signatureBytes);
+        Instruction returnNull = Instruction.Create(OpCodes.Ldnull);
+        Instruction noPostData = Instruction.Create(OpCodes.Nop);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, mutexField));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, requestUri));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, mutexField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, waitOne));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, reset));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, separatorField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, requestUri));
+        il.Append(Instruction.Create(OpCodes.Callvirt, host));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, separatorField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, requestUri));
+        il.Append(Instruction.Create(OpCodes.Callvirt, path));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, separatorField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldarg_3));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateText));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_S, sign.Parameters[3]));
+        il.Append(Instruction.Create(OpCodes.Brfalse, noPostData));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, separatorField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Ldarg_S, sign.Parameters[3]));
+        il.Append(Instruction.Create(OpCodes.Callvirt, updateBytes));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(noPostData);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, hmacField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, final));
+        il.Append(Instruction.Create(OpCodes.Stloc, signatureBytes));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, mutexField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, releaseMutex));
+        il.Append(Instruction.Create(OpCodes.Ldloc, signatureBytes));
+        il.Append(Instruction.Create(OpCodes.Call, base64));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(returnNull);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        body = ResetBody(getBytes, out il);
+        il.Append(Instruction.Create(OpCodes.Call, utf8Getter));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Callvirt, utf8GetBytes));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        return 2;
+    }
+
+    static MethodBody ResetBody(MethodDefinition method, out ILProcessor il) {
+        if (method == null) throw new InvalidDataException("cannot rebuild a missing method body");
+        MethodBody body = method.Body;
+        body.Instructions.Clear();
+        body.Variables.Clear();
+        body.ExceptionHandlers.Clear();
+        body.InitLocals = false;
+        il = body.GetILProcessor();
+        return body;
+    }
+
+    static MethodReference FindMethodReference(ModuleDefinition module, string typeName, string methodName, int parameterCount) {
+        foreach (TypeDefinition type in AllTypes(module.Types)) {
+            foreach (MethodDefinition method in type.Methods) {
+                if (!method.HasBody) continue;
+                foreach (Instruction instruction in method.Body.Instructions) {
+                    if (instruction.Operand is MethodReference reference &&
+                        reference.DeclaringType.FullName == typeName && reference.Name == methodName &&
+                        reference.Parameters.Count == parameterCount)
+                        return module.ImportReference(reference);
+                }
+            }
+        }
+        return null;
+    }
+
+    static int RepairManagedHmac(ModuleDefinition module) {
+        TypeDefinition hmac = module.GetType("EB.Hmac");
+        if (hmac == null) throw new InvalidDataException("missing 9.2 EB.Hmac");
+        TypeReference hashType = module.ImportReference(typeof(System.Security.Cryptography.HMAC));
+        FieldDefinition algorithm = hmac.Fields.SingleOrDefault(field => field.Name == "_recoveredManagedHmac");
+        if (algorithm == null) {
+            algorithm = new FieldDefinition("_recoveredManagedHmac", FieldAttributes.Private, hashType);
+            hmac.Fields.Add(algorithm);
+        }
+        MethodDefinition emptyConstructor = hmac.Methods.SingleOrDefault(method => method.IsConstructor &&
+            !method.IsStatic && method.Parameters.Count == 0);
+        if (emptyConstructor == null) {
+            emptyConstructor = new MethodDefinition(".ctor", MethodAttributes.Private | MethodAttributes.HideBySig |
+                MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, module.TypeSystem.Void);
+            hmac.Methods.Add(emptyConstructor);
+        }
+        MethodReference objectCtor = module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes));
+        MethodReference hmacSha1Ctor = module.ImportReference(typeof(System.Security.Cryptography.HMACSHA1)
+            .GetConstructor(new[] { typeof(byte[]) }));
+        MethodReference hmacMd5Ctor = module.ImportReference(typeof(System.Security.Cryptography.HMACMD5)
+            .GetConstructor(new[] { typeof(byte[]) }));
+        MethodReference initialize = module.ImportReference(typeof(System.Security.Cryptography.HashAlgorithm)
+            .GetMethod("Initialize", Type.EmptyTypes));
+        MethodReference transformBlock = module.ImportReference(typeof(System.Security.Cryptography.HashAlgorithm)
+            .GetMethod("TransformBlock", new[] { typeof(byte[]), typeof(int), typeof(int), typeof(byte[]), typeof(int) }));
+        MethodReference transformFinal = module.ImportReference(typeof(System.Security.Cryptography.HashAlgorithm)
+            .GetMethod("TransformFinalBlock", new[] { typeof(byte[]), typeof(int), typeof(int) }));
+        MethodReference getHash = module.ImportReference(typeof(System.Security.Cryptography.HashAlgorithm)
+            .GetProperty("Hash").GetGetMethod());
+        MethodReference getHashSize = module.ImportReference(typeof(System.Security.Cryptography.HashAlgorithm)
+            .GetProperty("HashSize").GetGetMethod());
+        MethodReference getKey = module.ImportReference(typeof(System.Security.Cryptography.HMAC)
+            .GetProperty("Key").GetGetMethod());
+        MethodReference utf8 = module.ImportReference(typeof(System.Text.Encoding).GetProperty("UTF8").GetGetMethod());
+        MethodReference utf8Bytes = module.ImportReference(typeof(System.Text.Encoding).GetMethod("GetBytes", new[] { typeof(string) }));
+        MethodDefinition ctor = hmac.Methods.Single(method => method.IsConstructor && !method.IsStatic && method.Parameters.Count == 2);
+        MethodDefinition size = hmac.Methods.Single(method => method.Name == "get_DigestSize" && method.Parameters.Count == 0);
+        MethodDefinition key = hmac.Methods.Single(method => method.Name == "get_Key" && method.Parameters.Count == 0);
+        MethodDefinition sha1 = hmac.Methods.Single(method => method.Name == "Sha1" && method.IsStatic && method.Parameters.Count == 1);
+        MethodDefinition md5 = hmac.Methods.Single(method => method.Name == "MD5" && method.IsStatic && method.Parameters.Count == 1);
+        MethodDefinition reset = hmac.Methods.Single(method => method.Name == "Reset" && !method.IsStatic && method.Parameters.Count == 0);
+        MethodDefinition updateString = hmac.Methods.Single(method => method.Name == "Update" && !method.IsStatic &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.String);
+        MethodDefinition updateBytes = hmac.Methods.Single(method => method.Name == "Update" && !method.IsStatic &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.Array);
+        MethodDefinition updateRange = hmac.Methods.Single(method => method.Name == "Update" && !method.IsStatic && method.Parameters.Count == 3);
+        MethodDefinition final = hmac.Methods.Single(method => method.Name == "Final" && !method.IsStatic && method.Parameters.Count == 0);
+        MethodReference updateArray = module.ImportReference(updateBytes);
+        int count = 0;
+        ILProcessor il;
+        MethodBody body = ResetBody(emptyConstructor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, objectCtor));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        count++;
+
+        body = ResetBody(ctor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, objectCtor));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Newobj, hmacSha1Ctor));
+        il.Append(Instruction.Create(OpCodes.Stfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        count++;
+
+        body = ResetBody(sha1, out il);
+        il.Append(Instruction.Create(OpCodes.Newobj, emptyConstructor));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Newobj, hmacSha1Ctor));
+        il.Append(Instruction.Create(OpCodes.Stfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        count++;
+
+        body = ResetBody(md5, out il);
+        il.Append(Instruction.Create(OpCodes.Newobj, emptyConstructor));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Newobj, hmacMd5Ctor));
+        il.Append(Instruction.Create(OpCodes.Stfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        count++;
+
+        body = ResetBody(size, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getHashSize));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_8));
+        il.Append(Instruction.Create(OpCodes.Div));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        count++;
+
+        body = ResetBody(key, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getKey));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        count++;
+
+        body = ResetBody(reset, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Callvirt, initialize));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        count++;
+
+        body = ResetBody(updateString, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, utf8));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, utf8Bytes));
+        il.Append(Instruction.Create(OpCodes.Call, updateArray));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        count++;
+
+        body = ResetBody(updateBytes, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldlen));
+        il.Append(Instruction.Create(OpCodes.Conv_I4));
+        il.Append(Instruction.Create(OpCodes.Call, updateRange));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 4;
+        count++;
+
+        body = ResetBody(updateRange, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldarg_3));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Callvirt, transformBlock));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 6;
+        count++;
+
+        VariableDefinition empty = new VariableDefinition(new ArrayType(module.TypeSystem.Byte));
+        body = ResetBody(final, out il);
+        body.InitLocals = true;
+        body.Variables.Add(empty);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.Byte));
+        il.Append(Instruction.Create(OpCodes.Stloc, empty));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Ldloc, empty));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Callvirt, transformFinal));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, algorithm));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getHash));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 4;
+        count++;
+
+        return count;
+    }
+
+    static int RepairEncodingInitializer(ModuleDefinition module) {
+        TypeDefinition encoding = module.GetType("EB.Encoding");
+        if (encoding == null) throw new InvalidDataException("missing EB.Encoding");
+        FieldDefinition encodingField = encoding.Fields.Single(field => field.Name == "_encoding" && field.IsStatic);
+        FieldDefinition hexTable = encoding.Fields.Single(field => field.Name == "_HexStringTable" && field.IsStatic);
+        MethodDefinition initializer = encoding.Methods.Single(method => method.IsConstructor && method.IsStatic);
+        MethodReference utf8 = module.ImportReference(typeof(System.Text.Encoding).GetProperty("UTF8").GetGetMethod());
+        MethodReference format = module.ImportReference(typeof(string).GetMethod("Format", new[] { typeof(string), typeof(object) }));
+        TypeReference stringType = module.TypeSystem.String;
+        VariableDefinition index = new VariableDefinition(module.TypeSystem.Int32);
+        ILProcessor il;
+        MethodBody body = ResetBody(initializer, out il);
+        body.InitLocals = true;
+        body.Variables.Add(index);
+        Instruction loop = Instruction.Create(OpCodes.Ldloc, index);
+        Instruction done = Instruction.Create(OpCodes.Ret);
+        il.Append(Instruction.Create(OpCodes.Call, utf8));
+        il.Append(Instruction.Create(OpCodes.Stsfld, encodingField));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4, 256));
+        il.Append(Instruction.Create(OpCodes.Newarr, stringType));
+        il.Append(Instruction.Create(OpCodes.Stsfld, hexTable));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Stloc, index));
+        il.Append(loop);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4, 256));
+        il.Append(Instruction.Create(OpCodes.Bge, done));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, hexTable));
+        il.Append(Instruction.Create(OpCodes.Ldloc, index));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "{0:x2}"));
+        il.Append(Instruction.Create(OpCodes.Ldloc, index));
+        il.Append(Instruction.Create(OpCodes.Box, module.TypeSystem.Int32));
+        il.Append(Instruction.Create(OpCodes.Call, format));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, index));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stloc, index));
+        il.Append(Instruction.Create(OpCodes.Br, loop));
+        il.Append(done);
+        body.MaxStackSize = 4;
+        return 1;
+    }
+
+    static int RepairHttpEndPointInitializer(ModuleDefinition module) {
+        TypeDefinition endpoint = module.GetType("EB.Sparx.HttpEndPoint");
+        TypeDefinition encoding = module.GetType("EB.Encoding");
+        if (endpoint == null || encoding == null) throw new InvalidDataException("missing HttpEndPoint initializer metadata");
+        FieldDefinition lastMemoryCheck = endpoint.Fields.Single(field => field.Name == "_lastMemoryCheck" && field.IsStatic);
+        FieldDefinition separator = endpoint.Fields.Single(field => field.Name == "sEndl" && field.IsStatic);
+        MethodDefinition initializer = endpoint.Methods.Single(method => method.IsConstructor && method.IsStatic);
+        MethodDefinition getBytes = encoding.Methods.Single(method => method.Name == "GetBytes" && method.IsStatic &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.String);
+        MethodReference getUtcNow = module.ImportReference(typeof(DateTime).GetProperty("UtcNow").GetGetMethod());
+        ILProcessor il;
+        MethodBody body = ResetBody(initializer, out il);
+        il.Append(Instruction.Create(OpCodes.Call, getUtcNow));
+        il.Append(Instruction.Create(OpCodes.Stsfld, lastMemoryCheck));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "\n"));
+        il.Append(Instruction.Create(OpCodes.Call, getBytes));
+        il.Append(Instruction.Create(OpCodes.Stsfld, separator));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 1;
+        return 1;
+    }
+
+    static int RepairUriInitializer(ModuleDefinition module) {
+        TypeDefinition uri = module.GetType("EB.Uri");
+        if (uri == null) throw new InvalidDataException("missing EB.Uri");
+        FieldDefinition trimChars = uri.Fields.Single(field => field.Name == "kUriCombineTrimChars" && field.IsStatic);
+        MethodDefinition initializer = uri.Methods.Single(method => method.IsConstructor && method.IsStatic);
+        ILProcessor il;
+        MethodBody body = ResetBody(initializer, out il);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_3));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.Char));
+        il.Append(Instruction.Create(OpCodes.Stsfld, trimChars));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, trimChars));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4, (int)'/'));
+        il.Append(Instruction.Create(OpCodes.Stelem_I2));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, trimChars));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4, (int)'/'));
+        il.Append(Instruction.Create(OpCodes.Stelem_I2));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, trimChars));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_2));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4, (int)':'));
+        il.Append(Instruction.Create(OpCodes.Stelem_I2));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        return 1;
+    }
+
+    static int RepairUriComponentLookup(ModuleDefinition module) {
+        TypeDefinition uri = module.GetType("EB.Uri");
+        if (uri == null) throw new InvalidDataException("missing EB.Uri");
+        FieldDefinition components = uri.Fields.Single(field => field.Name == "_components" && !field.IsStatic);
+        MethodDefinition getComponent = uri.Methods.Single(method => method.Name == "GetComponent" &&
+            !method.IsStatic && method.Parameters.Count == 2 && method.ReturnType.MetadataType == MetadataType.String);
+        MethodReference isNullOrEmpty = module.ImportReference(typeof(string).GetMethod("IsNullOrEmpty", new[] { typeof(string) }));
+        VariableDefinition value = new VariableDefinition(module.TypeSystem.String);
+        ILProcessor il;
+        MethodBody body = ResetBody(getComponent, out il);
+        body.InitLocals = true;
+        body.Variables.Add(value);
+        Instruction useDefault = Instruction.Create(OpCodes.Ldarg_2);
+        Instruction found = Instruction.Create(OpCodes.Ldloc, value);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, components));
+        il.Append(Instruction.Create(OpCodes.Brfalse, useDefault));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Blt, useDefault));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, components));
+        il.Append(Instruction.Create(OpCodes.Ldlen));
+        il.Append(Instruction.Create(OpCodes.Conv_I4));
+        il.Append(Instruction.Create(OpCodes.Bge, useDefault));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, components));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Stloc, value));
+        il.Append(Instruction.Create(OpCodes.Ldloc, value));
+        il.Append(Instruction.Create(OpCodes.Call, isNullOrEmpty));
+        il.Append(Instruction.Create(OpCodes.Brfalse, found));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(found);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(useDefault);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        return 1;
+    }
+
+    static int RepairUriParser(ModuleDefinition module) {
+        TypeDefinition uri = module.GetType("EB.Uri");
+        if (uri == null) throw new InvalidDataException("missing EB.Uri");
+        FieldDefinition componentsField = uri.Fields.Single(field => field.Name == "_components" && !field.IsStatic);
+        MethodDefinition parse = uri.Methods.Single(method => method.Name == "Parse" && !method.IsStatic &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+            method.ReturnType.MetadataType == MetadataType.Boolean);
+        MethodDefinition stringCtor = uri.Methods.Single(method => method.IsConstructor && !method.IsStatic && method.Parameters.Count == 1);
+        MethodDefinition emptyCtor = uri.Methods.Single(method => method.IsConstructor && !method.IsStatic && method.Parameters.Count == 0);
+        MethodReference objectCtor = module.ImportReference(typeof(object).GetConstructor(Type.EmptyTypes));
+        MethodReference tryCreate = module.ImportReference(typeof(global::System.Uri).GetMethod("TryCreate",
+            new[] { typeof(string), typeof(UriKind), typeof(global::System.Uri).MakeByRefType() }));
+        MethodReference getScheme = module.ImportReference(typeof(global::System.Uri).GetProperty("Scheme").GetGetMethod());
+        MethodReference getUserInfo = module.ImportReference(typeof(global::System.Uri).GetProperty("UserInfo").GetGetMethod());
+        MethodReference getHost = module.ImportReference(typeof(global::System.Uri).GetProperty("Host").GetGetMethod());
+        MethodReference getPort = module.ImportReference(typeof(global::System.Uri).GetProperty("Port").GetGetMethod());
+        MethodReference intToString = module.ImportReference(typeof(Convert).GetMethod("ToString", new[] { typeof(int) }));
+        MethodReference getAbsolutePath = module.ImportReference(typeof(global::System.Uri).GetProperty("AbsolutePath").GetGetMethod());
+        MethodReference getQuery = module.ImportReference(typeof(global::System.Uri).GetProperty("Query").GetGetMethod());
+        MethodReference getStringLength = module.ImportReference(typeof(string).GetProperty("Length").GetGetMethod());
+        MethodReference getStringChar = module.ImportReference(typeof(string).GetProperty("Chars").GetGetMethod());
+        MethodReference substring = module.ImportReference(typeof(string).GetMethod("Substring", new[] { typeof(int) }));
+        if (tryCreate == null || getScheme == null || getUserInfo == null || getHost == null || getPort == null ||
+            intToString == null || getAbsolutePath == null || getQuery == null || getStringLength == null ||
+            getStringChar == null || substring == null)
+            throw new InvalidDataException("missing Unity 2020 System.Uri parser metadata");
+
+        VariableDefinition parsed = new VariableDefinition(module.ImportReference(typeof(global::System.Uri)));
+        VariableDefinition values = new VariableDefinition(new ArrayType(module.TypeSystem.String));
+        VariableDefinition query = new VariableDefinition(module.TypeSystem.String);
+        ILProcessor il;
+        MethodBody body = ResetBody(parse, out il);
+        body.InitLocals = true;
+        body.Variables.Add(parsed);
+        body.Variables.Add(values);
+        body.Variables.Add(query);
+        Instruction failed = Instruction.Create(OpCodes.Ldc_I4_0);
+        Instruction storeQuery = Instruction.Create(OpCodes.Ldloc, values);
+        Instruction commitAndReturn = Instruction.Create(OpCodes.Ldarg_0);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_8));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.String));
+        il.Append(Instruction.Create(OpCodes.Stloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Brfalse, failed));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ldloca, parsed));
+        il.Append(Instruction.Create(OpCodes.Call, tryCreate));
+        il.Append(Instruction.Create(OpCodes.Brfalse, failed));
+
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ldloc, parsed));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getScheme));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_2));
+        il.Append(Instruction.Create(OpCodes.Ldloc, parsed));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getUserInfo));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_3));
+        il.Append(Instruction.Create(OpCodes.Ldstr, ""));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_4));
+        il.Append(Instruction.Create(OpCodes.Ldloc, parsed));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getHost));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_5));
+        il.Append(Instruction.Create(OpCodes.Ldloc, parsed));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getPort));
+        il.Append(Instruction.Create(OpCodes.Call, intToString));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_6));
+        il.Append(Instruction.Create(OpCodes.Ldloc, parsed));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getAbsolutePath));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, parsed));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getQuery));
+        il.Append(Instruction.Create(OpCodes.Stloc, query));
+        il.Append(Instruction.Create(OpCodes.Ldloc, query));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getStringLength));
+        il.Append(Instruction.Create(OpCodes.Brfalse, storeQuery));
+        il.Append(Instruction.Create(OpCodes.Ldloc, query));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getStringChar));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4, (int)'?'));
+        il.Append(Instruction.Create(OpCodes.Bne_Un, storeQuery));
+        il.Append(Instruction.Create(OpCodes.Ldloc, query));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Callvirt, substring));
+        il.Append(Instruction.Create(OpCodes.Stloc, query));
+        il.Append(storeQuery);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_7));
+        il.Append(Instruction.Create(OpCodes.Ldloc, query));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(commitAndReturn);
+        il.Append(Instruction.Create(OpCodes.Ldloc, values));
+        il.Append(Instruction.Create(OpCodes.Stfld, componentsField));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(failed);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+
+        body = ResetBody(stringCtor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, objectCtor));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Call, parse));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+
+        body = ResetBody(emptyCtor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, objectCtor));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_8));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.String));
+        il.Append(Instruction.Create(OpCodes.Stfld, componentsField));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        return 3;
     }
 
     // Rebuild EB.StringUtil's static initialization from the exact clean 9.2

@@ -27,6 +27,13 @@ so the tool emits a conventional `Stack<T>` pool implementation from the exposed
 signatures. This is an approximation, not a claim of exact Kabam behavior. The repository
 contains only newly authored repair logic; patched assemblies remain in ignored local staging.
 
+The 9.2 request-signing repair is newly authored CIL guided by retained ARM64 observations of
+`EB.Sparx.HttpEndPoint.Sign`, its initialization, and supporting HMAC/encoding calls. It uses
+Unity's framework cryptography implementation and does not copy the native disassembly or a
+recovered managed method body. The focused URI replacement uses `System.Uri` for absolute URL
+components; only the tested HTTP host/path signing case is claimed here, not exact behavior for
+every legacy URI form. Smoke harnesses and staged assemblies remain local.
+
 The Unity import-repair script applies newly authored Mono.Cecil rewrites to diagnosed,
 malformed methods in those local generated assemblies. It stores the identifiers needed to
 locate affected types and fields, short tag labels and RVA-data field names needed to rebuild

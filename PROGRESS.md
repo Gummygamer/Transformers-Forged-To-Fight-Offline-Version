@@ -823,3 +823,49 @@ still no ARM64 APK or story-mode runtime result. Keep the first playable-story
 estimate at 2–6 focused weeks, low confidence. This validation added confidence
 to an already reconstructed hash path but does not change the player milestone
 or that estimate.
+
+
+## v38: request signing passes a parsed-URI managed smoke
+
+REA MCP is available (139 advertised tools) and remains bound to the confirmed
+Kabam 9.2.0 source APK, SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`.
+The separate `Transformers 9.2 offline.apk` remains a patched output and is not
+used as source. A bounded REA managed-artifact inspection of the regenerated
+Unity 2020.3.31f1 `Assembly-CSharp-firstpass.dll` reports complete CIL metadata,
+17,071,104 bytes, SHA-256
+`e0bb8e68c704bd878f40deff1e043ca02417e56dd017923eb7b2e4ca845228a3`, Evidence
+`ev_d62d6d7a87be00c95ac8e553feebe625f2ed15fd340f82afc92aa5092290acbc`.
+The full managed-member scan is intentionally not repeated because the retained
+scan exceeded the MCP receive limit. The prior cold native import timeout still
+makes a new Ghidra import a poor use of this cycle; existing trace evidence was
+reused.
+
+The clean 9.2 ARM64 traces show `HttpEndPoint.Sign` hashing the method, URI host
+and path, newline delimiters, request data, and optional post bytes, then
+Base64-encoding the digest. The repair batch rebuilds the supporting digest,
+HMAC, UTF-8 encoding, endpoint initializer, URI component lookup/initializers,
+and signer using newly authored CIL. `EB.Uri.Parse` uses the Unity framework's
+absolute-URI parser for this focused server path; broader legacy URI forms have
+not been verified. No recovered method body, APK, asset, or native dump is added
+to Git; the boundary is recorded in `COMPLIANCE.md`.
+
+Unity 2020.3.31f1's bundled Mono smoke now creates a real `EB.Uri` from
+`https://story.example.test/quest/start?mode=smoke`, checks parsed Host/Path, and
+invokes `HttpEndPoint.Sign` with a post body. Its Base64 HMAC-SHA1 result
+`KaBKEA7SSClpbEoBE6jMxoGyeIY=` matches an independent framework calculation.
+The same run follows a successful ~6-second Unity import-repair preflight, which
+also reapplies the authored `AlignUIElements.GetObjectBounds` body. The first
+URI smoke exposed invalid IL in integer port formatting; replacing the value
+type call with `Convert.ToString(int)` fixed it. This checks a controlled managed
+path only, not a game session or Android runtime.
+
+Progress rate since the REA-assisted rebuild retries is still measured by
+blockers cleared per warm cycle: three earlier warm ARM64 attempts took roughly
+two minutes each, reached IL2CPP, and produced no APK. This cycle cleared and
+cheaply verified one server-authentication blocker chain without repeating
+those attempts. There is still no rebuilt APK or playable story check. Estimate
+for a first playable story route remains **2–6 focused weeks, low confidence**;
+this is not a guaranteed calendar date. The next useful step is one warm,
+memory-guarded ARM64/IL2CPP build to expose the next bounded queue, then repair
+the next batch before spending another build cycle.
