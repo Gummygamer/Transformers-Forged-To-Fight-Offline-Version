@@ -27,6 +27,15 @@ so the tool emits a conventional `Stack<T>` pool implementation from the exposed
 signatures. This is an approximation, not a claim of exact Kabam behavior. The repository
 contains only newly authored repair logic; patched assemblies remain in ignored local staging.
 
+The first-pass math repairs are newly authored IL over the recovered type/field metadata:
+matrix division operates per scalar field, point equality delegates to the point value-equality
+method, rectangle point containment delegates to its integer overload, and plane coordinate
+distance uses the plane normal and distance fields. The recovered rectangle integer overload
+was also invalid, so it is reconstructed using half-open bounds (`X <= x < X + Width` and
+`Y <= y < Y + Height`); that edge convention is an explicit approximation. These methods were
+smoke-checked against arithmetic and boundary cases with Unity's bundled Mono. No decompiled
+game method body is included in the repository; repaired assemblies remain local.
+
 The 9.2 request-signing repair is newly authored CIL guided by retained ARM64 observations of
 `EB.Sparx.HttpEndPoint.Sign`, its initialization, and supporting HMAC/encoding calls. It uses
 Unity's framework cryptography implementation and does not copy the native disassembly or a

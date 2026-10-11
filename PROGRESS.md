@@ -1153,3 +1153,41 @@ package inspection of the pristine root APK observed `com.kabam.bigrobot` versio
 `123129100` (evidence `ev_c95cea5a0778cd2d582d2f16fbb44fd163753f84840dc0945d20cb2b2ef5c9af`).
 The staged assembly is local recovery output, not a shipped Kabam assembly. No playable story route
 or APK exists yet.
+
+## v50: pool failure cleared; bounded math batch authored
+
+Unity's next guarded ARM64/IL2CPP checkpoint still failed and produced no APK. Its log has 16
+distinct IL2CPP method failures in `Assembly-CSharp-firstpass.dll`; the previous 16 failures were
+cleared, including `EB.Collections.Pool<T>.Clear`, while 16 other methods surfaced. The earlier
+queue report omitted these IL2CPP method lines, so `tools/summarize_unity_repair_queue.py` now
+records them directly and can read compressed logs. Reprocessing the saved log reports all 16
+signatures without another Unity run. The Unity wrapper's "29 errors" is a total diagnostic count,
+not 29 distinct repair targets.
+
+The checkpoint took 28.63 seconds of preflight and 125.33 seconds in Unity. The process tree peaked
+at 4.87 GiB RSS; host available memory bottomed at 6.34 GiB from 14.51 GiB before Unity. Its
+127.2 MiB log compressed to 1.00 MiB and the cycle used 58.94 MiB of external disk space. No APK
+was produced.
+
+After that checkpoint, authored four focused first-pass math rewrites: `Matrix.Divide` across 16
+scalar fields, `Point.op_Equality`, `Rectangle.Contains(Point)` plus its invalid integer overload,
+and `Plane.DotCoordinate`. The rectangle reconstruction uses half-open bounds as a documented
+approximation. Recovery preflight passed (127 planned repair actions; 12 existing CS0219 warnings),
+and Unity-bundled Mono smoke passed matrix component arithmetic, equal/unequal points, rectangle
+interior and edge behavior, and a plane dot-plus-distance result. The same preflight transplanted
+the existing authored `AlignUIElements.GetObjectBounds` body; its earlier Mono JIT smoke passed.
+These four methods await the next IL2CPP checkpoint.
+
+REA MCP remains connected to the confirmed pristine root APK at SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb` (9.2.0 package evidence
+`ev_c95cea5a0778cd2d582d2f16fbb44fd163753f84840dc0945d20cb2b2ef5c9af`). REA inspected the updated
+staged first-pass recovery assembly as complete PE/CLI metadata, SHA-256
+`7d9bd067285921d5274975c4522389a00a1c2530965f98354c7da4da7e9484d6`, MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75` (evidence
+`ev_6a05b92c538a672785b17f7a8c60563239579e9ed62d3841da5254c7c73a6c83`). This is generated local
+recovery output, not the shipped Kabam assembly. Cold Ghidra import remains unproductive: the
+previous bounded attempt exceeded 10 minutes and was stopped; no second attempt was made. Current
+progress is eight pushed repair batches and several successful smoke groups, but recent Unity
+queues remain flat at 16 unique methods. There is still no APK or playable story session; a rough
+3–8 focused-week estimate remains low-confidence until these math fixes compile and the rebuilt
+client is exercised against the existing offline server.

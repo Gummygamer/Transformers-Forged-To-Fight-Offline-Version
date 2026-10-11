@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import re
 from pathlib import Path
@@ -19,15 +20,21 @@ ROOT_EXCEPTION = re.compile(
 TYPE_INITIALIZER = re.compile(r"Rethrow as TypeInitializationException: The type initializer for '([^']+)'")
 PLAYER_LAYOUT_ERROR = re.compile(r"Error building player because script class layout is incompatible")
 LAYOUT_CLASS = re.compile(r"Fields serialized in (Editor|target platform), class '([^']+)'")
+IL2CPP_FAILURE = re.compile(
+    r"IL2CPP error for method '([^']+)' in assembly '([^']+)'"
+)
 
 
 def build_queue(log_path: Path) -> list[dict[str, object]]:
-    lines = log_path.read_text(errors="replace").splitlines()
+    opener = gzip.open if log_path.suffix == ".gz" else open
+    with opener(log_path, "rt", errors="replace") as stream:
+        lines = stream.read().splitlines()
     items: dict[str, dict[str, object]] = {}
     layout_reports: dict[str, dict[str, list[str] | int]] = {}
     for index, line in enumerate(lines):
         invalid = INVALID_IL.search(line)
         root = ROOT_EXCEPTION.match(line)
+        il2cpp = IL2CPP_FAILURE.search(line)
         fatal = "Caught fatal signal" in line
         if invalid:
             category = "invalid-il"
@@ -43,6 +50,12 @@ def build_queue(log_path: Path) -> list[dict[str, object]]:
                 if match:
                     target = match.group(1)
                     break
+            key = f"{category}\t{target}\t{detail}"
+        elif il2cpp:
+            signature, assembly = il2cpp.groups()
+            category = "il2cpp-method-failure"
+            target = f"{Path(assembly).name}: {signature}"
+            detail = "IL2CPP could not translate this managed method body."
             key = f"{category}\t{target}\t{detail}"
         elif fatal:
             category = "unity-process-crash"
@@ -125,10 +138,20 @@ def build_queue(log_path: Path) -> list[dict[str, object]]:
             if LAYOUT_CLASS.search(line) and class_name in line
         )  # type: ignore[union-attr]
 
+    # The build-level wrapper exception is not an additional repair target when
+    # Unity has already listed the method bodies that caused the IL2CPP failure.
+    if any(item["category"] == "il2cpp-method-failure" for item in items.values()):
+        items = {
+            key: item for key, item in items.items()
+            if item["category"] not in {"managed-exception", "unity-build-error"}
+        }
+
     for index, line in enumerate(lines):
         if not any(pattern in line for pattern in (
             "Error building player because", "Android build failed:", "Build completed with a result of",
         )):
+            continue
+        if any(item["category"] == "il2cpp-method-failure" for item in items.values()):
             continue
         detail = line.strip()
         key = f"unity-build-error\tUnity\t{detail}"

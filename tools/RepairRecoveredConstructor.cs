@@ -6057,9 +6057,13 @@ class RepairRecoveredConstructor {
         repairs += RepairMatrixAdd(targetModule);
         repairs += RepairMatrixMultiply(targetModule);
         repairs += RepairMatrixSubtract(targetModule);
+        repairs += RepairMatrixDivide(targetModule);
         repairs += RepairPointEquals(targetModule);
+        repairs += RepairPointOperatorEquality(targetModule);
         repairs += RepairVector4Getters(targetModule);
         repairs += RepairPlaneDot(targetModule);
+        repairs += RepairPlaneDotCoordinate(targetModule);
+        repairs += RepairRectangleContainsPoint(targetModule);
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeFloat", typeof(float));
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeInt", typeof(int));
         repairs += RepairStringUtilInitializer(targetModule);
@@ -6566,6 +6570,38 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairMatrixDivide(ModuleDefinition module) {
+        TypeDefinition matrix = module.GetType("EB.Math.Matrix");
+        if (matrix == null) throw new InvalidDataException("missing EB.Math.Matrix metadata");
+        const string matrixRef = "EB.Math.Matrix&";
+        MethodDefinition divide = matrix.Methods.SingleOrDefault(method => method.Name == "Divide" &&
+            method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 3 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == matrixRef));
+        string[] names = {
+            "m11", "m12", "m13", "m14", "m21", "m22", "m23", "m24",
+            "m31", "m32", "m33", "m34", "m41", "m42", "m43", "m44"
+        };
+        FieldDefinition[] fields = names.Select(name => matrix.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (divide == null || fields.Any(field => field == null) || fields.Distinct().Count() != names.Length)
+            throw new InvalidDataException("unexpected EB.Math.Matrix.Divide(ref,ref,ref) metadata");
+
+        MethodBody body = ResetBody(divide, out ILProcessor il);
+        foreach (FieldDefinition field in fields) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Div));
+            il.Append(Instruction.Create(OpCodes.Stfld, field));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Matrix.Divide across its 16 scalar fields");
+        return 1;
+    }
+
     static int RepairPointEquals(ModuleDefinition module) {
         TypeDefinition point = module.GetType("EB.Math.Point");
         FieldDefinition x = point == null ? null : point.Fields.SingleOrDefault(field => field.Name == "X" &&
@@ -6596,6 +6632,27 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 2;
         Console.WriteLine("reconstructed EB.Math.Point.Equals(Point) from its integer coordinate fields");
+        return 1;
+    }
+
+    static int RepairPointOperatorEquality(ModuleDefinition module) {
+        TypeDefinition point = module.GetType("EB.Math.Point");
+        MethodDefinition equality = point == null ? null : point.Methods.SingleOrDefault(method =>
+            method.Name == "op_Equality" && method.IsStatic && method.ReturnType.MetadataType == MetadataType.Boolean &&
+            method.Parameters.Count == 2 && method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Math.Point"));
+        MethodDefinition equals = point == null ? null : point.Methods.SingleOrDefault(method => method.Name == "Equals" &&
+            !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.FullName == "EB.Math.Point");
+        if (equality == null || equals == null)
+            throw new InvalidDataException("unexpected EB.Math.Point.op_Equality metadata");
+
+        MethodBody body = ResetBody(equality, out ILProcessor il);
+        il.Append(Instruction.Create(OpCodes.Ldarga, equality.Parameters[0]));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Call, module.ImportReference(equals)));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed EB.Math.Point.op_Equality through the point value equality method");
         return 1;
     }
 
@@ -6668,6 +6725,114 @@ class RepairRecoveredConstructor {
         body.MaxStackSize = 2;
         Console.WriteLine("reconstructed EB.Math.Plane.Dot from normal, distance, and Vector4 components");
         return 1;
+    }
+
+    static int RepairPlaneDotCoordinate(ModuleDefinition module) {
+        TypeDefinition plane = module.GetType("EB.Math.Plane");
+        TypeDefinition vector3 = module.GetType("EB.Math.Vector3");
+        FieldDefinition normal = plane == null ? null : plane.Fields.SingleOrDefault(field => field.Name == "Normal" &&
+            !field.IsStatic && field.FieldType.FullName == "EB.Math.Vector3");
+        FieldDefinition distance = plane == null ? null : plane.Fields.SingleOrDefault(field => field.Name == "D" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single);
+        FieldDefinition[] components = vector3 == null ? new FieldDefinition[0] : new[] { "x", "y", "z" }
+            .Select(name => vector3.Fields.SingleOrDefault(field => field.Name == name && !field.IsStatic &&
+                field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        MethodDefinition method = plane == null ? null : plane.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "DotCoordinate" && !candidate.IsStatic && candidate.ReturnType.MetadataType == MetadataType.Void &&
+            candidate.Parameters.Count == 2 && candidate.Parameters[0].ParameterType.FullName == "EB.Math.Vector3&" &&
+            candidate.Parameters[1].ParameterType.FullName == "System.Single&");
+        if (normal == null || distance == null || components.Length != 3 || components.Any(field => field == null) || method == null)
+            throw new InvalidDataException("unexpected EB.Math.Plane.DotCoordinate metadata");
+
+        MethodBody body = ResetBody(method, out ILProcessor il);
+        for (int i = 0; i < components.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldflda, normal));
+            il.Append(Instruction.Create(OpCodes.Ldfld, components[i]));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, components[i]));
+            il.Append(Instruction.Create(OpCodes.Mul));
+            if (i != 0) il.Append(Instruction.Create(OpCodes.Add));
+        }
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, distance));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Stind_R4));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed EB.Math.Plane.DotCoordinate from normal, distance, and Vector3 components");
+        return 1;
+    }
+
+    static int RepairRectangleContainsPoint(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        TypeDefinition point = module.GetType("EB.Math.Point");
+        FieldDefinition x = point == null ? null : point.Fields.SingleOrDefault(field => field.Name == "X" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition y = point == null ? null : point.Fields.SingleOrDefault(field => field.Name == "Y" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32);
+        MethodDefinition containsPoint = rectangle == null ? null : rectangle.Methods.SingleOrDefault(method =>
+            method.Name == "Contains" && !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Boolean &&
+            method.Parameters.Count == 1 && method.Parameters[0].ParameterType.FullName == "EB.Math.Point");
+        MethodDefinition containsCoordinates = rectangle == null ? null : rectangle.Methods.SingleOrDefault(method =>
+            method.Name == "Contains" && !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Boolean &&
+            method.Parameters.Count == 2 && method.Parameters.All(parameter => parameter.ParameterType.MetadataType == MetadataType.Int32));
+        FieldDefinition rectX = rectangle == null ? null : rectangle.Fields.SingleOrDefault(field => field.Name == "X" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition rectY = rectangle == null ? null : rectangle.Fields.SingleOrDefault(field => field.Name == "Y" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition width = rectangle == null ? null : rectangle.Fields.SingleOrDefault(field => field.Name == "Width" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition height = rectangle == null ? null : rectangle.Fields.SingleOrDefault(field => field.Name == "Height" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32);
+        if (x == null || y == null || containsPoint == null || containsCoordinates == null ||
+            rectX == null || rectY == null || width == null || height == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.Contains(Point) metadata");
+
+        // Use the usual half-open rectangle bounds. The recovered integer overload
+        // is also malformed, so rebuild it directly rather than delegating to it.
+        MethodBody coordinateBody = ResetBody(containsCoordinates, out ILProcessor coordinateIl);
+        Instruction outside = Instruction.Create(OpCodes.Ldc_I4_0);
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_1));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldfld, rectX));
+        coordinateIl.Append(Instruction.Create(OpCodes.Blt, outside));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_1));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldfld, rectX));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldfld, width));
+        coordinateIl.Append(Instruction.Create(OpCodes.Add));
+        coordinateIl.Append(Instruction.Create(OpCodes.Bge, outside));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_2));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldfld, rectY));
+        coordinateIl.Append(Instruction.Create(OpCodes.Blt, outside));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_2));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldfld, rectY));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldfld, height));
+        coordinateIl.Append(Instruction.Create(OpCodes.Add));
+        coordinateIl.Append(Instruction.Create(OpCodes.Bge, outside));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        coordinateIl.Append(Instruction.Create(OpCodes.Ret));
+        coordinateIl.Append(outside);
+        coordinateIl.Append(Instruction.Create(OpCodes.Ret));
+        coordinateBody.MaxStackSize = 2;
+
+        MethodBody body = ResetBody(containsPoint, out ILProcessor il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarga, containsPoint.Parameters[0]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarga, containsPoint.Parameters[0]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Call, module.ImportReference(containsCoordinates)));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed Rectangle.Contains overloads with half-open bounds and point-coordinate forwarding");
+        return 2;
     }
 
     static int RepairWorldPainterLinesCross(ModuleDefinition module) {
