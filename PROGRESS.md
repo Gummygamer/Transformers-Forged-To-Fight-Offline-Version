@@ -744,3 +744,55 @@ methods, while successful APKs and story-runtime checks remain zero. Maintain
 the 2–6 focused-week low-confidence estimate to a first playable story route;
 the highest-value next step is to author and cheaply validate a correct repair
 for one newly exposed server-critical method, then rerun one warm ARM64 cycle.
+
+
+## v36: inventory update and name normalization pass cheap runtime checks
+
+REA MCP is connected with 139 advertised tools. `binary_session` still binds the
+pristine Kabam APK `transformers-forged-to-fight-9-2-0.apk`, SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`. Ghidra
+cannot import the APK archive directly, and the earlier ARM64 library import
+timed out, so this pass reused bounded existing 9.2 traces rather than starting
+another cold native import. REA managed-artifact Evidence
+`ev_9ecb05128bfe823dcc4d8b23e77be89e6b540ccc79afbc31aec650f1c468054d`
+identifies the current staged `Assembly-CSharp-firstpass.dll` by SHA-256
+`09567008681a1bd7689dac1f92b11b1bd6c0fb0f05a2a7d6b8c729be17434530`.
+REA's complete managed-member scan of that 17 MiB assembly is retained as
+`ev_67fc78908013d3f90daddec6823288421eaf263`; the full response is 10.5 MiB,
+above the MCP's 10 MiB receive limit, and remains available untruncated in its
+session ledger.
+
+The native `StringUtil..cctor` trace identifies the exact allowed-character
+set and writes `EB.StringUtil.valid`, then enables `giveLegacyWarning`. The
+recovered initializer had called `ToCharArray()` on a null placeholder. A new
+initializer now creates that table. `SafeKey(string,char[])` is rebuilt to
+lowercase and filter against the supplied character table; `SafeKey(string)`
+passes the initialized table. It follows the native branch behavior for null
+input and null character tables. The legacy one-time warning message is
+intentionally omitted. These bodies are new CIL, not copied decompilation.
+
+`InventoryManager.OnUpdate` now consumes the existing server envelope
+`{item, quantity}`, normalizes the item, and writes the supplied absolute
+quantity to both `_data` and the `newItems` change dictionary. Its first smoke
+run exposed the invalid recovered `SafeKey` body; repairing that dependency
+allowed the same run to pass. Unity 2020.3.31f1's bundled Mono validated
+`SafeKey("Energon 5/_") == "energon5/_"`, null behavior, and inventory
+updates of 5 followed by 3 in both dictionaries. This is a managed smoke test,
+not an Android game runtime test.
+
+The cheap Unity import preflight completed twice after the repair batch (about
+five seconds each; 12 existing unused-local warnings), including the authored
+`AlignUIElements.GetObjectBounds` body transplant. REA previously reported that
+method as a present 169-instruction / 535-byte body with no CIL decode issue;
+the exact native trace matched 298/298 instruction words. The new preflight
+reapplied it, but Unity scene behavior has not yet been exercised.
+
+This advances one server-critical client path with sub-minute, low-memory
+validation and no Unity player build. The source APK, full ARM64 recompilation,
+and story-mode runtime milestones remain unchanged: no APK and no playable
+story check. The overall pace is still dominated by repair queue breadth and
+the first successful ARM64 player build, not native analysis startup. Keep the
+2–6 focused-week, low-confidence estimate to a first playable story route.
+Next, use the retained clean 9.2 evidence to repair the request-signing or
+hashing path exposed by the previous IL2CPP queue, then validate those server
+dependencies cheaply before spending another warm Unity build cycle.

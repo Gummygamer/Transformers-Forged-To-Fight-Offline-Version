@@ -885,3 +885,12 @@ the traced `FadeTime` value (`0.2f`) and base call. Both are newly authored CIL 
 `EB.Rendering.EBLightShadow`'s constructor is reconstructed from its retained 9.2 ARM64 field and
 array traces, including the shadow-setting and texture-size defaults. This is newly authored CIL;
 no APK bytes, assets, or copied managed method body are included.
+
+`EB.Sparx.InventoryManager.OnUpdate` is newly authored from the clean 9.2 native trace and this
+repository's existing offline-server wire contract (`item` plus absolute `quantity`). Its focused
+`EB.Dot.String` helper and `EB.StringUtil` initializer/name filter are also authored as new CIL from
+the native branch, field, and constant observations. The legacy `SafeKey` one-time warning output
+is omitted; name normalization and filtering remain. A Unity-bundled Mono smoke check covers those
+semantics and the inventory update path. No decompiled method body, APK, asset, or server-authored
+data is copied into the repository; patched assemblies and analysis traces stay in ignored local
+recovery storage.

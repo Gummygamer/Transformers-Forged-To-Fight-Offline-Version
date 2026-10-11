@@ -6048,6 +6048,10 @@ class RepairRecoveredConstructor {
         ModuleDefinition sourceModule, string assemblyName) {
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
         int repairs = RepairRecoveredPool(targetModule);
+        repairs += RepairStringUtilInitializer(targetModule);
+        repairs += RepairStringUtilSafeKey(targetModule);
+        repairs += RepairDotString(targetModule);
+        repairs += RepairInventoryManagerOnUpdate(targetModule);
         TypeDefinition sourceType = sourceModule.GetType("RecoverySources.AlignUIElementsGetObjectBounds");
         MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method => method.Name == "Replace");
         TypeDefinition targetType = targetModule.GetType("AlignUIElements");
@@ -6060,6 +6064,417 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
         repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         return repairs;
+    }
+
+    // Rebuild EB.StringUtil's static initialization from the exact clean 9.2
+    // ARM64 trace at 0x122C2A0. It creates the allowed-character table and
+    // enables the legacy warning; the per-call buffer remains null until used.
+    static int RepairStringUtilInitializer(ModuleDefinition module) {
+        TypeDefinition type = module.GetType("EB.StringUtil");
+        FieldDefinition valid = type == null ? null : type.Fields.SingleOrDefault(field =>
+            field.Name == "valid" && field.IsStatic && field.FieldType is ArrayType array &&
+            array.ElementType.MetadataType == MetadataType.Char);
+        FieldDefinition legacyWarning = type == null ? null : type.Fields.SingleOrDefault(field =>
+            field.Name == "giveLegacyWarning" && field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Boolean);
+        MethodDefinition initializer = type == null ? null : type.Methods.SingleOrDefault(method =>
+            method.Name == ".cctor" && method.IsStatic && method.Parameters.Count == 0 &&
+            method.ReturnType.MetadataType == MetadataType.Void);
+        System.Reflection.MethodInfo toCharArrayMethod = typeof(string).GetMethod("ToCharArray", Type.EmptyTypes);
+        if (valid == null || legacyWarning == null || initializer == null || toCharArrayMethod == null)
+            throw new InvalidDataException("missing clean 9.2 EB.StringUtil initializer metadata");
+
+        initializer.Body.ExceptionHandlers.Clear();
+        initializer.Body.Variables.Clear();
+        initializer.Body.Instructions.Clear();
+        initializer.Body.InitLocals = true;
+        ILProcessor il = initializer.Body.GetILProcessor();
+        il.Append(Instruction.Create(OpCodes.Ldstr, "abcdefghijklmnopqrstuvwxyz0123456789/_"));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(toCharArrayMethod)));
+        il.Append(Instruction.Create(OpCodes.Stsfld, valid));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Stsfld, legacyWarning));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        initializer.Body.MaxStackSize = 1;
+        return 1;
+    }
+
+    // Rebuild the two-argument SafeKey from the 9.2 native trace at
+    // 0x122BE78: lowercase when a character set is supplied, remove characters
+    // outside that set, and leave null inputs unchanged. The one-time legacy
+    // diagnostic is intentionally omitted; the warning flag is still cleared.
+    static int RepairStringUtilSafeKey(ModuleDefinition module) {
+        TypeDefinition type = module.GetType("EB.StringUtil");
+        FieldDefinition valid = type == null ? null : type.Fields.SingleOrDefault(field =>
+            field.Name == "valid" && field.IsStatic && field.FieldType is ArrayType validArray &&
+            validArray.ElementType.MetadataType == MetadataType.Char);
+        FieldDefinition warning = type == null ? null : type.Fields.SingleOrDefault(field =>
+            field.Name == "giveLegacyWarning" && field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Boolean);
+        MethodDefinition method = type == null ? null : type.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "SafeKey" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.String && candidate.Parameters.Count == 2 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+            candidate.Parameters[1].ParameterType is ArrayType array &&
+            array.ElementType.MetadataType == MetadataType.Char);
+        MethodDefinition wrapper = type == null ? null : type.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "SafeKey" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.String && candidate.Parameters.Count == 1 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String);
+        System.Reflection.MethodInfo lower = typeof(string).GetMethod("ToLowerInvariant", Type.EmptyTypes);
+        System.Reflection.MethodInfo length = typeof(string).GetProperty("Length").GetGetMethod();
+        System.Reflection.MethodInfo getChar = typeof(string).GetProperty("Chars").GetGetMethod();
+        System.Reflection.MethodInfo indexOf = typeof(string).GetMethod("IndexOf", new[] { typeof(char) });
+        System.Reflection.ConstructorInfo stringFromChars = typeof(string).GetConstructor(new[] { typeof(char[]) });
+        Type builderType = typeof(System.Text.StringBuilder);
+        System.Reflection.ConstructorInfo builderConstructor = builderType.GetConstructor(Type.EmptyTypes);
+        System.Reflection.MethodInfo appendChar = builderType.GetMethod("Append", new[] { typeof(char) });
+        System.Reflection.MethodInfo builderToString = builderType.GetMethod("ToString", Type.EmptyTypes);
+        if (valid == null || warning == null || method == null || wrapper == null || lower == null || length == null || getChar == null ||
+            indexOf == null || stringFromChars == null || builderConstructor == null ||
+            appendChar == null || builderToString == null)
+            throw new InvalidDataException("missing clean 9.2 EB.StringUtil.SafeKey metadata");
+
+        method.Body.ExceptionHandlers.Clear();
+        method.Body.Variables.Clear();
+        method.Body.Instructions.Clear();
+        method.Body.InitLocals = true;
+        VariableDefinition text = new VariableDefinition(module.TypeSystem.String);
+        VariableDefinition validText = new VariableDefinition(module.TypeSystem.String);
+        VariableDefinition builder = new VariableDefinition(module.ImportReference(builderType));
+        VariableDefinition index = new VariableDefinition(module.TypeSystem.Int32);
+        method.Body.Variables.Add(text);
+        method.Body.Variables.Add(validText);
+        method.Body.Variables.Add(builder);
+        method.Body.Variables.Add(index);
+        ILProcessor il = method.Body.GetILProcessor();
+        Instruction returnNull = Instruction.Create(OpCodes.Ldnull);
+        Instruction original = Instruction.Create(OpCodes.Ldarg_0);
+        Instruction loop = Instruction.Create(OpCodes.Ldloc, index);
+        Instruction skipAppend = Instruction.Create(OpCodes.Ldloc, index);
+        Instruction done = Instruction.Create(OpCodes.Ldloc, builder);
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Brfalse, original));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Stsfld, warning));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Brfalse, returnNull));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(lower)));
+        il.Append(Instruction.Create(OpCodes.Stloc, text));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Newobj, module.ImportReference(stringFromChars)));
+        il.Append(Instruction.Create(OpCodes.Stloc, validText));
+        il.Append(Instruction.Create(OpCodes.Newobj, module.ImportReference(builderConstructor)));
+        il.Append(Instruction.Create(OpCodes.Stloc, builder));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Stloc, index));
+        il.Append(loop);
+        il.Append(Instruction.Create(OpCodes.Ldloc, text));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(length)));
+        il.Append(Instruction.Create(OpCodes.Bge, done));
+        il.Append(Instruction.Create(OpCodes.Ldloc, validText));
+        il.Append(Instruction.Create(OpCodes.Ldloc, text));
+        il.Append(Instruction.Create(OpCodes.Ldloc, index));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(getChar)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(indexOf)));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Blt, skipAppend));
+        il.Append(Instruction.Create(OpCodes.Ldloc, builder));
+        il.Append(Instruction.Create(OpCodes.Ldloc, text));
+        il.Append(Instruction.Create(OpCodes.Ldloc, index));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(getChar)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(appendChar)));
+        il.Append(Instruction.Create(OpCodes.Pop));
+        il.Append(skipAppend);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stloc, index));
+        il.Append(Instruction.Create(OpCodes.Br, loop));
+        il.Append(done);
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(builderToString)));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(original);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(returnNull);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        method.Body.MaxStackSize = 3;
+
+        wrapper.Body.ExceptionHandlers.Clear();
+        wrapper.Body.Variables.Clear();
+        wrapper.Body.Instructions.Clear();
+        wrapper.Body.InitLocals = true;
+        ILProcessor wrapperIl = wrapper.Body.GetILProcessor();
+        wrapperIl.Append(Instruction.Create(OpCodes.Ldarg_0));
+        wrapperIl.Append(Instruction.Create(OpCodes.Ldsfld, valid));
+        wrapperIl.Append(Instruction.Create(OpCodes.Call, method));
+        wrapperIl.Append(Instruction.Create(OpCodes.Ret));
+        wrapper.Body.MaxStackSize = 2;
+        return 2;
+    }
+
+    // Rebuild the private EB.Dot.String lookup primitive from its 9.2 ARM64
+    // trace. It clears the out value, finds the named object, converts it using
+    // NumberUtils.InvariantSafeToString, then applies the optional lookup table.
+    static int RepairDotString(ModuleDefinition module) {
+        TypeDefinition dot = module.GetType("EB.Dot");
+        TypeDefinition numbers = module.GetType("EB.NumberUtils");
+        MethodDefinition method = dot == null ? null : dot.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "String" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.Boolean && candidate.Parameters.Count == 4 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+            candidate.Parameters[1].ParameterType.MetadataType == MetadataType.Object &&
+            candidate.Parameters[2].ParameterType.FullName == "System.String&" &&
+            candidate.Parameters[3].ParameterType.FullName == "System.Collections.IDictionary");
+        MethodDefinition find = dot == null ? null : dot.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "Find" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.Object && candidate.Parameters.Count == 2 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+            candidate.Parameters[1].ParameterType.MetadataType == MetadataType.Object);
+        MethodDefinition invariantToString = numbers == null ? null : numbers.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "InvariantSafeToString" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.String && candidate.Parameters.Count == 1 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.Object);
+        MethodDefinition lookup = dot == null ? null : dot.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "GetStringLookupValue" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.String && candidate.Parameters.Count == 2 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String &&
+            candidate.Parameters[1].ParameterType.FullName == "System.Collections.IDictionary");
+        if (method == null || find == null || invariantToString == null || lookup == null)
+            throw new InvalidDataException("missing 9.2 EB.Dot.String trace dependencies");
+
+        ModuleDefinition target = method.Module;
+        FieldReference stringEmpty = target.ImportReference(typeof(string).GetField("Empty"));
+        VariableDefinition value = new VariableDefinition(target.TypeSystem.Object);
+        VariableDefinition text = new VariableDefinition(target.TypeSystem.String);
+        method.Body.Instructions.Clear();
+        method.Body.Variables.Clear();
+        method.Body.ExceptionHandlers.Clear();
+        method.Body.InitLocals = true;
+        method.Body.Variables.Add(value);
+        method.Body.Variables.Add(text);
+        ILProcessor il = method.Body.GetILProcessor();
+        Instruction missing = Instruction.Create(OpCodes.Nop);
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldsfld, stringEmpty));
+        il.Append(Instruction.Create(OpCodes.Stind_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Call, find));
+        il.Append(Instruction.Create(OpCodes.Stloc, value));
+        il.Append(Instruction.Create(OpCodes.Ldloc, value));
+        il.Append(Instruction.Create(OpCodes.Brfalse, missing));
+        il.Append(Instruction.Create(OpCodes.Ldloc, value));
+        il.Append(Instruction.Create(OpCodes.Call, invariantToString));
+        il.Append(Instruction.Create(OpCodes.Ldarg_3));
+        il.Append(Instruction.Create(OpCodes.Call, lookup));
+        il.Append(Instruction.Create(OpCodes.Stloc, text));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldloc, text));
+        il.Append(Instruction.Create(OpCodes.Stind_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(missing);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        method.Body.MaxStackSize = 2;
+        return 1;
+    }
+
+    // Rebuild the 9.2 inventory update handler from its ARM64 trace. The server
+    // wire contract supplies { item, quantity }; the client validates both,
+    // normalizes the item name, and writes the absolute quantity to _data and
+    // the caller's change dictionary. This is authored control flow, not copied
+    // recovered method text.
+    static int RepairInventoryManagerOnUpdate(ModuleDefinition module) {
+        TypeDefinition type = module.GetType("EB.Sparx.InventoryManager");
+        if (type == null) throw new InvalidDataException("missing EB.Sparx.InventoryManager");
+
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "OnUpdate" && !candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.Void && candidate.Parameters.Count == 2 &&
+            candidate.Parameters[0].ParameterType.FullName == "System.Object" &&
+            candidate.Parameters[1].ParameterType.FullName == "System.Collections.IDictionary&");
+        FieldDefinition data = type.Fields.SingleOrDefault(field => field.Name == "_data" &&
+            !field.IsStatic && field.FieldType.FullName == "System.Collections.IDictionary");
+        MethodDefinition safeName = type.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "SafeName" && !candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.String && candidate.Parameters.Count == 1 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.String);
+        TypeDefinition debug = module.GetType("EB.Debug");
+        MethodDefinition logError = debug == null ? null : debug.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "LogError" && candidate.IsStatic &&
+            candidate.ReturnType.MetadataType == MetadataType.Void && candidate.Parameters.Count == 2 &&
+            candidate.Parameters[0].ParameterType.MetadataType == MetadataType.Object &&
+            candidate.Parameters[1].ParameterType.FullName == "System.Object[]");
+        if (method == null || data == null || safeName == null || logError == null)
+            throw new InvalidDataException("missing 9.2 InventoryManager.OnUpdate metadata");
+
+        TypeReference dictionaryType = module.ImportReference(typeof(System.Collections.IDictionary));
+        MethodReference getItem = module.ImportReference(typeof(System.Collections.IDictionary)
+            .GetProperty("Item").GetGetMethod());
+        MethodReference setItem = module.ImportReference(typeof(System.Collections.IDictionary)
+            .GetProperty("Item").GetSetMethod());
+        MethodReference hashtableConstructor = module.ImportReference(typeof(System.Collections.Hashtable)
+            .GetConstructor(Type.EmptyTypes));
+        MethodReference isNullOrEmpty = module.ImportReference(typeof(string).GetMethod(
+            "IsNullOrEmpty", new[] { typeof(string) }));
+        TypeReference intType = module.TypeSystem.Int32;
+        TypeReference longType = module.ImportReference(typeof(long));
+        TypeReference doubleType = module.ImportReference(typeof(double));
+        TypeReference floatType = module.ImportReference(typeof(float));
+        VariableDefinition updateData = new VariableDefinition(dictionaryType);
+        VariableDefinition rawItem = new VariableDefinition(module.TypeSystem.Object);
+        VariableDefinition item = new VariableDefinition(module.TypeSystem.String);
+        VariableDefinition rawQuantity = new VariableDefinition(module.TypeSystem.Object);
+        VariableDefinition quantity = new VariableDefinition(intType);
+        VariableDefinition key = new VariableDefinition(module.TypeSystem.String);
+        method.Body.Instructions.Clear();
+        method.Body.Variables.Clear();
+        method.Body.ExceptionHandlers.Clear();
+        method.Body.InitLocals = true;
+        method.Body.Variables.Add(updateData);
+        method.Body.Variables.Add(rawItem);
+        method.Body.Variables.Add(item);
+        method.Body.Variables.Add(rawQuantity);
+        method.Body.Variables.Add(quantity);
+        method.Body.Variables.Add(key);
+        ILProcessor il = method.Body.GetILProcessor();
+        Instruction hasChanges = Instruction.Create(OpCodes.Nop);
+        Instruction itemMissing = Instruction.Create(OpCodes.Nop);
+        Instruction itemRead = Instruction.Create(OpCodes.Nop);
+        Instruction validItem = Instruction.Create(OpCodes.Nop);
+        Instruction quantityMissing = Instruction.Create(OpCodes.Nop);
+        Instruction quantityRead = Instruction.Create(OpCodes.Nop);
+        Instruction quantityIsLong = Instruction.Create(OpCodes.Nop);
+        Instruction quantityIsDouble = Instruction.Create(OpCodes.Nop);
+        Instruction quantityIsFloat = Instruction.Create(OpCodes.Nop);
+        Instruction validQuantity = Instruction.Create(OpCodes.Nop);
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldind_Ref));
+        il.Append(Instruction.Create(OpCodes.Brtrue, hasChanges));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Newobj, hashtableConstructor));
+        il.Append(Instruction.Create(OpCodes.Stind_Ref));
+        il.Append(hasChanges);
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Isinst, dictionaryType));
+        il.Append(Instruction.Create(OpCodes.Stloc, updateData));
+        il.Append(Instruction.Create(OpCodes.Ldloc, updateData));
+        il.Append(Instruction.Create(OpCodes.Brfalse, itemMissing));
+        il.Append(Instruction.Create(OpCodes.Ldloc, updateData));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "item"));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getItem));
+        il.Append(Instruction.Create(OpCodes.Stloc, rawItem));
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawItem));
+        il.Append(Instruction.Create(OpCodes.Isinst, module.TypeSystem.String));
+        il.Append(Instruction.Create(OpCodes.Stloc, item));
+        il.Append(Instruction.Create(OpCodes.Br, itemRead));
+        il.Append(itemMissing);
+        il.Append(Instruction.Create(OpCodes.Ldnull));
+        il.Append(Instruction.Create(OpCodes.Stloc, item));
+        il.Append(itemRead);
+
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_M1));
+        il.Append(Instruction.Create(OpCodes.Stloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Ldloc, updateData));
+        il.Append(Instruction.Create(OpCodes.Brfalse, quantityMissing));
+        il.Append(Instruction.Create(OpCodes.Ldloc, updateData));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "quantity"));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getItem));
+        il.Append(Instruction.Create(OpCodes.Stloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Isinst, intType));
+        il.Append(Instruction.Create(OpCodes.Brfalse, quantityIsLong));
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Unbox_Any, intType));
+        il.Append(Instruction.Create(OpCodes.Stloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Br, quantityRead));
+        il.Append(quantityIsLong);
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Isinst, longType));
+        il.Append(Instruction.Create(OpCodes.Brfalse, quantityIsDouble));
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Unbox_Any, longType));
+        il.Append(Instruction.Create(OpCodes.Conv_I4));
+        il.Append(Instruction.Create(OpCodes.Stloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Br, quantityRead));
+        il.Append(quantityIsDouble);
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Isinst, doubleType));
+        il.Append(Instruction.Create(OpCodes.Brfalse, quantityIsFloat));
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Unbox_Any, doubleType));
+        il.Append(Instruction.Create(OpCodes.Conv_I4));
+        il.Append(Instruction.Create(OpCodes.Stloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Br, quantityRead));
+        il.Append(quantityIsFloat);
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Isinst, floatType));
+        il.Append(Instruction.Create(OpCodes.Brfalse, quantityMissing));
+        il.Append(Instruction.Create(OpCodes.Ldloc, rawQuantity));
+        il.Append(Instruction.Create(OpCodes.Unbox_Any, floatType));
+        il.Append(Instruction.Create(OpCodes.Conv_I4));
+        il.Append(Instruction.Create(OpCodes.Stloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Br, quantityRead));
+        il.Append(quantityMissing);
+        il.Append(quantityRead);
+
+        il.Append(Instruction.Create(OpCodes.Ldloc, item));
+        il.Append(Instruction.Create(OpCodes.Call, isNullOrEmpty));
+        il.Append(Instruction.Create(OpCodes.Brfalse, validItem));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "Invalid item name ({0})"));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.Object));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldloc, item));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Call, logError));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(validItem);
+
+        il.Append(Instruction.Create(OpCodes.Ldloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Bge, validQuantity));
+        il.Append(Instruction.Create(OpCodes.Ldstr, "Invalid quantity ({0}) for item {1}"));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_2));
+        il.Append(Instruction.Create(OpCodes.Newarr, module.TypeSystem.Object));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ldloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Box, intType));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ldloc, item));
+        il.Append(Instruction.Create(OpCodes.Stelem_Ref));
+        il.Append(Instruction.Create(OpCodes.Call, logError));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(validQuantity);
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, data));
+        il.Append(Instruction.Create(OpCodes.Ldloc, item));
+        il.Append(Instruction.Create(OpCodes.Callvirt, safeName));
+        il.Append(Instruction.Create(OpCodes.Stloc, key));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, data));
+        il.Append(Instruction.Create(OpCodes.Ldloc, key));
+        il.Append(Instruction.Create(OpCodes.Ldloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Box, intType));
+        il.Append(Instruction.Create(OpCodes.Callvirt, setItem));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldind_Ref));
+        il.Append(Instruction.Create(OpCodes.Ldloc, key));
+        il.Append(Instruction.Create(OpCodes.Ldloc, quantity));
+        il.Append(Instruction.Create(OpCodes.Box, intType));
+        il.Append(Instruction.Create(OpCodes.Callvirt, setItem));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        method.Body.MaxStackSize = 4;
+        return 1;
     }
 
     // Cpp2IL emitted placeholder Console.WriteLine stubs for this generic
