@@ -44,6 +44,13 @@ namespace StoryPort.Editor
             Debug.Log("StoryPort Editor checks passed: server route and combat values, fight gestures, 9.2 art/audio, and all Story arenas");
         }
 
+        public static void RunMovementChecks()
+        {
+            CheckFightGestures();
+            CheckFightAnimations();
+            Debug.Log("StoryPort movement checks passed: swipe actions and fight locomotion clips");
+        }
+
         static void CheckArenaCatalog()
         {
             foreach (var level in new[] { "chicago", "hongkong", "karnak", "mine", "rust" })
@@ -89,26 +96,45 @@ namespace StoryPort.Editor
             if (input.Move(new Vector2(.82f, .4f), 2.25f) != StoryPortFightGesture.Action.None ||
                 input.End(new Vector2(.82f, .4f), 2.3f) != StoryPortFightGesture.Action.RightSwipe)
                 throw new Exception("A right swipe was misread as a heavy hold");
-            input.Begin(right, 3f);
-            if (input.End(new Vector2(.57f, .4f), 3.12f) != StoryPortFightGesture.Action.LeftSwipe)
+            input.Begin(right, 2.5f);
+            if (input.End(new Vector2(.95f, .4f), 2.8f) != StoryPortFightGesture.Action.Advance)
+                throw new Exception("A long right swipe did not produce a forward movement action");
+            input.Begin(right, 2.9f);
+            if (input.Move(new Vector2(.95f, .4f), 3f) != StoryPortFightGesture.Action.WalkForward ||
+                input.Move(new Vector2(.95f, .4f), 3.3f) != StoryPortFightGesture.Action.WalkForward ||
+                input.End(new Vector2(.95f, .4f), 3.4f) != StoryPortFightGesture.Action.None)
+                throw new Exception("A held right drag did not keep walking forward until release");
+            input.Begin(right, 3.45f);
+            if (input.Move(new Vector2(.4f, .4f), 3.55f) != StoryPortFightGesture.Action.WalkBackward ||
+                input.Move(new Vector2(.4f, .4f), 3.85f) != StoryPortFightGesture.Action.WalkBackward)
+                throw new Exception("A held left drag did not keep walking backward");
+            input.Cancel();
+            input.Begin(right, 3.9f);
+            if (input.End(new Vector2(.57f, .4f), 4.02f) != StoryPortFightGesture.Action.LeftSwipe)
                 throw new Exception("A left swipe did not dodge");
-            if (input.Begin(new Vector2(.2f, .4f), 4f) != StoryPortFightGesture.Action.Block ||
+            input.Begin(right, 4.1f);
+            if (input.End(new Vector2(.7f, .55f), 4.22f) != StoryPortFightGesture.Action.SidestepLeft)
+                throw new Exception("An upward swipe did not produce a left sidestep");
+            input.Begin(right, 4.3f);
+            if (input.End(new Vector2(.7f, .25f), 4.42f) != StoryPortFightGesture.Action.SidestepRight)
+                throw new Exception("A downward swipe did not produce a right sidestep");
+            if (input.Begin(new Vector2(.2f, .4f), 4.5f) != StoryPortFightGesture.Action.Block ||
                 input.Cancel() != StoryPortFightGesture.Action.ReleaseBlock || input.Guarding || input.Tracking ||
-                input.End(new Vector2(.2f, .4f), 4.5f) != StoryPortFightGesture.Action.None)
+                input.End(new Vector2(.2f, .4f), 5f) != StoryPortFightGesture.Action.None)
                 throw new Exception("A canceled block left the guard latched");
-            input.Begin(right, 5f);
+            input.Begin(right, 5.1f);
             if (input.Cancel() != StoryPortFightGesture.Action.None ||
-                input.Move(right, 5.5f) != StoryPortFightGesture.Action.None ||
-                input.End(right, 5.6f) != StoryPortFightGesture.Action.None)
+                input.Move(right, 5.6f) != StoryPortFightGesture.Action.None ||
+                input.End(right, 5.7f) != StoryPortFightGesture.Action.None)
                 throw new Exception("A canceled hold fired an attack");
 
             // The visible attack hex spans normalized y=.035-.175; previously
             // the gesture's .18 lower bound made the entire control inert.
             var attackHex = new Vector2(.92f, .1f);
-            if (input.Begin(attackHex, 6f) != StoryPortFightGesture.Action.None ||
-                input.End(attackHex, 6.12f) != StoryPortFightGesture.Action.Light)
+            if (input.Begin(attackHex, 6.1f) != StoryPortFightGesture.Action.None ||
+                input.End(attackHex, 6.22f) != StoryPortFightGesture.Action.Light)
                 throw new Exception("A tap on the visible lower-right attack hex did not attack");
-            if (input.Begin(new Vector2(.92f, .02f), 7f) != StoryPortFightGesture.Action.None || input.Tracking)
+            if (input.Begin(new Vector2(.92f, .02f), 7.1f) != StoryPortFightGesture.Action.None || input.Tracking)
                 throw new Exception("A touch below the fight control area started a gesture");
         }
 
@@ -197,14 +223,18 @@ namespace StoryPort.Editor
         {
             var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/Art92/AnimatorController/animator_char_fight.controller");
             if (controller == null) throw new Exception("Missing converted 9.2 fight controller");
-            bool heavy = false, reaction = false;
+            bool heavy = false, reaction = false, run = false, dodge = false, sidestepLeft = false, sidestepRight = false;
             foreach (var clip in controller.animationClips)
             {
                 heavy |= clip.name == "char_attackHeavy";
                 reaction |= clip.name == "char_hitReaction_heavy_front";
+                run |= clip.name == "char_locoRun";
+                dodge |= clip.name == "char_locoDodge";
+                sidestepLeft |= clip.name == "char_locoSidestep_left";
+                sidestepRight |= clip.name == "char_locoSidestep_right";
             }
-            if (!heavy || !reaction)
-                throw new Exception("Converted fight controller lacks heavy attack or block break reaction");
+            if (!heavy || !reaction || !run || !dodge || !sidestepLeft || !sidestepRight)
+                throw new Exception("Converted fight controller lacks an attack reaction or locomotion clip used by StoryPort movement");
         }
 
         static void CheckSpecialShot()

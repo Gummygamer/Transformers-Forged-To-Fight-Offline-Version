@@ -2274,13 +2274,57 @@ namespace StoryPort
         {
             if (screen != "fight" || playerActor == null || enemyActor == null) return;
             guarding = false;
-            PlayState(playerAnimator, "Dash");
+            if (playerBusy) return;
+            var direction = enemyActor.transform.position - playerActor.transform.position;
+            direction.y = 0f;
+            direction = direction.sqrMagnitude > .001f ? direction.normalized : playerActor.transform.forward;
+            float gap = Vector3.Distance(playerActor.transform.position, enemyActor.transform.position);
+            float stride = towardEnemy ? Mathf.Min(1.45f, Mathf.Max(0f, gap - 2.25f)) : Mathf.Min(1.15f, Mathf.Max(0f, 7f - gap));
+            if (stride < .01f) return;
+            playerBusy = true;
+            PlayState(playerAnimator, towardEnemy ? "Run" : "Dash");
             Combat(playerKey, towardEnemy ? "dash" : "dodge", .7f);
-            var direction = (enemyActor.transform.position - playerActor.transform.position).normalized;
-            playerActor.transform.position += direction * (towardEnemy ? .95f : -.7f);
+            var target = playerActor.transform.position + direction * (towardEnemy ? stride : -stride);
             evadeUntil = Time.time + (towardEnemy ? .38f : .72f);
             nextEnemyTurn = Time.time + .8f;
             UpdateFightHud();
+            StartCoroutine(FightMovement(target, .32f));
+        }
+
+        IEnumerator FightMovement(Vector3 target, float duration)
+        {
+            yield return MoveActor(playerActor, target, duration);
+            playerBusy = false;
+            if (screen == "fight" && playerActor != null && !guarding) PlayState(playerAnimator, "Idle");
+            RunQueuedAttack();
+        }
+
+        void Sidestep(bool left)
+        {
+            if (screen != "fight" || playerActor == null || playerBusy) return;
+            guarding = false;
+            playerBusy = true;
+            SetBoolIfPresent(playerAnimator, "Blocking", false);
+            PlayState(playerAnimator, left ? "SidestepLeft" : "SidestepRight");
+            Combat(playerKey, "dodge", .7f);
+            evadeUntil = Time.time + .72f;
+            nextEnemyTurn = Time.time + .8f;
+            var side = playerActor.transform.right;
+            side.y = 0f;
+            if (side.sqrMagnitude < .001f) side = Vector3.forward;
+            side.Normalize();
+            var home = playerActor.transform.position;
+            StartCoroutine(SidestepMovement(home + side * (left ? 1f : -1f), home));
+        }
+
+        IEnumerator SidestepMovement(Vector3 step, Vector3 home)
+        {
+            yield return MoveActor(playerActor, step, .16f);
+            yield return new WaitForSeconds(.08f);
+            yield return MoveActor(playerActor, home, .18f);
+            playerBusy = false;
+            if (screen == "fight" && playerActor != null && !guarding) PlayState(playerAnimator, "Idle");
+            RunQueuedAttack();
         }
 
         IEnumerator MoveActor(GameObject actor, Vector3 target, float duration)
@@ -3349,13 +3393,19 @@ namespace StoryPort
                 case StoryPortFightGesture.Action.RightSwipe:
                     AdvanceOrMediumAttack();
                     break;
+                case StoryPortFightGesture.Action.Advance:
+                case StoryPortFightGesture.Action.WalkForward:
+                    Dash(true);
+                    break;
+                case StoryPortFightGesture.Action.WalkBackward:
                 case StoryPortFightGesture.Action.LeftSwipe:
                     Dash(false);
                     break;
-                case StoryPortFightGesture.Action.Sidestep:
-                    PlayState(playerAnimator, "Dash");
-                    Combat(playerKey, "dodge", .7f);
-                    evadeUntil = Time.time + .72f;
+                case StoryPortFightGesture.Action.SidestepLeft:
+                    Sidestep(true);
+                    break;
+                case StoryPortFightGesture.Action.SidestepRight:
+                    Sidestep(false);
                     break;
             }
         }

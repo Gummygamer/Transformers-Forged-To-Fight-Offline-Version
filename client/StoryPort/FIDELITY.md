@@ -57,6 +57,12 @@ the full Act I and Act II route):
   heavy attack states, with damage and meter taken from the server move table;
   heavy attacks also break a held block. This source change still needs an
   on-device fight comparison before its hit cadence is considered matched.
+- Mobility update: a long right swipe or held right drag runs toward the enemy;
+  left swipes and held left drags retreat. Short right swipes remain medium
+  attacks in reach, while vertical swipes play directional sidestep states and
+  move the player laterally for a brief evade. Movement is eased and distance
+  bounded. The targeted Unity Editor check passes; touch feel still needs a
+  device comparison.
 - Music and sound from the local 9.2 audio (see Audio above).
 - Mission Complete screen after an act's last encounter (BACK TO MISSIONS, greyed
   REPLAY, PLAY NEXT); the rewards panel stays empty because the server grants none.
@@ -74,8 +80,9 @@ the full Act I and Act II route):
 - Loading pages (0:07, ~1:36) cycle tips with a gold label ("COMBAT TIP", "HEAVY ATTACKS",
   "FORGE XP"), as the footage does. The heavy tip now matches the local 9.2 text and
   control: a right-side hold past 0.2 seconds fires one heavy attack, which breaks a
-  block. A tap remains light; a right swipe strikes medium in reach or advances from
-  farther away. Damage and meter come from the server's Heavy and Medium move values.
+  block. A tap remains light; a short right swipe strikes medium in reach or advances
+  from farther away, a long swipe or held drag runs, and a vertical swipe sidesteps.
+  Damage and meter come from the server's Heavy and Medium move values.
   Unity 6.6.3f1 Editor checks cover these gestures, canceled holds, block breaks,
   and server move values; the touch controls still need an on-device comparison.
   The footage's Edit Squad screen (~1:04) is not built: the
