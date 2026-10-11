@@ -1107,3 +1107,23 @@ bytes; SHA-256 `d3c630aa2458ef65936df0c4067d956d0965898dc5004b1e9142228179dd7fc3
 `ev_a2e7b274d0aa4fe3d6e46ee1a08615a38d6c3ef790943b5e91eefce4f9450ca7`). This remains local
 staged output. No Unity build was spent on this single new repair; batch further story-map geometry
 work before the next guarded checkpoint. No APK or playable story route yet.
+
+## v48: world-painter segment test restored
+
+Rebuilt `EBWorldPainterData.LinesCross` from its 9.2 cross-product trace and recovered point/vector
+fields. Recovery preflight exited 0. The first Mono smoke caught an invalid float `brfalse`; the
+repair now compares the determinant with zero using a floating-point equality branch. The rerun
+passed proper intersection, disjoint, endpoint-touch, parallel, collinear, and null-input cases.
+Closed-interval endpoint handling is an explicit reconstruction choice because the recovered C#
+control flow is incomplete.
+
+The same preflight compiled and transplanted the existing authored `AlignUIElements.GetObjectBounds`
+replacement. Unity-bundled Mono successfully JIT-verified both that method and `LinesCross`; these
+checks do not exercise Unity's native UI/transform calls. REA MCP inspected the resulting staged
+first-pass assembly as complete PE/CLI metadata (16,980,480 bytes; SHA-256
+`9c19c84a43d6426b6fae8ac63ac4ce0d9abb12d913a6964975b08fb4d183f827`; MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`; evidence
+`ev_696975427c910e893833e90963c2f5d46b3bc5295b55b8f10bc8d7434f94cf7e`). This is staged recovery
+output, not a shipped Kabam assembly. The next useful check is a guarded ARM64/IL2CPP batch build
+with the accumulated matrix, map-coordinate, segment-test, and authored UI fixes. No APK or
+playable story route yet.

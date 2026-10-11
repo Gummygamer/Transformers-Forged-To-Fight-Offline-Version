@@ -936,3 +936,7 @@ are retained.
 
 `MapTile.x` and `MapTile.y` are newly authored CIL reading the traced Vector2 position backing
 field; no APK bytes, assets, or copied game method body are retained.
+
+`EBWorldPainterData.LinesCross` is newly authored CIL following the 9.2 segment cross-product
+trace and recovered point fields. Its closed-interval endpoint behavior is inferred because the
+recovered control flow is incomplete; no APK bytes, assets, or copied game method body are retained.

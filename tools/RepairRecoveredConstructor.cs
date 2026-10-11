@@ -6073,6 +6073,7 @@ class RepairRecoveredConstructor {
         repairs += RepairMapGetTile(targetModule, sourceModule);
         repairs += RepairMapSetupBuffs(targetModule, sourceModule);
         repairs += RepairDynamicScrollViewPositions(targetModule);
+        repairs += RepairWorldPainterLinesCross(targetModule);
         TypeDefinition sourceType = sourceModule.GetType("RecoverySources.AlignUIElementsGetObjectBounds");
         MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method => method.Name == "Replace");
         TypeDefinition targetType = targetModule.GetType("AlignUIElements");
@@ -6524,6 +6525,131 @@ class RepairRecoveredConstructor {
         body.MaxStackSize = 3;
         Console.WriteLine("reconstructed " + typeName + ".Value setter from traced SafeValue storage path");
         return 1;
+    }
+
+    static int RepairWorldPainterLinesCross(ModuleDefinition module) {
+        TypeDefinition owner = module.GetType("EBWorldPainterData");
+        TypeDefinition point = module.GetType("EBWorldPainterData/Point");
+        MethodDefinition method = owner == null ? null : owner.Methods.SingleOrDefault(candidate =>
+            candidate.Name == "LinesCross" && candidate.IsStatic && candidate.ReturnType.MetadataType == MetadataType.Boolean &&
+            candidate.Parameters.Count == 4 && candidate.Parameters.All(parameter =>
+                parameter.ParameterType.FullName == "EBWorldPainterData/Point"));
+        FieldDefinition location = point == null ? null : point.Fields.SingleOrDefault(field =>
+            field.Name == "location" && !field.IsStatic && field.FieldType.FullName == "UnityEngine.Vector2");
+        if (owner == null || point == null || method == null || location == null)
+            throw new InvalidDataException("missing EBWorldPainterData.LinesCross or Point.location metadata");
+
+        TypeReference vector2 = UnityEngineType(module, "Vector2");
+        FieldReference x = module.ImportReference(new FieldReference("x", module.TypeSystem.Single, vector2));
+        FieldReference y = module.ImportReference(new FieldReference("y", module.TypeSystem.Single, vector2));
+        MethodBody body = ResetBody(method, out ILProcessor il);
+        body.InitLocals = true;
+        body.MaxStackSize = 4;
+        VariableDefinition[] values = new VariableDefinition[8];
+        for (int i = 0; i < values.Length; i++) {
+            values[i] = new VariableDefinition(module.TypeSystem.Single);
+            body.Variables.Add(values[i]);
+        }
+
+        Instruction noCross = il.Create(OpCodes.Ldc_I4_0);
+        Instruction done = il.Create(OpCodes.Ret);
+        for (int i = 0; i < 4; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg, method.Parameters[i]));
+            il.Append(Instruction.Create(OpCodes.Brfalse, noCross));
+        }
+
+        // r = p2-p1; s = p4-p3; denominator = cross(r,s).
+        EmitWorldPointCoordinate(il, method, location, x, 1);
+        EmitWorldPointCoordinate(il, method, location, x, 0);
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[0]));
+        EmitWorldPointCoordinate(il, method, location, y, 1);
+        EmitWorldPointCoordinate(il, method, location, y, 0);
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[1]));
+        EmitWorldPointCoordinate(il, method, location, x, 3);
+        EmitWorldPointCoordinate(il, method, location, x, 2);
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[2]));
+        EmitWorldPointCoordinate(il, method, location, y, 3);
+        EmitWorldPointCoordinate(il, method, location, y, 2);
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[3]));
+
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[0]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[3]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[1]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[2]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[4]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[4]));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Beq, noCross));
+
+        // q = p3-p1; t = cross(q,s)/denominator; u = cross(q,r)/denominator.
+        EmitWorldPointCoordinate(il, method, location, x, 2);
+        EmitWorldPointCoordinate(il, method, location, x, 0);
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[5]));
+        EmitWorldPointCoordinate(il, method, location, y, 2);
+        EmitWorldPointCoordinate(il, method, location, y, 0);
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[6]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[5]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[3]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[6]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[2]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[4]));
+        il.Append(Instruction.Create(OpCodes.Div));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[7]));
+
+        // Segment parameters must be inside both closed intervals [0,1].
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[7]));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Blt_Un, noCross));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[7]));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 1f));
+        il.Append(Instruction.Create(OpCodes.Bgt_Un, noCross));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[5]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[1]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[6]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[0]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[4]));
+        il.Append(Instruction.Create(OpCodes.Div));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Blt_Un, noCross));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[5]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[1]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[6]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[0]));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[4]));
+        il.Append(Instruction.Create(OpCodes.Div));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 1f));
+        il.Append(Instruction.Create(OpCodes.Bgt_Un, noCross));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Br, done));
+        il.Append(noCross);
+        il.Append(done);
+        Console.WriteLine("reconstructed EBWorldPainterData.LinesCross from the 9.2 segment intersection trace");
+        return 1;
+    }
+
+    static void EmitWorldPointCoordinate(ILProcessor il, MethodDefinition method,
+        FieldDefinition location, FieldReference coordinate, int parameterIndex) {
+        il.Append(Instruction.Create(OpCodes.Ldarg, method.Parameters[parameterIndex]));
+        il.Append(Instruction.Create(OpCodes.Ldflda, location));
+        il.Append(Instruction.Create(OpCodes.Ldfld, coordinate));
     }
 
     static int RepairBadgeStateConstructor(ModuleDefinition module) {
