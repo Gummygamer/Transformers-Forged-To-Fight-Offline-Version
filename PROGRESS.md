@@ -1247,3 +1247,23 @@ REA MCP inspected the new staged first-pass assembly as complete PE/CLI metadata
 still targets the pristine APK with SHA-256
 `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`; these assemblies are
 generated staging only.
+
+## v53: quaternion and scalar overloads reconstructed
+
+Authored `Vector2.Multiply`, `Vector4.Divide`, the Hamilton `Quaternion.Multiply`, and
+`Rectangle.Contains(Rectangle&,out bool)` from staged 9.2 signatures and fields. Unity Mono smoke
+passed component arithmetic, general quaternion values and output aliasing, plus contained and
+outside rectangle cases. Recovery preflight also compiled and transplanted the existing authored
+`AlignUIElements.GetObjectBounds` replacement. The rectangle path retains the half-open extent
+approximation. These fixes await the next guarded ARM64/IL2CPP checkpoint.
+
+REA MCP confirms that the active package target is the pristine
+`transformers-forged-to-fight-9-2-0.apk`, SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`. REA independently inspected
+the post-preflight staged first-pass DLL as complete PE/CLI metadata: 16,767,488 bytes, SHA-256
+`f64f6a837c1e0b210cff1ccb561c4750b68f845a64a3fcd3521ad0e8213bbbd3`, MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`, evidence
+`ev_165644760aa4ca6b46c1d17dceff1a5f88c577d410ca3292ba3e37f433454ae9`. This is generated local
+staging, not shipped game code. The previous checkpoint still had 16 unique failures and no APK;
+there is no playable story session yet. A roughly 3–8 focused-week playable-story estimate remains
+low confidence because recent checkpoints expose a replacement queue instead of reducing the total.

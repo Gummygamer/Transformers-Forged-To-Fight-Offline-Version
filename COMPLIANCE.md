@@ -959,3 +959,9 @@ No APK bytes, assets, or copied game method body are retained.
 newly authored from the recovered generic field and method signatures. `Clear` drops cached stack
 items because recycled objects already receive the configured callback; no APK bytes, assets, or
 copied game method body are retained.
+
+`EB.Math.Vector2.Multiply`, `EB.Math.Vector4.Divide`, `EB.Math.Quaternion.Multiply`, and
+`EB.Math.Rectangle.Contains(Rectangle&,out bool)` are newly authored IL from their staged 9.2
+signatures and scalar field metadata. Quaternion multiplication uses the standard Hamilton product
+with operand snapshots for alias-safe output. Rectangle containment follows the documented
+half-open extent approximation. No APK bytes, assets, or copied game method body are retained.

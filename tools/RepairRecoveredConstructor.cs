@@ -6066,14 +6066,18 @@ class RepairRecoveredConstructor {
         repairs += RepairVector4Getters(targetModule);
         repairs += RepairVectorAdd(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
         repairs += RepairVectorAdd(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
+        repairs += RepairVectorBinary(targetModule, "EB.Math.Vector2", "Multiply", new[] { "_x", "_y" }, OpCodes.Mul);
+        repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Divide", new[] { "x", "y", "z", "w" }, OpCodes.Div);
         repairs += RepairPlaneDot(targetModule);
         repairs += RepairPlaneDotCoordinate(targetModule);
         repairs += RepairPlaneDotNormal(targetModule);
         repairs += RepairRectangleContainsPoint(targetModule);
         repairs += RepairRectangleContainsPointOut(targetModule);
         repairs += RepairRectangleContainsRectangle(targetModule);
+        repairs += RepairRectangleContainsRectangleOut(targetModule);
         repairs += RepairQuaternionAdd(targetModule);
         repairs += RepairQuaternionSubtract(targetModule);
+        repairs += RepairQuaternionMultiply(targetModule);
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeFloat", typeof(float));
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeInt", typeof(int));
         repairs += RepairStringUtilInitializer(targetModule);
@@ -6800,6 +6804,35 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairVectorBinary(ModuleDefinition module, string typeName, string methodName,
+        string[] componentNames, OpCode operation) {
+        TypeDefinition vector = module.GetType(typeName);
+        if (vector == null) throw new InvalidDataException("missing " + typeName + " metadata");
+        string referenceType = typeName + "&";
+        MethodDefinition method = vector.Methods.SingleOrDefault(candidate => candidate.Name == methodName &&
+            candidate.IsStatic && candidate.ReturnType.MetadataType == MetadataType.Void && candidate.Parameters.Count == 3 &&
+            candidate.Parameters.All(parameter => parameter.ParameterType.FullName == referenceType));
+        FieldDefinition[] fields = componentNames.Select(name => vector.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (method == null || fields.Any(field => field == null) || fields.Distinct().Count() != componentNames.Length)
+            throw new InvalidDataException("unexpected " + typeName + "." + methodName + " metadata");
+
+        MethodBody body = ResetBody(method, out ILProcessor il);
+        foreach (FieldDefinition field in fields) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(operation));
+            il.Append(Instruction.Create(OpCodes.Stfld, field));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed " + typeName + "." + methodName + " across " + fields.Length + " scalar components");
+        return 1;
+    }
+
     static int RepairVector4Getters(ModuleDefinition module) {
         TypeDefinition vector = module.GetType("EB.Math.Vector4");
         if (vector == null) throw new InvalidDataException("missing EB.Math.Vector4 metadata");
@@ -7137,6 +7170,67 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairRectangleContainsRectangleOut(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        if (rectangle == null) throw new InvalidDataException("missing EB.Math.Rectangle metadata");
+        FieldDefinition[] fields = new[] { "X", "Y", "Width", "Height" }.Select(name =>
+            rectangle.Fields.SingleOrDefault(field => field.Name == name && !field.IsStatic &&
+                field.FieldType.MetadataType == MetadataType.Int32)).ToArray();
+        MethodDefinition contains = rectangle.Methods.SingleOrDefault(method => method.Name == "Contains" &&
+            !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 2 &&
+            method.Parameters[0].ParameterType.FullName == "EB.Math.Rectangle&" &&
+            method.Parameters[1].ParameterType.FullName == "System.Boolean&");
+        if (fields.Any(field => field == null) || contains == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.Contains(Rectangle&,out bool) metadata");
+
+        FieldDefinition x = fields[0], y = fields[1], width = fields[2], height = fields[3];
+        MethodBody body = ResetBody(contains, out ILProcessor il);
+        Instruction outside = Instruction.Create(OpCodes.Ldarg_2);
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Blt, outside));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Blt, outside));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, width));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, width));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Bgt, outside));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, height));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, height));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Bgt, outside));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Stind_I1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(outside);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Stind_I1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed Rectangle.Contains(Rectangle&,out bool) from half-open extents");
+        return 1;
+    }
+
     static int RepairQuaternionAdd(ModuleDefinition module) {
         TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
         if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
@@ -7190,6 +7284,63 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 3;
         Console.WriteLine("reconstructed EB.Math.Quaternion.Subtract across its four scalar fields");
+        return 1;
+    }
+
+    static int RepairQuaternionMultiply(ModuleDefinition module) {
+        TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
+        if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
+        MethodDefinition multiply = quaternion.Methods.SingleOrDefault(method => method.Name == "Multiply" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 3 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Math.Quaternion&"));
+        string[] names = { "x", "y", "z", "w" };
+        FieldDefinition[] fields = names.Select(name => quaternion.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (multiply == null || fields.Any(field => field == null) || fields.Distinct().Count() != names.Length)
+            throw new InvalidDataException("unexpected EB.Math.Quaternion.Multiply metadata");
+
+        MethodBody body = ResetBody(multiply, out ILProcessor il);
+        body.InitLocals = true;
+        VariableDefinition[] left = new VariableDefinition[4];
+        VariableDefinition[] right = new VariableDefinition[4];
+        for (int i = 0; i < 4; i++) {
+            left[i] = new VariableDefinition(module.TypeSystem.Single);
+            right[i] = new VariableDefinition(module.TypeSystem.Single);
+            body.Variables.Add(left[i]);
+            body.Variables.Add(right[i]);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, right[i]));
+        }
+
+        int[][] leftTerms = {
+            new[] { 0, 3, 1, 2 }, new[] { 1, 3, 2, 0 },
+            new[] { 2, 3, 0, 1 }, new[] { 3, 0, 1, 2 }
+        };
+        int[][] rightTerms = {
+            new[] { 3, 0, 2, 1 }, new[] { 3, 1, 0, 2 },
+            new[] { 3, 2, 1, 0 }, new[] { 3, 0, 1, 2 }
+        };
+        int[][] signs = {
+            new[] { 1, 1, 1, -1 }, new[] { 1, 1, 1, -1 },
+            new[] { 1, 1, 1, -1 }, new[] { 1, -1, -1, -1 }
+        };
+        for (int component = 0; component < 4; component++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            for (int term = 0; term < 4; term++) {
+                il.Append(Instruction.Create(OpCodes.Ldloc, left[leftTerms[component][term]]));
+                il.Append(Instruction.Create(OpCodes.Ldloc, right[rightTerms[component][term]]));
+                il.Append(Instruction.Create(OpCodes.Mul));
+                if (term > 0) il.Append(Instruction.Create(signs[component][term] > 0 ? OpCodes.Add : OpCodes.Sub));
+            }
+            il.Append(Instruction.Create(OpCodes.Stfld, fields[component]));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Quaternion.Multiply with the Hamilton product and input snapshots");
         return 1;
     }
 
