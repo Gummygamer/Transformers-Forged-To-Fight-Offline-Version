@@ -72,10 +72,11 @@ the full Act I and Act II route):
 - Mission Complete screen after an act's last encounter (BACK TO MISSIONS, greyed
   REPLAY, PLAY NEXT); the rewards panel stays empty because the server grants none.
 - Knockout shot: the camera pushes in on the winner under "<NAME> WINS!".
-- Enemy anticipation now uses the 9.2 melee personality's dodge, block,
-  sidestep and idle weights. The response plays the converted fight animations;
-  a short cooldown lets later combo hits through. Editor checks cover the
-  weighted decision, and the converted fight controllers contain its states.
+- Enemy anticipation reads the server's `aiPer` field; Story encounters specify
+  `Ranged`, so dodge, block, sidestep and idle now use the matching 9.2
+  personality weights. The response plays the converted fight animations; a
+  short cooldown lets later combo hits through. Focused Editor checks cover
+  server parsing and weighted decisions.
 - The seven base navigation icons use the original 9.2 button glyphs from the
   local Tecnica font. `prepare_project.py` copies that font into the ignored
   Unity project; the Editor base preview confirms their placement.

@@ -47,9 +47,10 @@ namespace StoryPort.Editor
         public static void RunMovementChecks()
         {
             CheckFightGestures();
+            CheckBattleEnemyAIData();
             CheckEnemyDefense();
             CheckFightAnimations();
-            Debug.Log("StoryPort fight mechanics checks passed: swipe actions, defense weights, and locomotion clips");
+            Debug.Log("StoryPort fight mechanics checks passed: swipe actions, server AI personality, defense weights, and locomotion clips");
         }
 
         static void CheckArenaCatalog()
@@ -70,14 +71,19 @@ namespace StoryPort.Editor
             }
             if (!StoryPortArenaData.IsSupportedLevel("hongkong") || StoryPortArenaData.IsSupportedLevel("atlantis"))
                 throw new Exception("StoryPortArenaData does not recognise the shipped arena levels");
-            string key, level2;
-            int tod2;
-            if (!StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"karnak\",\"todIndex\":2}}", out key, out level2, out tod2) ||
-                key != "x" || level2 != "karnak" || tod2 != 2)
-                throw new Exception("StoryPortArenaData did not read the server arena");
-            StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"atlantis\",\"todIndex\":9}}", out key, out level2, out tod2);
-            if (level2 != StoryPortArenaData.FallbackLevel || tod2 != StoryPortArenaData.FallbackTod)
-                throw new Exception("StoryPortArenaData accepted an unsupported arena");
+            CheckBattleEnemyAIData();
+        }
+
+        static void CheckBattleEnemyAIData()
+        {
+            string key, level, personality;
+            int tod;
+            if (!StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"karnak\",\"todIndex\":2,\"aiPer\":\"Ranged\"}}", out key, out level, out tod, out personality) ||
+                key != "x" || level != "karnak" || tod != 2 || personality != "Ranged")
+                throw new Exception("StoryPortArenaData did not read the server enemy personality");
+            StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"atlantis\",\"todIndex\":9}}", out key, out level, out tod, out personality);
+            if (level != StoryPortArenaData.FallbackLevel || tod != StoryPortArenaData.FallbackTod || personality != StoryPortArenaData.FallbackPersonality)
+                throw new Exception("StoryPortArenaData accepted an unsupported arena or lost its personality fallback");
         }
 
         static void CheckFightGestures()
@@ -320,6 +326,11 @@ namespace StoryPort.Editor
                 StoryPortEnemyDefense.Choose(.7f) != StoryPortEnemyDefense.Action.Sidestep ||
                 StoryPortEnemyDefense.Choose(.95f) != StoryPortEnemyDefense.Action.Idle)
                 throw new Exception("Enemy anticipation weights changed unexpectedly");
+            if (StoryPortEnemyDefense.Choose(.05f, "Ranged") != StoryPortEnemyDefense.Action.Dodge ||
+                StoryPortEnemyDefense.Choose(.3f, "Ranged") != StoryPortEnemyDefense.Action.Block ||
+                StoryPortEnemyDefense.Choose(.7f, "Ranged") != StoryPortEnemyDefense.Action.Sidestep ||
+                StoryPortEnemyDefense.Choose(.99f, "Ranged") != StoryPortEnemyDefense.Action.Idle)
+                throw new Exception("Ranged AI personality weights do not match the shipped 9.2 asset");
         }
 
         static void CheckNavigationFont()

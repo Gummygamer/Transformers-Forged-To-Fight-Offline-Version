@@ -8,15 +8,25 @@ namespace StoryPort
     {
         public const string FallbackLevel = "chicago";
         public const int FallbackTod = 0;
+        public const string FallbackPersonality = "Melee";
 
         public static bool TryReadBattleEnemy(string json, out string key, out string level, out int tod)
+        {
+            string personality;
+            return TryReadBattleEnemy(json, out key, out level, out tod, out personality);
+        }
+
+        public static bool TryReadBattleEnemy(string json, out string key, out string level, out int tod, out string personality)
         {
             key = "";
             level = FallbackLevel;
             tod = FallbackTod;
+            personality = FallbackPersonality;
             if (!TryObject(json, "battleEnemy", out var battleEnemy)) return false;
 
             key = ReadString(battleEnemy, "key");
+            var requestedPersonality = ReadString(battleEnemy, "aiPer");
+            if (!string.IsNullOrEmpty(requestedPersonality)) personality = requestedPersonality;
             var requestedLevel = ReadString(battleEnemy, "mapOverride");
             var requestedTod = ReadInteger(battleEnemy, "todIndex", -1);
             if (IsSupportedLevel(requestedLevel) && requestedTod >= 0 && requestedTod <= 2)

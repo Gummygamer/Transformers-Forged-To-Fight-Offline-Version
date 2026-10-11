@@ -78,6 +78,7 @@ namespace StoryPort
         string playerKey = "fte_optimus_gs_t3";
         string playerName = "Optimus Prime";
         string enemyName = "Bludgeon";
+        string enemyAIPersonality = StoryPortArenaData.FallbackPersonality;
         string fightArenaLevel = StoryPortArenaData.FallbackLevel;
         int fightArenaTod = StoryPortArenaData.FallbackTod;
         string[] storyNodes;
@@ -1967,7 +1968,7 @@ namespace StoryPort
             // block, sidestep and idle. Give each reaction a short cooldown so a
             // combo can break through, as it does in the reference fight.
             var defense = Time.time - lastEnemyDefense >= 1f
-                ? StoryPortEnemyDefense.Choose(UnityEngine.Random.value)
+                ? StoryPortEnemyDefense.Choose(UnityEngine.Random.value, enemyAIPersonality)
                 : StoryPortEnemyDefense.Action.Idle;
             if (defense != StoryPortEnemyDefense.Action.Idle) lastEnemyDefense = Time.time;
             if (defense == StoryPortEnemyDefense.Action.Block)
@@ -3274,10 +3275,12 @@ namespace StoryPort
         string ReadBattleEnemy(string json)
         {
             string key, level;
+            string personality;
             int tod;
-            StoryPortArenaData.TryReadBattleEnemy(json, out key, out level, out tod);
+            StoryPortArenaData.TryReadBattleEnemy(json, out key, out level, out tod, out personality);
             fightArenaLevel = level;
             fightArenaTod = tod;
+            enemyAIPersonality = personality;
             return key;
         }
 
