@@ -697,9 +697,9 @@ The retry ladder is cheaper and no longer crashes at importer startup, but it
 has not yet produced player output: zero APKs and zero story-runtime checks.
 During these cycles the lowest observed available RAM was about 6.0 GiB, with
 no OOM termination; Unity peak RSS was about 5.0 GiB. External-volume free space
-fell by only 40 MiB on the third cycle. The 789 MiB REA export remains an
-untracked analysis duplicate; its bounded facts are now in MCP evidence and
-this checkpoint, so remove that export after any remaining needed extraction.
+fell by only 40 MiB on the third cycle. The large temporary REA export used for
+bounded extraction was removed after those facts were captured; retained records
+remain available through the MCP session.
 
 Next, repair the newly exposed server/gameplay methods from exact 9.2 evidence
 and validate those bodies cheaply before another Unity run. Do not apply
@@ -708,3 +708,30 @@ paths without proving they are outside the story path. Current estimate remains
 2–6 focused weeks to a first playable story route, low confidence: the warm
 build cycle is now around two minutes, but the APK and runtime milestones remain
 at zero.
+
+## v35: REA transport limits confirmed; no new player output
+
+The active REA MCP session remains healthy and still targets the exact confirmed
+full APK (SHA-256 above); `binary_session` reports that Ghidra cannot import the
+APK container directly. The earlier targeted Ghidra import of the extracted
+ARM64 `libil2cpp.so` timed out without returning a function dossier. Existing
+native labels and bounded ARM64 disassembly remain the practical route for that
+library.
+
+REA `inspect_managed_members` returned complete inline metadata for the current
+100 KiB `RecoveredBindingBases.dll` (897 methods). The generated
+`ScriptBase_cac14fce5239b3e014736b00bb05c904..ctor` has a present seven-byte,
+three-instruction body. A direct REA scan of the current 17 MiB firstpass DLL
+completed and retained evidence `ev_3b8d3274a159c2851b45428099bc0f1ec185dbcad45ab815d4c99bc5b632385a`,
+but its full response exceeded the MCP 10 MiB inline receive limit; the retained
+evidence was not truncated. These are structural observations, not evidence of
+successful IL2CPP conversion or runtime behavior.
+
+This turn added no core repair, did not run Unity, and produced no APK. Progress
+rate therefore remains measured in build-gate advancement, not player-visible
+functionality: the last three warm retries each took about two minutes, moved
+the conversion from importer crashes into ARM64 IL2CPP, and exposed additional
+methods, while successful APKs and story-runtime checks remain zero. Maintain
+the 2–6 focused-week low-confidence estimate to a first playable story route;
+the highest-value next step is to author and cheaply validate a correct repair
+for one newly exposed server-critical method, then rerun one warm ARM64 cycle.
