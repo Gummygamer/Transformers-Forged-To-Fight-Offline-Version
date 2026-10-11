@@ -796,3 +796,30 @@ the first successful ARM64 player build, not native analysis startup. Keep the
 Next, use the retained clean 9.2 evidence to repair the request-signing or
 hashing path exposed by the previous IL2CPP queue, then validate those server
 dependencies cheaply before spending another warm Unity build cycle.
+
+
+## v37: FNV64 smoke vector confirms existing repair
+
+Using the same clean-source staged assemblies and Unity-bundled Mono harness,
+`EB.Hash.FNV64(byte[], long)` passed two native-trace-derived checks: the empty
+array returns its seed, and bytes `abc` from seed `0xCBF29CE484222325` produce
+`0xD8DCCA186BAFADCB`. The trace at `0xFB8F0C` confirms the byte loop computes
+`(hash * 0x100000001B3) XOR byte`; the matching static initializer sets that
+prime and seed. This verifies the existing authored repair in the current
+firstpass assembly; no new hash code or build artifact was added.
+
+`HttpEndPoint.Sign` remains the next server-facing build blocker. Its retained
+9.2 trace covers 154 ARM64 instructions and shows a keyed HMAC sequence over
+the request method, URI host/path, separators, data and optional post bytes,
+followed by Base64 conversion. The recovered helper chain also includes HMAC
+state and mutex handling, so replacing only `Sign` with a simplified string
+hash would not be a verified repair. Next, resolve and validate the Hmac,
+endpoint initialization, and signature output behavior together from the
+bounded traces and local request/server path before another Unity build.
+
+No Unity player build ran during this check. Progress remains one server update
+path plus its name normalization validated in managed smoke tests; there is
+still no ARM64 APK or story-mode runtime result. Keep the first playable-story
+estimate at 2–6 focused weeks, low confidence. This validation added confidence
+to an already reconstructed hash path but does not change the player milestone
+or that estimate.
