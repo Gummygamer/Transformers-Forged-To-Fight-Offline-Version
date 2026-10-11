@@ -911,3 +911,8 @@ invalid second `ret`. `SocialStateModelBase.BadgeState`'s two-argument construct
 windows were compared at their native addresses against the confirmed-source `libil2cpp.so` and
 matched exactly. Focused runtime checks ran against temporary local assemblies; none of those
 assemblies, the APK, or trace output is tracked.
+
+`ChapterPanel`'s four generated color initializers now reference the 9.2-compatible
+`UnityEngine.Color32.op_Implicit(Color32) -> Color` member through its actual declaring type,
+`Color32`. This is a metadata-owner correction to newly authored constructor IL; no game method
+body is copied.

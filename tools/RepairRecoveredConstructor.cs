@@ -5528,7 +5528,7 @@ class RepairRecoveredConstructor {
         };
         foreach (int ignored in new[] { 0, 1, 2, 3 })
             constructor.Parameters.Add(new ParameterDefinition(method.Module.TypeSystem.Byte));
-        var conversion = new MethodReference("op_Implicit", field.FieldType, field.FieldType) {
+        var conversion = new MethodReference("op_Implicit", field.FieldType, color32) {
             HasThis = false,
             CallingConvention = MethodCallingConvention.Default
         };

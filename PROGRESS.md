@@ -938,3 +938,14 @@ confidence**. Next, batch repairs for the remaining story/map, deferred,
 scroll-positioning, generic collection, and by-reference failures; inspect the
 binding-base `Color32` conversion mismatch; and defer Unity until that batch
 passes focused checks.
+
+## v41: ChapterPanel color metadata owner corrected
+
+The prior Unity log's missing `UnityEngine.Color.op_Implicit(Color32)` was traced to the local
+`ChapterPanel` constructor emitter, which gave the conversion method the wrong declaring type.
+Unity 2020.3 exposes the matching conversion on `UnityEngine.Color32`; the generated constructor
+now names `Color32` as owner. REA inspection confirmed the exact Unity 2020 CoreModule artifact
+identity; the repaired `Assembly-CSharp.dll` was then inspected with a bounded Cecil query and all
+four calls resolve to `UnityEngine.Color32::op_Implicit(UnityEngine.Color32)` returning `Color`.
+The short import preflight compiled successfully with the same 12 existing warnings. No Unity
+build was repeated; the next guarded run should be combined with the remaining IL2CPP repair batch.
