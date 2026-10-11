@@ -1316,3 +1316,29 @@ is 24,716,288 bytes, SHA-256
 `ev_4bc79b738e675cd230e49a31d8558a68b154b6a8001830e0558aeb3e2b4e9edb`. Both are generated local
 staging. The pristine APK identity remains the v53 REA-verified root 9.2.0 file. No rebuilt APK or
 playable story session exists; queue turnover still gives no net decline in failures.
+
+## v56: interpolation and gameplay-value checks prepared
+
+The v55 ARM64/IL2CPP checkpoint took 28.43 seconds of preflight and 125.33 seconds in Unity,
+produced no APK, and did not OOM. Process-tree RSS peaked at 4.97 GiB; host available memory
+bottomed at 6.13 GiB from 14.16 GiB before Unity. The 121.3 MiB log compressed to 1.00 MiB and
+the external volume lost 25.77 MiB. All six v55 repairs cleared; 14 new signatures surfaced, so
+the distinct queue remains 16.
+
+Authored six replacements from that queue: `Vector2.Lerp`, `Vector4.Lerp`, `Quaternion.Lerp`,
+`Rectangle.Offset(Point)`, `DamageTypeComparer.Equals`, and
+`CoordinateConstraints.HasConstraints`. The first three snapshot both operands for alias-safe
+output. Damage IDs use boxed value equality because their identity fields are private; coordinate
+constraints are present when any X/Y/Z method differs from `Off`. Preflight compiled with the
+existing 12 CS0219 warnings and Unity Mono smoke passed all six plus adjacent comparisons and
+geometry. These repairs await the next guarded checkpoint.
+
+REA MCP inspected the new staged first-pass assembly (16,691,712 bytes; SHA-256
+`e0437c6237b3a6c0feacc96a89fa1f9897924f2a17149d2a86a90d0e75f3cd50`; evidence
+`ev_b3866c1c851729433edc342606bebf701b9b20feaf472fe6a5cc9935098254a6`) and main assembly
+`Assembly-CSharp.dll` (24,689,152 bytes; SHA-256
+`ac0646c95c77a0d0c396e5b558f0f6cde3012dfc1f6a2009a08beefe30176d08`; evidence
+`ev_ad3a25770ee35117070946799337c0967ebb6d5c7d2898b30953f3d4498c8261`) as complete PE/CLI
+metadata. Both are generated staging, not the shipped assemblies. The pristine APK identity is
+unchanged from v53. There is still no rebuilt APK or playable story session; the last five build
+checkpoints have shown 14 cleared and 14 surfaced methods each, with no net queue reduction.

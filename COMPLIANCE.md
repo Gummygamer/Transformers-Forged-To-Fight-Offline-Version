@@ -978,3 +978,9 @@ documented reconstruction decisions, not represented as copied 9.2 source.
 and fields. Quaternion inverse uses the conjugate divided by squared norm. Rectangle intersection
 uses the same half-open edge convention; `RtLCharInfo` state comparison checks its character,
 flags, and four color channels. No APK data or decompiled method body is retained.
+
+`Vector2.Lerp`, `Vector4.Lerp`, `Quaternion.Lerp`, and `Rectangle.Offset(Point)` are newly authored
+component/coordinate operations with snapshots where output aliasing is possible. Main-assembly
+`DamageTypeComparer.Equals` uses boxed `DamageTypeId` value equality because its two scalar fields
+are private; `CoordinateConstraints.HasConstraints` checks whether any axis method differs from
+the recovered `Off` enumerator. These repairs add no APK bytes or decompiled game method text.

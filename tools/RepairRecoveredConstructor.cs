@@ -6050,8 +6050,12 @@ class RepairRecoveredConstructor {
 
     static int RepairAuthoredMethodBodies(ModuleDefinition targetModule,
         ModuleDefinition sourceModule, string assemblyName) {
-        if (assemblyName == "Assembly-CSharp.dll")
-            return RepairBadgeStateConstructor(targetModule);
+        if (assemblyName == "Assembly-CSharp.dll") {
+            int mainRepairs = RepairBadgeStateConstructor(targetModule);
+            mainRepairs += RepairDamageTypeComparerEquals(targetModule);
+            mainRepairs += RepairCoordinateConstraintsHasConstraints(targetModule);
+            return mainRepairs;
+        }
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
         int repairs = RepairRecoveredPool(targetModule);
         repairs += RepairMatrixAdd(targetModule);
@@ -6072,6 +6076,9 @@ class RepairRecoveredConstructor {
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Multiply", new[] { "x", "y", "z", "w" }, OpCodes.Mul);
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Subtract", new[] { "x", "y", "z", "w" }, OpCodes.Sub);
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Divide", new[] { "x", "y", "z", "w" }, OpCodes.Div);
+        repairs += RepairComponentLerp(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
+        repairs += RepairComponentLerp(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
+        repairs += RepairComponentLerp(targetModule, "EB.Math.Quaternion", new[] { "x", "y", "z", "w" });
         repairs += RepairQuaternionDot(targetModule);
         repairs += RepairQuaternionInverse(targetModule);
         repairs += RepairPlaneDot(targetModule);
@@ -6083,6 +6090,7 @@ class RepairRecoveredConstructor {
         repairs += RepairRectangleContainsRectangleOut(targetModule);
         repairs += RepairRectangleIntersect(targetModule);
         repairs += RepairRectangleIntersects(targetModule);
+        repairs += RepairRectangleOffset(targetModule);
         repairs += RepairQuaternionAdd(targetModule);
         repairs += RepairQuaternionSubtract(targetModule);
         repairs += RepairQuaternionMultiply(targetModule);
@@ -6845,6 +6853,54 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairComponentLerp(ModuleDefinition module, string typeName, string[] componentNames) {
+        TypeDefinition type = module.GetType(typeName);
+        if (type == null) throw new InvalidDataException("missing " + typeName + " metadata");
+        string referenceType = typeName + "&";
+        MethodDefinition lerp = type.Methods.SingleOrDefault(method => method.Name == "Lerp" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 4 &&
+            method.Parameters[0].ParameterType.FullName == referenceType &&
+            method.Parameters[1].ParameterType.FullName == referenceType &&
+            method.Parameters[2].ParameterType.MetadataType == MetadataType.Single &&
+            method.Parameters[3].ParameterType.FullName == referenceType);
+        FieldDefinition[] fields = componentNames.Select(name => type.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (lerp == null || fields.Any(field => field == null) || fields.Distinct().Count() != componentNames.Length)
+            throw new InvalidDataException("unexpected " + typeName + ".Lerp metadata");
+
+        MethodBody body = ResetBody(lerp, out ILProcessor il);
+        body.InitLocals = true;
+        VariableDefinition[] left = new VariableDefinition[fields.Length];
+        VariableDefinition[] right = new VariableDefinition[fields.Length];
+        for (int i = 0; i < fields.Length; i++) {
+            left[i] = new VariableDefinition(module.TypeSystem.Single);
+            right[i] = new VariableDefinition(module.TypeSystem.Single);
+            body.Variables.Add(left[i]);
+            body.Variables.Add(right[i]);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, right[i]));
+        }
+        for (int i = 0; i < fields.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_3));
+            il.Append(Instruction.Create(OpCodes.Ldloc, right[i]));
+            il.Append(Instruction.Create(OpCodes.Ldloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Sub));
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            il.Append(Instruction.Create(OpCodes.Mul));
+            il.Append(Instruction.Create(OpCodes.Ldloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Add));
+            il.Append(Instruction.Create(OpCodes.Stfld, fields[i]));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed " + typeName + ".Lerp with snapshotted scalar components");
+        return 1;
+    }
+
     static int RepairQuaternionDot(ModuleDefinition module) {
         TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
         if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
@@ -7485,6 +7541,45 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairRectangleOffset(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        TypeDefinition point = module.GetType("EB.Math.Point");
+        if (rectangle == null || point == null) throw new InvalidDataException("missing rectangle/point metadata");
+        FieldDefinition x = rectangle.Fields.SingleOrDefault(field => field.Name == "X" && !field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition y = rectangle.Fields.SingleOrDefault(field => field.Name == "Y" && !field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition pointX = point.Fields.SingleOrDefault(field => field.Name == "X" && !field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Int32);
+        FieldDefinition pointY = point.Fields.SingleOrDefault(field => field.Name == "Y" && !field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Int32);
+        MethodDefinition offset = rectangle.Methods.SingleOrDefault(method => method.Name == "Offset" && !method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.FullName == "EB.Math.Point");
+        if (x == null || y == null || pointX == null || pointY == null || offset == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.Offset(Point) metadata");
+
+        MethodBody body = ResetBody(offset, out ILProcessor il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarga, offset.Parameters[0]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, pointX));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarga, offset.Parameters[0]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, pointY));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stfld, y));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Rectangle.Offset(Point) from integer coordinates");
+        return 1;
+    }
+
     static int RepairQuaternionAdd(ModuleDefinition module) {
         TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
         if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
@@ -7677,6 +7772,66 @@ class RepairRecoveredConstructor {
         compareBody.MaxStackSize = 2;
         Console.WriteLine("reconstructed EB.Replication.ViewId equality/inequality and lexicographic ordering (p,n,s)");
         return 3;
+    }
+
+    static int RepairDamageTypeComparerEquals(ModuleDefinition module) {
+        TypeDefinition comparer = module.GetType("DamageTypeComparer");
+        TypeDefinition damageType = module.GetType("DamageTypeId");
+        if (comparer == null || damageType == null) throw new InvalidDataException("missing damage comparer metadata");
+        MethodDefinition equals = comparer.Methods.SingleOrDefault(method => method.Name == "Equals" && !method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 2 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "DamageTypeId"));
+        if (damageType.Fields.Count(field => !field.IsStatic && field.FieldType.MetadataType == MetadataType.Int32) != 2 ||
+            equals == null)
+            throw new InvalidDataException("unexpected DamageTypeComparer.Equals metadata");
+
+        MethodBody body = ResetBody(equals, out ILProcessor il);
+        foreach (ParameterDefinition parameter in equals.Parameters) {
+            il.Append(Instruction.Create(OpCodes.Ldarga, parameter));
+            il.Append(Instruction.Create(OpCodes.Ldobj, damageType));
+            il.Append(Instruction.Create(OpCodes.Box, damageType));
+        }
+        MethodReference objectEquals = module.ImportReference(typeof(object).GetMethod("Equals", new[] { typeof(object), typeof(object) }));
+        il.Append(Instruction.Create(OpCodes.Call, objectEquals));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed DamageTypeComparer.Equals using boxed value equality");
+        return 1;
+    }
+
+    static int RepairCoordinateConstraintsHasConstraints(ModuleDefinition module) {
+        TypeDefinition constraints = module.GetType("EB.MoveEditor.CoordinateConstraints");
+        TypeDefinition constraint = module.GetType("EB.MoveEditor.Constraint");
+        TypeDefinition methodType = module.GetType("EB.MoveEditor.ConstraintMethod");
+        if (constraints == null || constraint == null || methodType == null)
+            throw new InvalidDataException("missing coordinate constraint metadata");
+        FieldDefinition[] axes = new[] { "X", "Y", "Z" }.Select(name => constraints.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.FullName == constraint.FullName)).ToArray();
+        FieldDefinition method = constraint.Fields.SingleOrDefault(field => field.Name == "Method" && !field.IsStatic &&
+            field.FieldType.FullName == methodType.FullName);
+        FieldDefinition off = methodType.Fields.SingleOrDefault(field => field.Name == "Off" && field.IsStatic && field.IsLiteral);
+        MethodDefinition hasConstraints = constraints.Methods.SingleOrDefault(candidate => candidate.Name == "HasConstraints" &&
+            !candidate.IsStatic && candidate.ReturnType.MetadataType == MetadataType.Boolean && candidate.Parameters.Count == 0);
+        if (axes.Any(field => field == null) || method == null || off == null || !off.HasConstant || hasConstraints == null)
+            throw new InvalidDataException("unexpected CoordinateConstraints.HasConstraints metadata");
+
+        int offValue = Convert.ToInt32(off.Constant);
+        MethodBody body = ResetBody(hasConstraints, out ILProcessor il);
+        Instruction any = Instruction.Create(OpCodes.Ldc_I4_1);
+        foreach (FieldDefinition axis in axes) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldflda, axis));
+            il.Append(Instruction.Create(OpCodes.Ldfld, method));
+            il.Append(offValue == 0 ? Instruction.Create(OpCodes.Ldc_I4_0) : Instruction.Create(OpCodes.Ldc_I4, offValue));
+            il.Append(Instruction.Create(OpCodes.Bne_Un, any));
+        }
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(any);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed CoordinateConstraints.HasConstraints from axis methods");
+        return 1;
     }
 
     static int RepairColorEquality(ModuleDefinition module, string typeName, string methodName) {
