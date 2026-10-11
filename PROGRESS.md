@@ -1492,21 +1492,23 @@ coverage, managed Unity-Mono CIL, no metadata issues (Evidence
 runtime quest was run, so error-queue reduction and playable story behavior remain unverified. Keep
 this batch with the other story-path fixes for the next guarded ARM64 checkpoint.
 
-## v66: restore questboard AvX intro transition routing
+## v66: restore questboard routing and enemy validity checks
 
 Reconstructed `QuestboardHud.OnIntroTransitionComplete` from the retained 9.2 ARM64 trace. It now
 returns unless the config and active quest exist and the quest is AvX; it proceeds only for an end
 tile marked `isWaypoint`, then compares the player and end-tile Vector2 X/Y components exactly before
 calling `OnLocalPlayerDone`. The handler's later null dereferences still throw as in the native
-control flow. This is newly authored IL in the existing Cecil importer, not copied game source.
+control flow. Also reconstructed `Legacy.QuestEnemyInfo.get_IsValid` from its seven-instruction
+trace: both `currentPos` coordinates must pass ordered `>= 0` comparisons. These are newly authored
+IL bodies in the existing Cecil importer, not copied game source.
 
 Importer-only preflight passed with the same 12 existing `CS0219` warnings and again transplanted
 `AlignUIElements.GetObjectBounds`; no Unity build was run. Focused Cecil inspection found 47 IL
-instructions, two Vector2 locals, no exception regions, valid branch targets, and the expected
-`QuestboardHud`, `Quests`, and `EB.Missions.MapTile` references. REA MCP inspected the resulting
-staged `Assembly-CSharp.dll` with complete PE/CLI coverage and no metadata issues (Evidence
-`ev_b14504a82b29976a6e5a8a22343b3bf8593518b76755ec5bc4becfa199bf5eb2`, SHA-256
-`1defb43c3fc478c1930154e75cef7e64f5b0f562c9a7ed096e2d379bd9b1edd6`).
+instructions for the questboard handler and 16 for `IsValid`, no exception regions, and valid
+branch targets. REA MCP inspected the resulting staged `Assembly-CSharp.dll` with complete PE/CLI
+coverage and no metadata issues (Evidence
+`ev_32370c13a5f0849615014eea4d9f162e8ef247a9a7ade0c1843796033f18155c`, SHA-256
+`31a6f8e10e6b81e7f5530ec13151e460c02e2db67d3d143e5d45d19d82910736`).
 
 The saved 215 MB Ghidra project was found, but the REA MCP `open_binary` operation rejected its
 zero-byte `.gpr` marker as an unsupported binary header. The active REA target remains the verified

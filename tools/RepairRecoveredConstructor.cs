@@ -6056,6 +6056,7 @@ class RepairRecoveredConstructor {
             mainRepairs += RepairCoordinateConstraintsHasConstraints(targetModule);
             mainRepairs += RepairQuestBegin(targetModule, sourceModule);
             mainRepairs += RepairQuestboardHudOnIntroTransitionComplete(targetModule);
+            mainRepairs += RepairQuestEnemyInfoIsValid(targetModule);
             mainRepairs += RepairQuestMapTileIncomingBuffList(targetModule, sourceModule);
             return mainRepairs;
         }
@@ -6625,6 +6626,48 @@ class RepairRecoveredConstructor {
         il.Append(done);
         body.MaxStackSize = 2;
         Console.WriteLine("reconstructed QuestboardHud.OnIntroTransitionComplete from 9.2 ARM64 control flow");
+        return 1;
+    }
+
+    static int RepairQuestEnemyInfoIsValid(ModuleDefinition targetModule) {
+        TypeDefinition enemyInfo = targetModule.GetType("Legacy.QuestEnemyInfo");
+        if (enemyInfo == null)
+            throw new InvalidDataException("missing Legacy.QuestEnemyInfo metadata");
+        FieldDefinition currentPos = enemyInfo.Fields.SingleOrDefault(field =>
+            field.Name == "<currentPos>k__BackingField" && !field.IsStatic &&
+            field.FieldType.FullName == "UnityEngine.Vector2");
+        MethodDefinition getter = enemyInfo.Methods.SingleOrDefault(method =>
+            method.Name == "get_IsValid" && !method.IsStatic && method.Parameters.Count == 0 &&
+            method.ReturnType.MetadataType == MetadataType.Boolean);
+        if (currentPos == null || getter == null)
+            throw new InvalidDataException("unexpected Legacy.QuestEnemyInfo.IsValid metadata");
+
+        TypeReference vector2 = UnityEngineType(targetModule, "Vector2");
+        var vectorX = targetModule.ImportReference(new FieldReference("x", targetModule.TypeSystem.Single, vector2));
+        var vectorY = targetModule.ImportReference(new FieldReference("y", targetModule.TypeSystem.Single, vector2));
+        ILProcessor il;
+        MethodBody body = ResetBody(getter, out il);
+        Instruction checkY = Instruction.Create(OpCodes.Ldarg_0);
+        Instruction valid = Instruction.Create(OpCodes.Ldc_I4_1);
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, currentPos));
+        il.Append(Instruction.Create(OpCodes.Ldfld, vectorX));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Bge, checkY));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(checkY);
+        il.Append(Instruction.Create(OpCodes.Ldfld, currentPos));
+        il.Append(Instruction.Create(OpCodes.Ldfld, vectorY));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Bge, valid));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(valid);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed Legacy.QuestEnemyInfo.IsValid from its 9.2 ordered float comparisons");
         return 1;
     }
 
