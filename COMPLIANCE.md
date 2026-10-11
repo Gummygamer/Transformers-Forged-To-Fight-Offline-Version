@@ -986,3 +986,5 @@ are private; `CoordinateConstraints.HasConstraints` checks whether any axis meth
 the recovered `Off` enumerator. These repairs add no APK bytes or decompiled game method text.
 
 `EB.Math.Vector2.SmoothStep`, `EB.Math.Vector4.SmoothStep`, and `EB.Math.Rectangle.Union` are newly authored IL from recovered signatures and staged scalar fields. SmoothStep clamps its interpolation amount to `[0,1]` and applies the standard cubic curve; Rectangle.Union snapshots inputs for alias-safe extents. These are reconstructions, not copied game method bodies, and retain no APK bytes or assets.
+
+`EB.Math.Vector2.Distance(ref,ref,out)`, `EB.Math.Vector4.Distance(ref,ref,out)`, and typed `EB.Math.Rectangle.Equals` are newly authored IL from staged 9.2 signatures and scalar fields. Distances use Euclidean component deltas and rectangle equality compares all four integer fields. No APK bytes, assets, or copied game method bodies are retained.
