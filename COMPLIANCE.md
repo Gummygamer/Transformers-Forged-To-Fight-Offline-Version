@@ -940,3 +940,7 @@ field; no APK bytes, assets, or copied game method body are retained.
 `EBWorldPainterData.LinesCross` is newly authored CIL following the 9.2 segment cross-product
 trace and recovered point fields. Its closed-interval endpoint behavior is inferred because the
 recovered control flow is incomplete; no APK bytes, assets, or copied game method body are retained.
+
+The `EB.Math.Matrix.Subtract`, `EB.Math.Point.Equals`, `EB.Math.Vector4` component getters, and
+`EB.Math.Plane.Dot` repairs are newly authored from recovered signatures and scalar-field metadata.
+No APK bytes, assets, or copied game method body are retained.

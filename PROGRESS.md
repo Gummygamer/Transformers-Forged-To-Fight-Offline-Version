@@ -1127,3 +1127,29 @@ first-pass assembly as complete PE/CLI metadata (16,980,480 bytes; SHA-256
 output, not a shipped Kabam assembly. The next useful check is a guarded ARM64/IL2CPP batch build
 with the accumulated matrix, map-coordinate, segment-test, and authored UI fixes. No APK or
 playable story route yet.
+
+## v49: math helpers accepted by IL2CPP
+
+The guarded ARM64/IL2CPP batch failed without producing an APK. Compared with the preceding
+16-signature set, 15 disappeared and 15 surfaced; `EB.Collections.Pool<T>.Clear` is the one
+repeated signature. The new failures include quest synchronization, buff cloning, BCG progression,
+and fast serialization methods, which now take priority over incidental UI work. The queue remains
+16 unique methods rather than shrinking.
+
+Unity ran 108.07 seconds after a 28.24-second preflight. Its process tree peaked at 5,491,589,120
+bytes (5.12 GiB); host memory availability reached a minimum of 6,510,100,480 bytes (6.06 GiB),
+from 14.08 GiB before Unity. The 121.3 MiB Unity log compressed to 1.00 MiB; the recovery volume
+ended with 40,910,848 bytes (39.02 MiB) more free than before the cycle. No APK was produced.
+
+Reconstructed `EB.Math.Matrix.Subtract(ref,ref,ref)`, `EB.Math.Point.Equals(Point)`,
+`EB.Math.Vector4` X/Y/Z/W getters, and `EB.Math.Plane.Dot(ref Vector4,out float)` from recovered
+signatures and scalar fields. Recovery preflight passed; Unity-bundled Mono smoke passed all 16
+matrix components, equal/unequal points, all four vector components, and a plane dot result of 184.
+REA MCP inspected the staged first-pass assembly as complete PE/CLI metadata (16,948,736 bytes;
+SHA-256 `d70b3839025f663579d78d90d6368870e0c70386a6fc80da6faf996ff1f4dfd2`; MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`; evidence
+`ev_997f15d8ba4ad2360b0a56273d4b0547b8558c9c5fa38599cca2f0c3150f630f`). The prior Android
+package inspection of the pristine root APK observed `com.kabam.bigrobot` version 9.2.0, code
+`123129100` (evidence `ev_c95cea5a0778cd2d582d2f16fbb44fd163753f84840dc0945d20cb2b2ef5c9af`).
+The staged assembly is local recovery output, not a shipped Kabam assembly. No playable story route
+or APK exists yet.
