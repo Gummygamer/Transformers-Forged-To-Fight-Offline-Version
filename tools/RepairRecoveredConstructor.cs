@@ -6079,6 +6079,8 @@ class RepairRecoveredConstructor {
         repairs += RepairComponentLerp(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
         repairs += RepairComponentLerp(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairComponentLerp(targetModule, "EB.Math.Quaternion", new[] { "x", "y", "z", "w" });
+        repairs += RepairVectorSmoothStep(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
+        repairs += RepairVectorSmoothStep(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairQuaternionDot(targetModule);
         repairs += RepairQuaternionInverse(targetModule);
         repairs += RepairPlaneDot(targetModule);
@@ -6089,6 +6091,7 @@ class RepairRecoveredConstructor {
         repairs += RepairRectangleContainsRectangle(targetModule);
         repairs += RepairRectangleContainsRectangleOut(targetModule);
         repairs += RepairRectangleIntersect(targetModule);
+        repairs += RepairRectangleUnion(targetModule);
         repairs += RepairRectangleIntersects(targetModule);
         repairs += RepairRectangleOffset(targetModule);
         repairs += RepairQuaternionAdd(targetModule);
@@ -6901,6 +6904,84 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairVectorSmoothStep(ModuleDefinition module, string typeName, string[] componentNames) {
+        TypeDefinition type = module.GetType(typeName);
+        if (type == null) throw new InvalidDataException("missing " + typeName + " metadata");
+        string referenceType = typeName + "&";
+        MethodDefinition smoothStep = type.Methods.SingleOrDefault(method => method.Name == "SmoothStep" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 4 &&
+            method.Parameters[0].ParameterType.FullName == referenceType &&
+            method.Parameters[1].ParameterType.FullName == referenceType &&
+            method.Parameters[2].ParameterType.MetadataType == MetadataType.Single &&
+            method.Parameters[3].ParameterType.FullName == referenceType);
+        FieldDefinition[] fields = componentNames.Select(name => type.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (smoothStep == null || fields.Any(field => field == null) || fields.Distinct().Count() != componentNames.Length)
+            throw new InvalidDataException("unexpected " + typeName + ".SmoothStep metadata");
+
+        MethodBody body = ResetBody(smoothStep, out ILProcessor il);
+        body.InitLocals = true;
+        VariableDefinition amount = new VariableDefinition(module.TypeSystem.Single);
+        body.Variables.Add(amount);
+        VariableDefinition[] left = new VariableDefinition[fields.Length];
+        VariableDefinition[] right = new VariableDefinition[fields.Length];
+        for (int i = 0; i < fields.Length; i++) {
+            left[i] = new VariableDefinition(module.TypeSystem.Single);
+            right[i] = new VariableDefinition(module.TypeSystem.Single);
+            body.Variables.Add(left[i]);
+            body.Variables.Add(right[i]);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, right[i]));
+        }
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Stloc, amount));
+        Instruction amountReady = Instruction.Create(OpCodes.Ldloc, amount);
+        Instruction amountLow = Instruction.Create(OpCodes.Ldc_R4, 0f);
+        Instruction amountHigh = Instruction.Create(OpCodes.Ldc_R4, 1f);
+        il.Append(Instruction.Create(OpCodes.Ldloc, amount));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Blt, amountLow));
+        il.Append(Instruction.Create(OpCodes.Ldloc, amount));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 1f));
+        il.Append(Instruction.Create(OpCodes.Bgt, amountHigh));
+        il.Append(Instruction.Create(OpCodes.Br, amountReady));
+        il.Append(amountLow);
+        il.Append(Instruction.Create(OpCodes.Stloc, amount));
+        il.Append(Instruction.Create(OpCodes.Br, amountReady));
+        il.Append(amountHigh);
+        il.Append(Instruction.Create(OpCodes.Stloc, amount));
+        il.Append(amountReady);
+        il.Append(Instruction.Create(OpCodes.Ldloc, amount));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 3f));
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 2f));
+        il.Append(Instruction.Create(OpCodes.Ldloc, amount));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Mul));
+        il.Append(Instruction.Create(OpCodes.Stloc, amount));
+        for (int i = 0; i < fields.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_3));
+            il.Append(Instruction.Create(OpCodes.Ldloc, right[i]));
+            il.Append(Instruction.Create(OpCodes.Ldloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Sub));
+            il.Append(Instruction.Create(OpCodes.Ldloc, amount));
+            il.Append(Instruction.Create(OpCodes.Mul));
+            il.Append(Instruction.Create(OpCodes.Ldloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Add));
+            il.Append(Instruction.Create(OpCodes.Stfld, fields[i]));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed " + typeName + ".SmoothStep with clamped cubic interpolation");
+        return 1;
+    }
+
     static int RepairQuaternionDot(ModuleDefinition module) {
         TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
         if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
@@ -7462,6 +7543,75 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 3;
         Console.WriteLine("reconstructed EB.Math.Rectangle.Intersect with alias-safe half-open extents");
+        return 1;
+    }
+
+    static int RepairRectangleUnion(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        if (rectangle == null) throw new InvalidDataException("missing EB.Math.Rectangle metadata");
+        FieldDefinition[] fields = new[] { "X", "Y", "Width", "Height" }.Select(name =>
+            rectangle.Fields.SingleOrDefault(field => field.Name == name && !field.IsStatic &&
+                field.FieldType.MetadataType == MetadataType.Int32)).ToArray();
+        MethodDefinition union = rectangle.Methods.SingleOrDefault(method => method.Name == "Union" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 3 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Math.Rectangle&"));
+        if (fields.Any(field => field == null) || union == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.Union metadata");
+
+        FieldDefinition x = fields[0], y = fields[1], width = fields[2], height = fields[3];
+        MethodBody body = ResetBody(union, out ILProcessor il);
+        body.InitLocals = true;
+        VariableDefinition[] values = new VariableDefinition[16];
+        for (int i = 0; i < values.Length; i++) {
+            values[i] = new VariableDefinition(module.TypeSystem.Int32);
+            body.Variables.Add(values[i]);
+        }
+        FieldDefinition[] rectangleFields = { x, y, width, height };
+        for (int input = 0; input < 2; input++) {
+            for (int component = 0; component < 4; component++) {
+                il.Append(Instruction.Create(OpCodes.Ldarg, union.Parameters[input]));
+                il.Append(Instruction.Create(OpCodes.Ldfld, rectangleFields[component]));
+                il.Append(Instruction.Create(OpCodes.Stloc, values[input * 4 + component]));
+            }
+        }
+        EmitIntExtremum(il, values[0], values[4], values[8], false);
+        EmitIntExtremum(il, values[1], values[5], values[9], false);
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[0]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[2]));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[14]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[4]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[6]));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[15]));
+        EmitIntExtremum(il, values[14], values[15], values[10], true);
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[1]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[3]));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[14]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[5]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[7]));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[15]));
+        EmitIntExtremum(il, values[14], values[15], values[11], true);
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[10]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[8]));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[12]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[11]));
+        il.Append(Instruction.Create(OpCodes.Ldloc, values[9]));
+        il.Append(Instruction.Create(OpCodes.Sub));
+        il.Append(Instruction.Create(OpCodes.Stloc, values[13]));
+        FieldDefinition[] outputFields = { x, y, width, height };
+        int[] outputLocals = { 8, 9, 12, 13 };
+        for (int i = 0; i < outputFields.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_2));
+            il.Append(Instruction.Create(OpCodes.Ldloc, values[outputLocals[i]]));
+            il.Append(Instruction.Create(OpCodes.Stfld, outputFields[i]));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Rectangle.Union with alias-safe extents");
         return 1;
     }
 

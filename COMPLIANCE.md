@@ -984,3 +984,5 @@ component/coordinate operations with snapshots where output aliasing is possible
 `DamageTypeComparer.Equals` uses boxed `DamageTypeId` value equality because its two scalar fields
 are private; `CoordinateConstraints.HasConstraints` checks whether any axis method differs from
 the recovered `Off` enumerator. These repairs add no APK bytes or decompiled game method text.
+
+`EB.Math.Vector2.SmoothStep`, `EB.Math.Vector4.SmoothStep`, and `EB.Math.Rectangle.Union` are newly authored IL from recovered signatures and staged scalar fields. SmoothStep clamps its interpolation amount to `[0,1]` and applies the standard cubic curve; Rectangle.Union snapshots inputs for alias-safe extents. These are reconstructions, not copied game method bodies, and retain no APK bytes or assets.

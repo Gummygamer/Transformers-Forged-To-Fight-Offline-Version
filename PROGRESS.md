@@ -1342,3 +1342,11 @@ REA MCP inspected the new staged first-pass assembly (16,691,712 bytes; SHA-256
 metadata. Both are generated staging, not the shipped assemblies. The pristine APK identity is
 unchanged from v53. There is still no rebuilt APK or playable story session; the last five build
 checkpoints have shown 14 cleared and 14 surfaced methods each, with no net queue reduction.
+
+## v57: smooth interpolation and rectangle union prepared
+
+The v56 guarded ARM64/IL2CPP checkpoint took 28.39 seconds of preflight and 126.08 seconds in Unity, produced no APK, and did not OOM. Process-tree RSS peaked at 4.99 GiB; host available memory bottomed at 6.14 GiB from 14.14 GiB before Unity. The 121.3 MiB log compressed to 1.00 MiB and the external volume lost 44.31 MiB. All six v56 repairs cleared and 14 new signatures surfaced; the unique queue remains 16.
+
+Authored `Vector2.SmoothStep`, `Vector4.SmoothStep`, and `Rectangle.Union` from recovered signatures and field layouts. Mono smoke passed the existing recovery checks plus clamped smoothstep, vector interpolation, rectangle extents, and aliased output. SmoothStep's clamp and cubic are standard reconstruction choices; Rectangle.Union snapshots the inputs.
+
+REA MCP directly inspected both newly staged managed assemblies with complete PE/CLI metadata. First-pass: 16,684,544 bytes, SHA-256 `7ab38ba854e2669fe8273d8785ab04ac31b7f43466a1f0174f3f7c546fac2f8e`, evidence `ev_b56e35a6300e8665f8abd6c9ae4d14ebe7138ec9c4e13170dcd66253ef24abb8`, MVID `9d505b09-f68b-45e2-8055-c4b676bb2e75`. Main assembly: 24,647,168 bytes, SHA-256 `ec583e1e60c8352344fab7480b4a685514d7d084d66af006fc7fd36c4f0c3c0e`, evidence `ev_9e0b44fb72976be37490bab838e83d2857cb08228d99c1b609ecef321191846f`, MVID `dd388cfb-fa78-44d3-b450-e67cc324832c`. REA reopened the pristine root APK and confirmed SHA-256 `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`; these generated DLLs remain external staging. No APK or playable story session exists yet.
