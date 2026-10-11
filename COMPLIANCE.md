@@ -33,9 +33,9 @@ value equality; rectangle point containment and its out-result overload use half
 (`X <= x < X + Width` and `Y <= y < Y + Height`); plane coordinate distance and normal dot use
 the normal and distance fields; and quaternion addition operates per scalar component. The
 recovered rectangle overloads were invalid, so the half-open edge convention is an explicit
-approximation. These methods were smoke-checked against arithmetic and boundary cases with
-Unity's bundled Mono. No decompiled game method body is included in the repository; repaired
-assemblies remain local.
+approximation. `StringID` value comparison uses its stored integer identifier. These methods
+were smoke-checked against arithmetic and boundary cases with Unity's bundled Mono. No
+decompiled game method body is included in the repository; repaired assemblies remain local.
 
 The 9.2 request-signing repair is newly authored CIL guided by retained ARM64 observations of
 `EB.Sparx.HttpEndPoint.Sign`, its initialization, and supporting HMAC/encoding calls. It uses

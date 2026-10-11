@@ -1219,3 +1219,31 @@ REA MCP inspected the post-preflight staged first-pass assembly as complete PE/C
 `9d505b09-f68b-45e2-8055-c4b676bb2e75` (evidence
 `ev_b0794940e25405abc7534bb826333e7fc7b637177504b187cf0558c021efae31`). The active REA package
 target remains the pristine 9.2.0 APK; the generated managed assembly is only local staging.
+
+## v52: adjacent scalar helpers reconstructed
+
+The geometry-overload Unity checkpoint still produced no APK. It cleared 14 of the previous 16
+IL2CPP signatures, including all five methods authored in v51 (`Matrix.Lerp`, point inequality,
+plane normal dot, quaternion addition, and rectangle point/out-result containment). Fourteen
+different first-pass failures surfaced, keeping the total queue at 16. No Unity or IL2CPP process
+remains.
+
+This run took 25.18 seconds of preflight and 104.32 seconds in Unity. Peak process-tree RSS was
+6.23 GiB and host available memory reached a 5.94 GiB minimum from 13.99 GiB before Unity. The
+121.3 MiB log compressed to 1.00 MiB; the external volume gained 6.38 MiB and no APK was produced.
+The 10 GiB start guard passed.
+
+Authored seven focused repairs for the new scalar-helper failures: `StringID.Equals` and both
+comparison operators over its integer identifier, `Vector2.Add`, `Vector4.Add`,
+`Rectangle.Contains(Rectangle)`, and `Quaternion.Subtract`. Recovery preflight compiled and the
+Unity-bundled Mono smoke passed those methods alongside the previous matrix, vector, quaternion,
+rectangle, point, and plane checks. The rectangle extent comparisons use the same documented
+half-open approximation. These seven repairs await a Unity checkpoint.
+
+REA MCP inspected the new staged first-pass assembly as complete PE/CLI metadata, SHA-256
+`25781f4c846dc717d3b7f43cee13522521381540caede6b739ef8f1efddc5205`, MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75` (evidence
+`ev_e38fdc25d46bd287bbf769920786356c7c94744be7699a2932ee18d65f84625a`). The live REA session
+still targets the pristine APK with SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`; these assemblies are
+generated staging only.
