@@ -58,11 +58,12 @@ the full Act I and Act II route):
   heavy attacks also break a held block. This source change still needs an
   on-device fight comparison before its hit cadence is considered matched.
 - Mobility update: a held horizontal drag continuously runs toward or away from
-  the enemy, with a safe fighting-distance limit; releasing the touch stops the
-  run. Quick left swipes play the Dodge state and retreat, while vertical swipes
-  play directional sidestep states and move the player laterally for a brief
-  evade. Short right swipes remain medium attacks in reach. The targeted Unity
-  Editor check passes; touch feel still needs a device comparison.
+  the enemy, starting after a short hold and a smaller drag; releasing the touch
+  stops the run. Quick left swipes play the Dodge state and retreat, while
+  vertical swipes play directional sidestep states and move the player laterally
+  for a brief evade. The fight HUD now shows the gesture controls. Short right
+  swipes remain medium attacks in reach. Touch feel still needs a device
+  comparison.
 - Enemy movement update: a wide gap now triggers a Run-state approach before the
   combo, and the enemy keeps ground after a landed attack. A clean evade returns
   it to its pre-lunge position. Defensive dodges retreat from the player and
@@ -75,9 +76,12 @@ the full Act I and Act II route):
 - Enemy combat reads the server's `aiString` and `aiPer` fields. Story encounters
   specify `Default` and `Ranged`: combos use the profile's 2–5 hit weights and
   light/medium repeats with a weighted heavy ender; anticipation uses the
-  personality's dodge, block, sidestep and idle weights. The response plays the
-  converted fight animations. Focused Editor checks cover server parsing and
-  weighted choices.
+  personality's dodge, block, sidestep and idle weights. At long range, AIAct
+  selects between converted ranged attack states and closing distance; ranged
+  damage and meter use the server's `Ranged` move values. Focused Editor checks
+  cover server parsing, action weights, and ranged animation clips. Per-bot
+  projectile visuals and the full close-distance tactic tree remain to be
+  reconstructed.
 - The seven base navigation icons use the original 9.2 button glyphs from the
   local Tecnica font. `prepare_project.py` copies that font into the ignored
   Unity project; the Editor base preview confirms their placement.

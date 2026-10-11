@@ -4,7 +4,51 @@ namespace StoryPort
     // Default profile and MeleeCombo behavior tree used by Story encounters.
     public static class StoryPortEnemyAI
     {
+        public enum TurnAction { MeleeCombo, Shoot, CloseDistance, SpecialAttack, HeavyAttack }
         public enum MeleeMove { Light, Medium, Heavy }
+
+        public static TurnAction ChooseTurnAction(float roll, bool outsideMeleeRange, bool rangedPersonality,
+            bool canShoot, bool specialReady)
+        {
+            float melee = 0f, shoot = 0f, close = 0f, special = 0f, heavy = 0f;
+            if (outsideMeleeRange)
+            {
+                close = 5.5f; // Act_CloseDistance in AIAct.
+                if (rangedPersonality && canShoot) shoot = 3f; // Act_Shoot.
+            }
+            else
+            {
+                melee = 7f; // Act_MeleeCombo.
+                heavy = 1f; // Act_HeavyAttack.
+            }
+            if (specialReady) special = 3f; // Act_SpecialAttack.
+
+            float total = melee + shoot + close + special + heavy;
+            float weighted = Clamp01(roll) * total;
+            if (weighted >= total) weighted = total - .00001f;
+            if (weighted < melee) return TurnAction.MeleeCombo;
+            weighted -= melee;
+            if (weighted < shoot) return TurnAction.Shoot;
+            weighted -= shoot;
+            if (weighted < close) return TurnAction.CloseDistance;
+            weighted -= close;
+            if (weighted < special) return TurnAction.SpecialAttack;
+            if (heavy > 0f) return TurnAction.HeavyAttack;
+            if (special > 0f) return TurnAction.SpecialAttack;
+            if (close > 0f) return TurnAction.CloseDistance;
+            if (shoot > 0f) return TurnAction.Shoot;
+            return TurnAction.MeleeCombo;
+        }
+
+        public static int ChooseRangedVolleyHits(float roll, string personality)
+        {
+            if (personality != "Ranged") return 1;
+            // Ranged SH weights: Shoot .15, PauseShoot .25, ShootX2 .2, ShootX3 .4.
+            float weighted = Clamp01(roll);
+            if (weighted < .15f) return 1;
+            if (weighted < .6f) return 2;
+            return 3;
+        }
 
         public static int ChooseComboLength(float roll, string profile)
         {

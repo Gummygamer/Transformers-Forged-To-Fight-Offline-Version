@@ -112,9 +112,14 @@ namespace StoryPort.Editor
                 input.Move(new Vector2(.95f, .4f), 3.3f) != StoryPortFightGesture.Action.WalkForward ||
                 input.End(new Vector2(.95f, .4f), 3.4f) != StoryPortFightGesture.Action.None)
                 throw new Exception("A held right drag did not keep walking forward until release");
-            input.Begin(right, 3.45f);
-            if (input.Move(new Vector2(.4f, .4f), 3.55f) != StoryPortFightGesture.Action.WalkBackward ||
-                input.Move(new Vector2(.4f, .4f), 3.85f) != StoryPortFightGesture.Action.WalkBackward)
+            input.Begin(right, 3.41f);
+            if (input.Move(new Vector2(.79f, .4f), 3.46f) != StoryPortFightGesture.Action.None ||
+                input.Move(new Vector2(.85f, .4f), 3.50f) != StoryPortFightGesture.Action.WalkForward ||
+                input.End(new Vector2(.85f, .4f), 3.51f) != StoryPortFightGesture.Action.None)
+                throw new Exception("A short held drag did not start walking without swallowing a quick swipe");
+            input.Begin(right, 3.53f);
+            if (input.Move(new Vector2(.4f, .4f), 3.63f) != StoryPortFightGesture.Action.WalkBackward ||
+                input.Move(new Vector2(.4f, .4f), 3.83f) != StoryPortFightGesture.Action.WalkBackward)
                 throw new Exception("A held left drag did not keep walking backward");
             input.Cancel();
             input.Begin(right, 3.9f);
@@ -216,11 +221,14 @@ namespace StoryPort.Editor
         static void CheckHeavyMove()
         {
             var rules = new StoryPortCombatRules();
-            rules.Load("{\"attackValues\":{\"Heavy\":{\"a\":1.37,\"m\":143,\"c\":0.13,\"d\":1.9}}}");
+            rules.Load("{\"attackValues\":{\"Heavy\":{\"a\":1.37,\"m\":143,\"c\":0.13,\"d\":1.9},\"Ranged\":{\"a\":0.4,\"m\":55,\"c\":0.05,\"d\":1.5}}}");
             var heavy = rules.MoveFor("HeavyAttack");
             if (Mathf.Abs(heavy.Share - 1.37f) > .001f || Mathf.Abs(heavy.Mana - 143f) > .001f ||
                 Mathf.Abs(heavy.CritChance - .13f) > .001f || Mathf.Abs(heavy.CritDamage - 1.9f) > .001f)
                 throw new Exception("Heavy attack lost server-authored move values");
+            var ranged = rules.MoveFor("RangedAttack02");
+            if (Mathf.Abs(ranged.Share - .4f) > .001f || Mathf.Abs(ranged.Mana - 55f) > .001f)
+                throw new Exception("Ranged attack lost server-authored move values");
             if (StoryPortCombatRules.DefenseMultiplier("HeavyAttack", StoryPortEnemyDefense.Action.Block) != 1f ||
                 StoryPortCombatRules.DefenseMultiplier("MediumAttack01", StoryPortEnemyDefense.Action.Block) != .1f ||
                 StoryPortCombatRules.DefenseMultiplier("HeavyAttack", StoryPortEnemyDefense.Action.Dodge) != 0f)
@@ -232,6 +240,7 @@ namespace StoryPort.Editor
             var controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>("Assets/Art92/AnimatorController/animator_char_fight.controller");
             if (controller == null) throw new Exception("Missing converted 9.2 fight controller");
             bool heavy = false, reaction = false, run = false, dodge = false, sidestepLeft = false, sidestepRight = false;
+            bool ranged1 = false, ranged2 = false, ranged3 = false;
             foreach (var clip in controller.animationClips)
             {
                 heavy |= clip.name == "char_attackHeavy";
@@ -240,9 +249,12 @@ namespace StoryPort.Editor
                 dodge |= clip.name == "char_locoDodge";
                 sidestepLeft |= clip.name == "char_locoSidestep_left";
                 sidestepRight |= clip.name == "char_locoSidestep_right";
+                ranged1 |= clip.name == "char_attackRanged_01";
+                ranged2 |= clip.name == "char_attackRanged_02";
+                ranged3 |= clip.name == "char_attackRanged_03";
             }
-            if (!heavy || !reaction || !run || !dodge || !sidestepLeft || !sidestepRight)
-                throw new Exception("Converted fight controller lacks an attack reaction or locomotion clip used by StoryPort movement");
+            if (!heavy || !reaction || !run || !dodge || !sidestepLeft || !sidestepRight || !ranged1 || !ranged2 || !ranged3)
+                throw new Exception("Converted fight controller lacks a StoryPort attack, reaction, ranged or locomotion clip");
         }
 
         static void CheckSpecialShot()
@@ -344,6 +356,16 @@ namespace StoryPort.Editor
                 StoryPortEnemyAI.ChooseMeleeMove(.6f, 4, 4, "Default") != StoryPortEnemyAI.MeleeMove.Medium ||
                 StoryPortEnemyAI.ChooseMeleeMove(.99f, 4, 4, "Default") != StoryPortEnemyAI.MeleeMove.Heavy)
                 throw new Exception("Default AI profile combo weights or enders do not match the shipped 9.2 data");
+            if (StoryPortEnemyAI.ChooseRangedVolleyHits(.1f, "Ranged") != 1 ||
+                StoryPortEnemyAI.ChooseRangedVolleyHits(.3f, "Ranged") != 2 ||
+                StoryPortEnemyAI.ChooseRangedVolleyHits(.8f, "Ranged") != 3)
+                throw new Exception("Ranged volley selection does not match 9.2 SH weights");
+            if (StoryPortEnemyAI.ChooseTurnAction(.1f, true, true, true, false) != StoryPortEnemyAI.TurnAction.Shoot ||
+                StoryPortEnemyAI.ChooseTurnAction(.7f, true, true, true, false) != StoryPortEnemyAI.TurnAction.CloseDistance ||
+                StoryPortEnemyAI.ChooseTurnAction(.9f, false, true, true, true) != StoryPortEnemyAI.TurnAction.SpecialAttack ||
+                StoryPortEnemyAI.ChooseTurnAction(.99f, false, true, true, true) != StoryPortEnemyAI.TurnAction.HeavyAttack ||
+                StoryPortEnemyAI.ChooseTurnAction(1f, true, true, true, false) != StoryPortEnemyAI.TurnAction.CloseDistance)
+                throw new Exception("Default AI action weights do not choose ranged, approach and special branches correctly");
         }
 
         static void CheckNavigationFont()

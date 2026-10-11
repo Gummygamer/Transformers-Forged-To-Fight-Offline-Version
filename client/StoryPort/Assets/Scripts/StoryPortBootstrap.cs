@@ -1498,6 +1498,9 @@ namespace StoryPort
             comboText = LabelAt(hud.transform, "Combo", "", 30, TextAnchor.MiddleLeft, Color.white, new Vector2(.012f, .5f), new Vector2(.2f, .64f));
             comboText.fontStyle = FontStyle.BoldAndItalic;
             comboText.raycastTarget = false;
+            var controlsHint = LabelAt(hud.transform, "Fight Controls", "LEFT HOLD: BLOCK · SWIPE ←: DODGE\nRIGHT TAP: ATTACK · HOLD: HEAVY · DRAG ↔: WALK · SWIPE ↑↓: SIDESTEP", 15,
+                TextAnchor.MiddleCenter, new Color(.9f, .92f, .95f, .82f), new Vector2(.16f, .205f), new Vector2(.84f, .28f));
+            controlsHint.raycastTarget = false;
             // Bottom corners as in the footage: the left hex is the special button and
             // glows green once a bar is charged; the right hex marks the attack side,
             // with the three special bars beside it.
@@ -2482,8 +2485,8 @@ namespace StoryPort
             StartCoroutine(EnemyAttack());
         }
 
-        // Enemy turn: a special when charged, otherwise the server profile picks
-        // the combo length and the 9.2 tree selects repeat and ender attacks.
+        // Enemy action and move selection follows the server profile and the
+        // converted 9.2 AIAct, Ranged, and MeleeCombo weights.
         IEnumerator EnemyAttack()
         {
             // Claim the turn so further player taps queue, then let the current swing land.
@@ -2491,12 +2494,23 @@ namespace StoryPort
             while (playerBusy && screen == "fight") yield return null;
             if (screen != "fight" || playerHp <= 0 || enemyHp <= 0) { enemyBusy = false; yield break; }
             int enemyBars = Mathf.FloorToInt(enemyMana / StoryPortCombatRules.ManaPerBar);
-            bool special = enemyBars >= 1 && (enemyBars >= 3 || UnityEngine.Random.value < .3f);
+            float openingGap = enemyActor != null && playerActor != null
+                ? Vector3.Distance(enemyActor.transform.position, playerActor.transform.position) : 0f;
+            bool outsideMeleeRange = openingGap > 5.8f;
+            bool canShoot = enemyAnimator != null && enemyAnimator.HasState(0, Animator.StringToHash("RangedAttack01"));
+            var action = StoryPortEnemyAI.ChooseTurnAction(UnityEngine.Random.value, outsideMeleeRange,
+                enemyAIPersonality == "Ranged", canShoot, enemyBars > 0);
+            bool special = action == StoryPortEnemyAI.TurnAction.SpecialAttack;
+            bool rangedVolley = action == StoryPortEnemyAI.TurnAction.Shoot;
+            bool closeDistance = action == StoryPortEnemyAI.TurnAction.CloseDistance;
+            bool standaloneHeavy = action == StoryPortEnemyAI.TurnAction.HeavyAttack;
             enemySpecialLevel = special ? Mathf.Min(3, enemyBars) : 0;
             if (special) enemyMana -= enemySpecialLevel * StoryPortCombatRules.ManaPerBar;
-            int hits = special ? 1 : StoryPortEnemyAI.ChooseComboLength(UnityEngine.Random.value, enemyAIProfile);
+            int hits = special || standaloneHeavy ? 1 : rangedVolley
+                ? StoryPortEnemyAI.ChooseRangedVolleyHits(UnityEngine.Random.value, enemyAIPersonality)
+                : StoryPortEnemyAI.ChooseComboLength(UnityEngine.Random.value, enemyAIProfile);
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
-            if (enemyActor != null && playerActor != null)
+            if (closeDistance && enemyActor != null && playerActor != null)
             {
                 Vector3 towardPlayer = playerActor.transform.position - enemyActor.transform.position;
                 towardPlayer.y = 0f;
@@ -2511,15 +2525,22 @@ namespace StoryPort
                     towardPlayer = playerActor.transform.position - enemyActor.transform.position;
                     towardPlayer.y = 0f;
                 }
+            }
+            if (!rangedVolley && !special && enemyActor != null && playerActor != null)
+            {
+                Vector3 towardPlayer = playerActor.transform.position - enemyActor.transform.position;
+                towardPlayer.y = 0f;
                 float lunge = Mathf.Min(.7f, Mathf.Max(0f, towardPlayer.magnitude - 1.8f));
                 if (lunge > .01f)
                     StartCoroutine(MoveActor(enemyActor, enemyActor.transform.position + towardPlayer.normalized * lunge, .2f));
             }
-            SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "");
+            SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : rangedVolley ? "RANGED ATTACK · BLOCK OR DODGE" : "");
             bool recoverAfterEvade = false;
             for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
-                string enemyState = special ? "SpecialAttack0" + enemySpecialLevel : EnemyComboMove(hit, hits, enemyAIProfile);
+                string enemyState = special ? "SpecialAttack0" + enemySpecialLevel
+                    : rangedVolley ? "RangedAttack0" + hit
+                    : standaloneHeavy ? "HeavyAttack" : EnemyComboMove(hit, hits, enemyAIProfile);
                 float specialStartedAt = -1f;
                 float originalEnemyAnimatorSpeed = enemyAnimator != null ? enemyAnimator.speed : 1f;
                 PlayState(enemyAnimator, enemyState);
@@ -2539,6 +2560,7 @@ namespace StoryPort
                 Combat(enemyKey, "attack_" + enemyStep);
                 // Give heavier swings their longer wind-up so block breaks are readable.
                 float impactDelay = special ? StoryPortSpecialTimeline.ImpactSeconds
+                    : rangedVolley ? .5f
                     : enemyStep >= 5 ? .7f : enemyStep >= 4 ? .43f : hit == 1 ? .5f : .32f;
                 yield return new WaitForSeconds(impactDelay);
                 if (screen != "fight") { enemyBusy = false; yield break; }

@@ -11,6 +11,8 @@ namespace StoryPort
         const float HoldSeconds = .2f;
         const float SwipeDistance = .09f;
         const float AdvanceDistance = .2f;
+        const float WalkDistance = .13f;
+        const float WalkHoldSeconds = .08f;
         Vector2 start;
         float startedAt;
         bool heavyTriggered;
@@ -38,7 +40,10 @@ namespace StoryPort
             if (!Tracking || Guarding || heavyTriggered || start.x <= .38f)
                 return Action.None;
             var delta = point - start;
-            if (Mathf.Abs(delta.x) >= AdvanceDistance)
+            // A quick swipe remains a dash/dodge on release. A short held drag
+            // starts continuous locomotion, so walking does not require crossing
+            // one fifth of the screen before the player sees any response.
+            if (Mathf.Abs(delta.x) >= WalkDistance && time - startedAt >= WalkHoldSeconds)
             {
                 movementStarted = true;
                 return delta.x > 0f ? Action.WalkForward : Action.WalkBackward;

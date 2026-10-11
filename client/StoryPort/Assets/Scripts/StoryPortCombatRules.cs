@@ -24,6 +24,7 @@ namespace StoryPort
             { "Light", new Move { Share = .35f, Mana = 50f, CritChance = .05f, CritDamage = 1.5f } },
             { "Medium", new Move { Share = .6f, Mana = 75f, CritChance = .05f, CritDamage = 1.5f } },
             { "Heavy", new Move { Share = 1f, Mana = 120f, CritChance = .05f, CritDamage = 1.5f } },
+            { "Ranged", new Move { Share = .4f, Mana = 55f, CritChance = .05f, CritDamage = 1.5f } },
         };
         readonly Dictionary<string, float[]> specials = new Dictionary<string, float[]>();
         readonly Dictionary<string, string> classes = new Dictionary<string, string>();
@@ -57,7 +58,8 @@ namespace StoryPort
         public Move MoveFor(string animatorState)
         {
             var kind = animatorState.StartsWith("Medium", StringComparison.Ordinal) ? "Medium"
-                : animatorState.StartsWith("Heavy", StringComparison.Ordinal) ? "Heavy" : "Light";
+                : animatorState.StartsWith("Heavy", StringComparison.Ordinal) ? "Heavy"
+                : animatorState.StartsWith("RangedAttack", StringComparison.Ordinal) ? "Ranged" : "Light";
             return moves.TryGetValue(kind, out var move) ? move : moves["Light"];
         }
 
