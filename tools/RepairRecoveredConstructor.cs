@@ -6083,6 +6083,8 @@ class RepairRecoveredConstructor {
         repairs += RepairVectorSmoothStep(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairVectorDistance(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
         repairs += RepairVectorDistance(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
+        repairs += RepairVectorDistanceSquared(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
+        repairs += RepairVectorDistanceSquared(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairQuaternionDot(targetModule);
         repairs += RepairQuaternionInverse(targetModule);
         repairs += RepairPlaneDot(targetModule);
@@ -6095,6 +6097,7 @@ class RepairRecoveredConstructor {
         repairs += RepairRectangleIntersect(targetModule);
         repairs += RepairRectangleUnion(targetModule);
         repairs += RepairRectangleEquals(targetModule);
+        repairs += RepairRectangleEqualityOperator(targetModule);
         repairs += RepairRectangleIntersects(targetModule);
         repairs += RepairRectangleOffset(targetModule);
         repairs += RepairQuaternionAdd(targetModule);
@@ -6986,10 +6989,19 @@ class RepairRecoveredConstructor {
     }
 
     static int RepairVectorDistance(ModuleDefinition module, string typeName, string[] componentNames) {
+        return RepairVectorDistanceMetric(module, typeName, componentNames, "Distance", true);
+    }
+
+    static int RepairVectorDistanceSquared(ModuleDefinition module, string typeName, string[] componentNames) {
+        return RepairVectorDistanceMetric(module, typeName, componentNames, "DistanceSquared", false);
+    }
+
+    static int RepairVectorDistanceMetric(ModuleDefinition module, string typeName, string[] componentNames,
+        string methodName, bool squareRootResult) {
         TypeDefinition type = module.GetType(typeName);
         if (type == null) throw new InvalidDataException("missing " + typeName + " metadata");
         string referenceType = typeName + "&";
-        MethodDefinition distance = type.Methods.SingleOrDefault(method => method.Name == "Distance" && method.IsStatic &&
+        MethodDefinition distance = type.Methods.SingleOrDefault(method => method.Name == methodName && method.IsStatic &&
             method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 3 &&
             method.Parameters[0].ParameterType.FullName == referenceType &&
             method.Parameters[1].ParameterType.FullName == referenceType &&
@@ -6997,7 +7009,7 @@ class RepairRecoveredConstructor {
         FieldDefinition[] fields = componentNames.Select(name => type.Fields.SingleOrDefault(field =>
             field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
         if (distance == null || fields.Any(field => field == null) || fields.Distinct().Count() != componentNames.Length)
-            throw new InvalidDataException("unexpected " + typeName + ".Distance metadata");
+            throw new InvalidDataException("unexpected " + typeName + "." + methodName + " metadata");
 
         MethodBody body = ResetBody(distance, out ILProcessor il);
         body.InitLocals = true;
@@ -7017,16 +7029,18 @@ class RepairRecoveredConstructor {
             il.Append(Instruction.Create(OpCodes.Add));
             il.Append(Instruction.Create(OpCodes.Stloc, squaredDistance));
         }
-        MethodReference squareRoot = module.ImportReference(typeof(System.Math).GetMethod("Sqrt", new[] { typeof(double) }));
         il.Append(Instruction.Create(OpCodes.Ldarg_2));
         il.Append(Instruction.Create(OpCodes.Ldloc, squaredDistance));
-        il.Append(Instruction.Create(OpCodes.Conv_R8));
-        il.Append(Instruction.Create(OpCodes.Call, squareRoot));
-        il.Append(Instruction.Create(OpCodes.Conv_R4));
+        if (squareRootResult) {
+            MethodReference squareRoot = module.ImportReference(typeof(System.Math).GetMethod("Sqrt", new[] { typeof(double) }));
+            il.Append(Instruction.Create(OpCodes.Conv_R8));
+            il.Append(Instruction.Create(OpCodes.Call, squareRoot));
+            il.Append(Instruction.Create(OpCodes.Conv_R4));
+        }
         il.Append(Instruction.Create(OpCodes.Stind_R4));
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 4;
-        Console.WriteLine("reconstructed " + typeName + ".Distance(ref,ref,out) from Euclidean component deltas");
+        Console.WriteLine("reconstructed " + typeName + "." + methodName + "(ref,ref,out) from component deltas");
         return 1;
     }
 
@@ -7690,6 +7704,36 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 2;
         Console.WriteLine("reconstructed EB.Math.Rectangle.Equals from all four integer coordinates");
+        return 1;
+    }
+
+    static int RepairRectangleEqualityOperator(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        if (rectangle == null) throw new InvalidDataException("missing EB.Math.Rectangle metadata");
+        FieldDefinition[] fields = new[] { "X", "Y", "Width", "Height" }.Select(name =>
+            rectangle.Fields.SingleOrDefault(field => field.Name == name && !field.IsStatic &&
+                field.FieldType.MetadataType == MetadataType.Int32)).ToArray();
+        MethodDefinition equals = rectangle.Methods.SingleOrDefault(method => method.Name == "op_Equality" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 2 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Math.Rectangle"));
+        if (fields.Any(field => field == null) || equals == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.op_Equality metadata");
+
+        MethodBody body = ResetBody(equals, out ILProcessor il);
+        Instruction unequal = Instruction.Create(OpCodes.Ldc_I4_0);
+        foreach (FieldDefinition field in fields) {
+            il.Append(Instruction.Create(OpCodes.Ldarga, equals.Parameters[0]));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarga, equals.Parameters[1]));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Bne_Un, unequal));
+        }
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(unequal);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed EB.Math.Rectangle.op_Equality from all four integer coordinates");
         return 1;
     }
 
