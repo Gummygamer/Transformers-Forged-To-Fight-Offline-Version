@@ -1015,3 +1015,51 @@ IL2CPP failures; the next useful checkpoint is one compressed-log, 10-GiB-guarde
 which queued failures the Matrix and map work clears or exposes. There is no rebuilt APK or
 playable story session yet; the current first-route estimate remains **3–8 focused weeks, low
 confidence**.
+
+## v44: guarded IL2CPP checkpoint measures the map batch
+
+The memory-guarded Unity 2020.3.31f1 ARM64/IL2CPP build reached IL2CPP and failed with 17 Unity
+errors (16 distinct method signatures); it produced no APK. Compared with the previous
+`repaired-scalar-badge-color` baseline, six signatures disappeared and six different ones
+surfaced, so the method queue remains 16. `EB.Math.Matrix.Add` and the story-critical
+`EB.Missions.Map.SetupBuffs` are both absent from the new failures. The other four cleared
+signatures were also absent, but this run does not isolate which cumulative repair caused those
+changes. New findings include `EB.Collections.Pool<T>.Clear`, `EB.DualKeyDictionary.Add`,
+`EBWorldPainterData.RegionContainer<T>.ClosestLine`, `Fabric.SerializableDictionary.OnBeforeSerialize`,
+and two BCG sorting/attribute methods.
+
+The build took 28.74 seconds of preflight and 108.82 seconds in Unity. Its process tree peaked at
+5,521,215,488 bytes (5.14 GiB); available host memory fell from 15,336,357,888 bytes (14.29 GiB)
+to 6,953,029,632 bytes (6.47 GiB), and free swap after exit was 3.1 GiB. The 127,145,422-byte
+(121.3 MiB) raw log compressed to 1,043,752 bytes; external storage decreased by 49,147,904 bytes
+(46.9 MiB). A new idle Roslyn compiler process was terminated after the run, returning available
+memory to about 14 GiB. No additional cleanup was attempted on root-owned Unity cache files.
+
+Progress rate for this checkpoint: 6 of 16 old method failures cleared, 6 new signatures surfaced,
+and the total remains 16. Two cleared methods are directly tied to this batch (`Matrix.Add` and
+`Map.SetupBuffs`); all map branch smoke checks pass, but there is still no APK and no playable
+story session. The first-route estimate remains **3–8 focused weeks, low confidence**. Next, batch
+the newly surfaced generic collection methods with a story runtime dependency (`EB.Deferred.Dispatch`)
+or UI positioning repair, run the cheap preflight and focused smoke, then spend another Unity cycle.
+
+## v45: traced cached-item positioning restored
+
+Replaced the diagnosed `DynamicScrollView.UpdatePositions` body with authored CIL following its
+9.2 ARM64 cached-item, GameObject, Transform, and `GetPositionForIndex` path. It bounds the loop by
+the `IList` item count, skips absent or destroyed cached objects, and updates live transforms.
+The existing import repair applied the diagnosed IL2CPP fallback first, then restored this body;
+the full recovery preflight exited 0 with the same 12 compiler warnings and also reapplied the
+map repairs and `AlignUIElements.GetObjectBounds` transplant.
+
+Actual REA MCP managed-artifact inspection observed the resulting staged
+`Assembly-CSharp-firstpass.dll` as complete PE/CLI metadata (17,030,656 bytes; SHA-256
+`d1dcdc69b62888bf947dd981ff9eed5271ca490ff4e825bb44672ba9a7f085c9`; MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`; evidence
+`ev_60e4ac399cdccd3210e0ae96664ecedbfe08b34ce9e55005853873fac8d9c3c7`). This is a modified
+staged assembly, not the original Kabam assembly. The broader method inventory exceeded REA's
+10 MiB MCP response limit; no oversized export was retained.
+
+This repair has only passed the recovery preflight so far; no IL2CPP compile, runtime scroll check,
+APK, or playable story session has resulted yet. The next step is one 10-GiB-guarded ARM64/IL2CPP
+checkpoint. Continue batching map/UI-safe fixes before paying for later checkpoints; first-route
+estimate remains **3–8 focused weeks, low confidence**.

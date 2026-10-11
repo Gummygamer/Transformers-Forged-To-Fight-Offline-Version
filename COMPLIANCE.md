@@ -925,3 +925,7 @@ assets, or decompiled game method body are included in the repository.
 newly authored C# recovery sources compiled and transplanted as IL from clean 9.2 native traces
 and recovered type metadata. The Vector2 membership branch follows the observed floor comparisons;
 no APK bytes, assets, or copied decompiled game method body are tracked.
+
+`DynamicScrollView.UpdatePositions` is newly authored CIL from the clean 9.2 cached-item and
+transform trace. It uses recovered field/member metadata and retains no APK bytes, assets, or
+copied game method body.

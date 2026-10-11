@@ -6071,6 +6071,7 @@ class RepairRecoveredConstructor {
         repairs += RepairMapTileBuffMethods(targetModule, sourceModule);
         repairs += RepairMapGetTile(targetModule, sourceModule);
         repairs += RepairMapSetupBuffs(targetModule, sourceModule);
+        repairs += RepairDynamicScrollViewPositions(targetModule);
         TypeDefinition sourceType = sourceModule.GetType("RecoverySources.AlignUIElementsGetObjectBounds");
         MethodDefinition source = sourceType == null ? null : sourceType.Methods.SingleOrDefault(method => method.Name == "Replace");
         TypeDefinition targetType = targetModule.GetType("AlignUIElements");
@@ -6083,6 +6084,120 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
         repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         return repairs;
+    }
+
+    static int RepairDynamicScrollViewPositions(ModuleDefinition module) {
+        TypeDefinition type = module.GetType("DynamicScrollView");
+        if (type == null) throw new InvalidDataException("missing DynamicScrollView metadata");
+        FieldDefinition cached = type.Fields.SingleOrDefault(field => field.Name == "_cachedItemsDict" &&
+            !field.IsStatic && field.FieldType is GenericInstanceType);
+        FieldDefinition data = type.Fields.SingleOrDefault(field => field.Name == "itemData" &&
+            !field.IsStatic && field.FieldType.FullName == "System.Collections.IList");
+        MethodDefinition target = type.Methods.SingleOrDefault(method => method.Name == "UpdatePositions" &&
+            !method.IsStatic && method.Parameters.Count == 0 && method.ReturnType.MetadataType == MetadataType.Void);
+        MethodDefinition getPosition = type.Methods.SingleOrDefault(method => method.Name == "GetPositionForIndex" &&
+            !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.MetadataType == MetadataType.Int32 &&
+            method.ReturnType.FullName == "UnityEngine.Vector3");
+        if (cached == null || data == null || target == null || getPosition == null)
+            throw new InvalidDataException("unexpected DynamicScrollView.UpdatePositions metadata");
+
+        GenericInstanceType dictionary = (GenericInstanceType)cached.FieldType;
+        if (dictionary.GenericArguments.Count != 2 ||
+            dictionary.GenericArguments[0].MetadataType != MetadataType.Int32 ||
+            dictionary.ElementType.FullName != "System.Collections.Generic.Dictionary`2")
+            throw new InvalidDataException("unexpected DynamicScrollView item-cache dictionary type");
+        TypeReference itemType = dictionary.GenericArguments[1];
+        TypeDefinition item = itemType.Resolve();
+        FieldDefinition gameObject = item == null ? null : item.Fields.SingleOrDefault(field =>
+            field.Name == "gameObject" && !field.IsStatic && field.FieldType.FullName == "UnityEngine.GameObject");
+        if (itemType.FullName != "GameObjectItemPool/Item" || gameObject == null)
+            throw new InvalidDataException("unexpected DynamicScrollView cached item metadata");
+
+        MethodReference lookup = new MethodReference("TryGetValue", module.TypeSystem.Boolean, dictionary) {
+            HasThis = true
+        };
+        lookup.Parameters.Add(new ParameterDefinition(dictionary.GenericArguments[0]));
+        lookup.Parameters.Add(new ParameterDefinition(new ByReferenceType(dictionary.GenericArguments[1])));
+        lookup = module.ImportReference(lookup);
+
+        TypeReference collection = module.ImportReference(typeof(System.Collections.ICollection));
+        MethodReference count = module.ImportReference(new MethodReference("get_Count",
+            module.TypeSystem.Int32, collection) { HasThis = true });
+        TypeReference unityObject = UnityEngineType(module, "Object");
+        MethodReference isAlive = UnityStaticMethod(module, "Object", "op_Implicit",
+            module.TypeSystem.Boolean, unityObject);
+        MethodReference getTransform = UnityInstanceGetter(module, "GameObject", "get_transform",
+            UnityEngineType(module, "Transform"));
+        TypeReference transform = UnityEngineType(module, "Transform");
+        MethodReference setLocalPosition = module.ImportReference(new MethodReference("set_localPosition",
+            module.TypeSystem.Void, transform) { HasThis = true });
+        setLocalPosition.Parameters.Add(new ParameterDefinition(UnityEngineType(module, "Vector3")));
+
+        MethodBody body = ResetBody(target, out ILProcessor il);
+        body.InitLocals = true;
+        body.MaxStackSize = 4;
+        var lastIndex = new VariableDefinition(module.TypeSystem.Int32);
+        var index = new VariableDefinition(module.TypeSystem.Int32);
+        var cachedItem = new VariableDefinition(itemType);
+        var cachedObject = new VariableDefinition(UnityEngineType(module, "GameObject"));
+        var cachedTransform = new VariableDefinition(transform);
+        body.Variables.Add(lastIndex);
+        body.Variables.Add(index);
+        body.Variables.Add(cachedItem);
+        body.Variables.Add(cachedObject);
+        body.Variables.Add(cachedTransform);
+
+        Instruction done = il.Create(OpCodes.Ret);
+        Instruction loop = il.Create(OpCodes.Ldloc, index);
+        Instruction next = il.Create(OpCodes.Ldloc, index);
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldfld, data));
+        il.Append(il.Create(OpCodes.Brfalse, done));
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldfld, data));
+        il.Append(il.Create(OpCodes.Callvirt, count));
+        il.Append(il.Create(OpCodes.Ldc_I4_1));
+        il.Append(il.Create(OpCodes.Sub));
+        il.Append(il.Create(OpCodes.Stloc, lastIndex));
+        il.Append(il.Create(OpCodes.Ldc_I4_0));
+        il.Append(il.Create(OpCodes.Stloc, index));
+        il.Append(loop);
+        il.Append(il.Create(OpCodes.Ldloc, lastIndex));
+        il.Append(il.Create(OpCodes.Bgt, done));
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldfld, cached));
+        il.Append(il.Create(OpCodes.Ldloc, index));
+        il.Append(il.Create(OpCodes.Ldloca, cachedItem));
+        il.Append(il.Create(OpCodes.Callvirt, lookup));
+        il.Append(il.Create(OpCodes.Brfalse, next));
+        il.Append(il.Create(OpCodes.Ldloc, cachedItem));
+        il.Append(il.Create(OpCodes.Brfalse, next));
+        il.Append(il.Create(OpCodes.Ldloc, cachedItem));
+        il.Append(il.Create(OpCodes.Ldfld, gameObject));
+        il.Append(il.Create(OpCodes.Stloc, cachedObject));
+        il.Append(il.Create(OpCodes.Ldloc, cachedObject));
+        il.Append(il.Create(OpCodes.Call, isAlive));
+        il.Append(il.Create(OpCodes.Brfalse, next));
+        il.Append(il.Create(OpCodes.Ldloc, cachedObject));
+        il.Append(il.Create(OpCodes.Callvirt, getTransform));
+        il.Append(il.Create(OpCodes.Stloc, cachedTransform));
+        il.Append(il.Create(OpCodes.Ldloc, cachedTransform));
+        il.Append(il.Create(OpCodes.Call, isAlive));
+        il.Append(il.Create(OpCodes.Brfalse, next));
+        il.Append(il.Create(OpCodes.Ldloc, cachedTransform));
+        il.Append(il.Create(OpCodes.Ldarg_0));
+        il.Append(il.Create(OpCodes.Ldloc, index));
+        il.Append(il.Create(OpCodes.Callvirt, getPosition));
+        il.Append(il.Create(OpCodes.Callvirt, setLocalPosition));
+        il.Append(next);
+        il.Append(il.Create(OpCodes.Ldc_I4_1));
+        il.Append(il.Create(OpCodes.Add));
+        il.Append(il.Create(OpCodes.Stloc, index));
+        il.Append(il.Create(OpCodes.Br, loop));
+        il.Append(done);
+        Console.WriteLine("reconstructed DynamicScrollView.UpdatePositions from the 9.2 cached-item and transform trace");
+        return 1;
     }
 
     static int RepairMapTileBuffMethods(ModuleDefinition targetModule, ModuleDefinition sourceModule) {
