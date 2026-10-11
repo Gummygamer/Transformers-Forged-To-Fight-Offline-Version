@@ -1576,3 +1576,32 @@ reproducibility repair and does not change the compiler output. No Unity build
 was run; last cycle required 5.23 GB peak Unity RSS. Next, implement and verify
 aggregate call/return reconstruction and nested scalar loads with a small
 three-method CIL check before another ARM64 checkpoint.
+
+## v69: reproducible Cpp2IL patch and build (2026-10-11)
+
+The prior tracked Cpp2IL patch did not apply to a pristine `b5ad444` checkout: blank context
+markers had been lost. Regenerated the patch from the existing seven-file operator-lowering stage
+with zero-context hunks, updated the SHA-256 pin to
+`3a039331b5509cdac03ffdf95cf5583731035322c8cd1d7e1f8f3863c5e4c186`, and verified a clean
+pinned worktree accepts it. All seven resulting source blobs match the staged compiler source.
+`build_patched_cpp2il.py` then completed the net10.0 build successfully in 13.8 seconds with zero
+compiler warnings/errors; it reports Cpp2IL `2022.1.0+b5ad444b82267cb1e4b88b8b373c008105bdea52`.
+Kept the 53 MB compiled output and removed the new 381 MB temporary source worktree. No Unity build
+was run.
+
+REA MCP remains available. The full APK archive inventory exceeded the 10 MiB MCP response budget
+and remains in retained evidence `ev_9247e8c95191fdd858a58b8bc1ebd5ab0c6be518ad2fb5e8cd09b1886654f399`;
+no 1.2 GB bundle export was made. REA inspected the compiled authored
+`AlignUIElements.GetObjectBounds` helper (artifact SHA-256
+`f9dd73bdab60e8bd358fae258c063c246fac0c24fbdf8f49bab159240add03ad`, Evidence
+`ev_71996a840ccfd36854a50e63813d721b5e5c5254cad368473d8734d1d1635b39`): its managed body is
+present and decodes to 176 CIL instructions with complete metadata coverage. The earlier v67
+Unity checkpoint had already shown this transplanted method absent from the IL2CPP rejection queue.
+
+This fixes a reproducibility blocker but adds no story behavior: the last Unity checkpoint still
+had 16 unique IL2CPP method failures, no APK, and no playable story route. Progress rate for this
+turn is one repeatable compiler-pipeline repair and build, zero new game methods. Keep the playable
+story-mode estimate at **3–8 focused weeks, low confidence**. Next, implement the aggregate-return
+and nested scalar-load rules against the three known methods; gather bounded ARM64 native evidence
+before accepting emitter semantics. The pristine APK and exact extracted ARM64 library identities
+remain verified above; no full APK extraction or cold Ghidra import was repeated.
