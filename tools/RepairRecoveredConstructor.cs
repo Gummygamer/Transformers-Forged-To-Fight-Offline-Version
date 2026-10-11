@@ -3838,6 +3838,10 @@ class RepairRecoveredConstructor {
             il.Append(done);
             il.Append(Instruction.Create(OpCodes.Ret));
             method.Body.MaxStackSize = 3;
+            // This emitter owns the complete body. The generic tail below
+            // appends a ret for one-instruction repairs; doing that here
+            // leaves an unreachable empty-stack ret that IL2CPP rejects.
+            return true;
         }
         if (method.Name == "get_Randomizer" && type.FullName == "EB.Core.ThreadSafeRandom") {
             FieldDefinition randomizer = type.Fields.SingleOrDefault(f => f.Name == "_kRandomizer");
@@ -6046,8 +6050,12 @@ class RepairRecoveredConstructor {
 
     static int RepairAuthoredMethodBodies(ModuleDefinition targetModule,
         ModuleDefinition sourceModule, string assemblyName) {
+        if (assemblyName == "Assembly-CSharp.dll")
+            return RepairBadgeStateConstructor(targetModule);
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
         int repairs = RepairRecoveredPool(targetModule);
+        repairs += RepairSafeNumberSetter(targetModule, "EB.SafeFloat", typeof(float));
+        repairs += RepairSafeNumberSetter(targetModule, "EB.SafeInt", typeof(int));
         repairs += RepairStringUtilInitializer(targetModule);
         repairs += RepairStringUtilSafeKey(targetModule);
         repairs += RepairDotString(targetModule);
@@ -6071,6 +6079,81 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("missing authored GetObjectBounds source or 9.2 destination metadata");
         repairs += ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
         return repairs;
+    }
+
+    static int RepairSafeNumberSetter(ModuleDefinition module, string typeName, Type valueType) {
+        TypeDefinition safeFloat = module.GetType(typeName);
+        TypeDefinition safeValue = module.GetType("EB.SafeValue");
+        if (safeFloat == null || safeValue == null)
+            throw new InvalidDataException("missing " + typeName + "/SafeValue metadata");
+
+        FieldDefinition value = safeFloat.Fields.SingleOrDefault(field => field.Name == "_v");
+        Type valueTypeDefinition = valueType;
+        MethodDefinition setter = safeFloat.Methods.SingleOrDefault(method => method.Name == "set_Value" &&
+            !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.FullName == module.ImportReference(valueTypeDefinition).FullName &&
+            method.ReturnType.MetadataType == MetadataType.Void);
+        MethodDefinition constructor = safeValue.Methods.SingleOrDefault(method => method.IsConstructor &&
+            !method.IsStatic && method.Parameters.Count == 0);
+        MethodDefinition init = safeValue.Methods.SingleOrDefault(method => method.Name == "Init" &&
+            !method.IsStatic && method.Parameters.Count == 1 &&
+            method.Parameters[0].ParameterType.FullName == "System.Byte[]");
+        MethodReference getBytes = module.ImportReference(typeof(BitConverter).GetMethod("GetBytes",
+            new[] { valueType }));
+        if (value == null || value.IsStatic || value.FieldType.FullName != "EB.SafeValue" ||
+            setter == null || constructor == null || init == null || getBytes == null)
+            throw new InvalidDataException("unexpected " + typeName + ".Value setter metadata");
+
+        if ((constructor.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.Private) {
+            // The recovered setter is a sibling caller of SafeValue's
+            // parameterless constructor, so preserve that in-assembly call.
+            constructor.Attributes = (constructor.Attributes & ~MethodAttributes.MemberAccessMask) |
+                MethodAttributes.Assembly;
+        }
+
+        ILProcessor il;
+        MethodBody body = ResetBody(setter, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Newobj, module.ImportReference(constructor)));
+        il.Append(Instruction.Create(OpCodes.Dup));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Call, getBytes));
+        il.Append(Instruction.Create(OpCodes.Callvirt, module.ImportReference(init)));
+        il.Append(Instruction.Create(OpCodes.Stfld, value));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed " + typeName + ".Value setter from traced SafeValue storage path");
+        return 1;
+    }
+
+    static int RepairBadgeStateConstructor(ModuleDefinition module) {
+        TypeDefinition badge = module.GetType("EB.UI.Social.SocialStateModelBase/BadgeState");
+        if (badge == null) throw new InvalidDataException("missing SocialStateModelBase.BadgeState metadata");
+        FieldDefinition count = badge.Fields.SingleOrDefault(field => field.Name == "Count");
+        FieldDefinition isNew = badge.Fields.SingleOrDefault(field => field.Name == "IsNew");
+        MethodDefinition constructor = badge.Methods.SingleOrDefault(method => method.IsConstructor &&
+            !method.IsStatic && method.Parameters.Count == 2 &&
+            method.Parameters[0].ParameterType.MetadataType == MetadataType.Int32 &&
+            method.Parameters[1].ParameterType.MetadataType == MetadataType.Boolean);
+        if (count == null || count.IsStatic || count.FieldType.MetadataType != MetadataType.Int32 ||
+            isNew == null || isNew.IsStatic || isNew.FieldType.MetadataType != MetadataType.Boolean ||
+            constructor == null)
+            throw new InvalidDataException("unexpected BadgeState constructor metadata");
+
+        ILProcessor il;
+        MethodBody body = ResetBody(constructor, out il);
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Stfld, count));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.And));
+        il.Append(Instruction.Create(OpCodes.Stfld, isNew));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed BadgeState constructor from the 9.2 ARM64 field-write trace");
+        return 1;
     }
 
     static int RepairRequestSigning(ModuleDefinition module) {

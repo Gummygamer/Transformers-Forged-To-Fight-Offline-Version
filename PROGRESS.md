@@ -902,3 +902,39 @@ playable-route estimate to **3–8 focused weeks, low confidence**. Next, batch
 trace-backed repairs for the story/map, deferred-callback, UI-positioning, and
 value-type/by-reference error groups, run cheap managed/preflight checks, then
 spend another guarded Unity cycle only after those inputs change.
+
+## v40: scalar and badge repairs pass focused smoke
+
+REA MCP remains connected. Its managed-artifact inspection confirmed the
+confirmed-source `Assembly-CSharp-firstpass.dll` identity and complete CIL
+metadata; the full member scan exceeded the MCP response budget, so analysis
+stayed on bounded records. The exact Kabam APK hash and signer remain verified
+in the recovery manifest. Two trace windows added in this batch (`SafeInt`'s
+180-byte setter and `BadgeState`'s 16-byte constructor) match the pristine
+source `libil2cpp.so` at the same ARM64 addresses, byte for byte.
+
+The repair tool now rebuilds `SafeFloat.Value` and `SafeInt.Value` through the
+traced `SafeValue` storage path, normalizes `BadgeState.IsNew` to the native
+low bit, and stops the complete-body FNV64 emitter before its generic trailing
+`ret`. Focused Unity-bundled Mono smoke passed for both scalar round trips,
+BadgeState field values, and the FNV64 vector. The six-second import preflight
+compiled with the existing 12 warnings and reapplied the authored
+`AlignUIElements.GetObjectBounds` body.
+
+One guarded ARM64/IL2CPP cycle on the prior two-method repair batch took 27.7
+seconds of preflight and 112.6 seconds in Unity. It peaked at 5.15 GiB process
+tree RSS, with a 6.36 GiB host available-memory low point; only about 32 MiB of
+external storage was consumed, and no APK was produced. The prior explicit
+`SafeFloat` and `FNV64` failures no longer appear in the new method-failure
+list; other value-type and by-reference failures remain, with additional
+failures surfaced in generic collections and sorting. The SafeInt and badge
+repairs passed focused Mono checks but have not yet had a new IL2CPP cycle.
+
+Progress rate for this checkpoint: two previously reported IL2CPP method
+failures removed from the observed list, four authored repair cases covered by
+targeted runtime checks, and still zero APKs or playable story sessions. The
+first playable story-route estimate remains **3–8 focused weeks, low
+confidence**. Next, batch repairs for the remaining story/map, deferred,
+scroll-positioning, generic collection, and by-reference failures; inspect the
+binding-base `Color32` conversion mismatch; and defer Unity until that batch
+passes focused checks.

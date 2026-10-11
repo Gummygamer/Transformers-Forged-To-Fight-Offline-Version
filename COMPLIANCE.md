@@ -901,3 +901,13 @@ is omitted; name normalization and filtering remain. A Unity-bundled Mono smoke 
 semantics and the inventory update path. No decompiled method body, APK, asset, or server-authored
 data is copied into the repository; patched assemblies and analysis traces stay in ignored local
 recovery storage.
+
+The 9.2 `EB.SafeFloat.Value` and `EB.SafeInt.Value` setters are authored as CIL from their native
+`BitConverter.GetBytes` → `SafeValue` construction/initialization → field-store path. The recovered
+parameterless constructor is made assembly-visible so these sibling calls pass Mono access checks.
+`EB.Hash.FNV64` now exits its complete-body repair before the shared tail emitter can append an
+invalid second `ret`. `SocialStateModelBase.BadgeState`'s two-argument constructor writes the traced
+`Count` and low-bit-normalized `IsNew` fields. The 16-byte BadgeState and 180-byte SafeInt ARM64
+windows were compared at their native addresses against the confirmed-source `libil2cpp.so` and
+matched exactly. Focused runtime checks ran against temporary local assemblies; none of those
+assemblies, the APK, or trace output is tracked.
