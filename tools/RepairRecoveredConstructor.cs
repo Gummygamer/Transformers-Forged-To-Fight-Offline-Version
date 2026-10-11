@@ -6055,6 +6055,7 @@ class RepairRecoveredConstructor {
             mainRepairs += RepairDamageTypeComparerEquals(targetModule);
             mainRepairs += RepairCoordinateConstraintsHasConstraints(targetModule);
             mainRepairs += RepairQuestBegin(targetModule, sourceModule);
+            mainRepairs += RepairQuestboardHudOnIntroTransitionComplete(targetModule);
             mainRepairs += RepairQuestMapTileIncomingBuffList(targetModule, sourceModule);
             return mainRepairs;
         }
@@ -6510,6 +6511,121 @@ class RepairRecoveredConstructor {
             sourceClosure, targetClosure, api, service);
         Console.WriteLine("reconstructed Legacy.QuestsAPI.BeginQuest request and response callback from 9.2 ARM64 traces");
         return 3;
+    }
+
+    static MethodDefinition QuestMethod(TypeDefinition type, string name, int parameterCount) {
+        MethodDefinition method = type.Methods.SingleOrDefault(candidate => candidate.Name == name &&
+            !candidate.IsStatic && candidate.Parameters.Count == parameterCount);
+        if (method == null)
+            throw new InvalidDataException("missing questboard intro method " + type.FullName + "::" + name);
+        return method;
+    }
+
+    static int RepairQuestboardHudOnIntroTransitionComplete(ModuleDefinition targetModule) {
+        TypeDefinition hud = targetModule.GetType("QuestboardHud");
+        TypeDefinition config = hud == null ? null : hud.NestedTypes.SingleOrDefault(type =>
+            type.Name == "QuestboardConfig");
+        TypeDefinition activeQuest = targetModule.GetType("Quests.ActiveQuest");
+        TypeDefinition map = targetModule.GetType("Quests.Map");
+        TypeDefinition tile = targetModule.GetType("Quests.MapTile");
+        TypeDefinition player = targetModule.GetType("Quests.Player");
+        if (hud == null || config == null || activeQuest == null || map == null || tile == null ||
+            player == null)
+            throw new InvalidDataException("missing questboard intro types in Assembly-CSharp.dll");
+
+        FieldDefinition configField = hud.Fields.SingleOrDefault(field => field.Name == "_config" &&
+            !field.IsStatic && field.FieldType.FullName == config.FullName);
+        FieldDefinition activeQuestField = config.Fields.SingleOrDefault(field =>
+            field.Name == "activeQuest" && !field.IsStatic &&
+            field.FieldType.FullName == "Quests.ActiveQuest");
+        FieldDefinition isWaypoint = tile.Fields.SingleOrDefault(field => field.Name == "isWaypoint" &&
+            !field.IsStatic && field.FieldType.MetadataType == MetadataType.Boolean);
+        MethodDefinition intro = QuestMethod(hud, "OnIntroTransitionComplete", 0);
+        MethodDefinition isAvX = QuestMethod(activeQuest, "get_isAvX", 0);
+        MethodDefinition getMap = QuestMethod(activeQuest, "get_map", 0);
+        MethodDefinition getEndTile = QuestMethod(map, "get_endTile", 0);
+        MethodDefinition getPlayer = QuestMethod(activeQuest, "get_player", 0);
+        MethodDefinition getPlayerPosition = QuestMethod(player, "get_position", 0);
+        MethodDefinition localPlayerDone = QuestMethod(hud, "OnLocalPlayerDone", 0);
+        MethodReference getTilePosition = null;
+        string firstPassPath = Path.Combine(Path.GetDirectoryName(targetModule.FileName),
+            "Assembly-CSharp-firstpass.dll");
+        using (AssemblyDefinition firstPass = AssemblyDefinition.ReadAssembly(firstPassPath)) {
+            TypeDefinition missionsTile = firstPass.MainModule.GetType("EB.Missions.MapTile");
+            if (missionsTile == null)
+                throw new InvalidDataException("missing EB.Missions.MapTile metadata in Assembly-CSharp-firstpass.dll");
+            getTilePosition = targetModule.ImportReference(QuestMethod(missionsTile, "get_position", 0));
+        }
+        if (configField == null || activeQuestField == null || isWaypoint == null || intro.IsStatic ||
+            intro.ReturnType.MetadataType != MetadataType.Void ||
+            getTilePosition.ReturnType.FullName != "UnityEngine.Vector2" ||
+            getPlayerPosition.ReturnType.FullName != "UnityEngine.Vector2")
+            throw new InvalidDataException("unexpected questboard intro member signatures");
+
+        TypeReference vector2 = UnityEngineType(targetModule, "Vector2");
+        var vectorX = targetModule.ImportReference(new FieldReference("x", targetModule.TypeSystem.Single, vector2));
+        var vectorY = targetModule.ImportReference(new FieldReference("y", targetModule.TypeSystem.Single, vector2));
+        ILProcessor il;
+        MethodBody body = ResetBody(intro, out il);
+        body.InitLocals = true;
+        body.Variables.Add(new VariableDefinition(targetModule.ImportReference(vector2)));
+        body.Variables.Add(new VariableDefinition(targetModule.ImportReference(vector2)));
+        Instruction done = Instruction.Create(OpCodes.Ret);
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, configField));
+        il.Append(Instruction.Create(OpCodes.Brfalse, done));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, configField));
+        il.Append(Instruction.Create(OpCodes.Ldfld, activeQuestField));
+        il.Append(Instruction.Create(OpCodes.Brfalse, done));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, configField));
+        il.Append(Instruction.Create(OpCodes.Ldfld, activeQuestField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(isAvX)));
+        il.Append(Instruction.Create(OpCodes.Brfalse, done));
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, configField));
+        il.Append(Instruction.Create(OpCodes.Ldfld, activeQuestField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(getMap)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(getEndTile)));
+        il.Append(Instruction.Create(OpCodes.Ldfld, isWaypoint));
+        il.Append(Instruction.Create(OpCodes.Brfalse, done));
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, configField));
+        il.Append(Instruction.Create(OpCodes.Ldfld, activeQuestField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(getMap)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(getEndTile)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, getTilePosition));
+        il.Append(Instruction.Create(OpCodes.Stloc_0));
+
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, configField));
+        il.Append(Instruction.Create(OpCodes.Ldfld, activeQuestField));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(getPlayer)));
+        il.Append(Instruction.Create(OpCodes.Callvirt, targetModule.ImportReference(getPlayerPosition)));
+        il.Append(Instruction.Create(OpCodes.Stloc_1));
+
+        il.Append(Instruction.Create(OpCodes.Ldloca, body.Variables[0]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, vectorX));
+        il.Append(Instruction.Create(OpCodes.Ldloca, body.Variables[1]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, vectorX));
+        il.Append(Instruction.Create(OpCodes.Ceq));
+        il.Append(Instruction.Create(OpCodes.Brfalse, done));
+        il.Append(Instruction.Create(OpCodes.Ldloca, body.Variables[0]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, vectorY));
+        il.Append(Instruction.Create(OpCodes.Ldloca, body.Variables[1]));
+        il.Append(Instruction.Create(OpCodes.Ldfld, vectorY));
+        il.Append(Instruction.Create(OpCodes.Ceq));
+        il.Append(Instruction.Create(OpCodes.Brfalse, done));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Call, targetModule.ImportReference(localPlayerDone)));
+        il.Append(done);
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed QuestboardHud.OnIntroTransitionComplete from 9.2 ARM64 control flow");
+        return 1;
     }
 
     static int RepairMapTilePositionGetter(TypeDefinition tile) {
