@@ -869,3 +869,36 @@ for a first playable story route remains **2–6 focused weeks, low confidence**
 this is not a guaranteed calendar date. The next useful step is one warm,
 memory-guarded ARM64/IL2CPP build to expose the next bounded queue, then repair
 the next batch before spending another build cycle.
+
+
+## v39: warm ARM64 build exposes the next import and IL2CPP batch
+
+After the signer smoke passed, one warm Unity 2020.3.31f1 ARM64/IL2CPP build
+ran against the confirmed-source staging directory. The build reached IL2CPP but
+failed with 27 errors and produced no APK. The summarized repair queue contains
+five categories: invalid IL in `EB.SafeFloat.set_Value` and
+`SocialStateModelBase.BadgeState..ctor`; a missing `UnityEngine.Color` implicit
+conversion in a generated binding base; and the aggregate Unity build failure.
+The underlying log also names 16 individual IL2CPP method failures, including
+story/gameplay-sensitive `EB.Missions.Map.SetupBuffs`, `EB.Deferred.Dispatch`,
+`DynamicScrollView.UpdatePositions`, and `EB.Hash.FNV64`, plus value-type stack
+and by-reference signature failures in recovered firstpass/Fabric methods.
+These are real blockers, not a memory abort.
+
+The cycle took 27.5 seconds of preparation plus 114.1 seconds in Unity. Its
+process tree peaked at 5.03 GiB RSS; host available memory bottomed at 7.67 GiB
+from 13.67 GiB before Unity. Swap reached 7.1 GiB while Unity was active and
+fell to 6.4 GiB after exit, so the 6 GiB free-memory guard alone does not fully
+protect this laptop from paging. The 121.3 MiB raw Unity log compressed to 1.0
+MiB, and external free space fell by only 3.2 MiB. Retain compressed logs and
+avoid repeated unchanged builds; the build script now records the peak and
+low-water values for each cycle.
+
+Progress rate is now one server-authentication chain validated with a short
+managed smoke, followed by one warm build that narrowed the remaining failures
+to a finite method queue. Still zero APKs and zero playable story sessions.
+Given the 16 method errors and unverified story runtime, revise the first
+playable-route estimate to **3–8 focused weeks, low confidence**. Next, batch
+trace-backed repairs for the story/map, deferred-callback, UI-positioning, and
+value-type/by-reference error groups, run cheap managed/preflight checks, then
+spend another guarded Unity cycle only after those inputs change.
