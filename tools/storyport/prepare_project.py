@@ -134,8 +134,53 @@ def import_arena_conversion(arena_roots: list[Path], level: str, imported_assets
     return None
 
 
+def import_character_conversion(converted_project: Path, imported_assets: Path) -> Path:
+    """Import standalone 9.2 fighter bundles while keeping their AssetRipper GUIDs together."""
+    prefab = (
+        converted_project
+        / "Assets/bundles/characters/merged/optimusprime_cin_tf/OptimusPrime_Cin_TF.prefab"
+    )
+    if not prefab.is_file():
+        raise FileNotFoundError(
+            "Missing converted Optimus Cinematic prefab: "
+            f"{prefab}. Convert assetpack/optimusprime_cin_tf_odr/optimusprime_cin_tf.assetbundle first."
+        )
+    character_bundles = imported_assets / "CharacterBundles"
+    legacy_target = character_bundles / "optimusprime_cin_tf"
+    if legacy_target.exists():
+        shutil.rmtree(legacy_target)
+    target = character_bundles / "9.2-roster"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(converted_project / "Assets", target, ignore=lambda _directory, names: EXCLUDED.intersection(names))
+    return target
+
+
+def import_arena_bundle_conversion(converted_project: Path, imported_assets: Path) -> Path:
+    """Import a combined 9.2 Story-arena export without flattening its GUID graph."""
+    assets = converted_project / "Assets"
+    required = [arena_stage_prefab(assets, level) for level in ARENA_LEVELS]
+    required += [arena_scene_prefab(assets, level, tod) for level in ARENA_LEVELS for tod in ARENA_TODS]
+    missing = [path for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Incomplete 9.2 Story-arena conversion: "
+            + ", ".join(str(path) for path in missing)
+            + ". Convert the five Story arena bundles before preparing StoryPort."
+        )
+    target = imported_assets / "StandaloneBundles" / "story-arenas"
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(assets, target, ignore=lambda _directory, names: EXCLUDED.intersection(names))
+    return target
+
+
 def copy_arena_prefabs(
-    converted_project: Path, unity_assets: Path, imported_assets: Path, arena_roots: list[Path] | None = None
+    converted_project: Path,
+    unity_assets: Path,
+    imported_assets: Path,
+    arena_roots: list[Path] | None = None,
+    bundle_conversion_assets: Path | None = None,
 ) -> None:
     """Create Resources aliases for each arena's geometry and per-time-of-day sky texture.
 
@@ -150,6 +195,11 @@ def copy_arena_prefabs(
     unresolved = []
     sources: dict[str, Path] = {}
     for level in ARENA_LEVELS:
+        if bundle_conversion_assets is not None and arena_stage_prefab(bundle_conversion_assets, level).is_file() and all(
+            arena_scene_prefab(bundle_conversion_assets, level, tod).is_file() for tod in ARENA_TODS
+        ):
+            sources[level] = bundle_conversion_assets
+            continue
         main_assets = converted_project / "Assets"
         if arena_stage_prefab(main_assets, level).is_file() and all(
             arena_scene_prefab(main_assets, level, tod).is_file() for tod in ARENA_TODS
@@ -207,6 +257,18 @@ def main() -> None:
         "missing from the converted project. May be repeated.",
     )
     parser.add_argument(
+        "--character-conversion",
+        type=Path,
+        default=Path("build/storyport-character-conversion/ExportedProject"),
+        help="Standalone AssetRipper export for the 9.2 StoryPort fighter bundles.",
+    )
+    parser.add_argument(
+        "--arena-conversion",
+        type=Path,
+        default=Path("build/storyport-arena-conversion/ExportedProject"),
+        help="Combined AssetRipper export for the five 9.2 Story arena bundles.",
+    )
+    parser.add_argument(
         "--nav-font", type=Path,
         help="Local extracted 9.2 Tecnica_Bold_116.ttf, when absent from the converted project.",
     )
@@ -222,14 +284,15 @@ def main() -> None:
         return EXCLUDED.intersection(names)
 
     shutil.copytree(args.converted_project / "Assets", imported, ignore=ignore)
+    import_character_conversion(args.character_conversion, imported)
+    arena_assets = import_arena_bundle_conversion(args.arena_conversion, imported)
 
     # The lightweight scene shell used during the first client pass contained
     # only lights and a skybox. Use the original converted Chicago environment
     # prefab so the fight and quest route render on the actual game geometry.
-    chicago_scene = (
-        args.converted_project
-        / "Assets/bundles/scenes/chicago_merged/chicago_merged.prefab"
-    )
+    chicago_scene = args.converted_project / "Assets/bundles/scenes/chicago_merged/chicago_merged.prefab"
+    if not chicago_scene.is_file():
+        chicago_scene = arena_assets / "bundles/scenes/chicago_merged/chicago_merged.prefab"
     if chicago_scene.is_file():
         imported_guids = {
             match.group(1)
@@ -261,7 +324,9 @@ def main() -> None:
         stale_scene.unlink(missing_ok=True)
         stale_scene.with_suffix(stale_scene.suffix + ".meta").unlink(missing_ok=True)
 
-    copy_arena_prefabs(args.converted_project, unity_assets, imported, args.arena_conversions)
+    copy_arena_prefabs(
+        args.converted_project, unity_assets, imported, args.arena_conversions, arena_assets
+    )
 
     # Small original menu, loading, story-card, and quest portrait images are
     # not stored in the Unity bundles. Keep them local in Resources so the clean
@@ -280,6 +345,8 @@ def main() -> None:
     font_art.mkdir(parents=True, exist_ok=True)
     shutil.copy2(nav_font, font_art / "tecnica_nav.ttf")
     base_sky = args.converted_project / "Assets/Texture2D/qb_primordial_sky_red.png"
+    if not base_sky.is_file():
+        base_sky = arena_assets / "Texture2D/qb_primordial_sky_red.png"
     if not base_sky.is_file():
         raise FileNotFoundError(f"Missing local 9.2 Primordial sky texture: {base_sky}")
     shutil.copy2(base_sky, raw_art / "BaseSky.png")
@@ -312,6 +379,8 @@ def main() -> None:
     # Sprite coordinates in MainUIAtlasHdPrefab are top-left based.
     atlas_image = args.assetpack_root / "ui/bundles/uitextures/fte/atlases/mainuiatlashdprefab.png"
     atlas_data = args.converted_project / "Assets/GameObject/MainUIAtlasHdPrefab.prefab"
+    if not atlas_data.is_file():
+        atlas_data = args.converted_project / "Assets/Resources/ui/atlases/MainUIAtlasHdPrefab.prefab"
     wanted = {
             "Button_MainGlowing": "button_main_glowing.png",
             "Button_Tab": "button_tab.png",

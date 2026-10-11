@@ -19,6 +19,9 @@ namespace StoryPort.Editor
         [MenuItem("StoryPort/Build Local Asset Catalog")]
         public static void BuildLocalAssetCatalog()
         {
+            // Local AssetRipper conversions can be copied while the Editor is closed.
+            // Force their new prefabs and dependencies into the index before FindAssets.
+            AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             convertedMaterials.Clear();
             Directory.CreateDirectory(ResourcesRoot);
             Directory.CreateDirectory(ResourcesRoot + "/Materials");
@@ -92,7 +95,7 @@ namespace StoryPort.Editor
         {
             var normalPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var linearPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var materialGuid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/Art92/Material" }))
+            foreach (var materialGuid in AssetDatabase.FindAssets("t:Material", new[] { "Assets/Art92" }))
             {
                 var materialPath = AssetDatabase.GUIDToAssetPath(materialGuid);
                 var material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
@@ -104,7 +107,7 @@ namespace StoryPort.Editor
                 AddTexturePath(linearPaths, material, materialPath, "_metallic_tex");
                 AddTexturePath(linearPaths, material, materialPath, "_roughness_tex");
             }
-            foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+            foreach (var guid in AssetDatabase.FindAssets("t:Texture2D", new[] { "Assets/Art92" }))
             {
                 var path = AssetDatabase.GUIDToAssetPath(guid);
                 var importer = AssetImporter.GetAtPath(path) as TextureImporter;
@@ -133,7 +136,7 @@ namespace StoryPort.Editor
 
         static void CreateStoryBoardGroundMaterial()
         {
-            var textures = AssetDatabase.FindAssets("qb_primordial_ground_a t:Texture2D", new[] { "Assets/Art92/Texture2D" });
+            var textures = AssetDatabase.FindAssets("qb_primordial_ground_a t:Texture2D", new[] { "Assets/Art92" });
             if (textures.Length == 0)
             {
                 Debug.LogWarning("StoryPort: missing local 9.2 primordial ground texture");
@@ -157,7 +160,7 @@ namespace StoryPort.Editor
             material.color = new Color(.37f, .39f, .32f, 1f);
             material.SetFloat("_Metallic", .05f);
             material.SetFloat("_Glossiness", .12f);
-            var normals = AssetDatabase.FindAssets("qb_primordial_ground_n t:Texture2D", new[] { "Assets/Art92/Texture2D" });
+            var normals = AssetDatabase.FindAssets("qb_primordial_ground_n t:Texture2D", new[] { "Assets/Art92" });
             if (normals.Length > 0)
             {
                 var normal = AssetDatabase.LoadAssetAtPath<Texture2D>(AssetDatabase.GUIDToAssetPath(normals[0]));
@@ -178,7 +181,7 @@ namespace StoryPort.Editor
 
         static void CreateChicagoSkyMaterial()
         {
-            foreach (var guid in AssetDatabase.FindAssets("chic_sky_day_01 t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+            foreach (var guid in AssetDatabase.FindAssets("chic_sky_day_01 t:Texture2D", new[] { "Assets/Art92" }))
             {
                 var texturePath = AssetDatabase.GUIDToAssetPath(guid);
                 if (Path.GetFileNameWithoutExtension(texturePath) != "chic_sky_day_01") continue;
@@ -218,7 +221,7 @@ namespace StoryPort.Editor
 
         static void CreateChicagoRoadMaterial()
         {
-            foreach (var guid in AssetDatabase.FindAssets("chic_trrn_road_02_d t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+            foreach (var guid in AssetDatabase.FindAssets("chic_trrn_road_02_d t:Texture2D", new[] { "Assets/Art92" }))
             {
                 var texturePath = AssetDatabase.GUIDToAssetPath(guid);
                 if (Path.GetFileNameWithoutExtension(texturePath) != "chic_trrn_road_02_d") continue;
@@ -559,7 +562,7 @@ namespace StoryPort.Editor
             var emissive = ReadTextureProperty(source, sourcePath, "_emissive_tex");
             if (emissive == null)
             {
-                foreach (var guid in AssetDatabase.FindAssets("fx_t_gradient_l2r t:Texture2D", new[] { "Assets/Art92/Texture2D" }))
+                foreach (var guid in AssetDatabase.FindAssets("fx_t_gradient_l2r t:Texture2D", new[] { "Assets/Art92" }))
                 {
                     var path = AssetDatabase.GUIDToAssetPath(guid);
                     if (Path.GetFileNameWithoutExtension(path) != "fx_t_gradient_l2r") continue;

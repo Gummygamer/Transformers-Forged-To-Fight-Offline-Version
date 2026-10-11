@@ -16,6 +16,16 @@ the existing external server. Combat controls and hit resolution run locally.
 Resources aliases for scene prefabs, terrain meshes/materials, and the requested
 bot models. Converted assets and aliases are not checked into Git.
 
+StoryPort's missing fighter bundles are converted directly from the pristine 9.2
+APK into `build/storyport-character-conversion/ExportedProject`; its five Story
+arena bundles are converted into `build/storyport-arena-conversion/ExportedProject`.
+`tools/storyport/prepare_project.py` imports that standalone export under
+`Assets/Art92/CharacterBundles/9.2-roster`, keeping its AssetRipper GUIDs together
+and excluding decompiled scripts and APK plugins. It imports the arena bundle set
+under `Assets/Art92/StandaloneBundles/story-arenas` the same way. These supply the
+cinematic Optimus, missing roster prefabs, and all five story stages without
+adding converted game content to Git.
+
 Story fights read `mapOverride` and `todIndex` from the current server
 `battleEnemy` (every Story quest picks a deterministic arena per encounter; see
 `BOARD_AUTHORING.md`). `tools/storyport/prepare_project.py` links, for Chicago,
@@ -25,9 +35,8 @@ Hong Kong, Karnak, Mine, and Rust, the `<level>_merged` geometry prefab as
 so they are not used as stages. `StoryPortAssetSetup` wraps the sky textures in
 unlit materials, and `ArenaPlacement` in `StoryPortBootstrap.cs` seats the fighters
 on each arena floor. Levels missing from the main converted project are read from
-`build/story-arena-conversion-<level>/ExportedProject` (one AssetRipper export per
-`assetpack/<level>/<level>_merged.assetbundle`; override the folder with
-`--arena-conversions`). Editor checks require all five stages and 15 skies and the
+the combined `build/storyport-arena-conversion/ExportedProject`, generated from the
+five `assetpack/<level>/<level>_merged.assetbundle` files. Editor checks require all five stages and 15 skies and the
 server-arena parser to pass. A missing runtime stage falls back to the converted
 Chicago street. `STORYPORT_PREVIEW_ARENA=<level>:<tod>` with
 `StoryPortPreviewCapture.CaptureFight` renders one arena on a graphics-enabled editor.
