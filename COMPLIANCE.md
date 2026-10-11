@@ -990,3 +990,5 @@ the recovered `Off` enumerator. These repairs add no APK bytes or decompiled gam
 `EB.Math.Vector2.Distance(ref,ref,out)`, `EB.Math.Vector4.Distance(ref,ref,out)`, and typed `EB.Math.Rectangle.Equals` are newly authored IL from staged 9.2 signatures and scalar fields. Distances use Euclidean component deltas and rectangle equality compares all four integer fields. No APK bytes, assets, or copied game method bodies are retained.
 
 `EB.Math.Vector2.DistanceSquared`, `EB.Math.Vector4.DistanceSquared`, and `EB.Math.Rectangle.op_Equality` are newly authored IL using Euclidean component squares and all four rectangle coordinates, respectively. The recovery contains no APK bytes, assets, or copied game method bodies.
+
+`EB.Math.Vector2.Dot(ref,ref,out)`, `EB.Math.Vector4.Dot(ref,ref,out)`, and `EB.Math.Rectangle.op_Inequality` are newly authored scalar operations over staged fields. Vector dot products sum component products; rectangle inequality returns true when any of its four integer coordinates differs. No APK content or decompiled game method body is tracked.

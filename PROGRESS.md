@@ -1370,3 +1370,11 @@ The v59 ARM64/IL2CPP checkpoint took 30.03 seconds of preflight and 123.09 secon
 Authored `Vector2.DistanceSquared`, `Vector4.DistanceSquared`, and `Rectangle.op_Equality` from the next surfaced signatures and staged fields. Mono smoke passed 2D and 4D squared distances and equal/unequal rectangle operators, together with the prior geometry and state checks. Preflight compiled successfully with the same 12 CS0219 warnings; no Unity build has run for this latest batch yet.
 
 REA MCP again reports complete managed metadata for the staged assemblies: first-pass SHA-256 `48db8d449a35a21fc058418852e272257f52bc249309ac7a2093693f0b83f2cb`, evidence `ev_bbcf9cfad93855a5f5aed6d5d2aa0da5a229ae00a8b42e6642a270926839c6d1`; main SHA-256 `92802a7c91c081e04b56a3e13c9ba1da26acf63c8eec265cec4c07ace55148bb`, evidence `ev_16f4625764818b64f7304a2cef7f4ed139fbecb0369735fc75e89803346b1f70`. These remain generated, external staging DLLs.
+
+## v61: vector dot products and rectangle inequality prepared
+
+The v60 ARM64/IL2CPP checkpoint took 29.99 seconds of preflight and 122.34 seconds in Unity, produced no APK, and did not OOM. Process-tree RSS peaked at 4.80 GiB; host available memory bottomed at 6.15 GiB from 14.66 GiB before Unity. The 121.3 MiB log compressed to 1.00 MiB and the external volume lost 61.13 MiB. All three v60 methods cleared; 14 fresh failures surfaced and the queue remained at 16.
+
+The next batch authored `Vector2.Dot`, `Vector4.Dot`, and `Rectangle.op_Inequality`. Preflight compiled with the existing 12 warnings, and Unity Mono smoke passed dot-product values and both inequality branches alongside prior repairs. To limit repeated Unity time and external log churn after four consecutive checkpoints with 14-for-14 queue turnover, this batch is held for a later combined checkpoint.
+
+REA MCP directly inspected the newly staged first-pass assembly (16,680,960 bytes, SHA-256 `43c5a6200394bc6faf5a5b7b0c5f35765e979149e2e93da7503f6411f695ae5e`, evidence `ev_ce09f511949d079342711a7ee345a7da2dbc818a4611852bfb1120f7218056d9`) and main assembly (24,541,696 bytes, SHA-256 `cd168c82cb24513457c99a78488205f9e361c01725a5e99e41f6095b68bd5739`, evidence `ev_80f76a3837b1041a9d9426efc2a91d2af5a75109a5ded708ea1485206807787e`) with complete PE/CLI metadata. Both are external generated staging files.

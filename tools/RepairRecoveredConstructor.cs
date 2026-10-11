@@ -6085,6 +6085,8 @@ class RepairRecoveredConstructor {
         repairs += RepairVectorDistance(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairVectorDistanceSquared(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
         repairs += RepairVectorDistanceSquared(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
+        repairs += RepairVectorDot(targetModule, "EB.Math.Vector2", new[] { "_x", "_y" });
+        repairs += RepairVectorDot(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairQuaternionDot(targetModule);
         repairs += RepairQuaternionInverse(targetModule);
         repairs += RepairPlaneDot(targetModule);
@@ -6098,6 +6100,7 @@ class RepairRecoveredConstructor {
         repairs += RepairRectangleUnion(targetModule);
         repairs += RepairRectangleEquals(targetModule);
         repairs += RepairRectangleEqualityOperator(targetModule);
+        repairs += RepairRectangleInequalityOperator(targetModule);
         repairs += RepairRectangleIntersects(targetModule);
         repairs += RepairRectangleOffset(targetModule);
         repairs += RepairQuaternionAdd(targetModule);
@@ -7044,6 +7047,45 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairVectorDot(ModuleDefinition module, string typeName, string[] componentNames) {
+        TypeDefinition type = module.GetType(typeName);
+        if (type == null) throw new InvalidDataException("missing " + typeName + " metadata");
+        string referenceType = typeName + "&";
+        MethodDefinition dot = type.Methods.SingleOrDefault(method => method.Name == "Dot" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 3 &&
+            method.Parameters[0].ParameterType.FullName == referenceType &&
+            method.Parameters[1].ParameterType.FullName == referenceType &&
+            method.Parameters[2].ParameterType.FullName == "System.Single&");
+        FieldDefinition[] fields = componentNames.Select(name => type.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (dot == null || fields.Any(field => field == null) || fields.Distinct().Count() != componentNames.Length)
+            throw new InvalidDataException("unexpected " + typeName + ".Dot metadata");
+
+        MethodBody body = ResetBody(dot, out ILProcessor il);
+        body.InitLocals = true;
+        VariableDefinition result = new VariableDefinition(module.TypeSystem.Single);
+        body.Variables.Add(result);
+        il.Append(Instruction.Create(OpCodes.Ldc_R4, 0f));
+        il.Append(Instruction.Create(OpCodes.Stloc, result));
+        foreach (FieldDefinition field in fields) {
+            il.Append(Instruction.Create(OpCodes.Ldloc, result));
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Mul));
+            il.Append(Instruction.Create(OpCodes.Add));
+            il.Append(Instruction.Create(OpCodes.Stloc, result));
+        }
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldloc, result));
+        il.Append(Instruction.Create(OpCodes.Stind_R4));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed " + typeName + ".Dot(ref,ref,out) from component products");
+        return 1;
+    }
+
     static int RepairQuaternionDot(ModuleDefinition module) {
         TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
         if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
@@ -7734,6 +7776,36 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 2;
         Console.WriteLine("reconstructed EB.Math.Rectangle.op_Equality from all four integer coordinates");
+        return 1;
+    }
+
+    static int RepairRectangleInequalityOperator(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        if (rectangle == null) throw new InvalidDataException("missing EB.Math.Rectangle metadata");
+        FieldDefinition[] fields = new[] { "X", "Y", "Width", "Height" }.Select(name =>
+            rectangle.Fields.SingleOrDefault(field => field.Name == name && !field.IsStatic &&
+                field.FieldType.MetadataType == MetadataType.Int32)).ToArray();
+        MethodDefinition notEquals = rectangle.Methods.SingleOrDefault(method => method.Name == "op_Inequality" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 2 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Math.Rectangle"));
+        if (fields.Any(field => field == null) || notEquals == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.op_Inequality metadata");
+
+        MethodBody body = ResetBody(notEquals, out ILProcessor il);
+        Instruction unequal = Instruction.Create(OpCodes.Ldc_I4_1);
+        foreach (FieldDefinition field in fields) {
+            il.Append(Instruction.Create(OpCodes.Ldarga, notEquals.Parameters[0]));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarga, notEquals.Parameters[1]));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Bne_Un, unequal));
+        }
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(unequal);
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed EB.Math.Rectangle.op_Inequality from all four integer coordinates");
         return 1;
     }
 
