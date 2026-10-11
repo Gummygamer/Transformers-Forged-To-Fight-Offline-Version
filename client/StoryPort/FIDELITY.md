@@ -52,6 +52,11 @@ the full Act I and Act II route):
   `/bcg/getLoginData`. Specials fire at one to three bars. The enemy attacks in
   one to three hit combos on its own timer; a test fight gave 14 hits landed,
   13 received, chain 5 (reference: 16, 9, 5).
+- Fight mechanics update: buffered taps now retain up to four moves instead of
+  replacing earlier inputs. Enemy combos can use the local light, medium and
+  heavy attack states, with damage and meter taken from the server move table;
+  heavy attacks also break a held block. This source change still needs an
+  on-device fight comparison before its hit cadence is considered matched.
 - Music and sound from the local 9.2 audio (see Audio above).
 - Mission Complete screen after an act's last encounter (BACK TO MISSIONS, greyed
   REPLAY, PLAY NEXT); the rewards panel stays empty because the server grants none.

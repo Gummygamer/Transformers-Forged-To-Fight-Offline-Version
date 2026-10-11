@@ -130,10 +130,8 @@ namespace StoryPort
         bool dimSaved;
         Renderer skyDim;
         bool paused;
-        bool queuedAttack;
-        string queuedAttackState;
-        int queuedAttackDamage;
-        int queuedAttackCharge;
+        const int BufferedAttackLimit = 4;
+        readonly Queue<BufferedAttack> bufferedAttacks = new Queue<BufferedAttack>(BufferedAttackLimit);
         int fightTouchFingerId = -1;
         bool squadForStory;
         float nextEnemyTurn;
@@ -153,6 +151,20 @@ namespace StoryPort
         Animator playerAnimator;
         Animator enemyAnimator;
         Canvas canvas;
+
+        struct BufferedAttack
+        {
+            public string State;
+            public int Damage;
+            public int Charge;
+
+            public BufferedAttack(string state, int damage, int charge)
+            {
+                State = state;
+                Damage = damage;
+                Charge = charge;
+            }
+        }
         RectTransform content;
         Text statusText;
         Text playerHpText;
@@ -416,6 +428,7 @@ namespace StoryPort
             screen = next;
             if (next != "fight")
             {
+                bufferedAttacks.Clear();
                 fightGesture.Cancel();
                 fightTouchFingerId = -1;
                 guarding = false;
@@ -1446,7 +1459,7 @@ namespace StoryPort
             guarding = false;
             enemyBusy = false;
             playerBusy = false;
-            queuedAttack = false;
+            bufferedAttacks.Clear();
             fightGesture.Cancel();
             fightTouchFingerId = -1;
             lightCombo = 0;
@@ -1920,10 +1933,11 @@ namespace StoryPort
             if (requestBusy || screen != "fight" || enemyHp <= 0) return;
             if (enemyBusy || playerBusy)
             {
-                queuedAttack = true;
-                queuedAttackState = state;
-                queuedAttackDamage = damage;
-                queuedAttackCharge = charge;
+                // Preserve a short combo input sequence while either fighter is
+                // finishing an animation. A single mutable slot silently replaced
+                // earlier taps with the last move, so light chains could not land.
+                if (bufferedAttacks.Count < BufferedAttackLimit)
+                    bufferedAttacks.Enqueue(new BufferedAttack(state, damage, charge));
                 return;
             }
             StartCoroutine(PlayerAttackImpact(state, damage, charge));
@@ -1931,18 +1945,17 @@ namespace StoryPort
 
         void RunQueuedAttack()
         {
-            if (!StoryPortSpecialTimeline.CanRunQueuedAttack(queuedAttack, enemyBusy, playerBusy, screen == "fight", enemyHp > 0)) return;
-            string state = queuedAttackState;
-            int damage = queuedAttackDamage;
-            int charge = queuedAttackCharge;
-            queuedAttack = false;
-            PlayerAttack(state, damage, charge);
+            if (guarding || fightGesture.Guarding) return;
+            if (!StoryPortSpecialTimeline.CanRunQueuedAttack(bufferedAttacks.Count > 0, enemyBusy, playerBusy, screen == "fight", enemyHp > 0)) return;
+            var attack = bufferedAttacks.Dequeue();
+            PlayerAttack(attack.State, attack.Damage, attack.Charge);
         }
 
         IEnumerator PlayerAttackImpact(string state, int damage, int charge)
         {
             playerBusy = true;
             guarding = false;
+            SetBoolIfPresent(playerAnimator, "Blocking", false);
             bool specialMove = state.StartsWith("Special", StringComparison.Ordinal);
             float specialStartedAt = -1f;
             float originalAnimatorSpeed = playerAnimator != null ? playerAnimator.speed : 1f;
@@ -2295,6 +2308,7 @@ namespace StoryPort
                 SetBoolIfPresent(playerAnimator, "Blocking", guarding);
             }
             UpdateFightHud();
+            if (!guarding) RunQueuedAttack();
         }
 
         void TogglePause()
@@ -2325,7 +2339,7 @@ namespace StoryPort
             guarding = false;
             enemyBusy = false;
             playerBusy = false;
-            queuedAttack = false;
+            bufferedAttacks.Clear();
             lightCombo = 0;
             comboHits = 0;
             playerMana = enemyMana = 0;
@@ -2345,6 +2359,11 @@ namespace StoryPort
                 if (level < 1) SetNotice("Land hits to charge a special bar");
                 return;
             }
+            if ((enemyBusy || playerBusy) && bufferedAttacks.Count >= BufferedAttackLimit)
+            {
+                SetNotice("ATTACK QUEUE FULL");
+                return;
+            }
             level = Mathf.Min(3, level);
             playerMana -= level * StoryPortCombatRules.ManaPerBar;
             PlayerAttack("SpecialAttack0" + level, 0, 8);
@@ -2357,9 +2376,8 @@ namespace StoryPort
             StartCoroutine(EnemyAttack());
         }
 
-        // Enemy turn: a special when a bar is charged, otherwise a combo of one to
-        // three light hits, then a short breather. The reference fights show the
-        // AI landing about one hit for every two the player lands.
+        // Enemy turn: a special when a bar is charged, otherwise a one-to-three
+        // hit combo with light, medium and heavy attacks, then a short breather.
         IEnumerator EnemyAttack()
         {
             // Claim the turn so further player taps queue, then let the current swing land.
@@ -2380,9 +2398,10 @@ namespace StoryPort
             SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "");
             for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
+                string enemyState = special ? "SpecialAttack0" + enemySpecialLevel : EnemyComboMove(hit);
                 float specialStartedAt = -1f;
                 float originalEnemyAnimatorSpeed = enemyAnimator != null ? enemyAnimator.speed : 1f;
-                PlayState(enemyAnimator, special ? "SpecialAttack0" + enemySpecialLevel : "LightAttack0" + hit);
+                PlayState(enemyAnimator, enemyState);
                 if (special && audioPlayer != null) audioPlayer.Special(enemyKey, enemySpecialLevel, false, .75f);
                 if (special)
                 {
@@ -2395,28 +2414,38 @@ namespace StoryPort
                     specialStartedAt = Time.time;
                     StartCoroutine(SpecialShot(enemyActor, playerActor));
                 }
-                int enemyStep = special ? 6 : hit;
+                int enemyStep = special ? 6 : AttackStep(enemyState);
                 Combat(enemyKey, "attack_" + enemyStep);
-                // The first swing telegraphs; follow-ups come faster.
-                yield return new WaitForSeconds(special ? StoryPortSpecialTimeline.ImpactSeconds : hit == 1 ? .5f : .32f);
+                // Give heavier swings their longer wind-up so block breaks are readable.
+                float impactDelay = special ? StoryPortSpecialTimeline.ImpactSeconds
+                    : enemyStep >= 5 ? .7f : enemyStep >= 4 ? .43f : hit == 1 ? .5f : .32f;
+                yield return new WaitForSeconds(impactDelay);
                 if (screen != "fight") { enemyBusy = false; yield break; }
                 if (playerHp <= 0 || enemyHp <= 0) break;
-                var enemyMove = rules.MoveFor("LightAttack0" + hit);
+                var enemyMove = rules.MoveFor(enemyState);
                 float raw = enemyAttack * (special ? rules.SpecialRatio(enemyKey, enemySpecialLevel) : enemyMove.Share) * UnityEngine.Random.Range(.95f, 1.05f);
                 bool evaded = Time.time < evadeUntil;
-                float taken = evaded ? 0f : guarding ? raw * .1f : raw;
+                bool blockBroken = !evaded && guarding && !special && StoryPortCombatRules.BreaksBlock(enemyState);
+                bool blocked = !evaded && guarding && !blockBroken;
+                if (blockBroken)
+                {
+                    guarding = false;
+                    SetBoolIfPresent(playerAnimator, "Blocking", false);
+                    SetNotice("BLOCK BROKEN");
+                }
+                float taken = evaded ? 0f : blocked ? raw * .1f : raw;
                 int damage = Mathf.RoundToInt(taken);
                 playerHealth = Mathf.Max(0f, playerHealth - taken);
                 SyncHealthPercent();
-                if (damage > 0) ShowDamageNumber(damage, playerActor, guarding ? new Color(.7f, .85f, 1f) : new Color(1f, .45f, .4f));
-                if (special && damage > 0 && !guarding) ImpactBurst(playerActor);
-                if (special && damage > 0 && !guarding && !evaded && audioPlayer != null) audioPlayer.Special(enemyKey, enemySpecialLevel, true, .8f);
-                if (guarding) Combat(playerKey, "block_react");
+                if (damage > 0) ShowDamageNumber(damage, playerActor, blocked ? new Color(.7f, .85f, 1f) : new Color(1f, .45f, .4f));
+                if (special && damage > 0 && !blocked) ImpactBurst(playerActor);
+                if (special && damage > 0 && !blocked && !evaded && audioPlayer != null) audioPlayer.Special(enemyKey, enemySpecialLevel, true, .8f);
+                if (blocked) Combat(playerKey, "block_react");
                 else if (damage > 0)
                 {
                     hitsReceived++;
                     Combat(enemyKey, "attack_hit_" + enemyStep);
-                    Combat(playerKey, special ? "hit_react_heavy" : "hit_react_light", .6f);
+                    Combat(playerKey, special || enemyStep >= 5 ? "hit_react_heavy" : enemyStep >= 4 ? "hit_react_medium" : "hit_react_light", .6f);
                     comboHits = 0;
                     if (comboText != null) comboText.text = "";
                 }
@@ -2425,8 +2454,8 @@ namespace StoryPort
                     enemyMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, enemyMana + enemyMove.Mana);
                     playerMana = Mathf.Min(3 * StoryPortCombatRules.ManaPerBar, playerMana + enemyMove.Mana * .5f);
                 }
-                PlayState(playerAnimator, guarding ? "BlockReact" : evaded ? "Dash" : special ? "SpecialAttack0" + enemySpecialLevel + "HitReaction" : "HitReactionLightRightHigh");
-                CameraShake(guarding || evaded ? .05f : .12f);
+                PlayState(playerAnimator, blocked ? "BlockReact" : evaded ? "Dash" : special ? "SpecialAttack0" + enemySpecialLevel + "HitReaction" : enemyStep >= 5 ? "HitReactionHeavyFront" : enemyStep >= 4 ? "HitReactionMediumLeftHigh" : "HitReactionLightRightHigh");
+                CameraShake(blocked || evaded ? .05f : .12f);
                 if (evaded) SetNotice("DODGED");
                 UpdateFightHud();
                 if (playerHp == 0)
@@ -2454,6 +2483,13 @@ namespace StoryPort
             }
             nextEnemyTurn = Time.time + UnityEngine.Random.Range(1.4f, 2.6f);
             RunQueuedAttack();
+        }
+
+        static string EnemyComboMove(int hit)
+        {
+            if (hit == 1) return "LightAttack0" + UnityEngine.Random.Range(1, 4);
+            if (hit == 2) return "MediumAttack01";
+            return "HeavyAttack";
         }
 
         void Update()
@@ -3286,17 +3322,22 @@ namespace StoryPort
                 case StoryPortFightGesture.Action.Block:
                     guarding = true;
                     PlayState(playerAnimator, "Block");
+                    SetBoolIfPresent(playerAnimator, "Blocking", true);
                     UpdateFightHud();
                     break;
                 case StoryPortFightGesture.Action.ReleaseBlock:
                     guarding = false;
+                    SetBoolIfPresent(playerAnimator, "Blocking", false);
                     PlayState(playerAnimator, "Idle");
                     UpdateFightHud();
+                    RunQueuedAttack();
                     break;
                 case StoryPortFightGesture.Action.GuardForward:
                 case StoryPortFightGesture.Action.GuardBack:
                     guarding = false;
+                    SetBoolIfPresent(playerAnimator, "Blocking", false);
                     Dash(action == StoryPortFightGesture.Action.GuardForward);
+                    RunQueuedAttack();
                     break;
                 case StoryPortFightGesture.Action.Heavy:
                     PlayerAttack("HeavyAttack", 0, 0);
