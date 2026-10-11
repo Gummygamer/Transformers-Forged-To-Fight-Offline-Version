@@ -6055,6 +6055,7 @@ class RepairRecoveredConstructor {
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
         int repairs = RepairRecoveredPool(targetModule);
         repairs += RepairMatrixAdd(targetModule);
+        repairs += RepairMatrixMultiply(targetModule);
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeFloat", typeof(float));
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeInt", typeof(int));
         repairs += RepairStringUtilInitializer(targetModule);
@@ -6398,6 +6399,64 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 3;
         Console.WriteLine("reconstructed EB.Math.Matrix.Add(ref,ref,ref) across 16 traced float fields");
+        return 1;
+    }
+
+    static int RepairMatrixMultiply(ModuleDefinition module) {
+        TypeDefinition matrix = module.GetType("EB.Math.Matrix");
+        if (matrix == null) throw new InvalidDataException("missing EB.Math.Matrix metadata");
+        string matrixRef = "EB.Math.Matrix&";
+        MethodDefinition multiply = matrix.Methods.SingleOrDefault(method => method.Name == "Multiply" &&
+            method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void &&
+            method.Parameters.Count == 3 && method.Parameters.All(parameter =>
+                parameter.ParameterType.FullName == matrixRef));
+        if (multiply == null) throw new InvalidDataException("missing EB.Math.Matrix.Multiply(ref,ref,ref)");
+
+        string[] fieldNames = {
+            "m11", "m12", "m13", "m14", "m21", "m22", "m23", "m24",
+            "m31", "m32", "m33", "m34", "m41", "m42", "m43", "m44"
+        };
+        FieldDefinition[] fields = fieldNames.Select(name => matrix.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (fields.Any(field => field == null) || fields.Distinct().Count() != fieldNames.Length)
+            throw new InvalidDataException("unexpected EB.Math.Matrix scalar field layout");
+
+        MethodBody body = ResetBody(multiply, out ILProcessor il);
+        body.InitLocals = true;
+        body.MaxStackSize = 5;
+        var left = new VariableDefinition[16];
+        var right = new VariableDefinition[16];
+        for (int i = 0; i < 16; i++) {
+            left[i] = new VariableDefinition(module.TypeSystem.Single);
+            right[i] = new VariableDefinition(module.TypeSystem.Single);
+            body.Variables.Add(left[i]);
+            body.Variables.Add(right[i]);
+        }
+
+        // Snapshot both operands before writing the output so result may alias either input.
+        for (int i = 0; i < 16; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, left[i]));
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, right[i]));
+        }
+
+        for (int row = 0; row < 4; row++) {
+            for (int column = 0; column < 4; column++) {
+                il.Append(Instruction.Create(OpCodes.Ldarg_2));
+                for (int inner = 0; inner < 4; inner++) {
+                    il.Append(Instruction.Create(OpCodes.Ldloc, left[row * 4 + inner]));
+                    il.Append(Instruction.Create(OpCodes.Ldloc, right[inner * 4 + column]));
+                    il.Append(Instruction.Create(OpCodes.Mul));
+                    if (inner > 0) il.Append(Instruction.Create(OpCodes.Add));
+                }
+                il.Append(Instruction.Create(OpCodes.Stfld, fields[row * 4 + column]));
+            }
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        Console.WriteLine("reconstructed EB.Math.Matrix.Multiply(ref,ref,ref) from its traced 4x4 scalar product");
         return 1;
     }
 

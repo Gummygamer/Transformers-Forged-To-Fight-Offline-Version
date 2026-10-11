@@ -1063,3 +1063,32 @@ This repair has only passed the recovery preflight so far; no IL2CPP compile, ru
 APK, or playable story session has resulted yet. The next step is one 10-GiB-guarded ARM64/IL2CPP
 checkpoint. Continue batching map/UI-safe fixes before paying for later checkpoints; first-route
 estimate remains **3–8 focused weeks, low confidence**.
+
+## v46: scrolling accepted; matrix multiply recovered
+
+The guarded Unity checkpoint ran 30.53 seconds of recovery preflight and 120.08 seconds in Unity,
+then failed with 25 Unity errors (16 distinct IL2CPP method signatures); it produced no APK. In the
+immediate before/after set comparison, 14 prior signatures disappeared and 14 different ones
+surfaced, leaving the unique-signature count at 16. `DynamicScrollView.UpdatePositions` is absent
+from the new failures, confirming that Unity's IL2CPP stage accepted the reconstructed loop. The
+other signature changes are cumulative and are not attributed to this repair. The new queue
+includes `EB.Math.Matrix.Multiply` and `EB.Missions.MapTile.get_x`.
+
+The Unity process tree peaked at 6,491,656,192 bytes (6.05 GiB); available host memory fell from
+15,889,723,392 bytes (14.80 GiB) to 7,036,907,520 bytes (6.55 GiB), below the start guard while
+still leaving headroom. The 127,174,515-byte log compressed to 1,045,100 bytes; external free space
+decreased by 33,247,232 bytes (31.7 MiB). No Unity process remains. After verifying that the
+Roslyn compiler had been idle, it was stopped and 557,292 KiB RSS was returned; host available
+memory recovered to 14.88 GiB.
+
+Reconstructed `Matrix.Multiply(ref,ref,out)` from the clean 9.2 4x4 scalar product, snapshotting
+both inputs before output writes. Recovery preflight passed; a temporary Unity-bundled Mono smoke
+passed a nontrivial matrix product and output/left-input alias case. The smoke used reflection to
+initialize the value because neighboring recovered Matrix constructors and property setters are
+still malformed; that limitation does not change the multiplication result check. REA MCP observed
+the modified staged first-pass assembly as complete PE/CLI metadata (16,979,968 bytes; SHA-256
+`7e6cf20b779ff7d3415555f93bf8b0485e54d35e1f8eb5f727599e10c69fa7b3`; MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`; evidence
+`ev_d4b5076498319c2cd0bba16d062e6cb7ab28e2e27784b09d3dd16f17d6670493`). This is staged recovery
+output, not the pristine APK assembly. No second Unity build is scheduled until more trace-backed
+fixes accumulate. No APK or playable story session exists yet.

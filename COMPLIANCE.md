@@ -929,3 +929,7 @@ no APK bytes, assets, or copied decompiled game method body are tracked.
 `DynamicScrollView.UpdatePositions` is newly authored CIL from the clean 9.2 cached-item and
 transform trace. It uses recovered field/member metadata and retains no APK bytes, assets, or
 copied game method body.
+
+`EB.Math.Matrix.Multiply(ref,ref,out)` is newly authored CIL for the traced 4x4 scalar product.
+Both inputs are snapshotted to preserve aliasing; no APK bytes, assets, or copied game method body
+are retained.
