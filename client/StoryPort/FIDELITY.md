@@ -63,6 +63,11 @@ the full Act I and Act II route):
   move the player laterally for a brief evade. Movement is eased and distance
   bounded. The targeted Unity Editor check passes; touch feel still needs a
   device comparison.
+- Enemy movement update: a wide gap now triggers a Run-state approach before the
+  combo, and the enemy keeps ground after a landed attack. A clean evade returns
+  it to its pre-lunge position. Defensive dodges retreat from the player and
+  sidesteps use their left/right fight states. Focused Editor checks pass; this
+  movement still needs an on-device visual comparison.
 - Music and sound from the local 9.2 audio (see Audio above).
 - Mission Complete screen after an act's last encounter (BACK TO MISSIONS, greyed
   REPLAY, PLAY NEXT); the rewards panel stays empty because the server grants none.

@@ -47,8 +47,9 @@ namespace StoryPort.Editor
         public static void RunMovementChecks()
         {
             CheckFightGestures();
+            CheckEnemyDefense();
             CheckFightAnimations();
-            Debug.Log("StoryPort movement checks passed: swipe actions and fight locomotion clips");
+            Debug.Log("StoryPort fight mechanics checks passed: swipe actions, defense weights, and locomotion clips");
         }
 
         static void CheckArenaCatalog()

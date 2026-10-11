@@ -1975,9 +1975,21 @@ namespace StoryPort
             }
             else if (defense == StoryPortEnemyDefense.Action.Dodge || defense == StoryPortEnemyDefense.Action.Sidestep)
             {
-                PlayState(enemyAnimator, defense == StoryPortEnemyDefense.Action.Dodge ? "Dodge" : "Dash");
+                bool sidestepLeft = UnityEngine.Random.value < .5f;
+                PlayState(enemyAnimator, defense == StoryPortEnemyDefense.Action.Dodge
+                    ? "Dodge" : sidestepLeft ? "SidestepLeft" : "SidestepRight");
                 Combat(enemyKey, defense == StoryPortEnemyDefense.Action.Dodge ? "dodge" : "dash", .7f);
-                if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome + enemyActor.transform.right * (defense == StoryPortEnemyDefense.Action.Dodge ? .7f : -.5f), .2f));
+                if (enemyActor != null)
+                {
+                    Vector3 escape = defense == StoryPortEnemyDefense.Action.Dodge
+                        ? enemyActor.transform.position - (playerActor != null ? playerActor.transform.position : enemyActor.transform.forward)
+                        : enemyActor.transform.right * (sidestepLeft ? 1f : -1f);
+                    escape.y = 0f;
+                    if (escape.sqrMagnitude < .001f) escape = -enemyActor.transform.forward;
+                    escape.Normalize();
+                    float distance = defense == StoryPortEnemyDefense.Action.Dodge ? .8f : .65f;
+                    StartCoroutine(MoveActor(enemyActor, enemyHome + escape * distance, .2f));
+                }
             }
             PlayState(playerAnimator, state);
             int specialLevel = specialMove ? state[state.Length - 1] - '0' : 0;
@@ -2436,10 +2448,25 @@ namespace StoryPort
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
             if (enemyActor != null && playerActor != null)
             {
-                Vector3 towardPlayer = (playerActor.transform.position - enemyActor.transform.position).normalized;
-                StartCoroutine(MoveActor(enemyActor, enemyHome + towardPlayer * .7f, .2f));
+                Vector3 towardPlayer = playerActor.transform.position - enemyActor.transform.position;
+                towardPlayer.y = 0f;
+                float gap = towardPlayer.magnitude;
+                if (gap > 5.8f)
+                {
+                    float runIn = Mathf.Min(1.5f, gap - 5.2f);
+                    PlayState(enemyAnimator, "Run");
+                    yield return StartCoroutine(MoveActor(enemyActor, enemyHome + towardPlayer.normalized * runIn, .34f));
+                    if (screen != "fight" || playerHp <= 0 || enemyHp <= 0) { enemyBusy = false; yield break; }
+                    enemyHome = enemyActor.transform.position;
+                    towardPlayer = playerActor.transform.position - enemyActor.transform.position;
+                    towardPlayer.y = 0f;
+                }
+                float lunge = Mathf.Min(.7f, Mathf.Max(0f, towardPlayer.magnitude - 1.8f));
+                if (lunge > .01f)
+                    StartCoroutine(MoveActor(enemyActor, enemyActor.transform.position + towardPlayer.normalized * lunge, .2f));
             }
             SetNotice(special ? "ENEMY SPECIAL · BLOCK OR DODGE" : "");
+            bool recoverAfterEvade = false;
             for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
                 string enemyState = special ? "SpecialAttack0" + enemySpecialLevel : EnemyComboMove(hit);
@@ -2515,10 +2542,10 @@ namespace StoryPort
                     if (enemyAnimator != null) enemyAnimator.speed = originalEnemyAnimatorSpeed;
                     if (screen == "fight" && enemyHp > 0) PlayState(enemyAnimator, "Idle");
                 }
-                if (evaded) break;
+                if (evaded) { recoverAfterEvade = true; break; }
             }
             enemyBusy = false;
-            if (enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome, .18f));
+            if (recoverAfterEvade && enemyActor != null) StartCoroutine(MoveActor(enemyActor, enemyHome, .18f));
             // Keep a held block; only drop a block the player has already released.
             if (guarding && !fightGesture.Tracking)
             {
