@@ -1092,3 +1092,18 @@ the modified staged first-pass assembly as complete PE/CLI metadata (16,979,968 
 `ev_d4b5076498319c2cd0bba16d062e6cb7ab28e2e27784b09d3dd16f17d6670493`). This is staged recovery
 output, not the pristine APK assembly. No second Unity build is scheduled until more trace-backed
 fixes accumulate. No APK or playable story session exists yet.
+
+## v47: story-tile coordinates restored
+
+Rebuilt `MapTile.x` and `MapTile.y` from the clean 9.2 `position` Vector2 backing field. The
+replacement reads `x`/`y` through the field address and converts them to integers, avoiding a
+Vector2 value on the evaluation stack. Recovery preflight exited 0 with the same 12 CS0219
+warnings. A Unity-bundled Mono smoke initialized an unconstructed tile with position `(12.75,
+-3.25)` and verified coordinates `(12,-3)`.
+
+REA MCP observed the updated staged first-pass assembly as complete PE/CLI metadata (16,979,968
+bytes; SHA-256 `d3c630aa2458ef65936df0c4067d956d0965898dc5004b1e9142228179dd7fc3`; MVID
+`9d505b09-f68b-45e2-8055-c4b676bb2e75`; evidence
+`ev_a2e7b274d0aa4fe3d6e46ee1a08615a38d6c3ef790943b5e91eefce4f9450ca7`). This remains local
+staged output. No Unity build was spent on this single new repair; batch further story-map geometry
+work before the next guarded checkpoint. No APK or playable story route yet.

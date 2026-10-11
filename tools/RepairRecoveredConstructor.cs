@@ -6238,7 +6238,28 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ldfld, position));
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 1;
-        return 1;
+        int repairs = 1;
+
+        TypeReference vector2 = UnityEngineType(tile.Module, "Vector2");
+        foreach (string coordinate in new[] { "x", "y" }) {
+            MethodDefinition coordinateGetter = tile.Methods.SingleOrDefault(method =>
+                method.Name == "get_" + coordinate && !method.IsStatic && method.Parameters.Count == 0 &&
+                method.ReturnType.MetadataType == MetadataType.Int32);
+            if (coordinateGetter == null)
+                throw new InvalidDataException("missing MapTile coordinate getter: " + coordinate);
+            FieldReference component = tile.Module.ImportReference(new FieldReference(coordinate,
+                tile.Module.TypeSystem.Single, vector2));
+            body = ResetBody(coordinateGetter, out il);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldflda, position));
+            il.Append(Instruction.Create(OpCodes.Ldfld, component));
+            il.Append(Instruction.Create(OpCodes.Conv_I4));
+            il.Append(Instruction.Create(OpCodes.Ret));
+            body.MaxStackSize = 1;
+            repairs++;
+        }
+        Console.WriteLine("reconstructed MapTile x/y from the traced Vector2 position components");
+        return repairs;
     }
 
     static int RepairMapGetTile(ModuleDefinition targetModule, ModuleDefinition sourceModule) {

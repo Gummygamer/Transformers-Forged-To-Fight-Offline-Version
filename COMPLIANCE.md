@@ -933,3 +933,6 @@ copied game method body.
 `EB.Math.Matrix.Multiply(ref,ref,out)` is newly authored CIL for the traced 4x4 scalar product.
 Both inputs are snapshotted to preserve aliasing; no APK bytes, assets, or copied game method body
 are retained.
+
+`MapTile.x` and `MapTile.y` are newly authored CIL reading the traced Vector2 position backing
+field; no APK bytes, assets, or copied game method body are retained.
