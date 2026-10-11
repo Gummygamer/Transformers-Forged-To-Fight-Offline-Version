@@ -168,6 +168,7 @@ def main() -> int:
         subprocess.run(
             [str(mcs), "-target:library", f"-out:{authored_bodies}",
              f"-r:{plugin_dir / 'Assembly-CSharp-firstpass.dll'}",
+             f"-r:game={plugin_dir / 'Assembly-CSharp.dll'}",
              f"-r:{editor_root / 'Data/Managed/UnityEngine/UnityEngine.CoreModule.dll'}",
              *map(str, authored_sources)],
             check=True,

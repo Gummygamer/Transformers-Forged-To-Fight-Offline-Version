@@ -1426,3 +1426,28 @@ reconstruction but zero net build-queue progress. A playable story route remains
 3–8 focused-week estimate, including the later client/server/runtime work. Next, use the retained
 9.2 ARM64 traces for `Quests.MapTile.GetIncomingBuffList` and the quest-start/progression group,
 batch-authored fixes, then validate them offline before paying for another Unity checkpoint.
+
+## v64: reconstruct incoming story-map buffs
+
+REA reconfirmed the selected base APK (`ev_914eea1d488559659b0af154fd98f93781f85aad6249a7c6f38b70a0aa06648e`):
+`transformers-forged-to-fight-9-2-0.apk`, SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`, package
+`com.kabam.bigrobot` 9.2.0 / code 123129100. REA Android package inspection does not verify the APK
+signature; the earlier source-validation result remains the signature/provenance check.
+
+Added a narrowly scoped authored repair for `Quests.MapTile.GetIncomingBuffList`, grounded in the
+retained 9.2 ARM64 trace at `build/analysis/rea/9.2/recovery-9.2-gpfix-final/rosetta-main-output/Dumps/Quests.MapTile/GetIncomingBuffList.dump.txt`.
+It preserves both active-buff inputs, same-tile exclusion, the observed `Scope` split and X-distance
+threshold (`1e-10f`), and the three `AddRange` ordering observed in the trace. The repair transplants
+into `Assembly-CSharp.dll`; the authored source uses a compile-time alias for that assembly and is
+explicitly labeled as new AI-assisted code. It contains no copied proprietary source text.
+
+Offline preflight passed: Unity 2020.3.31f1 Mono compiled the authored recovery bodies (12 existing
+CS0219 warnings), and the Cecil importer transplanted the new method plus the existing
+`AlignUIElements.GetObjectBounds` method. A focused Cecil inspection found 137 CIL instructions
+and only game/framework call targets, with no surviving `RecoverySources` helper call. REA then
+reported complete PE/CLI metadata for the updated staged `Assembly-CSharp.dll` (24,514,048 bytes,
+SHA-256 `1846a89f9d1a9370893daf9d7f87ef62b0fe895517f5e10226506bcdd4701cc8`, Evidence
+`ev_8ee6647491b9e6bfe32f73fd190f3f9579ef55adc52ab608a124c998860a95c2`). This verifies the staged
+assembly's structure, not execution. No Unity build was run; reduction of the prior 16-method
+IL2CPP error queue remains unverified until the next batched ARM64 checkpoint.

@@ -6054,6 +6054,7 @@ class RepairRecoveredConstructor {
             int mainRepairs = RepairBadgeStateConstructor(targetModule);
             mainRepairs += RepairDamageTypeComparerEquals(targetModule);
             mainRepairs += RepairCoordinateConstraintsHasConstraints(targetModule);
+            mainRepairs += RepairQuestMapTileIncomingBuffList(targetModule, sourceModule);
             return mainRepairs;
         }
         if (assemblyName != "Assembly-CSharp-firstpass.dll") return 0;
@@ -6278,6 +6279,19 @@ class RepairRecoveredConstructor {
             FindListSetter(tile, "set_defenderBuffs"));
         Console.WriteLine("reconstructed MapTile attacker/defender buff copy and append methods from 9.2 ARM64 traces");
         return repairs;
+    }
+
+    static int RepairQuestMapTileIncomingBuffList(ModuleDefinition targetModule, ModuleDefinition sourceModule) {
+        TypeDefinition tile = targetModule.GetType("Quests.MapTile");
+        TypeDefinition sourceType = sourceModule.GetType("RecoverySources.QuestMapTileBuffs");
+        if (tile == null) return 0;
+        if (sourceType == null)
+            throw new InvalidDataException("missing Quests.MapTile incoming-buff recovery metadata");
+        MethodDefinition target = FindInstanceMethod(tile, "GetIncomingBuffList");
+        MethodDefinition source = FindStaticMethod(sourceType, "GetIncomingBuffList", "Quests.MapTile");
+        ReplaceMethodBodyFromAuthoredSource(targetModule, target, source);
+        Console.WriteLine("reconstructed Quests.MapTile.GetIncomingBuffList from its 9.2 ARM64 trace");
+        return 1;
     }
 
     static int RepairMapTilePositionGetter(TypeDefinition tile) {
