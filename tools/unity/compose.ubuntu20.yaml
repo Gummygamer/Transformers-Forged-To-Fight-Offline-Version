@@ -1,0 +1,22 @@
+name: tftf-recovery-unity
+
+services:
+  unity2020-31f1:
+    image: tftf-unity2020-ubuntu20:latest
+    init: true
+    working_dir: /workspace/project
+    entrypoint: ["/opt/unity/Editor/Unity"]
+    command: ["-batchmode", "-nographics", "-version", "-logFile", "/tmp/unity-version.log"]
+    environment:
+      HOME: /tmp/unity-home
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+    volumes:
+      - type: bind
+        source: ${UNITY_2020_ROOT:?Set UNITY_2020_ROOT to the external Unity 2020.3.31f1 directory}
+        target: /opt/unity
+        read_only: true
+      - type: bind
+        source: ${TFTF_UNITY_PROJECT:?Set TFTF_UNITY_PROJECT to the staged recovery Unity project}
+        target: /workspace/project
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=2g
