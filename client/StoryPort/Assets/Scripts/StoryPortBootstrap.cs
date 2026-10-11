@@ -78,6 +78,7 @@ namespace StoryPort
         string playerKey = "fte_optimus_gs_t3";
         string playerName = "Optimus Prime";
         string enemyName = "Bludgeon";
+        string enemyAIProfile = StoryPortArenaData.FallbackAIProfile;
         string enemyAIPersonality = StoryPortArenaData.FallbackPersonality;
         string fightArenaLevel = StoryPortArenaData.FallbackLevel;
         int fightArenaTod = StoryPortArenaData.FallbackTod;
@@ -2481,8 +2482,8 @@ namespace StoryPort
             StartCoroutine(EnemyAttack());
         }
 
-        // Enemy turn: a special when a bar is charged, otherwise a one-to-three
-        // hit combo with light, medium and heavy attacks, then a short breather.
+        // Enemy turn: a special when charged, otherwise the server profile picks
+        // the combo length and the 9.2 tree selects repeat and ender attacks.
         IEnumerator EnemyAttack()
         {
             // Claim the turn so further player taps queue, then let the current swing land.
@@ -2493,7 +2494,7 @@ namespace StoryPort
             bool special = enemyBars >= 1 && (enemyBars >= 3 || UnityEngine.Random.value < .3f);
             enemySpecialLevel = special ? Mathf.Min(3, enemyBars) : 0;
             if (special) enemyMana -= enemySpecialLevel * StoryPortCombatRules.ManaPerBar;
-            int hits = special ? 1 : UnityEngine.Random.Range(1, 4);
+            int hits = special ? 1 : StoryPortEnemyAI.ChooseComboLength(UnityEngine.Random.value, enemyAIProfile);
             Vector3 enemyHome = enemyActor != null ? enemyActor.transform.position : Vector3.zero;
             if (enemyActor != null && playerActor != null)
             {
@@ -2518,7 +2519,7 @@ namespace StoryPort
             bool recoverAfterEvade = false;
             for (int hit = 1; hit <= hits && playerHp > 0 && enemyHp > 0 && screen == "fight"; hit++)
             {
-                string enemyState = special ? "SpecialAttack0" + enemySpecialLevel : EnemyComboMove(hit);
+                string enemyState = special ? "SpecialAttack0" + enemySpecialLevel : EnemyComboMove(hit, hits, enemyAIProfile);
                 float specialStartedAt = -1f;
                 float originalEnemyAnimatorSpeed = enemyAnimator != null ? enemyAnimator.speed : 1f;
                 PlayState(enemyAnimator, enemyState);
@@ -2605,10 +2606,11 @@ namespace StoryPort
             RunQueuedAttack();
         }
 
-        static string EnemyComboMove(int hit)
+        static string EnemyComboMove(int hit, int comboLength, string profile)
         {
-            if (hit == 1) return "LightAttack0" + UnityEngine.Random.Range(1, 4);
-            if (hit == 2) return "MediumAttack01";
+            var move = StoryPortEnemyAI.ChooseMeleeMove(UnityEngine.Random.value, hit, comboLength, profile);
+            if (move == StoryPortEnemyAI.MeleeMove.Light) return "LightAttack0" + UnityEngine.Random.Range(1, 4);
+            if (move == StoryPortEnemyAI.MeleeMove.Medium) return "MediumAttack01";
             return "HeavyAttack";
         }
 
@@ -3274,12 +3276,12 @@ namespace StoryPort
 
         string ReadBattleEnemy(string json)
         {
-            string key, level;
-            string personality;
+            string key, level, profile, personality;
             int tod;
-            StoryPortArenaData.TryReadBattleEnemy(json, out key, out level, out tod, out personality);
+            StoryPortArenaData.TryReadBattleEnemy(json, out key, out level, out tod, out profile, out personality);
             fightArenaLevel = level;
             fightArenaTod = tod;
+            enemyAIProfile = profile;
             enemyAIPersonality = personality;
             return key;
         }

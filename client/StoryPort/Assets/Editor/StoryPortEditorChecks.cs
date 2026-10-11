@@ -49,8 +49,9 @@ namespace StoryPort.Editor
             CheckFightGestures();
             CheckBattleEnemyAIData();
             CheckEnemyDefense();
+            CheckEnemyComboProfile();
             CheckFightAnimations();
-            Debug.Log("StoryPort fight mechanics checks passed: swipe actions, server AI personality, defense weights, and locomotion clips");
+            Debug.Log("StoryPort fight mechanics checks passed: swipe actions, server AI profile and personality, defense weights, combo selection, and locomotion clips");
         }
 
         static void CheckArenaCatalog()
@@ -76,14 +77,14 @@ namespace StoryPort.Editor
 
         static void CheckBattleEnemyAIData()
         {
-            string key, level, personality;
+            string key, level, profile, personality;
             int tod;
-            if (!StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"karnak\",\"todIndex\":2,\"aiPer\":\"Ranged\"}}", out key, out level, out tod, out personality) ||
-                key != "x" || level != "karnak" || tod != 2 || personality != "Ranged")
-                throw new Exception("StoryPortArenaData did not read the server enemy personality");
-            StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"atlantis\",\"todIndex\":9}}", out key, out level, out tod, out personality);
-            if (level != StoryPortArenaData.FallbackLevel || tod != StoryPortArenaData.FallbackTod || personality != StoryPortArenaData.FallbackPersonality)
-                throw new Exception("StoryPortArenaData accepted an unsupported arena or lost its personality fallback");
+            if (!StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"karnak\",\"todIndex\":2,\"aiString\":\"Default\",\"aiPer\":\"Ranged\"}}", out key, out level, out tod, out profile, out personality) ||
+                key != "x" || level != "karnak" || tod != 2 || profile != "Default" || personality != "Ranged")
+                throw new Exception("StoryPortArenaData did not read the server enemy AI settings");
+            StoryPortArenaData.TryReadBattleEnemy("{\"battleEnemy\":{\"key\":\"x\",\"mapOverride\":\"atlantis\",\"todIndex\":9}}", out key, out level, out tod, out profile, out personality);
+            if (level != StoryPortArenaData.FallbackLevel || tod != StoryPortArenaData.FallbackTod || profile != StoryPortArenaData.FallbackAIProfile || personality != StoryPortArenaData.FallbackPersonality)
+                throw new Exception("StoryPortArenaData accepted unsupported arena data or lost its AI fallbacks");
         }
 
         static void CheckFightGestures()
@@ -331,6 +332,18 @@ namespace StoryPort.Editor
                 StoryPortEnemyDefense.Choose(.7f, "Ranged") != StoryPortEnemyDefense.Action.Sidestep ||
                 StoryPortEnemyDefense.Choose(.99f, "Ranged") != StoryPortEnemyDefense.Action.Idle)
                 throw new Exception("Ranged AI personality weights do not match the shipped 9.2 asset");
+        }
+
+        static void CheckEnemyComboProfile()
+        {
+            if (StoryPortEnemyAI.ChooseComboLength(0f, "Default") != 2 ||
+                StoryPortEnemyAI.ChooseComboLength(.1f, "Default") != 3 ||
+                StoryPortEnemyAI.ChooseComboLength(.25f, "Default") != 4 ||
+                StoryPortEnemyAI.ChooseComboLength(.8f, "Default") != 5 ||
+                StoryPortEnemyAI.ChooseMeleeMove(.1f, 1, 4, "Default") != StoryPortEnemyAI.MeleeMove.Light ||
+                StoryPortEnemyAI.ChooseMeleeMove(.6f, 4, 4, "Default") != StoryPortEnemyAI.MeleeMove.Medium ||
+                StoryPortEnemyAI.ChooseMeleeMove(.99f, 4, 4, "Default") != StoryPortEnemyAI.MeleeMove.Heavy)
+                throw new Exception("Default AI profile combo weights or enders do not match the shipped 9.2 data");
         }
 
         static void CheckNavigationFont()
