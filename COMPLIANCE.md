@@ -972,3 +972,9 @@ The following surfaced first-pass methods are also new authored IL: `Vector2.Div
 uses half-open extents and a canonical zero rectangle for empty overlap; `ViewId.CompareTo` uses a
 lexicographic `p`, `n`, `s` ordering inferred from its field layout. Both approximation choices are
 documented reconstruction decisions, not represented as copied 9.2 source.
+
+`Vector2.Subtract`, `Vector4.Subtract`, `Quaternion.Inverse`, `Rectangle.Intersects`,
+`ViewId.op_Inequality`, and `RtLCharInfo.AreSameState` are newly authored from staged signatures
+and fields. Quaternion inverse uses the conjugate divided by squared norm. Rectangle intersection
+uses the same half-open edge convention; `RtLCharInfo` state comparison checks its character,
+flags, and four color channels. No APK data or decompiled method body is retained.

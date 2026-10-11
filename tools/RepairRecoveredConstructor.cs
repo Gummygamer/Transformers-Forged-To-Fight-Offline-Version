@@ -6068,9 +6068,12 @@ class RepairRecoveredConstructor {
         repairs += RepairVectorAdd(targetModule, "EB.Math.Vector4", new[] { "x", "y", "z", "w" });
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector2", "Multiply", new[] { "_x", "_y" }, OpCodes.Mul);
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector2", "Divide", new[] { "_x", "_y" }, OpCodes.Div);
+        repairs += RepairVectorBinary(targetModule, "EB.Math.Vector2", "Subtract", new[] { "_x", "_y" }, OpCodes.Sub);
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Multiply", new[] { "x", "y", "z", "w" }, OpCodes.Mul);
+        repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Subtract", new[] { "x", "y", "z", "w" }, OpCodes.Sub);
         repairs += RepairVectorBinary(targetModule, "EB.Math.Vector4", "Divide", new[] { "x", "y", "z", "w" }, OpCodes.Div);
         repairs += RepairQuaternionDot(targetModule);
+        repairs += RepairQuaternionInverse(targetModule);
         repairs += RepairPlaneDot(targetModule);
         repairs += RepairPlaneDotCoordinate(targetModule);
         repairs += RepairPlaneDotNormal(targetModule);
@@ -6079,11 +6082,13 @@ class RepairRecoveredConstructor {
         repairs += RepairRectangleContainsRectangle(targetModule);
         repairs += RepairRectangleContainsRectangleOut(targetModule);
         repairs += RepairRectangleIntersect(targetModule);
+        repairs += RepairRectangleIntersects(targetModule);
         repairs += RepairQuaternionAdd(targetModule);
         repairs += RepairQuaternionSubtract(targetModule);
         repairs += RepairQuaternionMultiply(targetModule);
         repairs += RepairViewIdOperations(targetModule);
         repairs += RepairColorEquality(targetModule, "EB.UI.RtLTextInfo/RtLCharInfo", "CheckEquals");
+        repairs += RepairRtLCharInfoStateEquality(targetModule);
         repairs += RepairTextStateEquality(targetModule);
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeFloat", typeof(float));
         repairs += RepairSafeNumberSetter(targetModule, "EB.SafeInt", typeof(int));
@@ -6870,6 +6875,50 @@ class RepairRecoveredConstructor {
         return 1;
     }
 
+    static int RepairQuaternionInverse(ModuleDefinition module) {
+        TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
+        if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
+        MethodDefinition inverse = quaternion.Methods.SingleOrDefault(method => method.Name == "Inverse" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 2 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Math.Quaternion&"));
+        FieldDefinition[] fields = new[] { "x", "y", "z", "w" }.Select(name => quaternion.Fields.SingleOrDefault(field =>
+            field.Name == name && !field.IsStatic && field.FieldType.MetadataType == MetadataType.Single)).ToArray();
+        if (inverse == null || fields.Any(field => field == null) || fields.Distinct().Count() != 4)
+            throw new InvalidDataException("unexpected EB.Math.Quaternion.Inverse metadata");
+
+        MethodBody body = ResetBody(inverse, out ILProcessor il);
+        body.InitLocals = true;
+        VariableDefinition[] input = new VariableDefinition[4];
+        VariableDefinition denominator = new VariableDefinition(module.TypeSystem.Single);
+        for (int i = 0; i < input.Length; i++) {
+            input[i] = new VariableDefinition(module.TypeSystem.Single);
+            body.Variables.Add(input[i]);
+            il.Append(Instruction.Create(OpCodes.Ldarg_0));
+            il.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            il.Append(Instruction.Create(OpCodes.Stloc, input[i]));
+        }
+        body.Variables.Add(denominator);
+        for (int i = 0; i < input.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldloc, input[i]));
+            il.Append(Instruction.Create(OpCodes.Ldloc, input[i]));
+            il.Append(Instruction.Create(OpCodes.Mul));
+            if (i > 0) il.Append(Instruction.Create(OpCodes.Add));
+        }
+        il.Append(Instruction.Create(OpCodes.Stloc, denominator));
+        for (int i = 0; i < input.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg_1));
+            il.Append(Instruction.Create(OpCodes.Ldloc, input[i]));
+            if (i < 3) il.Append(Instruction.Create(OpCodes.Neg));
+            il.Append(Instruction.Create(OpCodes.Ldloc, denominator));
+            il.Append(Instruction.Create(OpCodes.Div));
+            il.Append(Instruction.Create(OpCodes.Stfld, fields[i]));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Quaternion.Inverse as conjugate divided by squared norm");
+        return 1;
+    }
+
     static int RepairVector4Getters(ModuleDefinition module) {
         TypeDefinition vector = module.GetType("EB.Math.Vector4");
         if (vector == null) throw new InvalidDataException("missing EB.Math.Vector4 metadata");
@@ -7373,6 +7422,69 @@ class RepairRecoveredConstructor {
         il.Append(done);
     }
 
+    static int RepairRectangleIntersects(ModuleDefinition module) {
+        TypeDefinition rectangle = module.GetType("EB.Math.Rectangle");
+        if (rectangle == null) throw new InvalidDataException("missing EB.Math.Rectangle metadata");
+        FieldDefinition[] fields = new[] { "X", "Y", "Width", "Height" }.Select(name =>
+            rectangle.Fields.SingleOrDefault(field => field.Name == name && !field.IsStatic &&
+                field.FieldType.MetadataType == MetadataType.Int32)).ToArray();
+        MethodDefinition intersects = rectangle.Methods.SingleOrDefault(method => method.Name == "Intersects" &&
+            !method.IsStatic && method.ReturnType.MetadataType == MetadataType.Void && method.Parameters.Count == 2 &&
+            method.Parameters[0].ParameterType.FullName == "EB.Math.Rectangle&" &&
+            method.Parameters[1].ParameterType.FullName == "System.Boolean&");
+        if (fields.Any(field => field == null) || intersects == null)
+            throw new InvalidDataException("unexpected EB.Math.Rectangle.Intersects metadata");
+
+        FieldDefinition x = fields[0], y = fields[1], width = fields[2], height = fields[3];
+        MethodBody body = ResetBody(intersects, out ILProcessor il);
+        Instruction noIntersection = Instruction.Create(OpCodes.Ldarg_2);
+        // this rectangle and the referenced argument are disjoint when either pair of
+        // half-open extents only touches or lies beyond the other rectangle.
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, width));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Bge, noIntersection));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, width));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, x));
+        il.Append(Instruction.Create(OpCodes.Ble, noIntersection));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, height));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Bge, noIntersection));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ldarg_0));
+        il.Append(Instruction.Create(OpCodes.Ldfld, height));
+        il.Append(Instruction.Create(OpCodes.Add));
+        il.Append(Instruction.Create(OpCodes.Ldarg_1));
+        il.Append(Instruction.Create(OpCodes.Ldfld, y));
+        il.Append(Instruction.Create(OpCodes.Ble, noIntersection));
+        il.Append(Instruction.Create(OpCodes.Ldarg_2));
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_1));
+        il.Append(Instruction.Create(OpCodes.Stind_I1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        il.Append(noIntersection);
+        il.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        il.Append(Instruction.Create(OpCodes.Stind_I1));
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 3;
+        Console.WriteLine("reconstructed EB.Math.Rectangle.Intersects with half-open extents");
+        return 1;
+    }
+
     static int RepairQuaternionAdd(ModuleDefinition module) {
         TypeDefinition quaternion = module.GetType("EB.Math.Quaternion");
         if (quaternion == null) throw new InvalidDataException("missing EB.Math.Quaternion metadata");
@@ -7494,12 +7606,15 @@ class RepairRecoveredConstructor {
         MethodDefinition equality = viewId.Methods.SingleOrDefault(method => method.Name == "op_Equality" && method.IsStatic &&
             method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 2 &&
             method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Replication.ViewId"));
+        MethodDefinition inequality = viewId.Methods.SingleOrDefault(method => method.Name == "op_Inequality" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 2 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == "EB.Replication.ViewId"));
         MethodDefinition compare = viewId.Methods.SingleOrDefault(method => method.Name == "CompareTo" && !method.IsStatic &&
             method.ReturnType.MetadataType == MetadataType.Int32 && method.Parameters.Count == 1 &&
             method.Parameters[0].ParameterType.FullName == "EB.Replication.ViewId");
         if (fields.Any(field => field == null) || fields[0].FieldType.MetadataType != MetadataType.UInt32 ||
             fields[1].FieldType.MetadataType != MetadataType.UInt32 || fields[2].FieldType.MetadataType != MetadataType.Boolean ||
-            equality == null || compare == null)
+            equality == null || inequality == null || compare == null)
             throw new InvalidDataException("unexpected EB.Replication.ViewId metadata");
 
         MethodBody equalityBody = ResetBody(equality, out ILProcessor equalIl);
@@ -7513,6 +7628,20 @@ class RepairRecoveredConstructor {
         }
         equalIl.Append(Instruction.Create(OpCodes.Ret));
         equalityBody.MaxStackSize = 2;
+
+        MethodBody inequalityBody = ResetBody(inequality, out ILProcessor notEqualIl);
+        for (int i = 0; i < fields.Length; i++) {
+            notEqualIl.Append(Instruction.Create(OpCodes.Ldarga, inequality.Parameters[0]));
+            notEqualIl.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            notEqualIl.Append(Instruction.Create(OpCodes.Ldarga, inequality.Parameters[1]));
+            notEqualIl.Append(Instruction.Create(OpCodes.Ldfld, fields[i]));
+            notEqualIl.Append(Instruction.Create(OpCodes.Ceq));
+            if (i > 0) notEqualIl.Append(Instruction.Create(OpCodes.And));
+        }
+        notEqualIl.Append(Instruction.Create(OpCodes.Ldc_I4_0));
+        notEqualIl.Append(Instruction.Create(OpCodes.Ceq));
+        notEqualIl.Append(Instruction.Create(OpCodes.Ret));
+        inequalityBody.MaxStackSize = 2;
 
         MethodBody compareBody = ResetBody(compare, out ILProcessor compareIl);
         Instruction less = Instruction.Create(OpCodes.Ldc_I4_M1);
@@ -7546,8 +7675,8 @@ class RepairRecoveredConstructor {
         compareIl.Append(equal);
         compareIl.Append(Instruction.Create(OpCodes.Ret));
         compareBody.MaxStackSize = 2;
-        Console.WriteLine("reconstructed EB.Replication.ViewId equality and lexicographic ordering (p,n,s)");
-        return 2;
+        Console.WriteLine("reconstructed EB.Replication.ViewId equality/inequality and lexicographic ordering (p,n,s)");
+        return 3;
     }
 
     static int RepairColorEquality(ModuleDefinition module, string typeName, string methodName) {
@@ -7573,6 +7702,50 @@ class RepairRecoveredConstructor {
         il.Append(Instruction.Create(OpCodes.Ret));
         body.MaxStackSize = 2;
         Console.WriteLine("reconstructed " + typeName + "." + methodName + " by comparing Color32 channels");
+        return 1;
+    }
+
+    static int RepairRtLCharInfoStateEquality(ModuleDefinition module) {
+        TypeDefinition state = module.GetType("EB.UI.RtLTextInfo/RtLCharInfo");
+        if (state == null) throw new InvalidDataException("missing EB.UI.RtLTextInfo.RtLCharInfo metadata");
+        FieldDefinition character = state.Fields.SingleOrDefault(field => field.Name == "Char" && !field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Char);
+        FieldDefinition flags = state.Fields.SingleOrDefault(field => field.Name == "Flags" && !field.IsStatic &&
+            field.FieldType.MetadataType == MetadataType.Int16);
+        FieldDefinition color = state.Fields.SingleOrDefault(field => field.Name == "Col" && !field.IsStatic &&
+            field.FieldType.FullName == "UnityEngine.Color32");
+        MethodDefinition same = state.Methods.SingleOrDefault(method => method.Name == "AreSameState" && method.IsStatic &&
+            method.ReturnType.MetadataType == MetadataType.Boolean && method.Parameters.Count == 2 &&
+            method.Parameters.All(parameter => parameter.ParameterType.FullName == state.FullName));
+        if (character == null || flags == null || color == null || same == null)
+            throw new InvalidDataException("unexpected EB.UI.RtLTextInfo.RtLCharInfo metadata");
+
+        TypeReference color32 = UnityEngineType(module, "Color32");
+        FieldReference[] channels = new[] { "r", "g", "b", "a" }.Select(name =>
+            module.ImportReference(new FieldReference(name, module.TypeSystem.Byte, color32))).ToArray();
+        MethodBody body = ResetBody(same, out ILProcessor il);
+        FieldDefinition[] scalarFields = { character, flags };
+        foreach (FieldDefinition field in scalarFields) {
+            il.Append(Instruction.Create(OpCodes.Ldarg, same.Parameters[0]));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ldarg, same.Parameters[1]));
+            il.Append(Instruction.Create(OpCodes.Ldfld, field));
+            il.Append(Instruction.Create(OpCodes.Ceq));
+            if (field != scalarFields[0]) il.Append(Instruction.Create(OpCodes.And));
+        }
+        for (int i = 0; i < channels.Length; i++) {
+            il.Append(Instruction.Create(OpCodes.Ldarg, same.Parameters[0]));
+            il.Append(Instruction.Create(OpCodes.Ldflda, color));
+            il.Append(Instruction.Create(OpCodes.Ldfld, channels[i]));
+            il.Append(Instruction.Create(OpCodes.Ldarg, same.Parameters[1]));
+            il.Append(Instruction.Create(OpCodes.Ldflda, color));
+            il.Append(Instruction.Create(OpCodes.Ldfld, channels[i]));
+            il.Append(Instruction.Create(OpCodes.Ceq));
+            il.Append(Instruction.Create(OpCodes.And));
+        }
+        il.Append(Instruction.Create(OpCodes.Ret));
+        body.MaxStackSize = 2;
+        Console.WriteLine("reconstructed RtLCharInfo.AreSameState from character, flag, and color fields");
         return 1;
     }
 

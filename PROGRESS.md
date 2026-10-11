@@ -1291,3 +1291,28 @@ SHA-256 `ece90140b3fa07771cec67ca6cf39775b7bac8ec5003c48c0f5cf7e2cdeca449`, MVID
 `ev_62596273c795e575aae9e28bdcb7154b6563c4143c21885a7faa8d196ef98bb0`. The active REA APK
 identity was confirmed as the pristine root 9.2.0 APK in v53; this recovery DLL remains generated
 external staging only. Story mode is not playable yet.
+
+## v55: second geometry and state batch prepared
+
+The comparison-helper ARM64/IL2CPP checkpoint produced no APK and did not OOM. It took 23.25
+seconds of preflight and 112.57 seconds in Unity; process-tree RSS peaked at 4.82 GiB and available
+host memory bottomed at 6.44 GiB from 14.15 GiB before Unity. The 121.3 MiB log compressed to 1.00
+MiB and the external build volume lost 84.00 MiB. Fourteen previous signatures cleared, including
+all eight methods from v54, while 14 new signatures surfaced; the unique queue remains 16.
+
+Authored six of that newly surfaced batch: `Vector2.Subtract`, `Vector4.Subtract`,
+`Quaternion.Inverse`, `Rectangle.Intersects`, `ViewId.op_Inequality`, and
+`RtLCharInfo.AreSameState`. Recovery preflight compiled with the existing 12 CS0219 warnings,
+retransplanted `AlignUIElements.GetObjectBounds`, and Unity Mono smoke passed the six new methods
+plus their adjacent math/state checks. The zero-quaternion inverse behavior follows IEEE division;
+rectangle overlap uses half-open extents. These fixes await the next guarded ARM64/IL2CPP run.
+
+REA MCP inspected the staged first-pass and main assemblies as complete PE/CLI metadata. The
+first-pass DLL is 16,705,024 bytes, SHA-256
+`19e4deba21f7399eeb1f2e2ac6dad2d16e04645c2b02c2406998832c03a8e5c0`, evidence
+`ev_89bb665f7cfd9adcd569a94bf7e3ce1ffec2866bc9486853710581a657e4d603`; main `Assembly-CSharp`
+is 24,716,288 bytes, SHA-256
+`e0c03d6a13e9509fcdb2cde40fe24773ba6682f7e4147b686fd4fbbaf44e8832`, evidence
+`ev_4bc79b738e675cd230e49a31d8558a68b154b6a8001830e0558aeb3e2b4e9edb`. Both are generated local
+staging. The pristine APK identity remains the v53 REA-verified root 9.2.0 file. No rebuilt APK or
+playable story session exists; queue turnover still gives no net decline in failures.
