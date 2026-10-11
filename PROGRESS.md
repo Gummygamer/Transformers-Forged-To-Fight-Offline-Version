@@ -1514,3 +1514,35 @@ The saved 215 MB Ghidra project was found, but the REA MCP `open_binary` operati
 zero-byte `.gpr` marker as an unsupported binary header. The active REA target remains the verified
 9.2.0 APK; no new native import was started. Runtime routing and the IL2CPP queue reduction remain
 unverified until a later batched ARM64 checkpoint.
+
+## v67: pristine-source ARM64 IL2CPP checkpoint (2026-10-11)
+
+Ran one guarded Unity 2020.3.31f1 ARM64/IL2CPP checkpoint on the existing
+`recovery-9.2-confirmed-source-v1` stage, after preflight passed. Unity advanced through linking to
+IL2CPP, then failed on 17 method translations (16 unique queue entries); no APK was produced. The
+four recent authored fixes (`BeginQuest`, `QuestboardHud.OnIntroTransitionComplete`,
+`QuestEnemyInfo.get_IsValid`, and `AlignUIElements.GetObjectBounds`) were absent from the new queue.
+The dominant failures are malformed recovered CIL involving value types and aggregates: for example,
+`QuestProgression::.ctor` and `QuestCameraController.UpdateTurnAngle` fail stack analysis on `Vector2`,
+and `StateMachine.SwitchState` fails on `QueuedState`. Focused Cecil inspection also found generated
+diagnostic placeholder strings and invalid stack paths in `StateMachine.SwitchState`; this is an
+input/code-generation problem, not a Unity project-setting failure.
+
+Source identity was checked against the pristine APK, SHA-256
+`77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`. Its ARM64
+`libil2cpp.so` is SHA-256 `575aa973ed8fd54e79c70abdaed5b5a3b013e8e3ec68e0fa64e98f6bdfba9b8a`;
+the confirmed-source stage contains those exact bytes. The traced instruction ranges used for the
+four fixes are byte-identical at matching virtual addresses in that pristine library and the older
+`gpfix-final` reference library. This verifies those method traces despite the reference library's
+different whole-file digest.
+
+The Unity log compressed from 127,165,823 bytes to 1,044,632 bytes. Cycle metadata reports 121.6 s
+in Unity, 5.23 GB peak Unity process-tree RSS, 6.59 GB minimum host-available memory, and a 24.5 MB
+external-volume decrease; 130 GB remained free. Current memory availability recovered to 15 GB.
+REA MCP confirmed the staged `Assembly-CSharp.dll` is a complete PE/CLI Unity-Mono CIL artifact
+(Evidence `ev_32370c13a5f0849615014eea4d9f162e8ef247a9a7ade0c1843796033f18155c`). The MCP is
+registered and responds; its active pristine target is an APK archive with no native analysis
+provider bound, so `analyze_function` correctly refuses archive input. No cold full-binary Ghidra
+import was repeated. Prioritize repairing the generalized ARM64 aggregate/value-type lowering and
+CIL emission before the next build; do not turn these diagnostic placeholders into accepted game
+behavior.
