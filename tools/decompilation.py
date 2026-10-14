@@ -1639,6 +1639,21 @@ public static class OfflineStoryDirectPrefight
         if old in source:
             source = source.replace(old, new, 1)
             changes.append(f"route Setup.ApiEndPoint to configured revival endpoint {server_endpoint}")
+    if path.as_posix() == "EB/BugReport.cs":
+        # Unity 2020's AndroidJavaObject.CallStatic resolves against
+        # java.lang.Object, not the wrapped class; static calls need an
+        # AndroidJavaClass receiver (as the original Unity 5 IL used).
+        old = "AndroidJavaObject androidJavaObject = new AndroidJavaClass("
+        new = "AndroidJavaClass androidJavaObject = new AndroidJavaClass("
+        if old in source:
+            source = source.replace(old, new, 1)
+            changes.append("type BugReport's CustomExceptionHandler receiver as AndroidJavaClass for static getInstance")
+    if path.as_posix() == "EB/Version.cs" and server_endpoint:
+        old = "\t\tstring text = string.Empty;\n\t\tif (LoadApiEndPoints())"
+        new = f"\t\tif (!string.IsNullOrEmpty({json.dumps(server_endpoint)})) return {json.dumps(server_endpoint)};\n" + old
+        if old in source and "GetApiEndPoint" in source:
+            source = source.replace(old, new, 1)
+            changes.append(f"route EB.Version.GetApiEndPoint to configured revival endpoint {server_endpoint}")
     if path.as_posix().endswith("EB.Sparx/InventoryAPI.cs"):
         old = "Action<int, string, Hashtable> callback2 = default(Action<int, string, Hashtable>);"
         new = "Action<int, string, Hashtable> callback2 = callback;"

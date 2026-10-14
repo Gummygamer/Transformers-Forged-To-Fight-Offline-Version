@@ -17,3 +17,26 @@ to the current external mount paths before running Compose. The regular guarded
 rebuild remains `tools/build_recovered_9_2.py`; this Compose service provides a
 reproducible container environment without relocating or duplicating the
 installation.
+
+## Licensed batch build of the recovered 2.0.2 client
+
+Unity binds `Unity_lic.ulf` to the host machine id. The container needs the host
+identity and the license file, or it exits with "Machine identification is invalid":
+
+```bash
+docker run --rm --init --network host --hostname "$(hostname)" -w /workspace/project \
+  -e HOME=/root -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+  -e TFTF_202_OUTPUT=/workspace/project/2.0.2-recompiled-armv7.apk \
+  -v /etc/machine-id:/etc/machine-id:ro \
+  -v "$UNITY_2020_ROOT":/opt/unity:ro -v "$TFTF_UNITY_PROJECT":/workspace/project \
+  -v "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf":/root/.local/share/unity3d/Unity/Unity_lic.ulf:ro \
+  --entrypoint /opt/unity/Editor/Unity tftf-unity2020-ubuntu20:latest \
+  -batchmode -nographics -projectPath /workspace/project \
+  -executeMethod Recompile202Build.BuildAndroid -logFile /workspace/project/build.log
+```
+
+Before building, copy `android-plugin/` into `Assets/Plugins/Android/` and generate
+the manifest override with `tools/original_manifest_to_xml.py ORIGINAL.apk
+Assets/Plugins/Android/AndroidManifest.xml`. Afterwards run
+`tools/finalize_recompiled_202_apk.py` (restores the original Java dex, optional
+endpoint, align and sign).

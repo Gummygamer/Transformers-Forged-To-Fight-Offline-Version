@@ -996,3 +996,12 @@ the recovered `Off` enumerator. These repairs add no APK bytes or decompiled gam
 ## Android patcher target fingerprints (2026-10-13)
 
 The on-device APK patcher validates SHA-256 fingerprints of the 16-byte windows it modifies against the pristine 9.2.0 ARM64 and ARMv7 libraries. The identity source is REA Evidence `ev_5b3dafb9f619cefbfdd0605dc3e7d3e067c77ae482312ac89ffd55aa251a87a3` for APK SHA-256 `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`; the ARM64 and ARMv7 library identities were checked from that APK. Source retains fingerprints and newly authored replacement sequences, not original game instruction bytes, the APK, assets, or recovered method bodies. The reachability guard reuses the same full-window fingerprints for its overlapping sites. Each patch path validates all affected windows before writing and rejects unknown code without partially modifying the library.
+
+## 2.0.2 Unity-2020 packaging helpers
+
+`tools/finalize_recompiled_202_apk.py`, `tools/original_manifest_to_xml.py` and
+`tools/unity/android-plugin/` are newly authored. They read the operator's own local
+2.0.2 APK at run time (original dex, manifest) and write only to ignored local build
+output; no APK bytes, dex, manifest or game code is committed. The `Activity.java`
+shim is a fresh implementation of the permission bridge, written from the observed
+JNI method signatures, not copied game code.
