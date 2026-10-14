@@ -385,6 +385,37 @@ class PatcherEngineTest {
     }
 
     @Test
+    fun `reachability sites are shared with guarded patch sites`() {
+        for (abi in listOf(PatchRequest.ARM64, PatchRequest.ARMV7)) {
+            val guarded = if (abi == PatchRequest.ARM64) Il2cppPatch.arm64Sites else Il2cppPatch.armv7Sites
+            val byOffset = guarded.associateBy { it.offset }
+            val reachability = Il2cppPatch.reachabilitySites(abi)
+
+            assertEquals(2, reachability.size)
+            assertEquals(2, reachability.map { it.offset }.toSet().size)
+            for (site in reachability) {
+                assertTrue("$abi ${site.name} must use an existing fingerprinted patch site",
+                    site.offset in byOffset)
+            }
+        }
+    }
+
+    @Test
+    fun `applyReachabilityStubs rejects unknown windows without modifying input`() {
+        for (abi in listOf(PatchRequest.ARM64, PatchRequest.ARMV7)) {
+            val maxOffset = Il2cppPatch.reachabilitySites(abi).maxOf { it.offset + 16 }
+            val data = ByteArray(maxOffset + 1)
+            val original = data.copyOf()
+
+            val result = Il2cppPatch.applyReachabilityStubs(data, abi)
+            assertFalse("$abi should reject unknown code at reachability sites", result.isSuccess)
+            assertTrue("$abi should identify an unrecognized fingerprint: ${result.error}",
+                result.error!!.contains("unrecognised fingerprint"))
+            assertArrayEquals("$abi rejection must leave the library unchanged", original, result.data)
+        }
+    }
+
+    @Test
     fun `injectNeededArm64 extends dynstr and is idempotent`() {
         val maxOffset = maxOf(
             Il2cppPatch.arm64Sites.maxOf { it.offset + it.patchBytes.size },

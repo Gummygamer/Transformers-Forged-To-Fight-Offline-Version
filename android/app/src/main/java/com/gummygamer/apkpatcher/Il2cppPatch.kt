@@ -28,8 +28,6 @@ object Il2cppPatch {
     /** Reachability site for offline bundled-server mode. */
     data class ReachabilitySite(
         val offset: Int,
-        val stub: ByteArray,
-        val pristine: ByteArray,
         val name: String
     )
 
@@ -128,25 +126,13 @@ object Il2cppPatch {
     fun reachabilitySites(abi: String): List<ReachabilitySite> {
         return if (abi == PatchRequest.ARM64) {
             listOf(
-                ReachabilitySite(28599028,
-                    hexToBytes("40008052c0035fd6"),
-                    hexToBytes("f30f1ef8fd7b01a9"),
-                    "Application.internetReachability"),
-                ReachabilitySite(20135496,
-                    hexToBytes("20008052c0035fd6"),
-                    hexToBytes("fd7bbfa9fd030091"),
-                    "EndPoint.HasInternetConnectivity")
+                ReachabilitySite(28599028, "Application.internetReachability"),
+                ReachabilitySite(20135496, "EndPoint.HasInternetConnectivity")
             )
         } else {
             listOf(
-                ReachabilitySite(27322892,
-                    hexToBytes("0200a0e31eff2fe1"),
-                    hexToBytes("34009fe500009fe7"),
-                    "Application.internetReachability"),
-                ReachabilitySite(17149180,
-                    hexToBytes("0100a0e31eff2fe1"),
-                    hexToBytes("00482de90db0a0e1"),
-                    "EndPoint.HasInternetConnectivity")
+                ReachabilitySite(27322892, "Application.internetReachability"),
+                ReachabilitySite(17149180, "EndPoint.HasInternetConnectivity")
             )
         }
     }
@@ -233,41 +219,54 @@ object Il2cppPatch {
 
     /**
      * Apply reachability stubs for bundled-server mode.
-     * If the site already contains the stub bytes, it's left alone.
-     * If it contains the expected pristine bytes, the stub is written.
-     * Otherwise an error is returned (not the expected Transformers 9.2 build).
+     * Reachability offsets are also among the guarded patch sites. Reuse their
+     * full 16-byte pristine/patched fingerprints instead of retaining original
+     * instruction bytes or accepting a short prologue match. Validate every
+     * site before writing, so an unfamiliar image is never partially changed.
      */
     fun applyReachabilityStubs(data: ByteArray, abi: String): PatchResult {
         if (abi != PatchRequest.ARM64 && abi != PatchRequest.ARMV7) {
             return PatchResult(data.copyOf(), false, "unsupported ABI '$abi'")
         }
         val sites = reachabilitySites(abi)
-        val out = data.copyOf()
+        val fingerprints = siteFingerprints[abi] ?: return PatchResult(
+            data, false, "no verified reachability fingerprints are available for '$abi'"
+        )
+        val pristineSites = mutableListOf<Pair<ReachabilitySite, PatchSite>>()
 
         for (site in sites) {
-            if (site.offset + site.stub.size > out.size) {
-                return PatchResult(out, false,
-                    "libil2cpp is too small to be the expected Transformers 9.2 library " +
-                    "(offset ${site.offset}, file size ${out.size})")
+            val fingerprint = fingerprints[site.offset] ?: return PatchResult(
+                data, false, "missing reachability fingerprint for '${site.name}'"
+            )
+            val patchSite = sitesForAbi(abi)?.singleOrNull { it.offset == site.offset }
+            if (patchSite == null) {
+                return PatchResult(data, false,
+                    "reachability offset is not a guarded patch site for '${site.name}'")
             }
 
-            val currentBytes = out.sliceArray(site.offset until site.offset + site.stub.size)
+            val end = site.offset + SITE_FINGERPRINT_BYTES
+            if (site.offset < 0 || end > data.size || site.offset + patchSite.patchBytes.size > data.size) {
+                return PatchResult(data, false,
+                    "libil2cpp is too small to be the expected Transformers 9.2 library " +
+                    "(offset ${site.offset}, file size ${data.size})")
+            }
 
-            if (!currentBytes.contentEquals(site.stub)) {
-                if (currentBytes.contentEquals(site.pristine)) {
-                    // Apply stub
-                    for (i in site.stub.indices) {
-                        out[site.offset + i] = site.stub[i]
-                    }
-                } else {
-                    return PatchResult(out, false,
-                        "libil2cpp is not the expected Transformers 9.2 build: " +
-                        "offset ${site.offset} holds unrecognised bytes; " +
-                        "patch it first with the desktop patcher for this ABI")
-                }
+            val current = sha256Hex(data, site.offset, SITE_FINGERPRINT_BYTES)
+            if (current == fingerprint.pristineSha256) {
+                pristineSites += site to patchSite
+            } else if (current != fingerprint.patchedSha256) {
+                return PatchResult(data, false,
+                    "libil2cpp is not the expected Transformers 9.2 build: " +
+                    "offset ${site.offset} holds an unrecognised fingerprint; " +
+                    "patch it first with the desktop patcher for this ABI")
             }
         }
 
+        if (pristineSites.isEmpty()) return PatchResult(data, false, null)
+        val out = data.copyOf()
+        for ((site, patchSite) in pristineSites) {
+            for (i in patchSite.patchBytes.indices) out[site.offset + i] = patchSite.patchBytes[i]
+        }
         return PatchResult(out, true, null)
     }
 
