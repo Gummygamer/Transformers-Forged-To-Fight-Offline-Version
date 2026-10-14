@@ -82,7 +82,8 @@ class PatcherEngine(context: Context) {
             var sourceZip: ZipReader? = null
             var sourceFile: File? = null
             var unsignedFile: File? = null
-            var signedFile: File? = null
+            var outputTempFile: File? = null
+            var outputFile: File? = null
 
             try {
                 // SAF providers may return a pipe or a descriptor that cannot be
@@ -91,7 +92,6 @@ class PatcherEngine(context: Context) {
                 sourceFile = stageSourceApk(Uri.parse(request.sourceApkUri), workDir, onLog)
                 sourceZip = openSourceZip(sourceFile!!)
                 unsignedFile = File.createTempFile("unsigned-", ".apk", workDir)
-                signedFile = File.createTempFile("signed-", ".apk", workDir)
 
                 // Step 2: Validate source APK contents
                 checkCancelled()
@@ -120,30 +120,32 @@ class PatcherEngine(context: Context) {
                 // Step 6: Sign APK (v2 scheme)
                 checkCancelled()
                 reportStep(onStep, onLog, 6, steps.size, "signing APK")
-                signApk(unsignedFile!!, signedFile!!, request, onLog)
-                validateAndroidApkPackaging(signedFile!!)
+                outputTempFile = createTempApk(request.outputName)
+                signApk(unsignedFile!!, outputTempFile!!, request, onLog)
+                validateAndroidApkPackaging(outputTempFile!!)
 
                 // Step 7: Write output to temp file
                 checkCancelled()
                 reportStep(onStep, onLog, 7, steps.size, "writing signed APK")
-                val outputFile = writeTempApk(signedFile!!, request.outputName)
+                outputFile = publishTempApk(outputTempFile!!, request.outputName)
+                outputTempFile = null
 
-                onLog(LogLine("SUCCESS: finished signed APK (${signedFile!!.length()} bytes)"))
+                onLog(LogLine("SUCCESS: finished signed APK (${outputFile!!.length()} bytes)"))
                 onStep(StepProgress(PatcherState.SUCCEEDED, "done", steps.size, steps.size))
 
                 PatchOutcome.Success(
-                    outputApkUri = Uri.fromFile(outputFile).toString(),
+                    outputApkUri = Uri.fromFile(outputFile!!).toString(),
                     patchedHosts = listOf(
                         "tf-odr.mcoc-cdn.cn", "tf-static.mcoc-cdn.cn",
                         "words-express.tf-cdn.net", "gametalk.sparx.io",
                         "tform-0901-hzlhiniyfcwf.tf-cdn.net"
                     ),
                     abi = request.abi,
-                    outputSizeBytes = signedFile!!.length()
+                    outputSizeBytes = outputFile!!.length()
                 )
             } finally {
                 try { sourceZip?.close() } catch (_: Exception) {}
-                listOf(sourceFile, unsignedFile, signedFile).forEach { it?.delete() }
+                listOf(sourceFile, unsignedFile, outputTempFile).forEach { it?.delete() }
                 workDir.delete()
             }
         } catch (e: CancellationException) {
@@ -588,22 +590,18 @@ class PatcherEngine(context: Context) {
 
     // ---- Output ----
 
-    private fun writeTempApk(signedApk: File, outputName: String): File {
+    private fun createTempApk(outputName: String): File {
         // Keep completed artifacts in filesDir. cacheDir may be reclaimed by Android
         // before the user has a chance to export or retry the installation.
         val outputDir = File(appContext.filesDir, "patched_apks")
         outputDir.mkdirs()
         val safeName = outputName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "patched.apk" }
-        val outputFile = File(outputDir, safeName)
+        return File.createTempFile("$safeName-", ".part", outputDir)
+    }
 
-        // Write atomically: to temp file, fsync, rename
-        val tempFile = File.createTempFile("$safeName-", ".part", outputDir)
-        signedApk.inputStream().use { input -> tempFile.outputStream().use { out ->
-            input.copyTo(out, 64 * 1024)
-            out.flush()
-            out.fd.sync()
-        } }
-
+    private fun publishTempApk(tempFile: File, outputName: String): File {
+        val safeName = outputName.replace(Regex("[^A-Za-z0-9._-]"), "_").ifBlank { "patched.apk" }
+        val outputFile = File(File(appContext.filesDir, "patched_apks"), safeName)
         if (!tempFile.renameTo(outputFile)) {
             throw IOException("Unable to publish signed APK in private app storage")
         }

@@ -75,6 +75,54 @@ object Il2cppPatch {
         PatchSite(8011440, hexToBytes("400000ea"), "BCGBlueprintBase.get_SynergyBonuses -> skip null throw")
     )
 
+    private data class Fingerprints(val pristineSha256: String, val patchedSha256: String)
+
+    private const val SITE_FINGERPRINT_BYTES = 16
+
+    // SHA-256 fingerprints of each touched 16-byte window from the confirmed
+    // pristine 9.2.0 ARM64/ARMv7 libraries and those same windows after patching.
+    // APK identity is REA Evidence ev_5b3dafb9f619cefbfdd0605dc3e7d3e067c77ae482312ac89ffd55aa251a87a3
+    // (SHA-256 77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb).
+    // Digests avoid retaining any original game instruction bytes in source.
+    private val siteFingerprints: Map<String, Map<Int, Fingerprints>> = mapOf(
+        "arm64-v8a" to mapOf(
+            19113788 to Fingerprints("4f37191220a351095570dc79d81e11ba6cb82d20ffdf5b143de08cfbd35cf8a6", "b44842c28cf34ab08474ee3a7900f8af87e80e9d5a1f8795ebec0d91261377e2"),
+            21940544 to Fingerprints("c7135061084e259ea3a4a16a84e6868d79373805ede8528ae2894114f3d30568", "9065579029b2d39b3e587286ca98f18167ae8dd24e9d2f9fb88b26e8d81fdeb6"),
+            16523700 to Fingerprints("01f92d8fb2be121b6ecb05b6475e0e68f62bf92f87ad66c9ee289046758ba298", "8caeb9d58036a2967dde94d5a57d164389b2e1d9cc54477fa8b52950a2f086b8"),
+            23246480 to Fingerprints("f7a6b00575e1bb13e0f187c2a6bfdde644134db087547096c0331f7756119e75", "882ef9f5b3e71e036e66ead6ea2569293508797ccd09b169b437c9aa273e51da"),
+            16529176 to Fingerprints("cd4f3da709a29e7873d778b6c3216a5f48f85c5bcf7c70c6d557c1c007416eef", "90fc2f99932f9e6f12d18d2bd79c0d7c5c96a263a7b7968c4c7d7aae9682d661"),
+            19056256 to Fingerprints("44fa02cf2433c3b525ed7cbffe9fee5cfbed61b9e6fd357c1321691bf019494d", "01a838cb848a23902f0ee1a0ab1e09d1657623120b8dad93129747708e501d82"),
+            28599028 to Fingerprints("f2fd322535033dd357509fa8117f5ef17dbe7234d256ec3a57237f1215af263a", "e35d9b9b8952cf7fb12702532301babc7228d3784f6d3eb81ad7821d42113f87"),
+            20135496 to Fingerprints("4e08c4a1d5518cb760b06e8e2ed04c2afbfd09017b66dd246f825065870d6e2a", "10535d12d3fb31edddfdd3a0013d915fee4c0992a5708b0d850d942dc06abf50"),
+            15779872 to Fingerprints("418681dad14bba104f5c8d5e184821b99ce468e9a28977a9f861829f16698948", "a948105290d2c71fae0fc9ffa715b45a49df8d8e884a1e30d50cdc6e364facf4"),
+            15782864 to Fingerprints("984f3acca28e0bcc798634fa2895ec39792cef9a7ded531b130c3d077c60237d", "ddc4618ba92c4ce7d8c4725dbc24f0e9b7176475c56b7e147c4e70520c94d2fb"),
+            15783048 to Fingerprints("984f3acca28e0bcc798634fa2895ec39792cef9a7ded531b130c3d077c60237d", "ddc4618ba92c4ce7d8c4725dbc24f0e9b7176475c56b7e147c4e70520c94d2fb"),
+            15868548 to Fingerprints("af1d42dbc9516c20ba2a93a244678501a203c15186b03baf0cba1510837394b6", "53f0feb5bf26153f2d2acd3d0dbe25fbea163989b8cf0a7d0e2fa16779b78afb"),
+            16569924 to Fingerprints("ab4511d3e0972a7a5daa8d8d203a37a16a82b309fff7eea16f75f82897ed9667", "6316dc90d363df620dceb0e46972f7d2c2471c15a80b78c132261c319077a3e0"),
+            15373560 to Fingerprints("2c687f6822763e03eb7f68937249e334817d5b6f18423f73e703298c0e23a02d", "32bc4d91516dd592509e48f63e0cf26732785e0cfac2a9211f2c0a01b175f787"),
+            16567012 to Fingerprints("b49541081189258e286052c619fa5fd05019d689c9b4528d9cc980396d3f3eca", "7e1b26253436178acedd84d7fb9526d467dd9cf2c6e6e22ef272fc9902292578"),
+            12677752 to Fingerprints("100aa403b01b3f627397c040c13f3f23e767658b228b40d3e3bd52ef2c3bbc90", "80e46c8a436d5c7dff8861f286ceac56953f196f03f7f489527bc17ddc4d3c9c"),
+        ),
+        "armeabi-v7a" to mapOf(
+            15919104 to Fingerprints("e9feea90f7cccff8760ed1a37e64598dee9a9ae88486a35a8dfc56a6b6a386d6", "dcd632882e8b7ff2136614fae37441a552064cdce795ab5e2a858cac8f1e7932"),
+            19285720 to Fingerprints("5c53e5287a306ca40c1ac9b81b0f4c6cb17c54177f9ccec0b9ba167e79d8c7ad", "3489ff4906e5e5476adb8a598c8bef97119cbda187ee75e24e77d6a369732f0f"),
+            12752884 to Fingerprints("471bc9c0ceaa10b970a4a3e0666f1814f67da6bfbfc046d742f73fb56fb654f7", "30403e26041cd2ef914c2824f87308979f3d1625bdc978f893faf41efca8c2b5"),
+            20867576 to Fingerprints("e93bb43347bd3446d8626ffea86e22eaa97320db3f0ac37957b02cbd35ddfb0a", "93d920fa9530203ce3b874eac7e0b19501e109e31b092b6174a7caeaf2184e84"),
+            12759716 to Fingerprints("0f3857bf8eca1b8d0865db1846aaab03dc1225680ee3b97d8615a527bdbc88ef", "4eeb422ecd72442efa51f33b5609c8952c83692f9b134b16b4a7175d3253d7ac"),
+            15845172 to Fingerprints("6baf68e22870128051137678f5a24485250ef76a3a409ebb8c695c83ab46192f", "08375c537765b84b88f0134b599d067149183c0e9611535a243bbae63780de7a"),
+            27322892 to Fingerprints("9ac76de6489fea1dd48454ac97f849dec9f4d49dffbfb7edf5bdbb0586b6c38f", "386a3626193ebd517749fddc9e5731f4b13af5ebaa7baae228a73a33b95606eb"),
+            17149180 to Fingerprints("b3446bdfd0a8793a7bd43d91a611c622b6e5f2ad991884b7bc9e97563c8ebdaf", "cbdedd5a795e91782da0b442da88b4c678ab8fde30e9ebf31a8bd29642a36df1"),
+            11832648 to Fingerprints("4eadcb35c6379edab030f6265106adad5822b379a87261c1fde526aac3b1ed8a", "955d49581bbb11e484268547392d10183b054fc2e351bc2ce98a21826897ec2a"),
+            11836396 to Fingerprints("add18ef837f2ad2d8bf5494148bc975e5f08c489a01844d7e82800ab59df27a8", "44202d877a88239c10a69695e009ee5b86596fccf7d282347220938267fd0f0e"),
+            11836620 to Fingerprints("288b3a1f38b3c347c4f8be645f80e70371f0c72efc0a21af24bf7628c06ac84c", "ff2b86411c6f4d478784bc80de001c2f6c684cd9144033a73ef1c5b8c25108d5"),
+            11943044 to Fingerprints("336b6fae82f6f27c164bb2f705e56fb7e9a290f5f960c1cc70fe66ae793efcff", "7d71b6f74d505ebdeaa93432a548461ac5021d1bf9a1931cf9a816ac5a388b89"),
+            12808412 to Fingerprints("ef21dad850a3dbae00023c1200d092d7a0274005240ffd40cbde753a023b3403", "79b97a7ac850fbdb41116a9fd935cf7269d747fbe0cd469307f24845181cea84"),
+            11333248 to Fingerprints("1363fbb014dfb10b3ea0047998080e3350f2c7fe040d015037db4e550a64c26b", "e909c9391357d3649942fc0b3d8a384a985fe72019e3b40319397ac67e2266ec"),
+            12804728 to Fingerprints("b6bd60bf27ea051563a849def6216ae0702f2a38f071ab5c38be2f8fefb6b5f6", "cc213de238810dc49bc81be54fb60f19c3242cbed0abeb2ccb4b62eeba1fec81"),
+            8011440 to Fingerprints("985eca580846a7da7fe705889b4f08a57b9a3c809a0772aac0a86a44bfa8d299", "8a31d8cfb1908cf8fa462c0613dad6d177d9ae94be6998c8bd3dce63f10d783e"),
+        ),
+    )
+
     // ---- Reachability sites for bundled offline check ----
 
     fun reachabilitySites(abi: String): List<ReachabilitySite> {
@@ -120,29 +168,67 @@ object Il2cppPatch {
     }
 
     /**
-     * Apply the 16 fixed patch sites to [data].
-     * Each site is written unconditionally; if the bytes already match the stub,
-     * the write is a no-op (idempotent).
+     * Apply the 16 fixed patch sites only when every touched window matches the
+     * pristine 9.2.0 image or this patcher's exact output. Validation is completed
+     * for all sites before a byte is changed, so an unfamiliar build is rejected
+     * without a partially modified result.
      */
     fun applySites(data: ByteArray, abi: String): PatchResult {
         val sites = sitesForAbi(abi) ?: return PatchResult(
-            data.copyOf(), false, "unsupported ABI '$abi'"
+            data, false, "unsupported ABI '$abi'"
         )
-        val out = data.copyOf()
+        val fingerprints = siteFingerprints[abi] ?: return PatchResult(
+            data, false, "no verified patch fingerprints are available for '$abi'"
+        )
+        if (fingerprints.keys != sites.map { it.offset }.toSet()) {
+            return PatchResult(data, false, "patch fingerprint table does not match the $abi patch sites")
+        }
+
+        val pristineSites = mutableListOf<PatchSite>()
 
         for (site in sites) {
-            if (site.offset + site.patchBytes.size > out.size) {
-                return PatchResult(out, false,
+            val fingerprint = fingerprints[site.offset] ?: return PatchResult(
+                data, false, "missing patch fingerprint for '${site.name}'"
+            )
+            val end = site.offset + SITE_FINGERPRINT_BYTES
+            if (site.offset < 0 || site.offset + site.patchBytes.size > data.size || end > data.size) {
+                return PatchResult(data, false,
                     "libil2cpp is too small for patch site '${site.name}' " +
-                    "(offset ${site.offset}, file size ${out.size})")
+                    "(offset ${site.offset}, file size ${data.size})")
             }
-            // Write patch bytes (idempotent)
+
+            val current = sha256Hex(data, site.offset, SITE_FINGERPRINT_BYTES)
+            if (current == fingerprint.pristineSha256) {
+                pristineSites += site
+            } else if (current != fingerprint.patchedSha256) {
+                return PatchResult(data, false,
+                    "unrecognized 9.2.0 patch window for '${site.name}' at " +
+                    "0x${site.offset.toString(16)}; no bytes were changed")
+            }
+        }
+
+        if (pristineSites.isEmpty()) return PatchResult(data, false, null)
+        val out = data.copyOf()
+        for (site in pristineSites) {
             for (i in site.patchBytes.indices) {
                 out[site.offset + i] = site.patchBytes[i]
             }
         }
 
         return PatchResult(out, true, null)
+    }
+
+    private fun sha256Hex(data: ByteArray, offset: Int, length: Int): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        digest.update(data, offset, length)
+        val digits = "0123456789abcdef"
+        return buildString(64) {
+            for (byte in digest.digest()) {
+                val value = byte.toInt() and 0xff
+                append(digits[value ushr 4])
+                append(digits[value and 0x0f])
+            }
+        }
     }
 
     /**

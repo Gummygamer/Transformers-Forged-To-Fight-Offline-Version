@@ -992,3 +992,7 @@ the recovered `Off` enumerator. These repairs add no APK bytes or decompiled gam
 `EB.Math.Vector2.DistanceSquared`, `EB.Math.Vector4.DistanceSquared`, and `EB.Math.Rectangle.op_Equality` are newly authored IL using Euclidean component squares and all four rectangle coordinates, respectively. The recovery contains no APK bytes, assets, or copied game method bodies.
 
 `EB.Math.Vector2.Dot(ref,ref,out)`, `EB.Math.Vector4.Dot(ref,ref,out)`, and `EB.Math.Rectangle.op_Inequality` are newly authored scalar operations over staged fields. Vector dot products sum component products; rectangle inequality returns true when any of its four integer coordinates differs. No APK content or decompiled game method body is tracked.
+
+## Android patcher target fingerprints (2026-10-13)
+
+The on-device APK patcher now validates SHA-256 fingerprints of the 16-byte windows it modifies against the pristine 9.2.0 ARM64 and ARMv7 libraries. The identity source is REA Evidence `ev_5b3dafb9f619cefbfdd0605dc3e7d3e067c77ae482312ac89ffd55aa251a87a3` for APK SHA-256 `77d2e9dd833c3789db541e04af08082547603b5815be28cf5f5d0c68173763cb`; the ARM64 and ARMv7 library identities were checked from that APK. Only fingerprints are stored, not instruction bytes, the APK, assets, or recovered method bodies. The patcher validates every window before writing any site, accepts its exact already-patched window for idempotence, and rejects unknown code at a patch offset without partially modifying the library.

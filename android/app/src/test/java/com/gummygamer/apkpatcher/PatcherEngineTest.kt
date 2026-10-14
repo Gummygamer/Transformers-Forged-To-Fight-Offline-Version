@@ -362,33 +362,18 @@ class PatcherEngineTest {
     }
 
     @Test
-    fun `applySites is idempotent for arm64`() {
-        val maxOffset = Il2cppPatch.arm64Sites.maxOf { it.offset + it.patchBytes.size }
-        val data = ByteArray(maxOffset + 1024)
-        data[0] = 0x7f; data[1] = 'E'.code.toByte(); data[2] = 'L'.code.toByte(); data[3] = 'F'.code.toByte()
-        data[4] = 2
+    fun `applySites rejects unknown builds for both ABIs without modifying them`() {
+        for (abi in listOf(PatchRequest.ARM64, PatchRequest.ARMV7)) {
+            val sites = if (abi == PatchRequest.ARM64) Il2cppPatch.arm64Sites else Il2cppPatch.armv7Sites
+            val data = ByteArray(sites.maxOf { it.offset + 16 } + 1)
+            val original = data.copyOf()
 
-        val result1 = Il2cppPatch.applySites(data, PatchRequest.ARM64)
-        assertTrue("applySites should succeed: ${result1.error}", result1.isSuccess)
-
-        val result2 = Il2cppPatch.applySites(result1.data, PatchRequest.ARM64)
-        assertTrue(result2.isSuccess)
-        assertArrayEquals(result1.data, result2.data)
-    }
-
-    @Test
-    fun `applySites is idempotent for armv7`() {
-        val maxOffset = Il2cppPatch.armv7Sites.maxOf { it.offset + it.patchBytes.size }
-        val data = ByteArray(maxOffset + 1024)
-        data[0] = 0x7f; data[1] = 'E'.code.toByte(); data[2] = 'L'.code.toByte(); data[3] = 'F'.code.toByte()
-        data[4] = 1
-
-        val result1 = Il2cppPatch.applySites(data, PatchRequest.ARMV7)
-        assertTrue("applySites armv7 should succeed: ${result1.error}", result1.isSuccess)
-
-        val result2 = Il2cppPatch.applySites(result1.data, PatchRequest.ARMV7)
-        assertTrue(result2.isSuccess)
-        assertArrayEquals(result1.data, result2.data)
+            val result = Il2cppPatch.applySites(data, abi)
+            assertFalse("$abi should reject an unrecognized library", result.isSuccess)
+            assertTrue("$abi should name the failed fingerprint: ${result.error}",
+                result.error!!.contains("unrecognized 9.2.0 patch window"))
+            assertArrayEquals("$abi mismatch must not partially patch the library", original, result.data)
+        }
     }
 
     @Test
@@ -400,7 +385,7 @@ class PatcherEngineTest {
     }
 
     @Test
-    fun `autoPatch arm64 returns patched data and injects hook name`() {
+    fun `injectNeededArm64 extends dynstr and is idempotent`() {
         val maxOffset = maxOf(
             Il2cppPatch.arm64Sites.maxOf { it.offset + it.patchBytes.size },
             45781603
@@ -424,8 +409,8 @@ class PatcherEngineTest {
         dynamicBuf.putLong(sectionHeaders.toInt() + 24, 0x1000L) // sh_offset
         dynamicBuf.putLong(sectionHeaders.toInt() + 32, 0x100L) // original sh_size
 
-        val result = Il2cppPatch.autoPatch(data, PatchRequest.ARM64)
-        assertTrue("autoPatch arm64 should succeed: ${result.error}", result.isSuccess)
+        val result = Il2cppPatch.injectNeededArm64(data)
+        assertTrue("injectNeededArm64 should succeed: ${result.error}", result.isSuccess)
         assertNotNull(result.data)
 
         val hookName = "libdothook.so".toByteArray(Charsets.UTF_8)
@@ -443,9 +428,28 @@ class PatcherEngineTest {
             patchedBuf.getLong(dynamic + 12 * 16 + 8))
         assertEquals(8204340L - 0x1000L + hookName.size + 1L,
             patchedBuf.getLong(sectionHeaders.toInt() + 32))
-        val rerun = Il2cppPatch.autoPatch(result.data, PatchRequest.ARM64)
-        assertTrue("autoPatch should be idempotent: ${rerun.error}", rerun.isSuccess)
+        val rerun = Il2cppPatch.injectNeededArm64(result.data)
+        assertTrue("injection should be idempotent: ${rerun.error}", rerun.isSuccess)
         assertArrayEquals(result.data, rerun.data)
+    }
+
+    @Test
+    fun `autoPatch rejects an unknown library before changing bytes`() {
+        val maxOffset = maxOf(
+            Il2cppPatch.arm64Sites.maxOf { it.offset + 16 },
+            45781603
+        )
+        val data = ByteArray(maxOffset + 4096)
+        data[0] = 0x7f; data[1] = 'E'.code.toByte(); data[2] = 'L'.code.toByte(); data[3] = 'F'.code.toByte()
+        data[4] = 2
+        data[5] = 1
+        data[18] = 183.toByte()
+        val original = data.copyOf()
+
+        val result = Il2cppPatch.autoPatch(data, PatchRequest.ARM64)
+        assertFalse(result.isSuccess)
+        assertTrue(result.error!!.contains("unrecognized 9.2.0 patch window"))
+        assertArrayEquals(original, result.data)
     }
 
     @Test
