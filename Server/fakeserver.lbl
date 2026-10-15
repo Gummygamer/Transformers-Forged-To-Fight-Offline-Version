@@ -1329,13 +1329,13 @@ end
   compact_envelope(jsonout.json_obj([pair_text("stoken", session.stoken), pair_text("server_tag", "prod"), pair_text("userToken", ""), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([pair_int("uid", unwrap_or(to_integer(session.uid), 1000000000001)), pair_text("name", session.name), pair_int("level", account_level()), pair_text("email", ""), pair_text("fbid", ""), pair_text("geo", "US"), pair_text("naid", ""), pair_int("cohort", 0), pair_int("revenue", 0)]))]))
 end
 
-function tutorial_response(p: text, btxt: text): text
+function tutorial_response(path: text, p: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
   let tid: text = json_text_first(req, "tid", "tutorialId", "id")
   if tid == "" then
   ""
-else if contains(block_tutorials(), tid) then
+else if contains(block_tutorials(), tid) and client_profile(path) != "mono310" then
   jsonout.encode_spaced(jsonout.json_obj([pair_text("err", "unavailable"), pair_text("error", "unavailable"), pair_bool("retry", false), pair_bool("fatal", false), jsonout.json_pair("result", jsonout.json_obj([]))]))
 else
   let bid: text = json_text_first(req, "bid", "branchId", "")
@@ -1844,7 +1844,7 @@ function static_dynamic_second(path: text, p: text, btxt: text): text
   else if contains_text(p, "/pvp/") then
     pvp_static_dynamic(path, p, btxt)
   else if endpoint_is_tutorial(p) then
-    tutorial_response(p, btxt)
+    tutorial_response(path, p, btxt)
   else if ends_with(p, "/bcg/getBaseHeroData") then
     base_hero_response(btxt)
   else if ends_with(p, "/bcg/getHeroXPCurve") then
