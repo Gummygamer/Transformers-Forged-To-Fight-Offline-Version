@@ -2,9 +2,18 @@ diff --git a/Cpp2IL.Core/Analysis/LocalVariables.cs b/Cpp2IL.Core/Analysis/Local
 index 0c148d2..7f8ba54 100644
 --- a/Cpp2IL.Core/Analysis/LocalVariables.cs
 +++ b/Cpp2IL.Core/Analysis/LocalVariables.cs
-@@ -128,0 +129 @@ public static class LocalVariables
+@@ -126,6 +126,7 @@ public static class LocalVariables
+                 continue;
+ 
+             local.Name = method.Parameters[i].ParameterName;
 +            local.ManagedParameterIndex = i;
-@@ -147,0 +149,13 @@ public static class LocalVariables
+             paramLocals.Add(local);
+         }
+ 
+@@ -145,6 +146,19 @@ public static class LocalVariables
+ 
+         method.ParameterLocals = paramLocals;
+ 
 +        // Aggregate entry layouts keep one logical managed operand per parameter,
 +        // but their native scalar live-ins are separate locals. Seed those locals
 +        // from the ABI leaf types so later stack/field inference cannot mistake a
@@ -18,7 +27,13 @@ index 0c148d2..7f8ba54 100644
 +                componentLocal.Type = component.ComponentType;
 +        }
 +
-@@ -677,0 +692,22 @@ public static class LocalVariables
+         // the hidden return buffer takes the first argument register. we type it as the return
+         // type so stores into it resolve to fields
+         if (method.AppContext.Binary.PointerSizeBytes == 8
+@@ -675,6 +689,28 @@ public static class LocalVariables
+                 if (instruction.Operands[i] is LocalVariable local)
+                     changed |= SetTypeIfUnknown(local, parameterType);
+             }
 +
 +            foreach (var binding in instruction.ManagedParameterBindings)
 +            foreach (var component in binding.Components)
@@ -41,15 +56,27 @@ index 0c148d2..7f8ba54 100644
 +                if (componentLocal != null)
 +                    changed |= SetTypeIfUnknown(componentLocal, component.ComponentType);
 +            }
-@@ -701 +737,2 @@ public static class LocalVariables
+         }
+ 
+         return changed;
+@@ -698,18 +734,31 @@ public static class LocalVariables
+         if (method.Parameters.Count == 0)
+             return;
+ 
 -        // Normal params
 +        // Normal params. Explicit indices prevent an unused or multi-register
 +        // parameter from shifting the type assigned to later parameters.
-@@ -708 +745,2 @@ public static class LocalVariables
+         var paramIndex = 0;
+         foreach (var local in method.ParameterLocals)
+         {
+             if (local.IsThis || local.IsMethodInfo)
+                 continue;
+ 
 -            if (paramIndex >= method.Parameters.Count)
 +            var parameterIndex = local.ManagedParameterIndex ?? paramIndex;
 +            if (parameterIndex >= method.Parameters.Count)
-@@ -711,2 +749,13 @@ public static class LocalVariables
+                 break;
+ 
 -            local.Type = method.Parameters[paramIndex].ParameterType;
 -            paramIndex++;
 +            local.Type = method.Parameters[parameterIndex].ParameterType;
@@ -65,11 +92,17 @@ index 0c148d2..7f8ba54 100644
 +                    local.Register.Name == component.Register.Name && local.Register.Version == -1);
 +            if (componentLocal != null)
 +                componentLocal.Type = component.ComponentType;
+         }
+     }
+ 
 diff --git a/Cpp2IL.Core/ISIL/Instruction.cs b/Cpp2IL.Core/ISIL/Instruction.cs
 index 7f9bdce..9236155 100644
 --- a/Cpp2IL.Core/ISIL/Instruction.cs
 +++ b/Cpp2IL.Core/ISIL/Instruction.cs
-@@ -33,0 +34,8 @@ public class Instruction : IOperand
+@@ -31,6 +31,14 @@ public class Instruction : IOperand
+     // Exists to clear the return register after a CallVoid, basically.
+     public Register? ImplicitDefinition;
+ 
 +    // Managed aggregate arguments are represented by their native register components
 +    // in ISIL, then reconstructed as one typed value when emitting the managed call.
 +    public List<ManagedParameterBinding> ManagedParameterBindings = [];
@@ -78,12 +111,21 @@ index 7f9bdce..9236155 100644
 +    // one value-type value.
 +    public ManagedParameterBinding? ManagedReturnBinding;
 +
+     public bool IsFallThrough =>
+         OpCode switch
+         {
 diff --git a/Cpp2IL.Core/ISIL/LocalVariable.cs b/Cpp2IL.Core/ISIL/LocalVariable.cs
 index a026c7d..fbfb638 100644
 --- a/Cpp2IL.Core/ISIL/LocalVariable.cs
 +++ b/Cpp2IL.Core/ISIL/LocalVariable.cs
-@@ -17,0 +18 @@ public class LocalVariable(string name, Register register, TypeAnalysisContext?
+@@ -15,6 +15,7 @@ public class LocalVariable(string name, Register register, TypeAnalysisContext?
+     public bool IsThis = false;
+     public bool IsReturn = false;
+     public bool IsMethodInfo = false;
 +    public int? ManagedParameterIndex;
+ 
+     public override string ToString() => Type == null ? $"{Name} @ {Register}" : $"{Name} @ {Register} ({Type.FullName})";
+ }
 diff --git a/Cpp2IL.Core/ISIL/ManagedParameterBinding.cs b/Cpp2IL.Core/ISIL/ManagedParameterBinding.cs
 new file mode 100644
 index 0000000..c300be4
@@ -121,9 +163,15 @@ diff --git a/Cpp2IL.Core/IlGenerator.cs b/Cpp2IL.Core/IlGenerator.cs
 index 8562038..327b455 100644
 --- a/Cpp2IL.Core/IlGenerator.cs
 +++ b/Cpp2IL.Core/IlGenerator.cs
-@@ -0,0 +1 @@
+@@ -1,3 +1,4 @@
 +using System;
-@@ -42,8 +43,3 @@ public static class IlGenerator
+ using System.Collections.Generic;
+ using System.Linq;
+ using System.Reflection;
+@@ -39,14 +40,9 @@ public static class IlGenerator
+         var module = definition.DeclaringModule!;
+         var factory = module.CorLibTypeFactory;
+ 
 -        var noteIssueContext = assembly
 -            .GetTypeByFullName($"{HelpersNamespace}.{HelpersTypeName}")?.Methods.FirstOrDefault(m => m.Name == NoteIssueMethodName);
 -
@@ -135,9 +183,19 @@ index 8562038..327b455 100644
 +        var writeLine = factory.CorLibScope
 +            .CreateTypeReference("System", "Console")
 +            .CreateMemberReference("WriteLine", MethodSignature.CreateStatic(factory.Void, [factory.String]));
-@@ -63,0 +60 @@ public static class IlGenerator
+ 
+         // Change branch targets to instructions
+         foreach (var instruction in context.ControlFlowGraph!.Blocks.SelectMany(block => block.Instructions))
+@@ -61,11 +57,94 @@ public static class IlGenerator
+         var body = new CilMethodBody()
+         {
+             InitializeLocals = true, // Without this ILSpy does: CompilerServices.Unsafe.SkipInit(out object obj);
 +            MaxStack = 256, // The reconstructed IL can be stack-imbalanced, so leave room while validation is incomplete.
-@@ -68,0 +66,82 @@ public static class IlGenerator
+             ComputeMaxStackOnBuild = false // There's stack imbalance somewhere, but this works for now
+         };
+ 
+         definition.CilMethodBody = body;
+ 
 +        var booleanResults = new HashSet<LocalVariable>(context.ControlFlowGraph.Instructions
 +            .Where(instruction => instruction.OpCode is OpCode.CheckEqual or OpCode.CheckNotEqual
 +                or OpCode.CheckGreater or OpCode.CheckLess or OpCode.CheckGreaterOrEqual
@@ -220,7 +278,13 @@ index 8562038..327b455 100644
 +            }
 +        }
 +
-@@ -102,0 +182,25 @@ public static class IlGenerator
+         // Make sure context.Locals actually has all locals (idk why it doesn't sometimes)
+         foreach (var operand in context.ControlFlowGraph.Instructions.SelectMany(i => i.Operands))
+         {
+@@ -100,6 +179,31 @@ public static class IlGenerator
+                 context.Locals.Add(local);
+         }
+ 
 +        // Aggregate call components are attached as ABI metadata rather than
 +        // ordinary operands. Make their live-in/live-out registers available to
 +        // the local map so the typed aggregate adapter can read and write them.
@@ -246,7 +310,13 @@ index 8562038..327b455 100644
 +            }
 +        }
 +
-@@ -110 +214,11 @@ public static class IlGenerator
+         // Map ISIL locals to IL
+         Dictionary<LocalVariable, CilLocalVariable> locals = [];
+         foreach (var local in context.Locals)
+@@ -107,7 +211,17 @@ public static class IlGenerator
+             TypeSignature ilType;
+ 
+             // Use object if type couldn't be determined, or if it's void, which no locals sig can hold
 -            if (local.Type != null && local.Type != context.AppContext.SystemTypes.SystemVoidType)
 +            if (local.Type != null
 +                && local.Type.FullName != "System.Void"
@@ -259,7 +329,13 @@ index 8562038..327b455 100644
 +            else if (int32Results.Contains(local))
 +                ilType = module.CorLibTypeFactory.Int32;
 +            else if (local.Type != null && local.Type.FullName != "System.Void")
-@@ -119,0 +234,83 @@ public static class IlGenerator
+                 ilType = local.Type.ToTypeSignature();
+             else
+                 ilType = module.CorLibTypeFactory.Object;
+@@ -117,6 +231,89 @@ public static class IlGenerator
+             locals.Add(local, ilLocal);
+         }
+ 
 +        // AAPCS64 passes homogeneous floating-point aggregates (HFAs) as scalar
 +        // values in SIMD registers. The managed signature still has one struct
 +        // parameter, so materialize each component into its native live-in local
@@ -343,15 +419,27 @@ index 8562038..327b455 100644
 +            }
 +        }
 +
-@@ -143 +340,2 @@ public static class IlGenerator
+         /* foreach (var instruction in context.ControlFlowGraph!.Instructions)
+         {
+             body.Instructions.Add(CilOpCodes.Ldstr, instruction.ToString());
+@@ -140,7 +337,8 @@ public static class IlGenerator
+ 
+             foreach (var instruction in block.Instructions)
+             {
 -                var generated = GenerateInstructions(instruction, context, definition, locals, writeLine);
 +                var generated = GenerateInstructions(instruction, context, definition, locals, writeLine,
 +                    nativeIntResults, int32Results);
-@@ -217 +415,2 @@ public static class IlGenerator
+                 instructionMap.Add(instruction, generated);
+ 
+                 if (!blockEntryMap.ContainsKey(block) && generated.Count > 0)
+@@ -214,8 +412,48 @@ public static class IlGenerator
+             branchInstruction.Operand = new CilInstructionLabel(target);
+         }
+ 
 -        // Add analysis warnings
 +        // Repair stack types after all ISIL operations have been lowered. Some constants
 +        // bypass StoreToOperand and reach object locals as raw int32 values.
-@@ -218,0 +418,39 @@ public static class IlGenerator
+         var instructions = body.Instructions;
 +        for (var i = 1; i < instructions.Count; i++)
 +        {
 +            var current = instructions[i];
@@ -391,7 +479,13 @@ index 8562038..327b455 100644
 +        RepairReferenceArgumentTypes(body);
 +
 +        // Add analysis warnings
-@@ -225,0 +464,85 @@ public static class IlGenerator
+         foreach (var warning in context.AnalysisWarnings)
+         {
+             instructions.Add(CilOpCodes.Ldstr, Diagnostic("Warning: " + warning));
+@@ -223,6 +461,91 @@ public static class IlGenerator
+         }
+     }
+ 
 +    private static void RepairSplitAggregateFieldStores(CilMethodBody body)
 +    {
 +        // The lifter can turn a native aggregate register return into scalar locals,
@@ -477,11 +571,23 @@ index 8562038..327b455 100644
 +        }
 +    }
 +
-@@ -264 +587,2 @@ public static class IlGenerator
+     // Limit so we don't run into the 16mb limit (see AsmResolver issue #775)
+     private static string Diagnostic(string message) 
+         => message.Length <= 250 ? message : message[..250] + "…";
+@@ -261,7 +584,8 @@ public static class IlGenerator
+     }
+ 
+     private static List<CilInstruction> GenerateInstructions(Instruction instruction, MethodAnalysisContext context,
 -        MethodDefinition method, Dictionary<LocalVariable, CilLocalVariable> locals, IMethodDescriptor writeLine)
 +        MethodDefinition method, Dictionary<LocalVariable, CilLocalVariable> locals, IMethodDescriptor writeLine,
 +        HashSet<LocalVariable> nativeIntResults, HashSet<LocalVariable> int32Results)
-@@ -312 +636,50 @@ public static class IlGenerator
+     {
+         var body = method.CilMethodBody!;
+         var instructions = body.Instructions;
+@@ -309,7 +633,56 @@ public static class IlGenerator
+                     break;
+                 }
+ 
 -                LoadOperand(instruction.Operands[1], method, locals, writeLine, DestinationType(instruction.Operands[0]));
 +                if (instruction.Operands[0] is LocalVariable nativeIntDestination
 +                    && nativeIntResults.Contains(nativeIntDestination)
@@ -533,7 +639,13 @@ index 8562038..327b455 100644
 +                    instructions.Add(CilOpCodes.Box,
 +                        method.DeclaringModule!.CorLibTypeFactory.Int32.ToTypeDefOrRef());
 +                }
-@@ -403,0 +777,26 @@ public static class IlGenerator
+                 StoreToOperand(instruction.Operands[0], method, locals, writeLine);
+                 break;
+ 
+@@ -401,6 +774,32 @@ public static class IlGenerator
+                 var importedMethod = targetMethod.ToMethodDescriptor();
+ 
+                 var thisParamIndex = instruction.OpCode == OpCode.Call ? 2 : 1;
 +                if (instruction.OpCode == OpCode.CallVoid
 +                    && !targetMethod.IsStatic
 +                    && targetMethod.Name == ".ctor"
@@ -560,7 +672,13 @@ index 8562038..327b455 100644
 +                    StoreToOperand(constructorReceiver, method, locals, writeLine);
 +                    break;
 +                }
-@@ -426,0 +826,39 @@ public static class IlGenerator
+ 
+                 if (!targetMethod.IsStatic) // Load 'this' param
+                 {
+@@ -424,10 +823,49 @@ public static class IlGenerator
+                 {
+                     var parameterType = targetMethod.Parameters[i].ParameterType;
+ 
 +                    var aggregateBinding = instruction.ManagedParameterBindings
 +                        .FirstOrDefault(binding => binding.ParameterIndex == i);
 +                    if (aggregateBinding != null)
@@ -600,10 +718,18 @@ index 8562038..327b455 100644
 +                        continue;
 +                    }
 +
-@@ -430 +868 @@ public static class IlGenerator
+                     if (i < availableArgs)
+                         LoadOperand(instruction.Operands[callParamIndex + i], method, locals, writeLine, parameterType);
+                     else
 -                        PushDefaultOf(parameterType, instructions);
 +                        PushDefaultOf(parameterType, method, instructions);
-@@ -444,0 +883,29 @@ public static class IlGenerator
+                 }
+ 
+                 instructions.Add(CilOpCodes.Call, importedMethod);
+@@ -442,11 +880,55 @@ public static class IlGenerator
+                         instructions.Add(CilOpCodes.Pop);
+                 }
+ 
 +                if (instruction.ManagedReturnBinding is { } returnBinding
 +                    && instruction.OpCode == OpCode.Call
 +                    && instruction.Operands[1] is { } returnValue)
@@ -633,7 +759,11 @@ index 8562038..327b455 100644
 +                    }
 +                }
 +
-@@ -449,0 +917,15 @@ public static class IlGenerator
+                 break;
+ 
+             case OpCode.IndirectCall:
+                 instructions.Add(CilOpCodes.Ldstr, Diagnostic($"Indirect call: {instruction.Operands[0]} (should have been resolved before IL gen)"));
+                 instructions.Add(CilOpCodes.Call, writeLine);
 +                if (instruction.Operands.Count > 1 && instruction.Operands[1] is LocalVariable indirectResult)
 +                {
 +                    if (int32Results.Contains(indirectResult))
@@ -649,14 +779,26 @@ index 8562038..327b455 100644
 +                        instructions.Add(CilOpCodes.Ldnull);
 +                    StoreToOperand(indirectResult, method, locals, writeLine);
 +                }
-@@ -474,0 +957,6 @@ public static class IlGenerator
+                 break;
+ 
+             case OpCode.Return:
+@@ -472,6 +954,12 @@ public static class IlGenerator
+             case OpCode.IndirectJump:
+                 instructions.Add(CilOpCodes.Ldstr, Diagnostic($"Indirect jump: {instruction.Operands[0]} (should have been resolved before IL gen)"));
+                 instructions.Add(CilOpCodes.Call, writeLine);
 +                // This instruction terminates the native control-flow path. Leaving the
 +                // generated method open makes execution fall through into the next method body.
 +                // The indirect target remains unresolved, so return a typed placeholder here.
 +                if (!context.IsVoid)
 +                    PushDefaultOf(context.ReturnType!, method, instructions);
 +                instructions.Add(CilOpCodes.Ret);
-@@ -505,0 +994,20 @@ public static class IlGenerator
+                 break;
+ 
+             case OpCode.ShiftStack:
+@@ -503,14 +991,56 @@ public static class IlGenerator
+                     && TryEmitExactTypeComparison(instruction, method, locals, writeLine))
+                     break;
+ 
 +                // ISIL can retain whole managed structs as arithmetic/comparison operands.
 +                // CIL has no arithmetic stack form for these values, so use the exact
 +                // managed operator recovered from the value type when one is available.
@@ -677,7 +819,10 @@ index 8562038..327b455 100644
 +                    break;
 +                }
 +
-@@ -510 +1018,18 @@ public static class IlGenerator
+                 // Float arithmetic on a promoted integer operand needs an explicit conversion, so both
+                 // operands are coerced to the (float) result type. A no-op when they already match.
+                 var floatConversion = FloatArithmeticConversion(instruction);
+ 
 -                LoadOperand(instruction.Operands[1], method, locals, writeLine);
 +                if (instruction.OpCode == OpCode.Add
 +                    && instruction.Operands[0] is LocalVariable addResult
@@ -697,7 +842,8 @@ index 8562038..327b455 100644
 +                    && nativeIntResults.Contains(firstNativeResult)
 +                    && instruction.Operands[1] is AddressOf)
 +                    instructions.Add(CilOpCodes.Conv_I);
-@@ -513 +1038,6 @@ public static class IlGenerator
+                 if (floatConversion is { } conv1)
+                     instructions.Add(conv1);
 -                LoadOperand(instruction.Operands[2], method, locals, writeLine);
 +                LoadOperand(instruction.Operands[2], method, locals, writeLine,
 +                    IsZeroConstant(instruction.Operands[2]) ? OperandType(instruction.Operands[1]) : null);
@@ -705,7 +851,13 @@ index 8562038..327b455 100644
 +                    && nativeIntResults.Contains(secondNativeResult)
 +                    && instruction.Operands[2] is AddressOf)
 +                    instructions.Add(CilOpCodes.Conv_I);
-@@ -627,0 +1158,53 @@ public static class IlGenerator
+                 if (floatConversion is { } conv2)
+                     instructions.Add(conv2);
+ 
+@@ -625,6 +1155,59 @@ public static class IlGenerator
+         };
+     }
+ 
 +    private static MethodAnalysisContext? TryGetManagedOperator(Instruction instruction)
 +    {
 +        var operatorName = instruction.OpCode switch
@@ -759,7 +911,13 @@ index 8562038..327b455 100644
 +        return method;
 +    }
 +
-@@ -643,0 +1227,14 @@ public static class IlGenerator
+     private static void LoadOperand(IOperand operand, MethodDefinition method,
+         Dictionary<LocalVariable, CilLocalVariable> locals, IMethodDescriptor writeLine,
+         TypeAnalysisContext? expectedType = null)
+@@ -641,8 +1224,39 @@ public static class IlGenerator
+             return;
+         }
+ 
 +        if (IsZeroConstant(operand)
 +            && expectedType is { IsValueType: true } valueType
 +            && EnumUnderlyingType(valueType) == null
@@ -774,7 +932,8 @@ index 8562038..327b455 100644
 +            return;
 +        }
 +
-@@ -645,0 +1243,17 @@ public static class IlGenerator
+         switch (operand)
+         {
 +            case Immediate immediate when expectedType?.FullName is "System.IntPtr" or "System.UIntPtr":
 +                if (immediate.Value is >= int.MinValue and <= int.MaxValue)
 +                    instructions.Add(CilOpCodes.Ldc_I4, unchecked((int)immediate.Value));
@@ -792,7 +951,13 @@ index 8562038..327b455 100644
 +            case Immediate immediate when EnumUnderlyingType(expectedType)?.FullName is "System.Int64" or "System.UInt64":
 +                instructions.Add(CilOpCodes.Ldc_I8, immediate.Value);
 +                break;
-@@ -670 +1284,8 @@ public static class IlGenerator
+             case Immediate { Value: >= int.MinValue and <= int.MaxValue } immediate:
+                 instructions.Add(CilOpCodes.Ldc_I4, (int)immediate.Value);
+                 break;
+@@ -667,7 +1281,14 @@ public static class IlGenerator
+                 instructions.Add(CilOpCodes.Conv_I4);
+                 break;
+             case AddressOf { Target: LocalVariable addressed }:
 -                instructions.Add(CilOpCodes.Ldloca, locals[addressed]);
 +                // The lifter sometimes models a reference-value move as AddressOf. If the
 +                // destination is an object value, loading the reference itself keeps the CLI
@@ -802,7 +967,13 @@ index 8562038..327b455 100644
 +                    LoadLocal(addressed, method, locals);
 +                else
 +                    instructions.Add(CilOpCodes.Ldloca, locals[addressed]);
-@@ -709,2 +1330,7 @@ public static class IlGenerator
+                 break;
+             case AddressOf { Target: ArrayAccess elementAddress }:
+                 LoadLocal(elementAddress.Array, method, locals);
+@@ -706,8 +1327,13 @@ public static class IlGenerator
+                 }
+                 instructions.Add(CilOpCodes.Ldstr, Diagnostic("Unmanaged memory load: " + operand));
+                 instructions.Add(CilOpCodes.Call, writeLine);
 -                instructions.Add(CilOpCodes.Ldc_I4_0);
 -                instructions.Add(CilOpCodes.Conv_I);
 +                if (expectedType is { } memoryValueType)
@@ -812,22 +983,32 @@ index 8562038..327b455 100644
 +                    instructions.Add(CilOpCodes.Ldc_I4_0);
 +                    instructions.Add(CilOpCodes.Conv_I);
 +                }
-@@ -811 +1437,2 @@ public static class IlGenerator
+                 break;
+             case RuntimeMethodInfoAnalysisContext runtimeMethod:
+                 // A delegate constructor takes its target as a native pointer, which is exactly ldftn.
+@@ -808,30 +1434,70 @@ public static class IlGenerator
+         return false;
+     }
+ 
 -    private static void PushDefaultOf(TypeAnalysisContext type, CilInstructionCollection instructions)
 +    private static void PushDefaultOf(TypeAnalysisContext type, MethodDefinition method,
 +        CilInstructionCollection instructions)
-@@ -815 +1442 @@ public static class IlGenerator
+     {
+         //TODO Remove this, we should be handling arguments correctly in ISIL resolution, this is a hack to emit balanced stacks.
+         //TODO At the *very* least we should emit a console.writeline saying that we did this.
 -        if (!type.IsValueType)
 +        if (type is ByRefTypeAnalysisContext byRef)
-@@ -817 +1444,3 @@ public static class IlGenerator
+         {
 -            instructions.Add(CilOpCodes.Ldnull);
 +            var pointee = new CilLocalVariable(byRef.ElementType.ToTypeSignature());
 +            method.CilMethodBody!.LocalVariables.Add(pointee);
 +            instructions.Add(CilOpCodes.Ldloca, pointee);
-@@ -821 +1450 @@ public static class IlGenerator
+             return;
+         }
+ 
 -        switch (type.FullName)
 +        if (type is PointerTypeAnalysisContext)
-@@ -823,4 +1452,3 @@ public static class IlGenerator
+         {
 -            case "System.Single": instructions.Add(CilOpCodes.Ldc_R4, 0f); break;
 -            case "System.Double": instructions.Add(CilOpCodes.Ldc_R8, 0d); break;
 -            case "System.Int64" or "System.UInt64": instructions.Add(CilOpCodes.Ldc_I8, 0L); break;
@@ -835,7 +1016,7 @@ index 8562038..327b455 100644
 +            instructions.Add(CilOpCodes.Ldc_I4_0);
 +            instructions.Add(CilOpCodes.Conv_I);
 +            return;
-@@ -827,0 +1456,12 @@ public static class IlGenerator
+         }
 +
 +        if (!type.IsValueType && type is not GenericParameterTypeAnalysisContext)
 +        {
@@ -848,11 +1029,14 @@ index 8562038..327b455 100644
 +        var value = new CilLocalVariable(type.ToTypeSignature());
 +        method.CilMethodBody!.LocalVariables.Add(value);
 +        instructions.Add(CilOpCodes.Ldloc, value);
-@@ -829,0 +1470,3 @@ public static class IlGenerator
+     }
+ 
 +    private static TypeAnalysisContext? EnumUnderlyingType(TypeAnalysisContext? type) =>
 +        type?.Definition?.IsEnumType == true ? type.EnumUnderlyingType : null;
 +
-@@ -832,0 +1476,14 @@ public static class IlGenerator
+     private static bool IsBoolean(IOperand operand, MethodAnalysisContext context) =>
+         operand is LocalVariable { Type: { } type } && type == context.AppContext.SystemTypes.SystemBooleanType;
+ 
 +    private static bool IsInt32Constant(CilOpCode opCode) =>
 +        opCode == CilOpCodes.Ldc_I4_M1
 +        || opCode == CilOpCodes.Ldc_I4_0
@@ -867,7 +1051,8 @@ index 8562038..327b455 100644
 +        || opCode == CilOpCodes.Ldc_I4_S
 +        || opCode == CilOpCodes.Ldc_I4;
 +
-@@ -834,0 +1492,9 @@ public static class IlGenerator
+     private static bool IsZeroConstant(IOperand operand) => operand is Immediate { Value: 0 };
+     
 +    private static TypeAnalysisContext? OperandType(IOperand operand) =>
 +        operand switch
 +        {
@@ -877,13 +1062,25 @@ index 8562038..327b455 100644
 +            _ => null
 +        };
 +
-@@ -854 +1520,4 @@ public static class IlGenerator
+     private static TypeAnalysisContext? DestinationType(IOperand destination) =>
+         destination switch
+         {
+@@ -851,7 +1517,10 @@ public static class IlGenerator
+             return;
+         }
+ 
 -        var parameter = method.Parameters.FirstOrDefault(p => p.Name == local.Name);
 +        var parameter = local.ManagedParameterIndex is { } parameterIndex
 +            && parameterIndex >= 0 && parameterIndex < method.Parameters.Count
 +                ? method.Parameters[parameterIndex]
 +                : method.Parameters.FirstOrDefault(p => p.Name == local.Name);
-@@ -869,0 +1539,20 @@ public static class IlGenerator
+ 
+         if (parameter != null)
+             instructions.Add(CilOpCodes.Ldarg, parameter);
+@@ -867,6 +1536,26 @@ public static class IlGenerator
+         switch (operand)
+         {
+             case LocalVariable local:
 +                // Some non-Move ISIL operations also leave an untyped zero as native int.
 +                // Locals with no recovered type are emitted as object, where that zero must
 +                // be represented as null instead.
@@ -904,11 +1101,17 @@ index 8562038..327b455 100644
 +                    instructions.Add(CilOpCodes.Box,
 +                        method.DeclaringModule!.CorLibTypeFactory.Int32.ToTypeDefOrRef());
 +                }
+                 instructions.Add(CilOpCodes.Stloc, locals[local]);
+                 break;
+ 
 diff --git a/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs b/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
 index 0ba9188..16aa27f 100644
 --- a/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
 +++ b/Cpp2IL.Core/InstructionSets/NewArmV8InstructionSet.cs
-@@ -25,0 +26,9 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+@@ -23,6 +23,15 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+     private static Immediate Imm(long value) => new(value);
+     private static Immediate Imm(ulong value) => new(unchecked((long)value));
+ 
 +    private static MethodAnalysisContext? ResolveMathMethod(ApplicationAnalysisContext app, string name, bool isDouble)
 +    {
 +        var mathType = app.SystemTypes.SystemDoubleType.DeclaringAssembly.GetTypeByFullName("System.Math");
@@ -918,15 +1121,33 @@ index 0ba9188..16aa27f 100644
 +            method.Parameters[0].ParameterType == operandType);
 +    }
 +
-@@ -78 +87 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+     private static string NormalizeRegister(Arm64Register reg) => reg switch
+     {
+         >= Arm64Register.W0 and <= Arm64Register.W31 => "X" + (reg - Arm64Register.W0),
+@@ -75,7 +84,7 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+ 
+     public override List<IOperand> GetParameterOperandsFromMethod(MethodAnalysisContext context)
+     {
 -        return CallingConventions.ResolveForManaged(context).ToList();
 +        return CallingConventions.ResolveForManagedEntry(context).ToList();
-@@ -233 +242,3 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+     }
+ 
+     public override (IReadOnlyList<ulong> DataReferences, IReadOnlyList<ulong> CallTargets) InspectPotentialThrowHelper(ApplicationAnalysisContext context, ulong address)
+@@ -230,7 +239,9 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+                     ? Add(address, OpCode.CallVoid, Imm(target))
+                     : Add(address, OpCode.Call, Imm(target), CallingConventions.ReturnRegister(ctx));
+ 
 -                call.AddOperands(CallingConventions.ResolveForManaged(ctx));
 +                call.AddOperands(CallingConventions.ResolveForManagedCall(ctx, out var bindings));
 +                call.ManagedParameterBindings.AddRange(bindings);
 +                call.ManagedReturnBinding = CallingConventions.ResolveManagedReturn(ctx);
-@@ -422,0 +434,13 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+             }
+             else
+             {
+@@ -420,6 +431,19 @@ public class NewArmV8InstructionSet : Cpp2IlInstructionSet
+ 
+                 Add(address, OpCode.Move, ConvertOperand(instruction, 0), ConvertOperand(instruction, 1));
+                 break;
 +            case Arm64Mnemonic.FABS:
 +                {
 +                    bool isDouble = instruction.Op0Reg is >= Arm64Register.D0 and <= Arm64Register.D31;
@@ -940,11 +1161,17 @@ index 0ba9188..16aa27f 100644
 +                        Add(address, OpCode.Call, abs, ConvertOperand(instruction, 0), ConvertOperand(instruction, 1));
 +                    break;
 +                }
+             case Arm64Mnemonic.MOVI:
+             case Arm64Mnemonic.MVNI when instruction.Op1Kind == Arm64OperandKind.Immediate:
+                 {
 diff --git a/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs b/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs
 index d47abce..fc69926 100644
 --- a/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs
 +++ b/Cpp2IL.Core/Model/Contexts/MethodAnalysisContext.cs
-@@ -60,0 +61,7 @@ public class MethodAnalysisContext : HasGenericParameters, IMethodInfoProvider,
+@@ -58,6 +58,13 @@ public class MethodAnalysisContext : HasGenericParameters, IMethodInfoProvider,
+     /// </summary>
+     public List<ISIL.IOperand> ParameterOperands = [];
+ 
 +    /// <summary>
 +    /// Logical parameter-to-register bindings for ABIs where one managed parameter
 +    /// occupies more than one native register. Empty on instruction sets that do
@@ -952,14 +1179,24 @@ index d47abce..fc69926 100644
 +    /// </summary>
 +    public List<ManagedParameterBinding> ManagedParameterBindings = [];
 +
+     /// <summary>
+     /// The control flow graph for this method, if one is built.
+     /// </summary>
 diff --git a/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs b/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs
 index d77fff8..571d6b8 100644
 --- a/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs
 +++ b/Cpp2IL.Core/Utils/Arm64CallingConventionResolver.cs
-@@ -1,0 +2,2 @@ using System.Collections.Generic;
+@@ -1,4 +1,6 @@
+ using System.Collections.Generic;
 +using System.Linq;
 +using System.Reflection;
-@@ -80,0 +83,435 @@ public class Arm64CallingConventionResolver : BaseCallingConventionResolver
+ using Cpp2IL.Core.ISIL;
+ using Cpp2IL.Core.Model.Contexts;
+ 
+@@ -78,4 +80,439 @@ public class Arm64CallingConventionResolver : BaseCallingConventionResolver
+ 
+         return args.ToArray();
+     }
 +
 +    public override IOperand[] ResolveForManagedCall(MethodAnalysisContext ctx,
 +        out List<ManagedParameterBinding> bindings)
@@ -1395,11 +1632,15 @@ index d77fff8..571d6b8 100644
 +
 +    private sealed record HfaComponentLayout(TypeAnalysisContext ComponentType,
 +        IReadOnlyList<FieldAnalysisContext> FieldPath);
+ }
 diff --git a/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs b/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs
 index 73a1df1..1019006 100644
 --- a/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs
 +++ b/Cpp2IL.Core/Utils/BaseCallingConventionResolver.cs
-@@ -22,0 +23,9 @@ public abstract class BaseCallingConventionResolver
+@@ -20,6 +20,15 @@ public abstract class BaseCallingConventionResolver
+ 
+     public abstract IOperand[] ResolveForManaged(MethodAnalysisContext ctx);
+ 
 +    public virtual IOperand[] ResolveForManagedCall(MethodAnalysisContext ctx,
 +        out List<ManagedParameterBinding> bindings)
 +    {
@@ -1409,6 +1650,15 @@ index 73a1df1..1019006 100644
 +
 +    public virtual ManagedParameterBinding? ResolveManagedReturn(MethodAnalysisContext ctx) => null;
 +
-@@ -59 +68 @@ public abstract class BaseCallingConventionResolver
+     protected abstract (string[] Integer, string[] Float) RawRegisters(ApplicationAnalysisContext app);
+ 
+     // MSVC style: argument slot n is integer register n or float register n, not both
+@@ -56,7 +65,7 @@ public abstract class BaseCallingConventionResolver
+     }
+ 
+     // TODO Fix handling of params on the stack here
 -    public void RemapRawArguments(Instruction call, MethodAnalysisContext resolved)
 +    public virtual void RemapRawArguments(Instruction call, MethodAnalysisContext resolved)
+     {
+         var app = resolved.AppContext;
+ 

@@ -1960,6 +1960,7 @@ namespace StoryPort
 
         IEnumerator PlayerAttackImpact(string state, int damage, int charge)
         {
+            StopFightWalk(false);
             playerBusy = true;
             guarding = false;
             SetBoolIfPresent(playerAnimator, "Blocking", false);
@@ -2317,7 +2318,6 @@ namespace StoryPort
             if (fightWalkDirection == direction) return;
             if (fightWalkDirection == 0 && playerBusy) return;
             fightWalkDirection = direction;
-            playerBusy = true;
             PlayState(playerAnimator, "Run");
             SetBoolIfPresent(playerAnimator, "Running", true);
             guarding = false;
@@ -2349,14 +2349,13 @@ namespace StoryPort
             playerActor.transform.position += towardEnemy * (fightWalkDirection * distance);
         }
 
-        void StopFightWalk()
+        void StopFightWalk(bool runQueuedAttack = true)
         {
             if (fightWalkDirection == 0) return;
             fightWalkDirection = 0;
             SetBoolIfPresent(playerAnimator, "Running", false);
-            playerBusy = false;
             if (screen == "fight" && playerActor != null && !guarding) PlayState(playerAnimator, "Idle");
-            RunQueuedAttack();
+            if (runQueuedAttack) RunQueuedAttack();
         }
 
         IEnumerator FightMovement(Vector3 target, float duration)
@@ -2586,6 +2585,7 @@ namespace StoryPort
                 int damage = Mathf.RoundToInt(taken);
                 playerHealth = Mathf.Max(0f, playerHealth - taken);
                 SyncHealthPercent();
+                if (damage > 0) StopFightWalk(false);
                 if (damage > 0) ShowDamageNumber(damage, playerActor, blocked ? new Color(.7f, .85f, 1f) : new Color(1f, .45f, .4f));
                 if (special && damage > 0 && !blocked) ImpactBurst(playerActor);
                 if (special && damage > 0 && !blocked && !evaded && audioPlayer != null) audioPlayer.Special(enemyKey, enemySpecialLevel, true, .8f);

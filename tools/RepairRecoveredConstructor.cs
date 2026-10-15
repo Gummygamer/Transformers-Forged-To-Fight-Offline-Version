@@ -1562,15 +1562,11 @@ class RepairRecoveredConstructor {
 
         ModuleDefinition module = type.Module;
         TypeReference gameObjectType = startObject.FieldType;
-        TypeReference transformType = module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Transform");
-        TypeReference unityObjectType = module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Object");
         TypeReference vectorType = startVector.FieldType;
-        TypeReference timeType = module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Time");
-        TypeReference mathfType = module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Mathf");
+        TypeReference transformType = FindOrCreateTypeReference(module, "UnityEngine.Transform", gameObjectType);
+        TypeReference unityObjectType = FindOrCreateTypeReference(module, "UnityEngine.Object", gameObjectType);
+        TypeReference timeType = FindOrCreateTypeReference(module, "UnityEngine.Time", gameObjectType);
+        TypeReference mathfType = FindOrCreateTypeReference(module, "UnityEngine.Mathf", gameObjectType);
         if (transformType == null || unityObjectType == null || timeType == null || mathfType == null)
             throw new InvalidDataException("missing Unity type references for BeamRenderer.Update");
 
@@ -1744,12 +1740,8 @@ class RepairRecoveredConstructor {
 
         ModuleDefinition module = type.Module;
         TypeReference vectorType = magnitude.FieldType;
-        TypeReference objectType = module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Object");
-        TypeReference randomType = module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Random");
-        if (objectType == null || randomType == null)
-            throw new InvalidDataException("missing UnityEngine.Object or Random type reference for Crash.DoAnim");
+        TypeReference objectType = FindOrCreateTypeReference(module, "UnityEngine.Object", vectorType);
+        TypeReference randomType = FindOrCreateTypeReference(module, "UnityEngine.Random", vectorType);
 
         FieldReference[] components = new[] { "x", "y", "z" }.Select(name =>
             new FieldReference(name, module.TypeSystem.Single, vectorType)).ToArray();
@@ -2123,6 +2115,18 @@ class RepairRecoveredConstructor {
         return module.ImportReference(method);
     }
 
+    static TypeReference FindOrCreateTypeReference(ModuleDefinition module, string fullName,
+        TypeReference scopeHint) {
+        TypeReference reference = module.GetTypeReferences().SingleOrDefault(candidate =>
+            candidate.FullName == fullName);
+        if (reference != null) return reference;
+        int separator = fullName.LastIndexOf('.');
+        if (separator <= 0 || scopeHint == null || scopeHint.Scope == null)
+            throw new InvalidDataException("cannot infer reference scope for " + fullName);
+        return new TypeReference(fullName.Substring(0, separator), fullName.Substring(separator + 1),
+            module, scopeHint.Scope);
+    }
+
     static int RepairCameraDataLerp(TypeDefinition type, string assemblyName) {
         if (assemblyName != "Assembly-CSharp-firstpass.dll" || type.FullName != "EB.Director.CameraData")
             return 0;
@@ -2151,9 +2155,7 @@ class RepairRecoveredConstructor {
             throw new InvalidDataException("unexpected EB.Director.CameraData.Lerp metadata");
 
         ModuleDefinition module = type.Module;
-        TypeReference mathf = module.GetTypeReferences().SingleOrDefault(reference => reference.FullName == "UnityEngine.Mathf");
-        if (mathf == null)
-            throw new InvalidDataException("UnityEngine.Mathf reference is missing from CameraData assembly");
+        TypeReference mathf = FindOrCreateTypeReference(module, "UnityEngine.Mathf", position.FieldType);
         MethodReference vectorLerp = StaticMethodReference(module, position.FieldType, "Lerp", position.FieldType,
             position.FieldType, position.FieldType, module.TypeSystem.Single);
         MethodReference quaternionLerp = StaticMethodReference(module, rotation.FieldType, "Lerp", rotation.FieldType,
@@ -2457,11 +2459,10 @@ class RepairRecoveredConstructor {
 
         MethodDefinition constructor = RequireNGUIConstructor(type);
         ModuleDefinition module = type.Module;
-        TypeReference keyframeType = module.ImportReference(
-            module.GetTypeReferences().SingleOrDefault(reference => reference.FullName == "UnityEngine.Keyframe")
-                ?? throw new InvalidDataException("missing UnityEngine.Keyframe reference"));
-        TypeReference keyframeArrayType = new ArrayType(keyframeType);
         TypeReference animationCurveType = widthCurve.FieldType;
+        TypeReference keyframeType = module.ImportReference(FindOrCreateTypeReference(module,
+            "UnityEngine.Keyframe", animationCurveType));
+        TypeReference keyframeArrayType = new ArrayType(keyframeType);
         MethodReference baseConstructor = new MethodReference(".ctor", module.TypeSystem.Void,
             type.BaseType) { HasThis = true };
         MethodReference keyframeConstructor = new MethodReference(".ctor", module.TypeSystem.Void,
@@ -5517,10 +5518,7 @@ class RepairRecoveredConstructor {
         FieldDefinition field, byte red, byte green, byte blue, byte alpha) {
         if (field.FieldType.MetadataType != MetadataType.ValueType || field.FieldType.FullName != "UnityEngine.Color")
             throw new InvalidDataException("unexpected ChapterPanel color field: " + field.FullName);
-        TypeReference color32 = method.Module.GetTypeReferences().SingleOrDefault(reference =>
-            reference.FullName == "UnityEngine.Color32");
-        if (color32 == null)
-            throw new InvalidDataException("missing UnityEngine.Color32 reference for " + field.FullName);
+        TypeReference color32 = FindOrCreateTypeReference(method.Module, "UnityEngine.Color32", field.FieldType);
 
         var constructor = new MethodReference(".ctor", method.Module.TypeSystem.Void, color32) {
             HasThis = true,
