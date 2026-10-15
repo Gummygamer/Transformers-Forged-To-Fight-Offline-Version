@@ -2304,11 +2304,37 @@ function log_choice(choice: ResponseChoice): nothing
   end
 end
 
+public function odr_manifest_in(dir: text, path: text): text
+  intent: read the manifest.json of an ODR dir for a get-manifest path, or empty
+  let p: text = unwrap_or(get(split(path, "?"), 0), path)
+  let file: text = path_join(dir, "manifest.json")
+  if dir == "" or not ends_with(p, "/odr/get-manifest") or not file_exists(file) then "" else read_file(file) end
+end
+
+function odr_dir_manifest(path: text): text
+  intent: serve the ODR manifest from TFTF_ODR_DIR when present (mono310 only)
+  if client_profile(path) != "mono310" then "" else odr_manifest_in(unwrap_or(env_get("TFTF_ODR_DIR"), ""), path) end
+end
+
+function choose_response(req: Request, path: text): ResponseChoice
+  intent: pick the ODR dir manifest, overlay, dynamic or canned body
+  let odr: text = odr_dir_manifest(path)
+  let overlay: text = overlay_path(req.method, path)
+  let generated: text = if overlay == "" and odr == "" then dynamic(path, req.body) else "" end
+  if odr != "" then
+  ResponseChoice { source: "canned odr_dir/manifest.json", body: odr }
+else if overlay != "" then
+  ResponseChoice { source: "canned overlay/" ++ file_name(overlay), body: advertised_canned_body(read_file(overlay)) }
+else if generated == "" then
+  resolve_response(req.method, path)
+else
+  ResponseChoice { source: "dynamic", body: generated }
+end
+end
+
 function respond_to(req: Request, path: text): nothing
   intent: answer a request with the dynamic, canned or default body
-  let overlay: text = overlay_path(req.method, path)
-  let generated: text = if overlay == "" then dynamic(path, req.body) else "" end
-  let choice: ResponseChoice = if overlay != "" then ResponseChoice { source: "canned overlay/" ++ file_name(overlay), body: advertised_canned_body(read_file(overlay)) } else if generated == "" then resolve_response(req.method, path) else ResponseChoice { source: "dynamic", body: generated } end
+  let choice: ResponseChoice = choose_response(req, path)
   log_choice(choice)
   http_respond_with_headers(200, {"Content-Type": "application/json", "Content-Length": to_text(text_length(choice.body))}, choice.body)
 end

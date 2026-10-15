@@ -662,6 +662,21 @@ function test_login_survives_garbage_body(): boolean
   jsonout.type_name(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", bad)), "user")) == "object" and jsonout.type_name(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", "\{\"a\":1,,}")), "user")) == "object" and not jsonout.is_valid_json("\{\"a\":01}") and jsonout.is_valid_json("\{\"a\":[1.5e3,\"\\u00e9\",null]}")
 end
 
+function test_odr_manifest_served_from_dir(): boolean
+  intent: test
+  let dir: text = "/tmp/tftf_odr_test_dir"
+  create_dir(dir)
+  write_file(path_join(dir, "manifest.json"), "\{\"error\":null,\"result\":\{\"build\":[]\}\}")
+  let body: text = fakeserver.odr_manifest_in(dir, "/odr/get-manifest?cl=822754")
+  let other: text = fakeserver.odr_manifest_in(dir, "/quests/quest-list")
+  starts_with(body, "\{\"error\":null") and other == ""
+end
+
+function test_odr_manifest_missing_dir_falls_back(): boolean
+  intent: test
+  fakeserver.odr_manifest_in("/tmp/tftf_odr_no_such_dir", "/odr/get-manifest") == "" and fakeserver.odr_manifest_in("", "/odr/get-manifest") == ""
+end
+
 function main_group_4(): integer
   intent: run
   mutable failed: integer = 0
@@ -673,6 +688,8 @@ function main_group_4(): integer
   set failed = failed + report("test_request_body_balance_check_rejects_truncated_bodies", test_request_body_balance_check_rejects_truncated_bodies())
   set failed = failed + report("test_login_survives_comma_decimal_body", test_login_survives_comma_decimal_body())
   set failed = failed + report("test_login_survives_garbage_body", test_login_survives_garbage_body())
+  set failed = failed + report("test_odr_manifest_served_from_dir", test_odr_manifest_served_from_dir())
+  set failed = failed + report("test_odr_manifest_missing_dir_falls_back", test_odr_manifest_missing_dir_falls_back())
   failed
 end
 
@@ -685,7 +702,7 @@ function main(): nothing
   set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(34 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(36 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
