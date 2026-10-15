@@ -1345,6 +1345,15 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
                 old, old + "\t\t" + ZIP_CODEPAGE_FIX + "\n", 1)
             changes.append("use UTF-8 zip entry names (no I18N.West in the Unity 2020 Mono profile)")
     if runtime_diagnostics:
+        if path.as_posix() == "UICamera.cs":
+            old = "\t\t\tRaycast(currentTouch);\n\t\t\tif (flag)\n"
+            new = ("\t\t\tRaycast(currentTouch);\n"
+                   "\t\t\tUnityEngine.Debug.Log(\"[UICAM] touch phase=\" + phase + \" pos=\" + position + \" hit=\" + "
+                   "((currentTouch.current != null) ? currentTouch.current.name : \"none\") + \" cam=\" + name);\n"
+                   "\t\t\tif (flag)\n")
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changes.append("log UICamera touches for runtime diagnostics")
         if path.as_posix() == "EB/FileSystem/Manager.cs":
             old = "\tpublic static void Log(string fmt, params object[] args)\n\t{\n\t}"
             new = ("\tpublic static void Log(string fmt, params object[] args)\n\t{\n"
