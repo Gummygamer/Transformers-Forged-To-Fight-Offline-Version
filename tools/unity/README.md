@@ -40,3 +40,12 @@ the manifest override with `tools/original_manifest_to_xml.py ORIGINAL.apk
 Assets/Plugins/Android/AndroidManifest.xml`. Afterwards run
 `tools/finalize_recompiled_202_apk.py` (restores the original Java dex, optional
 endpoint, align and sign).
+
+### Fast iteration for managed-code fixes
+
+A full player build takes about 9 minutes. For C#-only changes run
+`Recompile202Build.CompileScriptsOnly` (set `TFTF_202_SCRIPTS_OUT`, pass `-quit`)
+and inject the DLLs into an existing finished APK with
+`tools/fast_patch_managed.py BASE.apk SCRIPTS_DIR OUT.apk` (about 40 seconds).
+`Recompile202Build.BuildAndroid` now calls `EditorApplication.Exit(0)` so batch
+runs do not linger after `BuildResult.Succeeded`.

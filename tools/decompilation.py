@@ -882,6 +882,100 @@ def normalize_accessors(source):
     return pattern.subn(replace, source)
 
 
+UICAMERA_STACK_HELPER = '\tprivate static string UiPath(Transform t)\n\t{\n\t\tstring text = string.Empty;\n\t\tint guard = 0;\n\t\twhile (t != null && guard++ < 12)\n\t\t{\n\t\t\ttext = t.name + (t.gameObject.activeInHierarchy ? "" : "(off)") + "/" + text;\n\t\t\tt = t.parent;\n\t\t}\n\t\treturn text;\n\t}\n\n\tprivate static bool _dumpedPopupColliders;\n\n\tprivate void LogTouchStack(Vector2 position)\n\t{\n\t\tRaycastHit[] array = Physics.RaycastAll(cachedCamera.ScreenPointToRay(position), 1000f, cachedCamera.cullingMask & (int)eventReceiverMask);\n\t\tstring text = "[UICAM] stack at " + position + " n=" + array.Length;\n\t\tfor (int i = 0; i < array.Length && i < 8; i++)\n\t\t{\n\t\t\ttext = text + "\\n   " + array[i].distance.ToString("F1") + " " + UiPath(array[i].collider.transform) + " layer=" + array[i].collider.gameObject.layer;\n\t\t}\n\t\tUnityEngine.Debug.Log(text);\n\t\tif (!_dumpedPopupColliders)\n\t\t{\n\t\t\tfor (int j = 0; j < array.Length; j++)\n\t\t\t{\n\t\t\t\tTransform transform = array[j].collider.transform;\n\t\t\t\twhile (transform != null && !transform.name.EndsWith("Popup"))\n\t\t\t\t{\n\t\t\t\t\ttransform = transform.parent;\n\t\t\t\t}\n\t\t\t\tif (transform != null)\n\t\t\t\t{\n\t\t\t\t\t_dumpedPopupColliders = true;\n\t\t\t\t\tCollider[] componentsInChildren = transform.GetComponentsInChildren<Collider>(true);\n\t\t\t\t\tstring text2 = "[UICAM] colliders under " + transform.name + " n=" + componentsInChildren.Length;\n\t\t\t\t\tfor (int k = 0; k < componentsInChildren.Length && k < 40; k++)\n\t\t\t\t\t{\n\t\t\t\t\t\tCollider collider = componentsInChildren[k];\n\t\t\t\t\t\ttext2 = text2 + "\\n   " + UiPath(collider.transform) + " en=" + collider.enabled + " c=" + collider.bounds.center + " s=" + collider.bounds.size;\n\t\t\t\t\t}\n\t\t\t\t\tUnityEngine.Debug.Log(text2);\n\t\t\t\t\tbreak;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n'
+
+DEFAULT_DELEGATE_ALIAS = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<type>(?:EB\.)?(?:Action|Func)(?:<[^;=]*>)?) (?P<alias>\w+?)2 = default\((?P=type)\);$", re.MULTILINE)
+
+
+def repair_default_delegate_aliases(source):
+    """ILSpy lost the iterator closure binding and emitted `Action x2 = default(Action);`
+    for a captured parameter `x`; the original IL reads the parameter. Bind the alias back
+    to it when a same-typed parameter of that name is in scope (found by a nearby
+    declaration), so the call no longer dereferences null."""
+    lines = source.split("\n")
+    count = 0
+    for index, line in enumerate(lines):
+        match = DEFAULT_DELEGATE_ALIAS.match(line)
+        if not match:
+            continue
+        name = match.group("alias")
+        window = "\n".join(lines[max(0, index - 40):index])
+        if re.search(r"\b" + re.escape(match.group("type")) + r" " + re.escape(name) + r"\b\s*[,)]", window):
+            lines[index] = f"{match.group('indent')}{match.group('type')} {name}2 = {name};"
+            count += 1
+    return "\n".join(lines), count
+
+
+OFFLINE_ASSET_SHIMS = """
+internal static class OfflineAssetShims
+{
+	// The 2.0.2 APK ships only a few packs; these server-hosted ODR assets are
+	// absent offline. Synthesize minimal equivalents so the board/fight flow
+	// does not wait forever for them.
+	public static UnityEngine.Object Substitute(string path, UnityEngine.Object loaded)
+	{
+		if (loaded != null || string.IsNullOrEmpty(path))
+		{
+			return loaded;
+		}
+		string key = path.Replace('\\\\', '/').ToLowerInvariant();
+		GameObject holder = null;
+		if (key == "quests/questnodetuning" || key == "base/basenodetuning")
+		{
+			holder = new GameObject("QuestNodeTuning");
+			Quests.Presentation.QuestNodeTuning tuning = holder.AddComponent<Quests.Presentation.QuestNodeTuning>();
+			System.Reflection.FieldInfo[] fields = typeof(Quests.Presentation.QuestNodeTuning).GetFields();
+			for (int i = 0; i < fields.Length; i++)
+			{
+				if (fields[i].FieldType == typeof(AnimationCurve) && fields[i].GetValue(tuning) == null)
+				{
+					fields[i].SetValue(tuning, AnimationCurve.Linear(0f, 0f, 1f, 1f));
+				}
+			}
+		}
+		else if (key.Contains("/library_") || key.StartsWith("library_"))
+		{
+			holder = new GameObject("OfflineLibrary");
+			holder.AddComponent<PrefabLibrary>();
+		}
+		if (holder == null)
+		{
+			return loaded;
+		}
+		UnityEngine.Object.DontDestroyOnLoad(holder);
+		UnityEngine.Debug.Log("MONO offline asset shim: " + path);
+		return holder;
+	}
+}
+"""
+
+OFFLINE_SAFE_MATERIAL = """
+public static class OfflineSafeMaterial
+{
+	// Several EB.Rendering classes build materials from custom shaders that only
+	// existed as Unity-5 binaries. Fall back to a built-in shader instead of
+	// throwing, so the exception handler does not raise the critical dialog.
+	public static UnityEngine.Material Create(UnityEngine.Shader shader)
+	{
+		if (shader == null)
+		{
+			shader = UnityEngine.Shader.Find("Sprites/Default");
+		}
+		if (shader == null)
+		{
+			shader = UnityEngine.Shader.Find("Hidden/Internal-Colored");
+		}
+		return new UnityEngine.Material(shader);
+	}
+
+	public static UnityEngine.Material Create(UnityEngine.Material source)
+	{
+		return new UnityEngine.Material(source);
+	}
+}
+"""
+
 ZIP_CODEPAGE_FIX = (
     'typeof(ICSharpCode.SharpZipLib.Zip.ZipConstants).GetField("defaultCodePage", '
     'System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | '
@@ -1311,7 +1405,7 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
             changes.append("bypass per-WAD DownloadExtractor space guard for offline local WADs")
         elif marker not in source:
             raise ValueError(f"DownloadExtractor disk-space anchor changed: {path}")
-    if disable_push and path.as_posix().endswith("EB.Sparx/Hub.cs"):
+    if (disable_push or allow_offline_network or modern_unity) and path.as_posix().endswith("Sparx/Hub.cs"):
         old = "if (Config.UsePush)"
         new = "if (false && Config.UsePush)"
         if old in source:
@@ -1344,16 +1438,98 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
             source = source.replace(
                 old, old + "\t\t" + ZIP_CODEPAGE_FIX + "\n", 1)
             changes.append("use UTF-8 zip entry names (no I18N.West in the Unity 2020 Mono profile)")
+    source, alias_count = repair_default_delegate_aliases(source)
+    if alias_count:
+        changes.append(f"bind {alias_count} lost closure delegate alias(es) back to their parameters")
+    if path.as_posix() == "Setup.cs":
+        # The 2.0.2 JSON writer formats floats with the thread culture; a pt-BR
+        # device then sends "display_height":2,65 (invalid JSON) to /auth/login.
+        old = "\tprivate void Awake()\n\t{\n\t\tInstance = this;\n"
+        marker = "CultureInfo.InvariantCulture"
+        if old in source and marker not in source:
+            source = source.replace(
+                old, old + "\t\tSystem.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;\n", 1)
+            changes.append("force the invariant culture so serialized floats keep a decimal point")
     if runtime_diagnostics:
+        if path.as_posix() == "EBUI_Transition.cs":
+            old = "\t\t_tweener.tweenFactor = 1f;\n"
+            new = "\t\tif (_tweener != null)\n\t\t{\n\t\t\t_tweener.tweenFactor = 1f;\n\t\t}\n"
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changes.append("tolerate transitions without a tweener (Transition_Default) in StopTransition")
+        if path.as_posix() == "Window.cs":
+            for marker in ("tracker.Clear(1);", "tracker.Clear(2);", "tracker.Clear(3);"):
+                old = "\t\t\t\t" + marker + "\n"
+                if source.count(old) >= 1 and "[WIN] intro" not in source.split(marker)[0][-200:]:
+                    pass
+            old = "\t\tDependencyTracker tracker = new DependencyTracker();\n\t\ttracker.Cleared = completionCallback;\n"
+            new = ("\t\tUnityEngine.Debug.Log(\"[WIN] intro begin \" + windowInfo.screenObject.name);\n"
+                   "\t\tDependencyTracker tracker = new DependencyTracker();\n"
+                   "\t\ttracker.Cleared = (EB.Action)Delegate.Combine(completionCallback, (EB.Action)delegate { UnityEngine.Debug.Log(\"[WIN] intro complete \" + windowInfo.screenObject.name); });\n")
+            if source.count(old) == 1:
+                source = source.replace(old, new, 1)
+                changes.append("log window intro begin/complete for runtime diagnostics")
+    if runtime_diagnostics and path.as_posix() == "EB/Sparx/Hub.cs":
+        old = "\t\t\tcase SubSystemState.Error:\n\t\t\t\tFatalError("
+        if old in source and "subsystem in Error" not in source:
+            source = source.replace(
+                old, "\t\t\tcase SubSystemState.Error:\n\t\t\t\tUnityEngine.Debug.LogError(\"[SparxHub] subsystem in Error: \" + subsystem.Name);\n\t\t\t\tFatalError(", 1)
+            changes.append("name the failing subsystem when the Hub raises a fatal error")
+    if (modern_unity or allow_offline_network) and path.as_posix() == "EB/SafeValue.cs":
+        # Anti-tamper hash mismatch (reported as ID_SPARX_ERROR_UNKNOWN on every
+        # request) must not abort an offline client.
+        old = "\t\t\tBreach = true;\n\t\t\treturn new byte[_v.Length];"
+        if old in source:
+            source = source.replace(old, "\t\t\treturn _v;", 1)
+            changes.append("do not latch the SafeValue anti-tamper breach in the offline client")
+    if (modern_unity or allow_offline_network) and path.as_posix() == "EB/Sparx/HttpEndPoint.cs":
+        old = "if (SafeValue.Breach || (bool)Memory.Breach)"
+        if old in source and "false && (SafeValue.Breach" not in source:
+            source = source.replace(old, "if (false && (SafeValue.Breach || (bool)Memory.Breach))", 1)
+            changes.append("ignore the anti-tamper breach gate on HTTP requests offline")
+    if (modern_unity or allow_offline_network) and path.name == "QuestModeButton.cs":
+        # Offline quest-category config has no localized title/description for
+        # some modes; Regex.Replace(null) would throw and trip the crash handler.
+        for old, new in (("string text = _buttonData.CategoryTitle;", "string text = _buttonData.CategoryTitle ?? string.Empty;"),
+                         ("string text2 = _buttonData.CategoryDescription;", "string text2 = _buttonData.CategoryDescription ?? string.Empty;")):
+            if old in source:
+                source = source.replace(old, new, 1)
+                changes.append("tolerate missing quest-mode title/description strings")
+    if modern_unity or allow_offline_network:
+        if re.search(r"\bnew Material\(", source) and path.name != "OfflineSafeMaterial.cs":
+            source = re.sub(r"\bnew Material\(", "OfflineSafeMaterial.Create(", source)
+            changes.append("create materials through a null-shader-safe helper")
+        if path.name == "EBExtensions.cs" and "class OfflineSafeMaterial" not in source:
+            source += OFFLINE_SAFE_MATERIAL
+    if (modern_unity or allow_offline_network) and path.as_posix().endswith("EB/Rendering/EBUIScreenCapture.cs"):
+        # The capture material's shader (Hidden/EB/UIScreenCapture) only exists as a
+        # Unity-5 binary in the original data; skip the capture rather than throw.
+        old = "\tpublic void Init(float pixels)\n\t{\n"
+        marker = old + "\t\treturn;\n"
+        if old in source and marker not in source:
+            source = source.replace(old, marker, 1)
+            changes.append("skip UI screen capture when its shader is unavailable offline")
+    if modern_unity and path.as_posix().endswith("EB/Rendering/EBDeferredCamera.cs"):
+        # The EB deferred/post-FX pipeline needs custom shaders that exist only as
+        # Unity-5 binaries inside the original bundles. Without them Material(null)
+        # throws every frame and the exception handler raises the fatal-error
+        # dialog; leave the camera on Unity's forward path instead.
+        for sig in ("private void Start()\n\t{\n", "public void OnPreCull()\n\t{\n",
+                    "public void OnPreRender()\n\t{\n", "public void OnPostRender()\n\t{\n",
+                    "public void Update()\n\t{\n"):
+            marker = sig + "\t\treturn;\n"
+            if sig in source and marker not in source:
+                source = source.replace(sig, marker, 1)
+        changes.append("disable the shader-dependent EB deferred camera pipeline offline")
         if path.as_posix() == "UICamera.cs":
             old = "\t\t\tRaycast(currentTouch);\n\t\t\tif (flag)\n"
             new = ("\t\t\tRaycast(currentTouch);\n"
-                   "\t\t\tUnityEngine.Debug.Log(\"[UICAM] touch phase=\" + phase + \" pos=\" + position + \" hit=\" + "
-                   "((currentTouch.current != null) ? currentTouch.current.name : \"none\") + \" cam=\" + name);\n"
+                   "\t\t\tif (flag) LogTouchStack(position);\n"
                    "\t\t\tif (flag)\n")
-            if source.count(old) == 1:
-                source = source.replace(old, new, 1)
-                changes.append("log UICamera touches for runtime diagnostics")
+            anchor = "\tpublic void ProcessTouches()\n"
+            if source.count(old) == 1 and source.count(anchor) == 1 and "LogTouchStack" not in source:
+                source = source.replace(old, new, 1).replace(anchor, UICAMERA_STACK_HELPER + anchor, 1)
+                changes.append("log the UICamera raycast stack on touch for runtime diagnostics")
         if path.as_posix() == "EB/FileSystem/Manager.cs":
             old = "\tpublic static void Log(string fmt, params object[] args)\n\t{\n\t}"
             new = ("\tpublic static void Log(string fmt, params object[] args)\n\t{\n"
@@ -1553,13 +1729,10 @@ public static class OfflineFightBootstrap
 				yield return null;
 			}
 			WindowManager.Instance.ShowLoadingScreen(show: true, "Fight Load Offline");
-			// Keep HomeFlow's normal base-board load so its 3D environment and
-			// background are active under the FightLanding screen. The offline
-			// APK now carries the converted BaseRoot and base environment bundles.
-			FlowManager.Instance.StartFlow(new HomeFlow(), delegate
-			{
-				OpenFightLanding();
-			});
+			// The base board's assets (BaseRoot, base theme) are server-hosted ODR
+			// content that is absent offline, so HomeFlow would wait forever.
+			// Open the real FightLanding screen directly instead.
+			OpenFightLanding();
 		}
 
 		private void OpenFightLanding()
@@ -1595,12 +1768,20 @@ public static class OfflineFightBootstrap
             changes.append("route offline login directly to the real FightLandingScreen")
         elif "OfflineFightBootstrap.Enabled" not in source:
             raise ValueError(f"Offline fight bootstrap repair already partially applied: {path}")
+    if allow_offline_network and path.as_posix() == "EB/AssetManager.cs":
+        old = "\t\t\tif (obj == null)\n\t\t\t{\n\t\t\t\tDebug.LogError(\"[AssetManager.Load] ERROR - The requested object"
+        new = "\t\t\tobj = OfflineAssetShims.Substitute(path, obj);\n" + old
+        if old in source and "OfflineAssetShims" not in source:
+            source = source.replace(old, new, 1) + OFFLINE_ASSET_SHIMS
+            changes.append("synthesize the missing server-hosted tuning and prefab-library assets")
+        elif "OfflineAssetShims" not in source:
+            raise ValueError(f"Offline asset shim anchor changed: {path}")
     if allow_offline_network and path.name == "QuestFlow.cs":
         old = '''\t\tif (gb == null)\n\t\t{\n\t\t\tOnError("OnGameboardLoaded: gb is null! Something bad must have happened...", "QuestFlow");\n\t\t\treturn;\n\t\t}'''
         new = '''\t\tif (gb == null)\n\t\t{\n\t\t\tif (OfflineStoryDirectFight.TryStart(_aq))\n\t\t\t{\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tOnError("OnGameboardLoaded: gb is null! Something bad must have happened...", "QuestFlow");\n\t\t\treturn;\n\t\t}'''
         if old in source and "OfflineStoryDirectFight" not in source:
             source = source.replace(old, new, 1)
-            source += r'''\n\npublic static class OfflineStoryDirectFight\n{\n\tprivate static bool _started;\n\n\tpublic static bool TryStart(ActiveQuest activeQuest)\n\t{\n\t\tif (_started || activeQuest == null || activeQuest.map == null || activeQuest.player == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n\t\tTeamData team = BCGHelper.GetActiveTeam(activeQuest.qid);\n\t\tif (team == null || team.size == 0 || team[0] == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n\t\tMapTile tile = null;\n\t\tfor (int x = 0; x < activeQuest.map.gridDimension && tile == null; x++)\n\t\t{\n\t\t\tfor (int y = 0; y < activeQuest.map.gridDimension && tile == null; y++)\n\t\t\t{\n\t\t\t\tMapTile candidate = activeQuest.map.GetTile(x, y);\n\t\t\t\tif (candidate != null && candidate.boss != null)\n\t\t\t\t{\n\t\t\t\t\ttile = candidate;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tif (tile == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n\t\tBCGEntity enemy = tile.boss;\n\t\tHeroData player = team[0];\n\t\t_started = true;\n\t\tUnityEngine.Debug.Log("MONO OfflineStoryDirectFight: " + activeQuest.qid + " " + enemy.character);\n\t\tList<BCGHeroRankLevel> ranks = new List<BCGHeroRankLevel>();\n\t\tranks.Add(new BCGHeroRankLevel(enemy.character, enemy.rank, enemy.level, enemy.sigLvl));\n\t\tBCGManager.Instance.GetHeroBaseAttributes(ranks, delegate(string error, List<BCGHeroDetails> results)\n\t\t{\n\t\t\tif (!string.IsNullOrEmpty(error) || results == null || results.Count == 0)\n\t\t\t{\n\t\t\t\tUnityEngine.Debug.LogError("MONO OfflineStoryDirectFight enemy data: " + error);\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tBCGAttributeData attributes = results[0].AttributeData;\n\t\t\tList<EB.Sparx.Buff> buffs = QuestUtils.ConsolidateBuffs(tile, enemy);\n\t\t\tBCGAttributeData buffed = BCGManager.Instance.ApplyOpponentBuffs(buffs, enemy.character, attributes, attributes);\n\t\t\tbuffed = BCGManager.Instance.ApplyOpponentSynergyBonuses(enemy.synergyBonuses, enemy.character, buffed, attributes);\n\t\t\tHeroData opponent = HeroData.CreateWithBuffedAttributes(results[0], buffed);\n\t\t\tif (opponent == null)\n\t\t\t{\n\t\t\t\tUnityEngine.Debug.LogError("MONO OfflineStoryDirectFight enemy blueprint unavailable: " + results[0].Blueprint);\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tFighterData playerFighter = new FighterData();\n\t\t\tplayerFighter.Id = player.blueprintId;\n\t\t\tplayerFighter.Blueprint = player.blueprint;\n\t\t\tplayerFighter.Attributes = player.userTeamHero.AttributeData;\n\t\t\tplayerFighter.BaseAttributes = player.attributes;\n\t\t\tplayerFighter.SigLevel = player.userHero.SigLvl;\n\t\t\tplayerFighter.TeamData = team;\n\t\t\tplayerFighter.AIProfile = AutoFightManager.GetAIProfile();\n\t\t\tFighterData enemyFighter = new FighterData();\n\t\t\tenemyFighter.Id = opponent.blueprintId;\n\t\t\tenemyFighter.Blueprint = opponent.blueprint;\n\t\t\tenemyFighter.Attributes = opponent.opponentBuffedAttributes;\n\t\t\tenemyFighter.BaseAttributes = opponent.attributes;\n\t\t\tenemyFighter.SigLevel = opponent.userHero.SigLvl;\n\t\t\tenemyFighter.AIProfile = TuningAI.Instance.GetAIProfile(enemy.aiName);\n\t\t\tenemyFighter.OverrideAIPersonality = string.IsNullOrEmpty(enemy.aiPersonality) ? null : TuningAI.Instance.GetAIPersonality(enemy.aiPersonality, allowNull: true);\n\t\t\tFightFlow.FightInitInfo info = new FightFlow.FightInitInfo();\n\t\t\tinfo.activeQuest = activeQuest;\n\t\t\tinfo.questEnemy = enemy;\n\t\t\tinfo.mapTile = tile;\n\t\t\tinfo.playerFigher = playerFighter;\n\t\t\tinfo.enemyFigher = enemyFighter;\n\t\t\tinfo.sceneName = "karnak";\n\t\t\tinfo.timeOfDay = enemy.todIndex;\n\t\t\tinfo.fightType = FightFlow.FIGHT_TYPE.QUEST;\n\t\t\tUnityEngine.Debug.Log("MONO OfflineStoryDirectFight: pushing FightFlow");\n\t\t\tFlowManager.Instance.PushFlow(new FightFlow(info));\n\t\t});\n\t\treturn true;\n\t}\n}\n'''
+            source += r'''\n\npublic static class OfflineStoryDirectFight\n{\n\tprivate static bool _started;\n\n\tpublic static bool TryStart(ActiveQuest activeQuest)\n\t{\n\t\tUnityEngine.Debug.Log("MONO DirectFight try started=" + _started + " aq=" + (activeQuest != null) + " map=" + (activeQuest != null && activeQuest.map != null) + " player=" + (activeQuest != null && activeQuest.player != null));\n\t\tif (_started || activeQuest == null || activeQuest.map == null || activeQuest.player == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n\t\tTeamData team = BCGHelper.GetActiveTeam(activeQuest.qid);\n\t\tif (team == null || team.size == 0 || team[0] == null)\n\t\t{\n\t\t\tUnityEngine.Debug.Log("MONO DirectFight no team: " + (team == null));\n\t\t\treturn false;\n\t\t}\n\t\tMapTile tile = null;\n\t\tfor (int x = 0; x < activeQuest.map.gridDimension && tile == null; x++)\n\t\t{\n\t\t\tfor (int y = 0; y < activeQuest.map.gridDimension && tile == null; y++)\n\t\t\t{\n\t\t\t\tMapTile candidate = activeQuest.map.GetTile(x, y);\n\t\t\t\tif (candidate != null && candidate.boss != null)\n\t\t\t\t{\n\t\t\t\t\ttile = candidate;\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\tif (tile == null)\n\t\t{\n\t\t\tUnityEngine.Debug.Log("MONO DirectFight no boss tile");\n\t\t\treturn false;\n\t\t}\n\t\tBCGEntity enemy = tile.boss;\n\t\tHeroData player = team[0];\n\t\t_started = true;\n\t\tUnityEngine.Debug.Log("MONO OfflineStoryDirectFight: " + activeQuest.qid + " " + enemy.character);\n\t\tList<BCGHeroRankLevel> ranks = new List<BCGHeroRankLevel>();\n\t\tranks.Add(new BCGHeroRankLevel(enemy.character, enemy.rank, enemy.level, enemy.sigLvl));\n\t\tBCGManager.Instance.GetHeroBaseAttributes(ranks, delegate(string error, List<BCGHeroDetails> results)\n\t\t{\n\t\t\tif (!string.IsNullOrEmpty(error) || results == null || results.Count == 0)\n\t\t\t{\n\t\t\t\tUnityEngine.Debug.LogError("MONO OfflineStoryDirectFight enemy data: " + error);\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tBCGAttributeData attributes = results[0].AttributeData;\n\t\t\tList<EB.Sparx.Buff> buffs = QuestUtils.ConsolidateBuffs(tile, enemy);\n\t\t\tBCGAttributeData buffed = BCGManager.Instance.ApplyOpponentBuffs(buffs, enemy.character, attributes, attributes);\n\t\t\tbuffed = BCGManager.Instance.ApplyOpponentSynergyBonuses(enemy.synergyBonuses, enemy.character, buffed, attributes);\n\t\t\tHeroData opponent = HeroData.CreateWithBuffedAttributes(results[0], buffed);\n\t\t\tif (opponent == null)\n\t\t\t{\n\t\t\t\tUnityEngine.Debug.LogError("MONO OfflineStoryDirectFight enemy blueprint unavailable: " + results[0].Blueprint);\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tFighterData playerFighter = new FighterData();\n\t\t\tplayerFighter.Id = player.blueprintId;\n\t\t\tplayerFighter.Blueprint = player.blueprint;\n\t\t\tplayerFighter.Attributes = player.userTeamHero.AttributeData;\n\t\t\tplayerFighter.BaseAttributes = player.attributes;\n\t\t\tplayerFighter.SigLevel = player.userHero.SigLvl;\n\t\t\tplayerFighter.TeamData = team;\n\t\t\tplayerFighter.AIProfile = AutoFightManager.GetAIProfile();\n\t\t\tFighterData enemyFighter = new FighterData();\n\t\t\tenemyFighter.Id = opponent.blueprintId;\n\t\t\tenemyFighter.Blueprint = opponent.blueprint;\n\t\t\tenemyFighter.Attributes = opponent.opponentBuffedAttributes;\n\t\t\tenemyFighter.BaseAttributes = opponent.attributes;\n\t\t\tenemyFighter.SigLevel = opponent.userHero.SigLvl;\n\t\t\tenemyFighter.AIProfile = TuningAI.Instance.GetAIProfile(enemy.aiName);\n\t\t\tenemyFighter.OverrideAIPersonality = string.IsNullOrEmpty(enemy.aiPersonality) ? null : TuningAI.Instance.GetAIPersonality(enemy.aiPersonality, allowNull: true);\n\t\t\tFightFlow.FightInitInfo info = new FightFlow.FightInitInfo();\n\t\t\tinfo.activeQuest = activeQuest;\n\t\t\tinfo.questEnemy = enemy;\n\t\t\tinfo.mapTile = tile;\n\t\t\tinfo.playerFigher = playerFighter;\n\t\t\tinfo.enemyFigher = enemyFighter;\n\t\t\tinfo.sceneName = "karnak";\n\t\t\tinfo.timeOfDay = enemy.todIndex;\n\t\t\tinfo.fightType = FightFlow.FIGHT_TYPE.QUEST;\n\t\t\tUnityEngine.Debug.Log("MONO OfflineStoryDirectFight: pushing FightFlow");\n\t\t\tFlowManager.Instance.PushFlow(new FightFlow(info));\n\t\t});\n\t\treturn true;\n\t}\n}\n'''
             helper_start = source.find("public static class OfflineStoryDirectFight")
             helper = source[helper_start:].replace("\\n", "\n").replace("\\t", "\t")
             source = source[:helper_start].replace("\\n\\n", "\n\n", 1) + helper
@@ -1614,10 +1795,10 @@ public static class OfflineFightBootstrap
         # board itself remains accessible from the normal QuestSelect screen.
         old = '''\tprotected virtual void LoadGameBoard()\n\t{\n\t\tScreen.sleepTimeout = -1;'''
         new = '''\tprotected virtual void LoadGameBoard()\n\t{\n\t\tif (OfflineStoryDirectFight.TryStart(_aq))\n\t\t{\n\t\t\treturn;\n\t\t}\n\t\tScreen.sleepTimeout = -1;'''
-        if old in source and "OfflineStoryDirectFight.TryStart(_aq)" not in source:
+        if old in source and new not in source:
             source = source.replace(old, new, 1)
             changes.append("start the native Story FightFlow before missing Questboard theme assets block it")
-        elif "OfflineStoryDirectFight.TryStart(_aq)" not in source:
+        elif new not in source:
             raise ValueError(f"Offline Story early-fight anchor changed: {path}")
     if allow_offline_network and path.name == "PrefightScreenCallbacks.cs":
         old = "\t\tFlowManager.Instance.PushFlow(flow);"
