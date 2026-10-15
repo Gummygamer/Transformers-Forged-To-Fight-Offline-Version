@@ -2072,13 +2072,39 @@ end
 
 public function resolve_response(method: text, path: text): ResponseChoice
   intent: response
-  let exact: text = resp_path_for(method, path)
+  let exact: text = profile_variant(resp_path_for(method, path), client_profile(path))
   if file_exists(exact) then
   ResponseChoice { source: "canned " ++ file_name(exact), body: advertised_canned_body(read_file(exact)) }
 else
   let rules_path: text = path_join(resp_dir(), "_prefix_rules.json")
   if file_exists(rules_path) then
   let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_file(rules_path)))
+function client_profile(path: text): text
+  intent: classify
+  let override: text = unwrap_or(env_get("TFTF_CLIENT_PROFILE"), "")
+  if override != "" then
+  override
+else if text_length(replace(path, "cl=812553", "")) != text_length(path) then
+  "mono202"
+else
+  ""
+end
+end
+
+function profile_variant(exact: text, profile: text): text
+  intent: get
+  if profile == "" or not ends_with(exact, ".json") then
+  exact
+else
+  let variant: text = substring(exact, 0, text_length(exact) - 5) ++ "." ++ profile ++ ".json"
+  if file_exists(variant) then
+  variant
+else
+  exact
+end
+end
+end
+
   let p: text = unwrap_or(get(split(path, "?"), 0), path)
   for rule in rules do
     let pair: a list of Json = jsonout.list_items(rule)

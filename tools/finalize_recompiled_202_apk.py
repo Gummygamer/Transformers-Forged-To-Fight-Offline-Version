@@ -6,7 +6,7 @@ plugins (com.explodingbarrel.*, Play Games glue, ...) live in the original APK's
 classes.dex; without them BugReport/Download JNI lookups throw
 ClassNotFoundException at boot. (The manifest comes from
 tools/original_manifest_to_xml.py via Unity's Plugins/Android override.) Add the original dex as classes2.dex, optionally
-rewrite the baked endpointconfig, then zipalign and sign.
+copy the base APK's streaming assets, rewrite the baked endpointconfig, then zipalign and sign.
 
 usage: finalize_recompiled_202_apk.py BUILT.apk ORIGINAL.apk OUT.apk
            [--endpoint http://127.0.0.1:8080] [--keystore ~/.android/debug.keystore]
@@ -49,6 +49,15 @@ def main():
                     patched += 1
             comp = zipfile.ZIP_STORED if item.compress_type == zipfile.ZIP_STORED else zipfile.ZIP_DEFLATED
             zw.writestr(item.filename, data, compress_type=comp)
+        # Streaming assets (packs.txt, per-pack toc.txt and bundles) are game
+        # content outside Unity's player data; carry them over from the base APK.
+        built_names = set(zi.namelist())
+        for info in zo.infolist():
+            n = info.filename
+            if (n.startswith("assets/") and not n.startswith("assets/bin/")
+                    and not n.endswith("/") and n not in built_names):
+                zw.writestr(n, zo.read(n), compress_type=(
+                    zipfile.ZIP_STORED if info.compress_type == zipfile.ZIP_STORED else zipfile.ZIP_DEFLATED))
         names = set(zi.namelist())
         if "classes2.dex" not in names:
             zw.writestr("classes2.dex", zo.read("classes.dex"))

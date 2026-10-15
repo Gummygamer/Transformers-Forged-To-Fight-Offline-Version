@@ -27,23 +27,33 @@ public class Activity extends UnityPlayerActivity {
             if (out.length() > 0) out.append(withInfo == 1 ? " " : ",");
             out.append(key);
             if (withInfo == 1) {
-                boolean rationale = Build.VERSION.SDK_INT >= 23 && shouldShowRequestPermissionRationale(key);
+                boolean rationale = Build.VERSION.SDK_INT >= 23 && shouldShowRequestPermissionRationale(androidName(key));
                 out.append(',').append(rationale ? "Ungranted" : "UngrantedWithoutPermissionRationale");
             }
         }
         return out.toString();
     }
 
+    /** EB.Permissions passes short keys ("write_external_storage"); Android wants full names. */
+    private static String androidName(String key) {
+        return key.indexOf('.') >= 0 ? key : "android.permission." + key.toUpperCase();
+    }
+
     private boolean checkSelf(String key) {
+        String name = androidName(key);
+        // Shared-storage write access is not a runtime permission on API 30+.
+        if (Build.VERSION.SDK_INT >= 30 && name.endsWith("WRITE_EXTERNAL_STORAGE")) return true;
         return Build.VERSION.SDK_INT < 23
-                || checkSelfPermission(key) == PackageManager.PERMISSION_GRANTED;
+                || checkSelfPermission(name) == PackageManager.PERMISSION_GRANTED;
     }
 
     public void requestAppPermissionsArray(String csv, String receiver, int requestCode) {
         String[] keys = csv.split(",");
+        String[] names = new String[keys.length];
+        for (int i = 0; i < keys.length; i++) names[i] = androidName(keys[i]);
         requests.put(requestCode, keys);
         receivers.put(requestCode, receiver);
-        if (Build.VERSION.SDK_INT >= 23) requestPermissions(keys, requestCode);
+        if (Build.VERSION.SDK_INT >= 23) requestPermissions(names, requestCode);
         else sendResult(requestCode, true);
     }
 

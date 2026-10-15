@@ -882,6 +882,12 @@ def normalize_accessors(source):
     return pattern.subn(replace, source)
 
 
+ZIP_CODEPAGE_FIX = (
+    'typeof(ICSharpCode.SharpZipLib.Zip.ZipConstants).GetField("defaultCodePage", '
+    'System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | '
+    'System.Reflection.BindingFlags.Public)?.SetValue(null, 65001);')
+
+
 def normalize_source_contracts(path, source, server_endpoint=None, disable_google_play_games=False,
                                runtime_diagnostics=False, disable_push=False,
                                allow_offline_network=False, modern_unity=False):
@@ -1329,7 +1335,36 @@ def normalize_source_contracts(path, source, server_endpoint=None, disable_googl
             changes.append("alias 2.0.2 assets_quest paths to the 9.2 assets_quest_fte bundle")
         elif marker not in source:
             raise ValueError(f"Quest bundle alias anchor changed: {path}")
+    if path.as_posix() == "EB/FileSystem/ZipDriver.cs":
+        # Unity 2020's Mono profile ships no I18N.West, so SharpZipLib's default
+        # IBM850 entry-name encoding throws and the APK is never mounted.
+        old = "\tpublic ZipDriver()\n\t{\n"
+        marker = 'GetField("defaultCodePage"'
+        if old in source and marker not in source:
+            source = source.replace(
+                old, old + "\t\t" + ZIP_CODEPAGE_FIX + "\n", 1)
+            changes.append("use UTF-8 zip entry names (no I18N.West in the Unity 2020 Mono profile)")
     if runtime_diagnostics:
+        if path.as_posix() == "EB/FileSystem/Manager.cs":
+            old = "\tpublic static void Log(string fmt, params object[] args)\n\t{\n\t}"
+            new = ("\tpublic static void Log(string fmt, params object[] args)\n\t{\n"
+                   "\t\tUnityEngine.Debug.Log(\"[FS] \" + string.Format(fmt, args));\n\t}")
+            if old in source:
+                source = source.replace(old, new, 1)
+                changes.append("log EB.FileSystem lookups for runtime diagnostics")
+        if path.as_posix() == "EB/FileSystem/ZipDriver.cs":
+            old = "\tpublic ZipDriver()\n\t{\n"
+            new = old + "\t\tManager.Log(\"ZipDriver dataPath={0}\", Application.dataPath);\n"
+            if old in source and "ZipDriver dataPath" not in source:
+                source = source.replace(old, new, 1)
+                changes.append("log ZipDriver dataPath for runtime diagnostics")
+        if path.as_posix() == "EB/Debug.cs":
+            # EB.Debug only fills its ring buffer; forward each line so logcat
+            # shows the game's own log stream (tag "Unity").
+            old = "\t\t\t_buffer.Push(text);\n"
+            if source.count(old) and "UnityEngine.Debug.Log(text);" not in source:
+                source = source.replace(old, old + "\t\t\tUnityEngine.Debug.Log(text);\n")
+                changes.append("forward EB.Debug lines to UnityEngine.Debug for logcat diagnostics")
         if path.as_posix().endswith("TransformersLoginListener.cs"):
             probes = [
                 ('public override void OnLoggedIn()\n\t{\n\t\tbase.OnLoggedIn();',
