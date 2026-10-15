@@ -1983,9 +1983,18 @@ function synthetic_alliance(uid: text, name: text, now: integer): Json
   jsonout.json_obj([pair_text("aid", "offline-alliance"), pair_text("name", "Offline Alliance"), pair_text("tag", "OFF"), pair_text("msg", "A local alliance for offline missions."), pair_text("privMsg", ""), pair_text("language", "en"), pair_text("locale", "en"), pair_text("localizedCountry", ""), pair_text("geo", ""), pair_text("pubType", "open"), jsonout.json_pair("data", jsonout.json_obj([])), jsonout.json_pair("joinReqs", jsonout.json_list([])), pair_int("creationTime", 1), jsonout.json_pair("stats", jsonout.json_obj([])), jsonout.json_pair("resourcesStatus", jsonout.json_obj([])), pair_int("numMembers", 1), jsonout.json_pair("members", jsonout.json_list([jsonout.json_obj([pair_text("uid", uid), pair_text("name", name), pair_text("tag", ""), pair_int("rank", 0), pair_int("joinTime", 1)])])), jsonout.json_pair("kickedMembers", jsonout.json_list([]))])
 end
 
+public function profile_resources(): Json
+  intent: reuse the account resource balances already authored in account_data
+  let account_data: Json = jsonout.parse_json(read_file(path_join(resp_dir(), "GET__account_data.json")))
+  let result: Json = jsonout.obj_get(account_data, "result")
+  let res: Json = jsonout.obj_get(result, "res")
+  let user_info: Json = jsonout.obj_get(res, "user_info")
+  if jsonout.type_name(user_info) == "object" then user_info else jsonout.json_obj([]) end
+end
+
 public function user_profile_response_values(uid: text, name: text, level: integer, now: integer): text
   intent: encode
-  let profile: Json = jsonout.json_obj([pair_text("uid", uid), pair_text("aid", "offline-alliance"), pair_text("name", name), pair_text("tag", ""), pair_text("locale", "en"), pair_text("language", "en"), pair_text("highestRank", ""), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), pair_int("lastLogin", now), jsonout.json_pair("alliance", synthetic_alliance(uid, name, now)), jsonout.json_pair("levelRewards", jsonout.json_obj([pair_int("level", level), pair_bool("enabled", true), pair_bool("isEnabled", true), jsonout.json_pair("types", jsonout.json_list([]))])), jsonout.json_pair("resources", jsonout.json_obj([])), jsonout.json_pair("gameIntStats", jsonout.json_obj([pair_int("level", level)])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), pair_int("_createTime", now), pair_bool("_abbrivated", false)])
+  let profile: Json = jsonout.json_obj([pair_text("uid", uid), pair_text("aid", "offline-alliance"), pair_text("name", name), pair_text("tag", ""), pair_text("locale", "en"), pair_text("language", "en"), pair_text("highestRank", ""), jsonout.json_pair("activeTitle", jsonout.json_null()), jsonout.json_pair("myTitles", jsonout.json_list([])), pair_int("lastLogin", now), jsonout.json_pair("alliance", synthetic_alliance(uid, name, now)), jsonout.json_pair("levelRewards", jsonout.json_obj([pair_int("level", level), pair_bool("enabled", true), pair_bool("isEnabled", true), jsonout.json_pair("types", jsonout.json_list([]))])), jsonout.json_pair("resources", profile_resources()), jsonout.json_pair("gameIntStats", jsonout.json_obj([pair_int("level", level)])), jsonout.json_pair("gameFloatStats", jsonout.json_obj([])), jsonout.json_pair("gameStringStats", jsonout.json_obj([])), jsonout.json_pair("gameJSONStats", jsonout.json_obj([])), jsonout.json_pair("gameData", jsonout.json_obj([])), pair_int("_createTime", now), pair_bool("_abbrivated", false)])
   compact_envelope(profile)
 end
 
@@ -2070,15 +2079,6 @@ else
 end
 end
 
-public function resolve_response(method: text, path: text): ResponseChoice
-  intent: response
-  let exact: text = profile_variant(resp_path_for(method, path), client_profile(path))
-  if file_exists(exact) then
-  ResponseChoice { source: "canned " ++ file_name(exact), body: advertised_canned_body(read_file(exact)) }
-else
-  let rules_path: text = path_join(resp_dir(), "_prefix_rules.json")
-  if file_exists(rules_path) then
-  let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_file(rules_path)))
 function client_profile(path: text): text
   intent: classify
   let override: text = unwrap_or(env_get("TFTF_CLIENT_PROFILE"), "")
@@ -2105,6 +2105,15 @@ end
 end
 end
 
+public function resolve_response(method: text, path: text): ResponseChoice
+  intent: response
+  let exact: text = profile_variant(resp_path_for(method, path), client_profile(path))
+  if file_exists(exact) then
+  ResponseChoice { source: "canned " ++ file_name(exact), body: advertised_canned_body(read_file(exact)) }
+else
+  let rules_path: text = path_join(resp_dir(), "_prefix_rules.json")
+  if file_exists(rules_path) then
+  let rules: a list of Json = jsonout.list_items(jsonout.parse_json(read_file(rules_path)))
   let p: text = unwrap_or(get(split(path, "?"), 0), path)
   for rule in rules do
     let pair: a list of Json = jsonout.list_items(rule)

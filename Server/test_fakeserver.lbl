@@ -139,9 +139,19 @@ function test_hero_xp_curve_route_returns_level_thresholds(): boolean
   length(levels) == 30 and jsonout.as_int(unwrap_or(get(levels, 0), jsonout.json_int(0))) == 100 and jsonout.as_int(unwrap_or(get(levels, 29), jsonout.json_int(0))) == 3000
 end
 
+function profile_has_account_resources(resources: Json): boolean
+  intent: test that profile resources agree with account_data
+  let account_data: Json = jsonout.parse_json(read_file(path_join(fakeserver.resp_dir(), "GET__account_data.json")))
+  let result: Json = jsonout.obj_get(account_data, "result")
+  let res: Json = jsonout.obj_get(result, "res")
+  let authored: Json = jsonout.obj_get(res, "user_info")
+  let energy: Json = jsonout.obj_get(resources, "energy")
+  jsonout.encode_compact(resources) == jsonout.encode_compact(authored) and jsonout.as_int(jsonout.obj_get(energy, "v")) == 100
+end
+
 function test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part1(session: Session, profile: Json, prefixed: Json, level_rewards: Json, stat_level: integer, reward_level: integer): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and stat_level == fakeserver.account_level() and reward_level == fakeserver.account_level() and stat_level == reward_level and jsonout.type_name(level_rewards) == "object" and jsonout.as_bool(jsonout.obj_get(level_rewards, "enabled")) and jsonout.as_bool(jsonout.obj_get(level_rewards, "isEnabled")) and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list"
+  jsonout.as_text(jsonout.obj_get(profile, "uid")) == "1000000000002" and jsonout.as_text(jsonout.obj_get(profile, "name")) == session.name and jsonout.as_text(jsonout.obj_get(prefixed, "name")) == session.name and stat_level == fakeserver.account_level() and reward_level == fakeserver.account_level() and stat_level == reward_level and jsonout.type_name(level_rewards) == "object" and jsonout.as_bool(jsonout.obj_get(level_rewards, "enabled")) and jsonout.as_bool(jsonout.obj_get(level_rewards, "isEnabled")) and jsonout.type_name(jsonout.obj_get(level_rewards, "types")) == "list" and profile_has_account_resources(jsonout.obj_get(profile, "resources"))
 end
 
 function test_userprofile_returns_local_profile_without_capturing_bulk_or_find_part2(): boolean
@@ -579,6 +589,11 @@ function test_auth_login_data_populates_alliance_manager_contract(): boolean
   jsonout.as_text(jsonout.obj_get(alliance, "aid")) == "offline-alliance" and length(jsonout.list_items(members)) == 1 and jsonout.as_text(jsonout.obj_get(local_member, "rank")) == "leader" and jsonout.type_name(jsonout.obj_get(config, "ranks")) == "object" and jsonout.type_name(set_data) == "object"
 end
 
+function test_resolve_response_profile_variant_for_mono202(): boolean
+  intent: check
+  fakeserver.resolve_response("GET", "/odr/get-manifest?platform=android&cl=812553").source == "canned GET__odr_get-manifest.mono202.json" and fakeserver.resolve_response("GET", "/odr/get-manifest?platform=android").source == "canned GET__odr_get-manifest.json"
+end
+
 function main_group_1(): integer
   intent: run
   mutable failed: integer = 0
@@ -589,13 +604,9 @@ function main_group_1(): integer
   set failed = failed + report("test_hero_xp_curve_route_returns_level_thresholds", test_hero_xp_curve_route_returns_level_thresholds())
   set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
-function test_resolve_response_profile_variant_for_mono202(): boolean
-  intent: check
-  fakeserver.resolve_response("GET", "/odr/get-manifest?platform=android&cl=812553").source == "canned GET__odr_get-manifest.mono202.json" and fakeserver.resolve_response("GET", "/odr/get-manifest?platform=android").source == "canned GET__odr_get-manifest.json"
-end
-
   set failed = failed + report("test_tutorial_login_reports_complete_for_fresh_and_returning_accounts", test_tutorial_login_reports_complete_for_fresh_and_returning_accounts())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
+  set failed = failed + report("test_resolve_response_profile_variant_for_mono202", test_resolve_response_profile_variant_for_mono202())
   failed
 end
 
@@ -606,7 +617,6 @@ function main_group_2(): integer
   set failed = failed + report("test_standalone_begin_without_team_falls_back_to_default_squad", test_standalone_begin_without_team_falls_back_to_default_squad())
   set failed = failed + report("test_challenge_begin_uses_authored_start_on_first_entry", test_challenge_begin_uses_authored_start_on_first_entry())
   set failed = failed + report("test_motormaster_begin_starts_on_route_and_branches_after_dialogue", test_motormaster_begin_starts_on_route_and_branches_after_dialogue())
-  set failed = failed + report("test_resolve_response_profile_variant_for_mono202", test_resolve_response_profile_variant_for_mono202())
   set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
