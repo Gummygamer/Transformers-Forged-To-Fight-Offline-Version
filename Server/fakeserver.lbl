@@ -2086,6 +2086,8 @@ function client_profile(path: text): text
   override
 else if text_length(replace(path, "cl=812553", "")) != text_length(path) then
   "mono202"
+else if text_length(replace(path, "cl=822754", "")) != text_length(path) then
+  "mono310"
 else
   ""
 end
@@ -2102,6 +2104,24 @@ else
 else
   exact
 end
+end
+end
+
+function overlay_dir(): text
+  intent: get
+  unwrap_or(env_get("TFTF_RESPONSES_OVERLAY_DIR"), resp_dir())
+end
+
+function overlay_path(method: text, path: text): text
+  intent: get
+  let profile: text = client_profile(path)
+  let dir: text = overlay_dir()
+  if profile == "" or dir == "" then
+  ""
+else
+  let base: text = file_name(resp_path_for(method, path))
+  let variant: text = path_join(dir, substring(base, 0, text_length(base) - 5) ++ "." ++ profile ++ ".json")
+  if file_exists(variant) then variant else "" end
 end
 end
 
@@ -2189,8 +2209,9 @@ end
 
 function respond_to(req: Request, path: text): nothing
   intent: answer a request with the dynamic, canned or default body
-  let generated: text = dynamic(path, req.body)
-  let choice: ResponseChoice = if generated == "" then resolve_response(req.method, path) else ResponseChoice { source: "dynamic", body: generated } end
+  let overlay: text = overlay_path(req.method, path)
+  let generated: text = if overlay == "" then dynamic(path, req.body) else "" end
+  let choice: ResponseChoice = if overlay != "" then ResponseChoice { source: "canned overlay/" ++ file_name(overlay), body: advertised_canned_body(read_file(overlay)) } else if generated == "" then resolve_response(req.method, path) else ResponseChoice { source: "dynamic", body: generated } end
   log_choice(choice)
   http_respond_with_headers(200, {"Content-Type": "application/json", "Content-Length": to_text(text_length(choice.body))}, choice.body)
 end
