@@ -553,6 +553,170 @@ function parse_value(source: text, start: integer): ParseResult
   end
 end
 
+function ok_digits(source: text, start: integer): integer
+  intent: return the end of a digit run starting at start, or -1 when there is no digit
+  let finish: integer = scan_digits(source, start)
+  if finish == start then -1 else finish end
+end
+
+function ok_fraction_exponent(source: text, whole: integer): integer
+  intent: validate the optional fraction and exponent after the integer part of a number
+  let frac: integer = if has_at(source, whole, ".") then ok_digits(source, whole + 1) else whole end
+  if frac < 0 then
+    -1
+  else if has_at(source, frac, "e") or has_at(source, frac, "E") then
+    let signed: integer = frac + 1
+    ok_digits(source, if has_at(source, signed, "+") or has_at(source, signed, "-") then signed + 1 else signed end)
+  else
+    frac
+  end
+end
+
+function ok_number(source: text, start: integer): integer
+  intent: validate a JSON number without failing, returning its end or -1
+  let index: integer = if has_at(source, start, "-") then start + 1 else start end
+  if is_at_end(source, index) or not is_digit(substring(source, index, 1)) then
+    -1
+  else if has_at(source, index, "0") and not is_at_end(source, index + 1) and is_digit(substring(source, index + 1, 1)) then
+    -1
+  else
+    ok_fraction_exponent(source, scan_digits(source, index))
+  end
+end
+
+function ok_escape_width(source: text, index: integer): integer
+  intent: return the width of the escape sequence at index, or -1 when it is malformed
+  if is_at_end(source, index + 1) then
+    -1
+  else if has_at(source, index + 1, "u") then
+    if index + 5 < text_length(source) and is_hex_run(source, index + 2) then 6 else -1 end
+  else if contains_text("\"\\/bfnrt", substring(source, index + 1, 1)) then
+    2
+  else
+    -1
+  end
+end
+
+function is_control_char(character: text): boolean
+  intent: check whether a character is an ASCII control character
+  let buffer: integer = bytes_from_text(character)
+  let control: boolean = bytes_length(buffer) > 0 and bytes_get(buffer, 0) < 32
+  bytes_free(buffer)
+  control
+end
+
+function ok_string(source: text, start: integer): integer
+  intent: validate a JSON string without failing, returning the end after the closing quote or -1
+  mutable index: integer = start + 1
+  mutable result: integer = -2
+  while result == -2 do
+    if is_at_end(source, index) then
+      set result = -1
+    else
+      let character: text = substring(source, index, 1)
+      if character == "\"" then
+        set result = index + 1
+      else if character == "\\" then
+        let step: integer = ok_escape_width(source, index)
+        if step < 0 then set result = -1 else set index = index + step end
+      else if is_control_char(character) then
+        set result = -1
+      else
+        set index = index + 1
+      end
+    end
+  end
+  result
+end
+
+function is_hex_run(source: text, start: integer): boolean
+  intent: check that four hex digits start at start
+  contains_text("0123456789abcdefABCDEF", substring(source, start, 1)) and contains_text("0123456789abcdefABCDEF", substring(source, start + 1, 1)) and contains_text("0123456789abcdefABCDEF", substring(source, start + 2, 1)) and contains_text("0123456789abcdefABCDEF", substring(source, start + 3, 1))
+end
+
+function ok_literal(source: text, start: integer, word: text): integer
+  intent: validate a JSON literal word, returning its end or -1
+  if has_at(source, start, word) then start + text_length(word) else -1 end
+end
+
+function ok_key(source: text, index: integer): integer
+  intent: validate an object key and its colon, returning where the value starts or -1
+  if not has_at(source, index, "\"") then
+    -1
+  else
+    let key_end: integer = ok_string(source, index)
+    let colon: integer = if key_end < 0 then -1 else skip_space(source, key_end) end
+    if colon < 0 or not has_at(source, colon, ":") then -1 else skip_space(source, colon + 1) end
+  end
+end
+
+function ok_member_end(source: text, start: integer, closer: text): integer
+  intent: validate one value and its separator, returning the next member start, -1 on error, or -4 minus the end when the container closes
+  let value_end: integer = ok_value(source, start)
+  if value_end < 0 then
+    -1
+  else
+    let after: integer = skip_space(source, value_end)
+    if has_at(source, after, ",") then
+      skip_space(source, after + 1)
+    else if has_at(source, after, closer) then
+      -4 - (after + 1)
+    else
+      -1
+    end
+  end
+end
+
+function ok_entry(source: text, start: integer, closer: text, keyed: boolean): integer
+  intent: validate one optional key plus one value, returning the next member start, -1 on error, or -4 minus the end when the container closes
+  let value_start: integer = if keyed then ok_key(source, start) else start end
+  if value_start < 0 then -1 else ok_member_end(source, value_start, closer) end
+end
+
+function ok_container(source: text, start: integer, closer: text, keyed: boolean): integer
+  intent: validate the members of a JSON list or object without failing, returning the end or -1
+  mutable index: integer = skip_space(source, start + 1)
+  mutable result: integer = -2
+  if has_at(source, index, closer) then set result = index + 1 end
+  while result == -2 do
+    let advance: integer = ok_entry(source, index, closer, keyed)
+    if advance == -1 then
+      set result = -1
+    else if advance < -3 then
+      set result = -4 - advance
+    else
+      set index = advance
+    end
+  end
+  result
+end
+
+function ok_value(source: text, start: integer): integer
+  intent: validate one JSON value without failing, returning its end or -1
+  let index: integer = skip_space(source, start)
+  if has_at(source, index, "null") then
+    index + 4
+  else if has_at(source, index, "true") then
+    index + 4
+  else if has_at(source, index, "false") then
+    index + 5
+  else if has_at(source, index, "\"") then
+    ok_string(source, index)
+  else if has_at(source, index, "[") then
+    ok_container(source, index, "]", false)
+  else if has_at(source, index, "\{") then
+    ok_container(source, index, "\}", true)
+  else
+    ok_number(source, index)
+  end
+end
+
+public function is_valid_json(source: text): boolean
+  intent: check whether parse_json would accept source, without ever failing the process
+  let finish: integer = ok_value(source, 0)
+  finish >= 0 and is_at_end(source, skip_space(source, finish))
+end
+
 public function parse_json(source: text): Json
   intent: parse
   let parsed: ParseResult = parse_value(source, 0)

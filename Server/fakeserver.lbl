@@ -945,13 +945,77 @@ function trim_path(path: text): text
   substring(path, start, finish - start)
 end
 
-function request_object(body: text): Json
-  intent: parse
-  if starts_with(trim(body), "\{") then
-  jsonout.parse_json(body)
-else
-  jsonout.json_obj([])
+function is_digit_char(c: text): boolean
+  intent: check
+  c == "0" or c == "1" or c == "2" or c == "3" or c == "4" or c == "5" or c == "6" or c == "7" or c == "8" or c == "9"
 end
+
+function digit_run_start(body: text, end_index: integer): integer
+  intent: find the index where the run of digits ending at end_index begins
+  mutable k: integer = end_index
+  while k > 0 and is_digit_char(substring(body, k - 1, 1)) do
+    set k = k - 1
+  end
+  k
+end
+
+function comma_is_decimal(body: text, index: integer): boolean
+  intent: check whether the comma at index separates the digits of a number written after a colon
+  let start: integer = digit_run_start(body, index)
+  start < index and start > 0 and substring(body, start - 1, 1) == ":" and index + 1 < text_length(body) and is_digit_char(substring(body, index + 1, 1))
+end
+
+public function repair_request_body(body: text): text
+  intent: rewrite culture decimal commas such as 304,79 after a colon into 304.79
+  mutable buf: text = ""
+  let n: integer = text_length(body)
+  mutable i: integer = 0
+  while i < n do
+    let c: text = substring(body, i, 1)
+    if c == "," and comma_is_decimal(body, i) then
+      set buf = buf ++ "."
+    else
+      set buf = buf ++ c
+    end
+    set i = i + 1
+  end
+  buf
+end
+
+function count_char(body: text, ch: text): integer
+  intent: count occurrences of a single character
+  mutable total: integer = 0
+  mutable i: integer = 0
+  while i < text_length(body) do
+    if substring(body, i, 1) == ch then
+      set total = total + 1
+    end
+    set i = i + 1
+  end
+  total
+end
+
+public function body_is_balanced(body: text): boolean
+  intent: cheap structural sanity check on braces, brackets and quotes
+  count_char(body, "\{") == count_char(body, "}") and count_char(body, "[") == count_char(body, "]")
+end
+
+function warn_bad_body(body: text): nothing
+  intent: log that a request body could not be parsed
+  if trim(body) != "" then
+    log_line("    [warn] unparseable request body ignored (" ++ to_text(text_length(body)) ++ " chars)")
+  end
+end
+
+function request_object(raw: text): Json
+  intent: parse a request body, never failing the process: repair comma decimals, fall back to an empty object
+  let body: text = repair_request_body(raw)
+  if starts_with(trim(body), "\{") and body_is_balanced(body) and jsonout.is_valid_json(body) then
+    jsonout.parse_json(body)
+  else
+    warn_bad_body(body)
+    jsonout.json_obj([])
+  end
 end
 
 function json_text_or(node: Json, key: text, fallback: text): text

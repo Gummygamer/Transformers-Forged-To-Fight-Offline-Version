@@ -640,6 +640,28 @@ function main_group_3(): integer
   failed
 end
 
+function test_request_body_comma_decimals_are_repaired(): boolean
+  intent: check
+  fakeserver.repair_request_body("\{\"ydpi\":304,799987792969,\"t\":1,\"l\":[1,2],\"s\":\"a:1,2\"}") == "\{\"ydpi\":304.799987792969,\"t\":1,\"l\":[1,2],\"s\":\"a:1.2\"}"
+end
+
+function test_request_body_balance_check_rejects_truncated_bodies(): boolean
+  intent: check
+  fakeserver.body_is_balanced("\{\"a\":[1,2]}") and not fakeserver.body_is_balanced("\{\"a\":[1,2")
+end
+
+function test_login_survives_comma_decimal_body(): boolean
+  intent: check
+  let body: text = "\{\"ydpi\":304,79,\"xdpi\":1,5,\"name\":\"x\"}"
+  jsonout.type_name(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", body)), "user")) == "object"
+end
+
+function test_login_survives_garbage_body(): boolean
+  intent: check
+  let bad: text = "\{ydpi:304,79,\"a\":}"
+  jsonout.type_name(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", bad)), "user")) == "object" and jsonout.type_name(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", "\{\"a\":1,,}")), "user")) == "object" and not jsonout.is_valid_json("\{\"a\":01}") and jsonout.is_valid_json("\{\"a\":[1.5e3,\"\\u00e9\",null]}")
+end
+
 function main_group_4(): integer
   intent: run
   mutable failed: integer = 0
@@ -647,6 +669,10 @@ function main_group_4(): integer
   set failed = failed + report("test_ave_event_and_difficulty_sets_are_served", test_ave_event_and_difficulty_sets_are_served())
   set failed = failed + report("test_ave_profile_and_alliance_refresh_are_consistent", test_ave_profile_and_alliance_refresh_are_consistent())
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
+  set failed = failed + report("test_request_body_comma_decimals_are_repaired", test_request_body_comma_decimals_are_repaired())
+  set failed = failed + report("test_request_body_balance_check_rejects_truncated_bodies", test_request_body_balance_check_rejects_truncated_bodies())
+  set failed = failed + report("test_login_survives_comma_decimal_body", test_login_survives_comma_decimal_body())
+  set failed = failed + report("test_login_survives_garbage_body", test_login_survives_garbage_body())
   failed
 end
 
@@ -659,7 +685,7 @@ function main(): nothing
   set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(30 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(34 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
