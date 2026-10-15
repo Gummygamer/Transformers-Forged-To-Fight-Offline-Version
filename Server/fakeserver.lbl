@@ -180,8 +180,9 @@ function tutorial_login_response(): text
 end
 
 public function block_tutorials(): a list of text
-  intent: return
-  ["ShieldTutorial"]
+  intent: return the tutorials answered as unavailable, overridable through TFTF_TUTORIAL_BLOCKLIST
+  let raw: text = unwrap_or(env_get("TFTF_TUTORIAL_BLOCKLIST"), "default")
+  if raw == "default" then ["ShieldTutorial"] else if raw == "" then [] else split(raw, ",") end
 end
 
 public function live_tutorials(): a list of text
