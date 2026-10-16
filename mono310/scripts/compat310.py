@@ -496,6 +496,18 @@ public class TftfDiag : MonoBehaviour
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(fp, "EB/FileSystem/FileDriver.cs", "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n",
                    "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n\t\t\tstring tftfBase = Path.Combine(Application.persistentDataPath, \"tftf/base/assets\");\n\t\t\tif (Directory.Exists(tftfBase))\n\t\t\t{\n\t\t\t\tAddSearchPath(tftfBase, SearchOrder.First);\n\t\t\t}\n", "P41 file driver searches the extracted base assets")
+    # P42 (shell only): the attribution SDK (MAT) has no Java side in the shell; its binding calls it only outside the
+    # editor, so switch those branches off (the default return values already exist after each branch).
+    if os.environ.get("TFTF_SHELL") == "1":
+        mat = fp / "MATSDK/MATBinding.cs"
+        if mat.exists():
+            t = rd(mat)
+            wr(mat, t.replace("!Application.isEditor", "false"))
+            note("P42 MATBinding attribution calls disabled", t.count("!Application.isEditor"))
+    # P43 (shell only): the scene diagnostics log a dozen lines every 15 s; the shell logs them once, 20 s after start.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "TftfDiag.cs", "_next = Time.realtimeSinceStartup + 15f;", "_next = Time.realtimeSinceStartup + 3600f;",
+                   "P43 diagnostics logged once instead of every 15 s")
     # P29: GetRenderPath(kMain) always answers Forward (and records it in the static table the buffer setup reads)
     replace_in(fp, "EB/Rendering/EBGBuffer.cs",
                "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n",

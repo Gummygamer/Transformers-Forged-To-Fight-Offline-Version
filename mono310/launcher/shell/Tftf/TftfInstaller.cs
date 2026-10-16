@@ -31,7 +31,7 @@ public sealed class ZipDataSource : IPlayerDataSource
 
 public static class TftfInstaller
 {
-    public const int Version = 1;                                     // bump to force a reinstall
+    public const int Version = 2;                                     // bump to force a reinstall
     public static volatile string Status = "";
     public static volatile float Progress;
     public static volatile string Error;
@@ -47,12 +47,12 @@ public static class TftfInstaller
     }
 
     /// <summary>Starts the installation on a worker thread. apk310/apk92 are readable (seekable) file paths.</summary>
-    public static void Start(string root, string apk310, string apk92, byte[] treesBin)
+    public static void Start(string root, string apk310, string apk92, byte[] treesBin, string odrCacheDir)
     {
         _root = root; Done = false; Error = null; Progress = 0; Status = "Starting";
         new Thread(() =>
         {
-            try { Run(root, apk310, apk92, treesBin); Done = true; }
+            try { Run(root, apk310, apk92, treesBin, odrCacheDir); Done = true; }
             catch (Exception e) { Error = e.Message; UnityEngine.Debug.LogError("[TFTF] install failed: " + e); }
         }) { Name = "TftfInstaller", IsBackground = true }.Start();
     }
@@ -63,7 +63,7 @@ public static class TftfInstaller
         UnityEngine.Debug.Log("[TFTF] install: " + status);
     }
 
-    static void Run(string root, string apk310, string apk92, byte[] treesBin)
+    static void Run(string root, string apk310, string apk92, byte[] treesBin, string odrCacheDir)
     {
         Directory.CreateDirectory(root);
         try { File.Delete(Path.Combine(root, "ready.txt")); } catch { }
@@ -104,14 +104,33 @@ public static class TftfInstaller
 
         Step("Building the content package (this takes a few minutes)", 0.45f);
         string odr = Path.Combine(root, "odr");
+        int packs = 0;
         if (Directory.Exists(odr)) Directory.Delete(odr, true);
-        OdrWadBuilder.Build(apk92, odr, "http://127.0.0.1:8090", "822754", s => { Status = "Building the content package: " + s; });
-        Directory.CreateDirectory(Path.Combine(odr, "wad"));
-        File.Move(Path.Combine(odr, "toc.zip"), Path.Combine(odr, "wad/toc.zip"));
-        File.Delete(Path.Combine(odr, "toc.wad"));
+        OdrWadBuilder.Build(apk92, odr, "http://127.0.0.1:8090", "822754", s =>
+        {
+            Status = "Building the content package";
+            if (s.StartsWith("wad ", StringComparison.Ordinal) && ++packs <= 80) Progress = 0.45f + 0.5f * packs / 80f;
+        }, writeZip: false);
+        // The game would download the package from the content server and unpack it into its cache (minutes). Put the
+        // finished WAD where that unpacking would leave it: <cache>/<sha1 of "<url path>/<wad name>">.wad.
+        Directory.CreateDirectory(odrCacheDir);
+        string cached = Path.Combine(odrCacheDir, Sha1Hex("/odr/wad/toc.zip/toc.wad") + ".wad");
+        if (File.Exists(cached)) File.Delete(cached);
+        File.Move(Path.Combine(odr, "toc.wad"), cached);
 
         File.WriteAllText(Path.Combine(root, "ready.txt"), Version.ToString());
         Step("Done", 1f);
+    }
+
+    static string Sha1Hex(string text)
+    {
+        using (var sha = System.Security.Cryptography.SHA1.Create())
+        {
+            var h = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(text));
+            var sb = new System.Text.StringBuilder();
+            foreach (var b in h) sb.Append(b.ToString("X2"));
+            return sb.ToString();
+        }
     }
 
     static bool IsBaseAsset(ZipArchiveEntry e)

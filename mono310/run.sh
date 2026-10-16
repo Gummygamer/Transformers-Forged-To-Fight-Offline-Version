@@ -96,7 +96,7 @@ step_build() {  # full licensed player build (minutes)
 
 step_finalize() {  # restore original Java dex, endpoint, align and sign
   python3 "$REPO_DIR/tools/finalize_recompiled_202_apk.py" "$PROJECT/3.1.0-recompiled-armv7-unity.apk" \
-    "$TFTF_310_APK" "$OUT_APK" ${TFTF_SHELL:+} $([ "${TFTF_SHELL:-}" = 1 ] || echo --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}") \
+    "$TFTF_310_APK" "$OUT_APK" $([ "${TFTF_SHELL:-}" = 1 ] && echo --shell || echo --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}") \
     ${TFTF_KEYSTORE:+--keystore "$TFTF_KEYSTORE"}
 }
 

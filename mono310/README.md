@@ -30,6 +30,9 @@ Known rough edges (cosmetic or untested):
 - Verified with the tool versions listed below on one Linux machine; other setups may need
   small path fixes.
 
+The assetless launcher variant (no game assets in the APK; you pick your APKs on the phone) is described in
+[`launcher/README.md`](launcher/README.md) and [`ANDROID_LAUNCHER.md`](ANDROID_LAUNCHER.md).
+
 ## Requirements
 
 Game inputs (yours; never committed):

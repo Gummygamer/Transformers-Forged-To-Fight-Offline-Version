@@ -25,7 +25,7 @@ namespace Tftf.Odr
         sealed class Entry { public string Name; public long DataOffset; public uint Crc; public long Size; }
 
         /// <summary>Builds toc.wad, toc.zip and manifest.json in outDir from the 9.2.0 APK.</summary>
-        public static void Build(string donorApk, string outDir, string cdn, string cl, Action<string> log)
+        public static void Build(string donorApk, string outDir, string cdn, string cl, Action<string> log, bool writeZip = true)
         {
             var packs = new List<string>(BasePacks);
             packs.AddRange(CharacterPacks.Where(c => !packs.Contains(c)));
@@ -110,8 +110,12 @@ namespace Tftf.Odr
                 long wadSize = new FileInfo(wadPath).Length;
                 uint wadCrc = FileCrc(wadPath);
                 string zipPath = Path.Combine(outDir, "toc.zip");
-                WriteDeflatedZip(zipPath, "toc.wad", wadPath, wadCrc, wadSize);
-                long zipSize = new FileInfo(zipPath).Length;
+                long zipSize = 0;
+                if (writeZip)
+                {
+                    WriteDeflatedZip(zipPath, "toc.wad", wadPath, wadCrc, wadSize);
+                    zipSize = new FileInfo(zipPath).Length;
+                }
 
                 var bundlesJson = new List<object>();
                 foreach (var kv in bundleOffsets)

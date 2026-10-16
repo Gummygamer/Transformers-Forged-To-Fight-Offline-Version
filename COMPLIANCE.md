@@ -1046,6 +1046,10 @@ What changed compared with the rules in the previous section:
 - `launcher/convert/export_tree_db.py` writes `trees.bin` (type layouts of engine classes and of
   the game's scripts). It is generated locally from the operator's build, is not committed and
   is packed into the shell APK only.
+- The Java classes and the three native libraries (`launcher/shell/android/`) are newly authored stand-ins
+  written from the game's call sites and `DllImport` declarations; no original Java, dex, native library or
+  manifest is copied into the shell. The three third-party managed libraries come from NuGet
+  (`mono310/THIRD_PARTY.md`).
 - At run time the launcher writes everything it derives (converted data bundle, move bundle,
   ODR package) to the app's private storage on the device and sends none of it anywhere.
 - The embedded server host runs the authored `Server/*.lbl` files with the Legible interpreter

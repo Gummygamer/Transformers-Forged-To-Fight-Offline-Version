@@ -21,6 +21,10 @@ public sealed class TftfLauncher : MonoBehaviour
     {
         var go = new GameObject("TftfLauncher");   // the Java picker reports to this name
         DontDestroyOnLoad(go);
+        var cam = go.AddComponent<Camera>();       // nothing else renders yet: clear to black so the GUI redraws cleanly
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = Color.black;
+        cam.cullingMask = 0;
         var l = go.AddComponent<TftfLauncher>();
         l._root = root;
         return l;
@@ -51,6 +55,22 @@ public sealed class TftfLauncher : MonoBehaviour
         _paths[slot] = fd >= 0 ? "/proc/self/fd/" + fd : "";
         if (fd < 0) { _names[slot] = ""; _message = "Could not open that file."; }
         else _message = "";
+    }
+
+    const long RequiredBytes = 1200L << 20;      // content package 450 MB + converted data + base files + working room
+
+    static long FreeBytes()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            using (var fs = new AndroidJavaObject("android.os.StatFs", Application.persistentDataPath))
+                return fs.Call<long>("getAvailableBytes");
+        }
+        catch { return -1; }
+#else
+        return -1;
+#endif
     }
 
     void Pick(int slot)
@@ -99,8 +119,14 @@ public sealed class TftfLauncher : MonoBehaviour
         GUI.enabled = ready;
         if (GUI.Button(new Rect(x, 276, 560, 60), "Install and play", _button))
         {
+            long free = FreeBytes();
+            if (free >= 0 && free < RequiredBytes)
+            {
+                _message = "Not enough free space: about " + (RequiredBytes >> 20) + " MB are needed, " + (free >> 20) + " MB are free.";
+                return;
+            }
             _installing = true; _message = "";
-            TftfInstaller.Start(_root, _paths[0], _paths[1], _trees);
+            TftfInstaller.Start(_root, _paths[0], _paths[1], _trees, Path.Combine(Application.persistentDataPath, "asset_cache/odr"));
             GUI.enabled = true;
             return;
         }

@@ -26,6 +26,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("built"); ap.add_argument("original"); ap.add_argument("out")
     ap.add_argument("--endpoint")
+    ap.add_argument("--shell", action="store_true", help="assetless shell: add nothing from the original APK")
     ap.add_argument("--keystore", default=str(Path.home() / ".android/debug.keystore"))
     a = ap.parse_args()
     out = Path(a.out)
@@ -52,14 +53,14 @@ def main():
         # Streaming assets (packs.txt, per-pack toc.txt and bundles) are game
         # content outside Unity's player data; carry them over from the base APK.
         built_names = set(zi.namelist())
-        for info in zo.infolist():
+        for info in ([] if a.shell else zo.infolist()):
             n = info.filename
             if (n.startswith("assets/") and not n.startswith("assets/bin/")
                     and not n.endswith("/") and n not in built_names):
                 zw.writestr(n, zo.read(n), compress_type=(
                     zipfile.ZIP_STORED if info.compress_type == zipfile.ZIP_STORED else zipfile.ZIP_DEFLATED))
         names = set(zi.namelist())
-        if "classes2.dex" not in names:
+        if "classes2.dex" not in names and not a.shell:
             zw.writestr("classes2.dex", zo.read("classes.dex"))
         if a.endpoint and not patched:
             sys.exit("endpointconfig asset not found in built APK")

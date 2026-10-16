@@ -314,6 +314,13 @@ function test_pending_bludgeon_survives_reentry_and_reaches_starscream(): boolea
   current_battle_id(first) == "bludgeon_gs_rd20" and current_battle_id(replay) == "bludgeon_gs_rd20" and current_battle_id(starscream) == "fte_stars_gs_t3" and fakeserver.get_saved_team() == selected
 end
 
+function test_base_active_is_served_as_the_authored_envelope(): boolean
+  intent: test the base active response is the authored file, already a complete envelope (it is the slowest route on a phone)
+  let body: text = fakeserver.dynamic("/base/active", "")
+  let parsed: Json = result(body)
+  body == gamedata.base_active_text() and not jsonout.is_null(jsonout.obj_get(parsed, "userBase")) and not jsonout.is_null(jsonout.obj_get(parsed, "userAvailableBuildings"))
+end
+
 function test_quest_active_does_not_preload_custom_story(): boolean
   intent: test
   fakeserver.reset_quest_positions()
@@ -618,6 +625,7 @@ function main_group_2(): integer
   set failed = failed + report("test_challenge_begin_uses_authored_start_on_first_entry", test_challenge_begin_uses_authored_start_on_first_entry())
   set failed = failed + report("test_motormaster_begin_starts_on_route_and_branches_after_dialogue", test_motormaster_begin_starts_on_route_and_branches_after_dialogue())
   set failed = failed + report("test_pending_bludgeon_survives_reentry_and_reaches_starscream", test_pending_bludgeon_survives_reentry_and_reaches_starscream())
+  set failed = failed + report("test_base_active_is_served_as_the_authored_envelope", test_base_active_is_served_as_the_authored_envelope())
   set failed = failed + report("test_quest_active_does_not_preload_custom_story", test_quest_active_does_not_preload_custom_story())
   set failed = failed + report("test_custom_story_set_is_first_without_removing_template_set", test_custom_story_set_is_first_without_removing_template_set())
   set failed = failed + report("test_quest_list_slots_fit_client_summary_tables", test_quest_list_slots_fit_client_summary_tables())

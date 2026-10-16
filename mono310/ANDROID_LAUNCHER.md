@@ -8,18 +8,34 @@
 - [What can be read from the user's APKs unchanged](#what-can-be-read-from-the-users-apks-unchanged)
 - [What needs conversion](#what-needs-conversion)
 - [Proposed architecture](#proposed-architecture)
+- [Results so far](#results-so-far)
 - [Milestones](#milestones)
 - [Risks and open questions](#risks-and-open-questions)
+- [Shell contents](#shell-contents)
+- [Pitfalls found while building the shell](#pitfalls-found-while-building-the-shell)
 
 ## Scope and status
 
-**Nothing in this document is implemented.** It records measurements taken on 2026-10-16 and a
-proposed design. The working path today is the PC pipeline in [`README.md`](README.md); an
-Android-only path does not exist yet. Marks follow [`DOC_STYLE.md`](../DOC_STYLE.md).
+**Status 2026-10-16: the launcher works end to end on one device, and is not releasable.** A shell APK
+(recompiled scripts, no game assets) starts a first-run screen; the user picks their own 3.1.0 and 9.2.0
+APKs; the app converts and unpacks everything into its private storage in about 43 s and boots to the
+title screen, the home base, the quest board and a fight with hits and health bars. **[👁 live]**
+(Samsung A52, Android 14, armeabi-v7a build, Unity 2020.3.31f1; 3.1.0 build 822754.)
 
-Environment: operator 3.1.0 APK `com.kabam.bigrobot` build 822754 (Unity 5.3.5p8, Mono,
-`armeabi-v7a`); operator 9.2.0 APK (all 102 bundles report engine `2020.3.31f1`); recompile built
-with Unity 2020.3.31f1.
+What does **not** work or is not done (read before relying on this):
+
+- **The shell APK still carries game-derived code** (compiled recompiled scripts) and, until the build in
+  `COMPLIANCE.md` ("Assetless launcher") is reviewed, **must not be published**.
+- Only `armeabi-v7a` (32-bit) was built and tested, on one device. A 64-bit build is a separate port (see
+  [`launcher/README.md`](launcher/README.md#limits)).
+- Original-app Java code, loose assets and native libraries are no longer copied into the shell, and the
+  three third-party managed libraries come from NuGet instead (see [`THIRD_PARTY.md`](THIRD_PARTY.md)).
+  Features that depended on them (purchases, push, analytics, Play Games) are stubbed or absent.
+- Known visual issues that exist in the non-launcher build as well: black terrain hexes on the quest board,
+  missing small portraits, Ironhide's arena background.
+- First play downloads and unpacks the 450 MB content package through the in-app server (about 4 min).
+- Marks follow [`DOC_STYLE.md`](../DOC_STYLE.md). Sections below "Goal" up to "Proposed architecture" are the
+  original 2026-10-16 morning measurements and design; they stay as written.
 
 ## Goal
 
@@ -133,8 +149,8 @@ PC prototype in `launcher/convert/`, checked in the Unity 2020.3.31f1 Editor aga
   - *Scripts that fail to parse only when they contain a curve or gradient*: 5.3.5 `Keyframe` has no weight
     fields and `Gradient` stores packed 32-bit colours and no `m_Mode`.
 
-Not yet done: the level scene (`level0`), builtin-asset references, material shader fixing, rendering
-correctness, the on-device port and everything after M2.
+Superseded: the level scene, shader fixing and the on-device port were done later the same day; see
+[Shell contents](#shell-contents) and [Pitfalls found while building the shell](#pitfalls-found-while-building-the-shell).
 
 ## Milestones
 
@@ -156,3 +172,72 @@ correctness, the on-device port and everything after M2.
   measuring on a mid-range phone.
 - **Not feasible:** running the existing PC tools on the phone. AssetRipper, ILSpy and the Unity
   Editor cannot run on Android, and the Editor has no ARM Linux build.
+
+## Shell contents
+
+Built with `TFTF_SHELL=1 mono310/run.sh assemble && run.sh assets && run.sh build && run.sh finalize`
+(environment variables in `mono310/README.md`; extra for the shell: `TFTF_LEGIBLE_ARMV7` = Legible built for
+`armv7-linux-androideabi`, `TFTF_TREES_BIN` = the type-tree database from
+`launcher/convert/export_tree_db.py`). **[📄 binary]** (build scripts)
+
+| piece | where | what it does |
+|---|---|---|
+| Recompiled game scripts | `Assembly-CSharp*.dll` | the game itself |
+| Bootstrap and first-run screen | `launcher/shell/Tftf/TftfBootstrap.cs`, `TftfLauncher.cs` | picks APKs (Storage Access Framework through `Activity.java`), shows progress, then boots the converted data |
+| Installer | `Tftf/TftfInstaller.cs` | copies the loose `assets/` from the 3.1.0 APK, converts `assets/bin/Data` (`Tftf/Convert`), copies the 9.2.0 move bundle, builds the ODR package (`Tftf/Odr`) |
+| Offline server | `Tftf/TftfServer.cs`, `Server/*.lbl`, Legible as `liblegible.so` | the Sparx backend, started inside the app on 127.0.0.1:8080 |
+| Content server | `Tftf/TftfStaticServer.cs` | serves files of the `odr/` folder on 127.0.0.1:8090 with Range support (only needed if the game ever has to fetch the package again; the installer pre-places it) |
+| Java stand-ins | `launcher/shell/android/` | newly authored classes for the plugin calls the game makes (device info, downloads, notifications, deep links, purchases) |
+| Native stand-ins | `launcher/shell/android/native/stubs.c`, `build.sh` | do-nothing `libandroid-signal.so`, `libapkprotect.so`, `libenetlib.so`, built with the NDK at assemble time; the game imports them with `DllImport` |
+| Manifest | `launcher/shell/android/AndroidManifest.xml` | authored; no Facebook, Adjust, push or billing components |
+
+Storage layout under `persistentDataPath/tftf`: `base/assets` (loose assets), `resources.bundle` (converted
+player data), `moves92.bundle`, `odr/` (manifest and `wad/toc.zip`),
+`Server/` (authored server files), `ready.txt` (installer version). **[👁 live]**
+
+Measured on the A52: copy 1 s, convert 8 s, build the ODR package 34 s. **[👁 live]** The installer writes the
+finished `toc.wad` straight to `asset_cache/odr/<SHA-1 of "/odr/wad/toc.zip/toc.wad">.wad`, the name the game's
+`DownloadExtractor` would give its own unpacked copy (the manifest has `check_crc: false`), so the first play
+needs no download and no unpacking. **[📄 binary]** (`DownloadExtractor.GetFilePath`, `Cache.GetCacheFilename`)
+**[👁 live]** (file present and used, no `toc.zip` request in the log)
+
+## Pitfalls found while building the shell
+
+Symptom first.
+
+- *Teal rectangle behind the logo, button labels missing.* `UITexture.mShader` pointed at a shader the
+  converter had dropped, so the logo drew with the opaque default. Keep a named stub `Shader` object in the
+  converted bundle so references survive; the game resolves the real shader by name. **[👁 live]**
+- *Base screen shows "Loading" forever, `Read Timed out` on `/base/active`.* The server built that response by
+  parsing and re-encoding a 98 KB file; the interpreter needs 2.9 s on a PC and 65 s on the phone, so the game
+  retried until the single-threaded server was saturated. Serve the file as it is (0.13 s). **[👁 live]**
+- *Loading toast forever on the base screen, `start-tutorial ShieldTutorial` repeats in the server log.* The
+  server blocks that tutorial by default; set `TFTF_TUTORIAL_BLOCKLIST` to empty (the shell host does). **[👁 live]**
+- *Title art missing, game asks for the ODR manifest and gets `connection refused`.* The in-app server was not
+  listening yet; the host now waits for the port before booting. **[👁 live]**
+- *`TypeLoadException ... Mono.Security.Interface.MonoTlsProvider` when starting the content server.*
+  `HttpListener` needs a newer Mono.Security than the one in the game; use plain sockets. **[👁 live]**
+- *Attacks of 9.2 fighters never land.* Their move files are not in the 3.1.0 `moves` bundle. Load them from
+  the 9.2.0 `moves.assetbundle` and unload that bundle right after reading its text assets, otherwise the
+  3.1.0 `moves` bundle refuses to load ("another AssetBundle with the same files is already loaded"). **[👁 live]**
+- *Health bars drawn as plain transparency.* The material asks for the shader name `EBG/UI/HudHealth`; the
+  authored replacement must be installed under that name. **[👁 live]**
+- *`TypeLoadException ... Could not load file or assembly 'ICSharpCode.SharpZipLib'` after the libraries were
+  copied to app storage and loaded with `Assembly.Load` / `LoadFrom` / an `AssemblyResolve` handler.* The
+  runtime resolves an assembly's references when that assembly loads, before any managed code can run, and
+  remembers a miss. Third-party libraries must be inside the APK; use the open-source builds. **[👁 live]**
+- *Unity build fails with "Found plugins with same names".* Two Java plugin files may not share a file name;
+  give package-private classes unique file names. **[👁 live]**
+- *Black screen after the first-run install, `NoSuchMethodError: getInstance ... (Ljava/lang/Object;)` in the log.*
+  `CallStatic<T>("name", null)` passes no argument in Unity 5 but a single null argument in Unity 2020, so a stand-in
+  needs an overload taking one `Object`. Check every `CallStatic(..., null)` in the decompiled game when writing a
+  Java stand-in. **[👁 live]**
+- *`DllNotFoundException: android-signal` on every log line, game never finishes booting.* The crash reporter's
+  native library was no longer shipped; the do-nothing stand-ins under `shell/android/native` fix it. **[👁 live]**
+- *Native crash (`SIGSEGV`, `SEGV_ACCERR`) a few seconds after the boot scene, inside `CultureInfo.GetCultureInfo` /
+  `stpcpy`; the fault address always ends in the same three hex digits.* A native stand-in returned a pointer to a
+  constant string. Mono frees the strings that `DllImport`ed functions return, so the constant ended up on the
+  allocator's free list and a later allocation was handed read-only memory. Return `strdup("")`. **[👁 live]**
+  (after the change the same flow boots and the log shows no crash)
+- *Quick native iteration.* `launcher/tools/replace_apk_libs.py IN.apk OUT.apk DIR` swaps the `.so` files into a
+  built APK and re-signs it (one minute instead of a full build). **[👁 live]**

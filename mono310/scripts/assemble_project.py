@@ -27,6 +27,27 @@ CASEFIX = "Com_ComGoogleCaseFix"  # R1: Com/ vs com/ collide for Unity's importe
 THIRD_PARTY_SCRIPT_DIRS = ("NBidi", "Fabric.Core", "Facebook.Unity", "Facebook.Unity.Settings",
                            "Facebook.Unity.Android", "Facebook.Unity.IOS")
 PLUGIN_DLLS = ("crypto", "Mono.Security", "ICSharpCode.SharpZipLib")
+SHELL_NUGET = {  # published dll name -> (package, version, member in the package)
+    "ICSharpCode.SharpZipLib.dll": ("sharpziplib", "0.86.0", "lib/20/ICSharpCode.SharpZipLib.dll"),
+    "BouncyCastle.Crypto.dll": ("bouncycastle", "1.8.5", "lib/BouncyCastle.Crypto.dll"),
+}
+
+
+def nuget_file(pkg, ver, member):
+    """One file of a NuGet package, cached under TFTF_WORK/thirdparty."""
+    import urllib.request
+    cache = Path(os.environ["TFTF_WORK"]) / "thirdparty" / f"{pkg}.{ver}" / member
+    if not cache.exists():
+        url = f"https://api.nuget.org/v3-flatcontainer/{pkg}/{ver}/{pkg}.{ver}.nupkg"
+        with urllib.request.urlopen(url, timeout=120) as r:
+            data = r.read()
+        import io
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(z.read(member))
+    return cache.read_bytes()
+
+
 NATIVE_PLUGIN_SKIP = {"libmain.so", "libmono.so", "libunity.so"}  # supplied by Unity itself
 
 
@@ -83,7 +104,14 @@ def main():
 
     # Managed plugin DLLs straight from the APK (no .meta: Unity generates plugin importers).
     with zipfile.ZipFile(APK) as z:
-        for d in PLUGIN_DLLS:
+        if os.environ.get("TFTF_SHELL") == "1":
+            # No third-party library of the original APK: the open-source builds of the same libraries from NuGet
+            # (SharpZipLib 0.86.0, BouncyCastle 1.8.5). The game's own Mono.Security copy is not used by its code.
+            for stale in ("crypto", "Mono.Security", "ICSharpCode.SharpZipLib"):
+                (A / "Plugins" / f"{stale}.dll").unlink(missing_ok=True)
+            for dll, (pkg, ver, member) in SHELL_NUGET.items():
+                (A / "Plugins" / dll).write_bytes(nuget_file(pkg, ver, member))
+        for d in ([] if os.environ.get("TFTF_SHELL") == "1" else PLUGIN_DLLS):
             src = GAME_DLL / f"{d}.dll"
             if src.exists():
                 shutil.copy(src, A / "Plugins" / f"{d}.dll")
@@ -94,15 +122,22 @@ def main():
         shutil.rmtree(android, ignore_errors=True)
         for n in z.namelist():
             m = re.match(r"lib/(armeabi-v7a|x86)/([^/]+\.so)$", n)
-            if m and m.group(2) not in NATIVE_PLUGIN_SKIP:
+            if m and m.group(2) not in NATIVE_PLUGIN_SKIP and os.environ.get("TFTF_SHELL") != "1":
                 tgt = android / m.group(1) / m.group(2)
                 tgt.parent.mkdir(parents=True, exist_ok=True)
                 tgt.write_bytes(z.read(n))
     act = REPO / "tools/unity/android-plugin/com/explodingbarrel/Activity.java"
     (android / "com/explodingbarrel").mkdir(parents=True, exist_ok=True)
     shutil.copy(act, android / "com/explodingbarrel/Activity.java")
-    subprocess.check_call([sys.executable, str(REPO / "tools/original_manifest_to_xml.py"), str(APK),
-                           str(android / "AndroidManifest.xml")])
+    if os.environ.get("TFTF_SHELL") == "1":
+        # The shell carries no code or manifest of the original app: authored manifest and Java stand-ins instead.
+        shutil.copytree(REPO / "mono310/launcher/shell/android", android, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("native"))
+        subprocess.check_call([str(REPO / "mono310/launcher/shell/android/native/build.sh"),
+                               str(android / "libs/armeabi-v7a")])   # stand-ins for the original native libraries
+    else:
+        subprocess.check_call([sys.executable, str(REPO / "tools/original_manifest_to_xml.py"), str(APK),
+                               str(android / "AndroidManifest.xml")])
 
     # Project settings: the ripped 3.1.0 settings plus authored package manifest.
     rsync(RIP / "ProjectSettings", OUT / "ProjectSettings")
