@@ -68,6 +68,18 @@ public static class Recompile310Build
             // No scenes reference the game's behaviours, so the linker would strip them and the engine modules they use.
             PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Android, ManagedStrippingLevel.Disabled);
             PlayerSettings.stripEngineCode = false;
+            // App icon: the launcher logo (Assets/Icons/revival-icon.png) for every legacy icon size.
+            const string iconPath = "Assets/Icons/revival-icon.png";
+            if (System.IO.File.Exists(iconPath))
+            {
+                AssetDatabase.ImportAsset(iconPath);
+                var icon = AssetDatabase.LoadAssetAtPath<Texture2D>(iconPath);
+                var sizes = PlayerSettings.GetIconSizesForTargetGroup(BuildTargetGroup.Android, IconKind.Application);
+                var icons = new Texture2D[sizes.Length];
+                for (int i = 0; i < icons.Length; i++) icons[i] = icon;
+                PlayerSettings.SetIconsForTargetGroup(BuildTargetGroup.Android, icons, IconKind.Application);
+                Debug.Log("Launcher icon set for " + icons.Length + " sizes");
+            }
         }
         string[] scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled)
             .Select(scene => scene.path).ToArray();

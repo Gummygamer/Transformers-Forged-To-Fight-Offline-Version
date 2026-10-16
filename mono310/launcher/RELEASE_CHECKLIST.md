@@ -27,7 +27,8 @@ without publishing.
 
 ## Device test matrix
 
-Each row: fresh install, wipe the app's storage, pick both APKs, install, play.
+Each row: fresh install, wipe the app's storage, pick both APKs, install, play. `tools/phone_firstrun_test.sh` does
+the first rows automatically and leaves the report and screenshots to attach to the record.
 
 | check | pass when |
 |---|---|

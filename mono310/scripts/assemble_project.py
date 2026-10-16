@@ -132,7 +132,7 @@ def main():
     if os.environ.get("TFTF_SHELL") == "1":
         # The shell carries no code or manifest of the original app: authored manifest and Java stand-ins instead.
         shutil.copytree(REPO / "mono310/launcher/shell/android", android, dirs_exist_ok=True,
-                        ignore=shutil.ignore_patterns("native"))
+                        ignore=shutil.ignore_patterns("native", "icon"))
         subprocess.check_call([str(REPO / "mono310/launcher/shell/android/native/build.sh"),
                                str(android / "libs/armeabi-v7a")])   # stand-ins for the original native libraries
     else:
@@ -208,6 +208,9 @@ def package_server(A):
         t.parent.mkdir(parents=True, exist_ok=True)
         if not t.exists():
             shutil.copy(p, t)
+    shutil.copy(REPO / "mono310/launcher/shell/android/icon/icon-512.png", sa / "revival-icon.png")   # first-run screen logo
+    (A / "Icons").mkdir(exist_ok=True)
+    shutil.copy(REPO / "mono310/launcher/shell/android/icon/icon-512.png", A / "Icons/revival-icon.png")   # app icon (set by the build script)
     # Type-tree database the on-phone converter needs (generated locally by launcher/convert/export_tree_db.py).
     shutil.copy(os.environ["TFTF_TREES_BIN"], sa / "trees.bin")
     lib = A / "Plugins/Android/libs/armeabi-v7a"

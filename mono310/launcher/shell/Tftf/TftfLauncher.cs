@@ -14,6 +14,7 @@ public sealed class TftfLauncher : MonoBehaviour
     string[] _paths = { "", "" };
     bool _installing, _finished;
     byte[] _trees;
+    Texture2D _logo;
     string _message = "";
     GUIStyle _label, _button, _small;
 
@@ -38,6 +39,28 @@ public sealed class TftfLauncher : MonoBehaviour
         yield return req.SendWebRequest();
         if (req.result == UnityWebRequest.Result.Success) _trees = req.downloadHandler.data;
         else _message = "Launcher data is missing from this build.";
+        // Test hook: tftf/autopick.txt (two lines: the 3.1.0 and the 9.2.0 APK paths, readable by the app) pre-selects the
+        // files, so automated tests do not have to drive the system file picker.
+        try
+        {
+            string hook = Path.Combine(_root, "autopick.txt");
+            if (File.Exists(hook))
+            {
+                var lines = File.ReadAllLines(hook);
+                for (int slot = 0; slot < 2 && slot < lines.Length; slot++)
+                {
+                    string path = lines[slot].Trim();
+                    if (path.Length == 0 || !File.Exists(path)) continue;
+                    string problem = Validate(path, slot);
+                    if (problem != null) { _message = problem; continue; }
+                    _paths[slot] = path; _names[slot] = Path.GetFileName(path);
+                }
+            }
+        }
+        catch (System.Exception e) { Debug.LogWarning("[TFTF] autopick failed: " + e.Message); }
+        var logo = UnityWebRequestTexture.GetTexture(Application.streamingAssetsPath + "/revival-icon.png");
+        yield return logo.SendWebRequest();
+        if (logo.result == UnityWebRequest.Result.Success) _logo = DownloadHandlerTexture.GetContent(logo);
     }
 
     // Called from Java: "slot|display name" (empty name = cancelled)
@@ -95,7 +118,7 @@ public sealed class TftfLauncher : MonoBehaviour
                 return "That file is not the " + (slot == 0 ? "3.1.0" : "9.2.0") + " game APK.";
             }
         }
-        catch (System.Exception) { return "That file is not a readable APK."; }
+        catch (System.Exception) { return "That file could not be read as an APK. If it is in a cloud folder, copy it to the phone first."; }
     }
 
     void Pick(int slot)
@@ -128,8 +151,10 @@ public sealed class TftfLauncher : MonoBehaviour
         GUI.color = Color.white;
         GUI.DrawTexture(new Rect(0, 0, w, h), Texture2D.blackTexture);
         float x = w * 0.5f - 280;
-        GUI.Label(new Rect(x, 20, 560, 40), "Transformers: Forged to Fight - offline launcher", _label);
-        GUI.Label(new Rect(x, 62, 560, 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your phone.", _small);
+        float tx = x;
+        if (_logo != null) { GUI.DrawTexture(new Rect(x, 12, 84, 84), _logo); tx = x + 96; }
+        GUI.Label(new Rect(tx, 16, 560 - (tx - x), 40), "Transformers: Forged to Fight - revival launcher", _label);
+        GUI.Label(new Rect(tx, 58, 560 - (tx - x), 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your phone.", _small);
         GUI.Label(new Rect(x, h - 30, 560, 24), "Launcher " + LauncherVersion + "  (game build 3.1.0-822754)", _small);
         if (_installing)
         {

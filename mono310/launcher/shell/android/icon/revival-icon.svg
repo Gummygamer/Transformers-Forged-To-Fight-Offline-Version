@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Newly authored artwork for the Revival Launcher: a simplified, smiling Unicron head in orange with sunglasses.
+     Not traced from or copied from official art. Rendered to the Android icons by make_icon.py. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#7a2aa6" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#7a2aa6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffb04d"/>
+      <stop offset="0.55" stop-color="#ff8a1f"/>
+      <stop offset="1" stop-color="#e06c0c"/>
+    </linearGradient>
+    <linearGradient id="horn" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#b8500a"/>
+      <stop offset="1" stop-color="#ff9a33"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a2a3a"/>
+      <stop offset="1" stop-color="#0a0a12"/>
+    </linearGradient>
+    <clipPath id="tile"><rect width="1024" height="1024" rx="190"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="#1a0e26"/>
+    <circle cx="512" cy="520" r="470" fill="url(#glow)"/>
+
+    <!-- horns: tall centre crest, two forward-curving main horns, two short outer horns -->
+    <g stroke="#461c06" stroke-width="8" stroke-linejoin="round" fill="url(#horn)">
+      <path d="M470 280 L512 60 L554 280 Z"/>
+      <path d="M430 300 Q360 180 312 96 Q470 200 478 262 Z"/>
+      <path d="M594 300 Q664 180 712 96 Q554 200 546 262 Z"/>
+      <path d="M250 400 Q170 330 104 214 Q290 290 330 348 Z"/>
+      <path d="M774 400 Q854 330 920 214 Q734 290 694 348 Z"/>
+    </g>
+
+    <!-- head -->
+    <path d="M512 230 L420 242 L300 298 L226 418 L214 560 L270 692 L360 792 L440 862 L512 892
+             L584 862 L664 792 L754 692 L810 560 L798 418 L724 298 L604 242 Z"
+          fill="url(#skin)" stroke="#461c06" stroke-width="10" stroke-linejoin="round"/>
+    <!-- brow plates, cheek shading, forehead crest -->
+    <path d="M512 252 L400 272 L300 332 L262 422 L512 400 Z" fill="#ffc77a" opacity="0.85"/>
+    <path d="M512 252 L624 272 L724 332 L762 422 L512 400 Z" fill="#ffc77a" opacity="0.85"/>
+    <path d="M262 470 L300 640 L390 760 L330 560 Z" fill="#c5590a" opacity="0.8"/>
+    <path d="M762 470 L724 640 L634 760 L694 560 Z" fill="#c5590a" opacity="0.8"/>
+    <path d="M512 238 L542 330 L512 402 L482 330 Z" fill="#c5590a"/>
+
+    <!-- sunglasses -->
+    <g>
+      <rect x="470" y="478" width="84" height="30" fill="#0a0a12"/>
+      <path d="M250 470 L480 470 L462 580 L400 628 L310 628 L265 560 Z" fill="url(#lens)" stroke="#000" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M774 470 L544 470 L562 580 L624 628 L714 628 L759 560 Z" fill="url(#lens)" stroke="#000" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M288 492 L350 492 L304 562 Z" fill="#7fd0ff" opacity="0.85"/>
+      <path d="M736 492 L674 492 L720 562 Z" fill="#7fd0ff" opacity="0.85"/>
+      <path d="M226 482 L262 484 M798 482 L762 484" stroke="#000" stroke-width="16" stroke-linecap="round"/>
+    </g>
+
+    <!-- smile -->
+    <path d="M326 712 Q512 790 698 712 Q684 800 600 836 Q512 856 424 836 Q340 800 326 712 Z"
+          fill="#3c0c08" stroke="#461c06" stroke-width="8" stroke-linejoin="round"/>
+    <path d="M372 748 Q512 796 652 748 Q640 790 600 806 Q512 822 424 806 Q384 790 372 748 Z" fill="#fbf0e0"/>
+    <path d="M512 772 L512 812 M446 766 L450 806 M578 766 L574 806" stroke="#9a8268" stroke-width="5" stroke-linecap="round"/>
+    <path d="M300 690 Q316 716 344 726 M724 690 Q708 716 680 726" stroke="#461c06" stroke-width="8" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>

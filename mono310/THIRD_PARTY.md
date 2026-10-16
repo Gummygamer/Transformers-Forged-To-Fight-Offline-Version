@@ -4,6 +4,7 @@
 
 - [Scope](#scope)
 - [Components](#components)
+- [Tools used only at development time](#tools-used-only-at-development-time)
 - [Not included](#not-included)
 
 ## Scope
@@ -22,6 +23,12 @@ distributing the APK itself.
 | BouncyCastle.Crypto | 1.8.5 | NuGet package `BouncyCastle` 1.8.5 | Bouncy Castle licence (MIT style) | the game's hashing, HMAC and cipher calls |
 | Legible interpreter | built from `Gummygamer/legible-lang` | local build for `armv7-linux-androideabi`, shipped as `liblegible.so` | see that repository | runs the authored `Server/*.lbl` files |
 | Unity player runtime | 2020.3.31f1 (Mono, armv7) | Unity Editor build output | Unity terms of service | the runtime itself |
+
+## Tools used only at development time
+
+| tool | used for |
+|---|---|
+| cairosvg (Python, LGPL) | renders `launcher/shell/android/icon/revival-icon.svg` into the icon PNGs; not part of the APK |
 
 ## Not included
 

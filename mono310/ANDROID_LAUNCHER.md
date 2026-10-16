@@ -184,6 +184,7 @@ Built with `TFTF_SHELL=1 mono310/run.sh assemble && run.sh assets && run.sh buil
 |---|---|---|
 | Recompiled game scripts | `Assembly-CSharp*.dll` | the game itself |
 | Bootstrap and first-run screen | `launcher/shell/Tftf/TftfBootstrap.cs`, `TftfLauncher.cs` | picks APKs (Storage Access Framework through `Activity.java`), shows progress, then boots the converted data |
+| Restart | `Activity.java` `tftfRestart`, `TftfBootstrap.cs` | after a successful install the app starts itself in a fresh process, so no start-up code of the game can see a half-installed state **[👁 live]** |
 | Installer | `Tftf/TftfInstaller.cs` | copies the loose `assets/` from the 3.1.0 APK, converts `assets/bin/Data` (`Tftf/Convert`), copies the 9.2.0 move bundle, builds the ODR package (`Tftf/Odr`) |
 | Offline server | `Tftf/TftfServer.cs`, `Server/*.lbl`, Legible as `liblegible.so` | the Sparx backend, started inside the app on 127.0.0.1:8080 |
 | Content server | `Tftf/TftfStaticServer.cs` | serves files of the `odr/` folder on 127.0.0.1:8090 with Range support (only needed if the game ever has to fetch the package again; the installer pre-places it) |

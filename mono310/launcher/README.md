@@ -23,7 +23,8 @@ question in `../../COMPLIANCE.md` ("Assetless launcher") is settled.**
 1. Have both game APKs on the phone (3.1.0 build 822754 and 9.2.0). The launcher cannot download them.
 2. Install the launcher APK and open it.
 3. Tap "Select the 3.1.0 APK" and choose that file, then "Select the 9.2.0 APK" and choose that file.
-4. Tap "Install and play" and wait (about one minute). Nothing is uploaded anywhere.
+4. Tap "Install and play" and wait (under a minute). Nothing is uploaded anywhere. When it is done the app closes and
+   starts itself again once, so that the game starts exactly as it will on every later launch.
 5. The first time you press play, the game unpacks about 450 MB of content from inside the app. The
    title screen stays up for a few minutes. Later starts skip all of this.
 
@@ -49,14 +50,19 @@ is much quicker (it patches the managed code into the last finalized APK). The c
 package builder can also be run on a PC: `launcher/shell/ConvertTool/selftest.sh` compiles them with Unity's mcs, converts the
 3.1.0 data, builds the content package from the 9.2.0 APK and runs the package self-test (about 25 s, needs the same
 variables plus `UNITY_2020_ROOT`). `launcher/shell/ConvertTool/compile_check.sh` compiles all phone-side C# against the
-Unity 2020 engine modules in a few seconds (run it before every player build).
+Unity 2020 engine modules in a few seconds (run it before every player build). `launcher/tools/phone_firstrun_test.sh` runs the whole first-run flow on a
+connected phone (wipe, install, pick the APKs, install, boot) and writes a report and screenshots; it needs the two
+game APKs in the phone's Downloads folder and uses the phone while it runs. It pre-selects the APKs through a test
+hook of the launcher (`tftf/autopick.txt` in the app's folder, two lines with readable APK paths) instead of driving
+the system file picker.
 
 ## Layout
 
 | path | content |
 |---|---|
 | `shell/Tftf/` | the code that runs on the phone: first-run screen, installer, converter, ODR builder, servers |
-| `shell/android/` | authored manifest and Java stand-ins for the original app's plugin classes |
+| `shell/android/` | authored manifest, Java and native stand-ins for the original app's plugin classes, and the launcher icon |
+| `shell/android/icon/` | `revival-icon.svg` (the logo: a simplified, smiling orange Unicron head with sunglasses, newly drawn) and `make_icon.py`, which renders it with `cairosvg` (`pip install cairosvg`) into the committed `icon-512.png`; the build script sets it as the app icon through the player settings, so building the APK does not need the renderer |
 | `shell/ConvertTool/` | PC harness for the converter and the ODR builder |
 | `convert/` | Python converter prototype and the type-tree exporter |
 | `spike/`, `tools/` | Editor checks and the API-gap analyzer used while designing this |

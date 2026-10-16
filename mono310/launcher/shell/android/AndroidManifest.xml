@@ -12,7 +12,7 @@
   <application android:debuggable="false" android:largeHeap="true" android:isGame="true" android:resizeableActivity="false" android:extractNativeLibs="true">
     <meta-data android:name="APP_NAME" android:value="com.kabam.bigrobot" />
     <meta-data android:name="activity.immersive" android:value="true" />
-    <activity android:label="Transformers" android:name="com.explodingbarrel.Activity" android:launchMode="singleTask" android:screenOrientation="sensorLandscape" android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|fontScale">
+    <activity android:label="Revival Launcher" android:name="com.explodingbarrel.Activity" android:launchMode="singleTask" android:screenOrientation="sensorLandscape" android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|fontScale">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
