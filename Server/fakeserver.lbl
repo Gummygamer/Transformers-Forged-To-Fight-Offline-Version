@@ -1876,7 +1876,7 @@ function static_dynamic(path: text, p: text, btxt: text): text
   else if ends_with(p, "/gamestore/use") then
     use_game_store_response(btxt, false)
   else if ends_with(p, "/base/active") then
-    compact_envelope(gamedata.build_base_active())
+    gamedata.base_active_text()
   else
     static_dynamic_second(path, p, btxt)
   end

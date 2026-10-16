@@ -2624,6 +2624,11 @@ public function build_base_available_buildings(): Json
   jsonout.obj_get(base_active_template(), "userAvailableBuildings")
 end
 
+public function base_active_text(): text
+  intent: get the authored base active response as served (the file is already the compact envelope)
+  read_file(path_join(resp_dir(), "_base_active.json"))
+end
+
 public function build_base_active(): Json
   intent: build the complete active base response
   base_active_template()
