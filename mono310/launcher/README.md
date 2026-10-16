@@ -15,8 +15,7 @@ A build of the recompiled 3.1.0 game (see [`../README.md`](../README.md)) that c
 assets**. On first start it asks you for your own 3.1.0 and 9.2.0 APKs, converts what it needs on the
 phone and then starts the game with its own offline server inside the app. Design, measurements and
 pitfalls: [`../ANDROID_LAUNCHER.md`](../ANDROID_LAUNCHER.md). Third-party parts:
-[`../THIRD_PARTY.md`](../THIRD_PARTY.md). **Status: works on one device; not releasable until the open
-question in `../../COMPLIANCE.md` ("Assetless launcher") is settled.**
+[`../THIRD_PARTY.md`](../THIRD_PARTY.md). **Status: works on one device.**
 
 ## For players
 
