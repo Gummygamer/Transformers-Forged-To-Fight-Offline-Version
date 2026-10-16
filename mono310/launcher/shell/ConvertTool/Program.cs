@@ -24,6 +24,13 @@ static class Program
             Tftf.Odr.OdrWadBuilder.Build(a[1], a[2], a[3], a[4], Console.WriteLine);
             return 0;
         }
+        if (a.Length == 3 && a[0] == "tree")      // tree <trees.bin> <engine class id>
+        {
+            var tdb = TreeDb.Load(File.ReadAllBytes(a[1]));
+            foreach (var n in tdb.Engine[int.Parse(a[2])].Flatten())
+                Console.WriteLine(new string(' ', n.Level * 2) + n.Type + " " + n.Name + " size=" + n.ByteSize + " flags=" + n.MetaFlag.ToString("x"));
+            return 0;
+        }
         if (a.Length != 3) { Console.Error.WriteLine("usage: ConvertTool <Data dir> <trees.bin> <out bundle>"); return 2; }
         var db = TreeDb.Load(File.ReadAllBytes(a[1]));
         var stats = new ConvertStats();

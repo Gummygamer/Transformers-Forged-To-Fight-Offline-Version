@@ -64,6 +64,14 @@ public static class TftfServer
         process.BeginErrorReadLine();
         UnityEngine.Debug.Log("[TFTF] server started pid=" + process.Id);
         Application.quitting += Stop;
+        // The game fetches its manifest right away; hold the boot until the listener accepts connections.
+        for (int i = 0; i < 300; i++)
+        {
+            try { using (var probe = new System.Net.Sockets.TcpClient()) { probe.Connect("127.0.0.1", Port); UnityEngine.Debug.Log("[TFTF] server listening after " + i * 0.1f + "s"); yield break; } }
+            catch { }
+            yield return new WaitForSeconds(0.1f);
+        }
+        UnityEngine.Debug.LogError("[TFTF] server did not start listening");
     }
 
     public static void Stop()

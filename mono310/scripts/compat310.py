@@ -308,6 +308,9 @@ public class TftfDiag : MonoBehaviour
 			_nextGlobals = Time.realtimeSinceStartup + 1f;
 			if (!EB.Rendering.EBTimeOfDayManager.IsInitialized || EB.Rendering.EBTimeOfDayManager.Instance.GetActiveTimeOfDay() == null) ApplyGlobals();
 			SwapPbr();
+			// The 16:9 UI viewport leaves bars on wider phones: clear them to black instead of Unity's default skybox.
+			RenderSettings.skybox = null;
+			foreach (Camera sc in Camera.allCameras) if (sc.clearFlags == CameraClearFlags.Skybox && sc.targetTexture == null) { sc.clearFlags = CameraClearFlags.SolidColor; sc.backgroundColor = Color.black; }
 		}
 		if (Time.realtimeSinceStartup < _next) return;
 		_next = Time.realtimeSinceStartup + 15f;
@@ -324,10 +327,23 @@ public class TftfDiag : MonoBehaviour
 			if (cc.name == "RigCamera")
 			{
 				cc.clearFlags = CameraClearFlags.SolidColor;
-				cc.backgroundColor = new Color(0f, 1f, 1f, 1f);
+				cc.backgroundColor = Color.black;
 				Debug.Log("[DIAG] RigCamera pos=" + cc.transform.position + " rot=" + cc.transform.eulerAngles + " ortho=" + cc.orthographic + " fov=" + cc.fieldOfView + " near=" + cc.nearClipPlane + " far=" + cc.farClipPlane + " hdr=" + cc.allowHDR + " msaa=" + cc.allowMSAA);
 			}
 		}
+		foreach (UITexture ut in Object.FindObjectsOfType<UITexture>())
+		{
+			if (ut.mainTexture == null || ut.mainTexture.name.IndexOf("title_") < 0) continue;
+			StringBuilder ub = new StringBuilder("[DIAG] UITex " + ut.mainTexture.name + " " + ut.mainTexture.width + "x" + ut.mainTexture.height + " widget=" + ut.width + "x" + ut.height + " pivot=" + ut.pivot + " lossy=" + ut.transform.lossyScale + " anchors=" + (ut.leftAnchor.target != null) + (ut.rightAnchor.target != null) + (ut.topAnchor.target != null) + (ut.bottomAnchor.target != null) + " chain:");
+			for (Transform ct = ut.transform; ct != null; ct = ct.parent)
+			{
+				ub.Append(" /").Append(ct.name).Append("[");
+				foreach (Component cc2 in ct.GetComponents<Component>()) if (cc2 != null && !(cc2 is Transform)) ub.Append(cc2.GetType().Name).Append(",");
+				ub.Append("]");
+			}
+			Debug.Log(ub.ToString());
+		}
+		foreach (UIRoot ur in Object.FindObjectsOfType<UIRoot>()) Debug.Log("[DIAG] UIRoot " + ur.name + " scaling=" + ur.scalingStyle + " manualH=" + ur.manualHeight + " active=" + ur.activeHeight + " lossy=" + ur.transform.lossyScale);
 		Renderer[] rs = Object.FindObjectsOfType<Renderer>();
 		int on = 0, off = 0;
 		var shaders = new System.Collections.Generic.Dictionary<string, int>();
@@ -338,6 +354,7 @@ public class TftfDiag : MonoBehaviour
 			Material m = r.sharedMaterial;
 			string sn = m == null ? "<nomat>" : (m.shader == null ? "<noshader>" : m.shader.name);
 			int n; shaders.TryGetValue(sn, out n); shaders[sn] = n + 1;
+			if (r.enabled && r.gameObject.activeInHierarchy && rs.Length < 40) { Transform tt = r.transform; string pth = tt.name; while (tt.parent != null && pth.Length < 80) { tt = tt.parent; pth = tt.name + "/" + pth; } Debug.Log("[DIAG] R " + pth + " | " + sn + " | mat=" + (m == null ? "-" : m.name) + " tex=" + (m == null || m.mainTexture == null ? "-" : m.mainTexture.name) + " q=" + (m == null ? 0 : m.renderQueue)); }
 		}
 		sb = new StringBuilder("[DIAG] renderers on=" + on + " off=" + off + " shaders:");
 		foreach (var kv in shaders) { if (shown++ < 14) sb.Append(" ").Append(kv.Key).Append("=").Append(kv.Value); }

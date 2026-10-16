@@ -194,7 +194,15 @@ namespace Tftf.Convert
                 deps[idOfName[n]] = myDeps;
                 foreach (var o in sf.Objects)
                 {
-                    if (o.ClassId == ClsShader || o.ClassId == ClsCgProgram) { stats.DroppedShaders++; continue; }
+                    if (o.ClassId == ClsCgProgram) { stats.DroppedShaders++; continue; }
+                    if (o.ClassId == ClsShader)
+                    {
+                        // Components keep their Shader references (UITexture.mShader decides blend vs opaque): keep a
+                        // named stub; the game resolves the real shader by name.
+                        string stubName;
+                        if (!shaderName.TryGetValue(n + "|" + o.PathId, out stubName) || string.IsNullOrEmpty(stubName)) { stats.DroppedShaders++; continue; }
+                        StubShader(o, db, stubName);
+                    }
                     kept.Add(o);
                     myDeps[o.PathId] = CollectDeps(sf, n, idOfName, o, db);
                     if (o.ClassId == ClsMaterial) FixMaterial(sf, n, o, db, shaderName, stats);
@@ -306,6 +314,19 @@ namespace Tftf.Convert
                 }
                 else output.Add(top.Key);
             }
+        }
+
+        static void StubShader(SerObject o, TreeDb db, string name)
+        {
+            var w = new ByteWriter();
+            w.AlignedString(name);
+            w.AlignedString("Shader \"" + name + "\" { SubShader { Pass { } } }");
+            w.AlignedString("");
+            w.I32(0);          // decompressedSize
+            w.I32(0);          // m_SubProgramBlob
+            w.I32(0);          // m_Dependencies
+            w.U8(0); w.U8(0); w.U8(0); w.U8(0);   // m_ShaderIsBaked, padded
+            o.Data = w.ToArray();
         }
 
         static void FixMaterial(SerializedFile sf, string file, SerObject o, TreeDb db, Dictionary<string, string> shaderName, ConvertStats stats)
