@@ -1,0 +1,83 @@
+[
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/AvxQuestExpirationManager.cs",
+  "line": 187
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/AvxQuestExpirationManager.cs",
+  "line": 233
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/BattleArbiter.cs",
+  "line": 292
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/BuffConditionFactory.cs",
+  "line": 46
+ },
+ {
+  "kind": "struct-this",
+  "file": "Assets/Scripts/Assembly-CSharp/BuffTriggerParams.cs",
+  "line": 7
+ },
+ {
+  "kind": "struct-this",
+  "file": "Assets/Scripts/Assembly-CSharp/BuffTriggerParams.cs",
+  "line": 12
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/AllianceMembersState.cs",
+  "line": 1316
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/CustomRedeemerMappings/ResourceRedeemerMapping.cs",
+  "line": 252
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/CustomStoreScreenPresentation.cs",
+  "line": 230
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num3",
+  "file": "Assets/Scripts/Assembly-CSharp/FlashSaleItem.cs",
+  "line": 103
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/HeroConsumablesPopupPresentation.cs",
+  "line": 1067
+ },
+ {
+  "kind": "new-constraint",
+  "file": "Assets/Scripts/Assembly-CSharp/StateMachine.cs",
+  "line": 71
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num12",
+  "file": "Assets/Scripts/Assembly-CSharp/Legacy/ActiveQuest.cs",
+  "line": 293
+ },
+ {
+  "kind": "unassigned-local",
+  "var": "num",
+  "file": "Assets/Scripts/Assembly-CSharp/EB/UI/Gacha/GachaPurchasePresentation.cs",
+  "line": 408
+ }
+]

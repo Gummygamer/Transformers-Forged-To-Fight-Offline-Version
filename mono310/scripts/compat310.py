@@ -1,0 +1,701 @@
+#!/usr/bin/env python3
+"""Mechanical repairs so ILSpy output of the 3.1.0 (Unity 5.4 / mcs) assemblies compiles
+under Unity 2020.3 / C# 8. Each repair class logs how many files/sites it touched.
+Usage: compat310.py <Assets dir>   (also imported by assemble_project.py)
+"""
+import re, sys
+from pathlib import Path
+from collections import OrderedDict
+
+LOG = OrderedDict()
+
+def note(cls, n=1):
+    LOG[cls] = LOG.get(cls, 0) + n
+
+def rd(p): return p.read_text(encoding="utf-8-sig")
+def wr(p, t): p.write_text(t, encoding="utf-8")
+
+def match_brace(t, i):
+    d = 0
+    for j in range(i, len(t)):
+        if t[j] == "{": d += 1
+        elif t[j] == "}":
+            d -= 1
+            if d == 0: return j
+    raise ValueError
+
+# P20/P22/P26 and the default-valued G3 signature match froze the title screen on device (bisected); kept disabled.
+SKIP = ("P20 ","P22 ","P26 ")
+def replace_in(root, rel, old, new, cls, regex=False):
+    if cls.startswith(SKIP): return
+    p = root / rel
+    if not p.exists(): return
+    t = rd(p)
+    n = len(re.findall(old, t)) if regex else t.count(old)
+    if n:
+        t = re.sub(old, new, t) if regex else t.replace(old, new)
+        wr(p, t); note(cls, n)
+
+def generic(root):
+    for p in list(root.rglob("*.cs")):
+        t = rd(p); o = t
+        # G1: ILSpy marks explicit interface impls 'virtual' (illegal)
+        t = re.sub(r"(?m)^(\s*)virtual (?=[\w<>\[\],\.? ]+ [\w<>\.]+\.\w+\s*(=>|\{|\())", r"\1", t)
+        if t != o: note("G1 drop 'virtual' on explicit interface impl")
+        # G2: mangled (_002E) compiler-generated explicit impl duplicates: drop the member
+        for m in list(re.finditer(r"(?m)^[ \t]*(?:virtual )?[\w<>\[\],\.]+ System_002E\w+\s*(?=\{|\()", t)):
+            pass
+        while True:
+            m = re.search(r"(?m)^[ \t]*(?:virtual )?[\w<>\[\],\.]+ System_002E\w+[^\n{]*\n\s*\{", t)
+            if not m: break
+            end = match_brace(t, t.index("{", m.start()))
+            t = t[:m.start()] + t[end + 1:]
+            note("G2 drop mangled _002E explicit-interface duplicate")
+        # G3: ILSpy loses iterator closure captures: "T name2 = default(T);" where the method has parameter "T name"
+        lines = t.split("\n"); changed = 0
+        for i, ln in enumerate(lines):
+            m = re.match(r"^(\s*)(.+?) (\w+?)(\d+) = default\((.+)\);\s*$", ln)
+            if not m or m.group(2) != m.group(5): continue
+            typ, base = m.group(2), m.group(3)
+            sig = re.compile(r"[\(,]\s*" + re.escape(typ) + r" " + re.escape(base) + r"\s*[,\)]")
+            if any(sig.search(lines[j]) for j in range(max(0, i - 90), i)):
+                lines[i] = f"{m.group(1)}{typ} {base}{m.group(4)} = {base};"; changed += 1
+        if changed:
+            t = "\n".join(lines); note("G3 iterator closure alias restored (default -> parameter)", changed)
+        if t != o: wr(p, t)
+
+def specific(fp, main):
+    replace_in(fp, "EB/DownloadHandlerStream.cs", "UnityEngine.Experimental.Networking", "UnityEngine.Networking",
+               "S1 Experimental.Networking -> Networking")
+    for rel in ("FontLocalizer.cs", "UIMaskMaterialManager.cs", "EB/Assets.cs"):
+        replace_in(fp, rel, r"(?<![\w.])Tuple<", "EB.Collections.Tuple<", "S2 ambiguous Tuple<>", regex=True)
+    for rel in ("GooglePlayGames/Native/ConversionUtils.cs", "GooglePlayGames/Native/NativeClient.cs"):
+        replace_in(fp, rel, r"(?<![\w.])Types\.", "GooglePlayGames.Native.Cwrapper.Types.", "S3 ambiguous Types", regex=True)
+    replace_in(fp, "EB/DownloadExtractor.cs", r"(?<![\w.])WebRequest\b", "EB.Net.WebRequest", "S4 ambiguous WebRequest", regex=True)
+    replace_in(fp, "EB/UI/DataBinding/ProcessMemberBinding.cs",
+               "const BindingFlags BindingFlags = BindingFlags.Static | BindingFlags.Public;",
+               "const BindingFlags BindingFlags = System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public;",
+               "S5 const BindingFlags self-reference")
+    # S8 Unity 5 -> 2020 API renames / removals
+    for p in list(fp.rglob("*.cs")) + list(main.rglob("*.cs")):
+        t = rd(p); o = t
+        t, n = re.subn(r"(?<![\w.])Profiler\.", "UnityEngine.Profiling.Profiler.", t)
+        if n: note("S8 Profiler -> UnityEngine.Profiling.Profiler", n)
+        t, n = re.subn(r"\.generateMips\b", ".autoGenerateMips", t)
+        if n: note("S27 RenderTexture.generateMips -> autoGenerateMips", n)
+        t, n = re.subn(r"\bmipmap: ", "mipChain: ", t)
+        if n: note("S9 Texture2D/Cubemap mipmap: -> mipChain:", n)
+        t, n = re.subn(r"\bleaveStreamOpen: ", "leaveInnerStreamOpen: ", t)
+        if n: note("S10 SslStream leaveStreamOpen -> leaveInnerStreamOpen", n)
+        t, n = re.subn(r"Application\.platform (==|!=) RuntimePlatform\.(OSX|Windows)WebPlayer",
+                       lambda m: "false" if m[1] == "==" else "true", t)
+        if n: note("S11 WebPlayer platform checks -> constant", n)
+        t, n = re.subn(r"(?<![\w.])Tuple<", "EB.Collections.Tuple<", t) if "namespace EB.Collections" not in t else (t, 0)
+        if n: note("S2b ambiguous Tuple<> (any file)", n)
+        t, n = re.subn(r"\[Optional\] (?!ref |out )((?:[\w.]+)(?:<[^()\[\]]*?>)?(?:\[\])?\??) (\w+)(?=\s*[,)])", r"\1 \2 = default", t)
+        if n: note("S20 [Optional] param -> '= default'", n)
+        t, n = re.subn(r"Application\.bundleIdentifier", "Application.identifier", t)
+        if n: note("S12 Application.bundleIdentifier -> identifier", n)
+        t, n = re.subn(r"System_002ECollections_002EGeneric_002EICollection_005B\w+_002Eget_Count\(\)", "base.Count", t)
+        if n: note("S13 mangled get_Count call -> base.Count", n)
+        if t != o: wr(p, t)
+    replace_in(fp, "EB/BugReport.cs", 'CallStatic<AndroidJavaObject>("getInstance", null)',
+               'CallStatic<AndroidJavaObject>("getInstance", (object[])null)', "S14 CallStatic null params overload")
+    replace_in(fp, "EB/Replication/Manager.cs", "methodInfo.GetCustomAttributes(typeof(RPC), inherit: true).Length > 0",
+               'Array.Exists(methodInfo.GetCustomAttributes(inherit: true), a => a.GetType().Name == "RPC")',
+               "S15 legacy [RPC] attribute lookup by name")
+    for rel in ("NGUIMath.cs", "NGUITools.cs", "PropertyReference.cs"):
+        replace_in(fp, rel, r"(?<![\w.])Debug\.", "UnityEngine.Debug.", "S17 ambiguous Debug (System.Diagnostics vs UnityEngine)", regex=True)
+    replace_in(fp, "TexturePoolManager.cs", r"(?<![\w.])Cache\.", "EB.Cache.", "S18 ambiguous Cache", regex=True)
+    replace_in(main, "PerformanceManager.cs", r"(?<![\w.])TrailRenderer\b", "EB.Rendering.TrailRenderer",
+               "S19 ambiguous TrailRenderer", regex=True)
+    replace_in(main, "BuffValidationLogger.cs", r"(?<![\w.])Debug\.", "EB.Debug.", "S21 ambiguous Debug -> EB.Debug", regex=True)
+    replace_in(main, "ReplicatedSequence.cs", r"(?<![\w.])(RPCMode|NetworkStateSynchronization)\b", r"EB.Replication.\1",
+               "S22 ambiguous legacy-network enums", regex=True)
+    for p in main.rglob("*.cs"):
+        t = rd(p)
+        if "markNoLogerReadable" in t:
+            wr(p, t.replace("markNoLogerReadable", "markNoLongerReadable")); note("S23 UploadMeshData param typo fixed in 5.5+")
+    replace_in(main, "MOTDWidget.cs", "new EB.Action<TransformersMOTDItem, MOTDTemplate>(HandleMOTDClick)",
+               "new EB.Action<TransformersMOTDItem, MOTDTemplate>((i, d) => HandleMOTDClick(i, d))",
+               "S24 method w/ optional param -> delegate lambda")
+    replace_in(main, "TransformersHomeScreen.cs",
+               "userProfile.GetMedalCount(), 1f, string.Empty, pitchShift: false, string.Empty, string.Empty)",
+               "userProfile.GetMedalCount(), 1f, string.Empty, pitchShift: false, string.Empty, string.Empty, separators: true)",
+               "S25 ambiguous overload (optional params)")
+    p = main / "HeroesScreen.cs"
+    if p.exists():
+        t = rd(p)
+        t2 = re.sub(r"foreach \(KeyValuePair<string, Building> building in Hub\.Instance\.BaseManager\.user\.buildings\)(\s*\{\s*)list\.Add\(building\.Value\);",
+                    r"foreach (KeyValuePair<string, Building> buildingEntry in Hub.Instance.BaseManager.user.buildings)\1list.Add(buildingEntry.Value);", t)
+        if t2 != t: wr(p, t2); note("S26 local name shadowing (CS0136)")
+    replace_in(fp, "EB/Sparx/Hub.cs", "flag = AndroidClient.SkipPlayServicesInitialization();", "flag = true;",
+               "S28 skip Play Services/GPG init (original GMS app id/resources unavailable; crashes on boot)")
+    # --- equivalents of the IL patches in tools/patch_firstpass.py (offline revival) ---
+    replace_in(fp, "EB/Sparx/EndPoint.cs",
+               "protected bool HasInternetConnectivity => Application.internetReachability != NetworkReachability.NotReachable;",
+               "protected bool HasInternetConnectivity => true;", "P1 EndPoint.HasInternetConnectivity -> true")
+    replace_in(fp, "EB/Sparx/HttpEndPoint.cs",
+               "public override bool IsHavingNetworkProblems => _retryCount >= 2 || !base.HasInternetConnectivity;",
+               "public override bool IsHavingNetworkProblems => false;", "P2 HttpEndPoint.IsHavingNetworkProblems -> false")
+    replace_in(fp, "EB/Sparx/PushManager.cs",
+               "\t\t\telse\n\t\t\t{\n\t\t\t\tbase.State = SubSystemState.Error;\n\t\t\t}\n\t\t}\n\n\t\tpublic WebSocketState GetSocketState",
+               "\t\t\telse\n\t\t\t{\n\t\t\t\tbase.State = SubSystemState.Connected;\n\t\t\t}\n\t\t}\n\n\t\tpublic WebSocketState GetSocketState",
+               "P3 PushManager.OnGetPushToken without websocket -> Connected")
+    # P4: keep the original "wait for every subsystem" guard (so TutorialManager has fetched before OnLoggedIn picks
+    # the FTE or Home flow), but never wait more than 30s for subsystems that cannot connect offline.
+    replace_in(fp, "EB/Sparx/Hub.cs",
+               "\t\tprivate void SubSystemConnect()\n\t\t{\n\t\t\tDebug.Log(\"[SparxHub] SubSystemConnect\");\n",
+               "\t\tprivate float _tftfConnectStart;\n\n\t\tprivate void SubSystemConnect()\n\t\t{\n\t\t\t_tftfConnectStart = UnityEngine.Time.realtimeSinceStartup;\n\t\t\tDebug.Log(\"[SparxHub] SubSystemConnect\");\n",
+               "P4a Hub connect start time")
+    replace_in(fp, "EB/Sparx/Hub.cs",
+               "\t\t\tif (!flag)\n\t\t\t{\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tDebug.Log(\"[SparxHub] SubSystemConnected\");",
+               "\t\t\tif (!flag && UnityEngine.Time.realtimeSinceStartup - _tftfConnectStart < 30f)\n\t\t\t{\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tDebug.Log(\"[SparxHub] SubSystemConnected\");",
+               "P4 Hub.SubSystemConnecting waits for subsystems (30s cap)")
+    replace_in(fp, "EB/Sparx/InvitesManager.cs",
+               "string key = $\"{category}.{type}\";\n\t\t\tif (!privacySettings.ContainsKey(key))",
+               "string key = $\"{category}.{type}\";\n\t\t\tif (privacySettings == null || !privacySettings.ContainsKey(key))",
+               "P5 InvitesManager.InvitePrivacySetting null-safe")
+    # logging: EB.Debug only buffers in release; mirror to logcat
+    p = fp / "EB/Debug.cs"
+    if p.exists():
+        t = rd(p)
+        for lvl, name in ((" I: ", "Log"), (" W: ", "LogWarning"), (" E: ", "LogError")):
+            old = '_buffer.Push(text);\n\t\t\t\tif (Debug.LogMessageReceived != null)\n\t\t\t\t{\n\t\t\t\t\tDebug.LogMessageReceived(text, string.Empty, LogType.%s' % {"Log":"Log","LogWarning":"Warning","LogError":"Error"}[name]
+            new = '_buffer.Push(text);\n\t\t\t\tUnityEngine.Debug.%s(text);\n\t\t\t\tif (Debug.LogMessageReceived != null)\n\t\t\t\t{\n\t\t\t\t\tDebug.LogMessageReceived(text, string.Empty, LogType.%s' % (name, {"Log":"Log","LogWarning":"Warning","LogError":"Error"}[name])
+            if old in t:
+                t = t.replace(old, new, 1); note("P6 mirror EB.Debug to UnityEngine.Debug (logcat)")
+        wr(p, t)
+    replace_in(fp, "EB/Sparx/Hub.cs",
+               "\t\tprivate void Awake()\n\t\t{\n\t\t\tInstance = this;",
+               "\t\tprivate void Awake()\n\t\t{\n\t\t\tSystem.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;\n"
+               "\t\t\tSystem.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;\n"
+               "\t\t\tSystem.Threading.Thread.CurrentThread.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;\n\t\t\tInstance = this;",
+               "P8 invariant culture (JSON floats were serialized as '304,79' on pt-BR devices)")
+    replace_in(fp, "EB/Rendering/EBPostFXManager.cs", "\t\t\t\t_CurrentPostFX[i]?.Apply(src, depth, camera);",
+               "\t\t\t\ttry { _CurrentPostFX[i]?.Apply(src, depth, camera); } catch (System.Exception) { }",
+               "P9 post-FX effects: swallow per-effect exceptions (stub shaders -> NRE -> critical-error popup)")
+    replace_in(fp, "EB/Rendering/EBPostFXManager.cs",
+               "\t\t\t\tif (_CompositeShader == null)\n\t\t\t\t{\n\t\t\t\t\tDebug.LogError(\"Could not load postfx shader \" + text);\n\t\t\t\t\treturn;\n\t\t\t\t}",
+               "\t\t\t\tif (_CompositeShader == null)\n\t\t\t\t{\n\t\t\t\t\t_CompositeShader = Shader.Find(\"Hidden/EB/Blit\");\n\t\t\t\t}\n\t\t\t\tif (_CompositeShader == null)\n\t\t\t\t{\n\t\t\t\t\tDebug.LogError(\"Could not load postfx shader \" + text);\n\t\t\t\t\treturn;\n\t\t\t\t}",
+               "P10 generated post-FX composite shader falls back to Hidden/EB/Blit")
+    # P11: Shader.Find -> ShaderFallback.Find (Resources/Shader310 copy when Shader.Find misses)
+    wr(fp / "ShaderFallback.cs", """using UnityEngine;
+using System.Text.RegularExpressions;
+
+public static class ShaderFallback
+{
+	public static Shader Find(string name)
+	{
+		if (string.IsNullOrEmpty(name)) return null;
+		Shader s = Shader.Find(name);
+		if (s != null) return s;
+		s = Resources.Load<Shader>("Shader310/" + Regex.Replace(name, "[^A-Za-z0-9]+", "_"));
+		if (s != null) return s;
+		// Never hand back null: a Material(null) throws and the game turns that into a critical error.
+		foreach (string fb in new string[] { "Sprites/Default", "UI/Default", "Unlit/Transparent", "Hidden/Internal-Colored" })
+		{
+			s = Shader.Find(fb);
+			if (s != null) return s;
+		}
+		Shader[] all = Resources.FindObjectsOfTypeAll<Shader>();
+		return all != null && all.Length > 0 ? all[0] : null;
+	}
+}
+""")
+    for p in list(fp.rglob("*.cs")) + list(main.rglob("*.cs")):
+        if p.name == "ShaderFallback.cs": continue
+        t = rd(p)
+        t2, n = re.subn(r"(?<![\w.])Shader\.Find\(", "ShaderFallback.Find(", t)
+        if n: wr(p, t2); note("P11 Shader.Find -> ShaderFallback.Find", n)
+    # D1: runtime scene diagnostics (cameras, renderers) logged every 15s; remove once rendering is understood
+    wr(fp / "TftfDiag.cs", """using System.Text;
+using UnityEngine;
+
+public class TftfDiag : MonoBehaviour
+{
+	[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+	private static void Boot()
+	{
+		GameObject go = new GameObject("TftfDiag");
+		DontDestroyOnLoad(go);
+		go.AddComponent<TftfDiag>();
+	}
+
+	private float _next = 20f;
+	private float _nextGlobals = 0f;
+
+	private static bool _lodLogged;
+	private static readonly System.Collections.Generic.HashSet<int> _swapped = new System.Collections.Generic.HashSet<int>();
+	private static Shader _swapShader;
+
+	// The donor PBR shaders draw nothing in this pipeline: give those renderers a plain textured material.
+	private static void SwapPbr()
+	{
+		if (_swapShader == null) _swapShader = ShaderFallback.Find("TFTF/LitTex"); if (_swapShader == null || _swapShader.name != "TFTF/LitTex") _swapShader = ShaderFallback.Find("EBG/UI/Opaque");
+		if (_swapShader == null) return;
+		string[] prefs = new string[] { "_base_tex", "_BaseTex", "_MainTex", "_BaseMap", "_AlbedoTex", "_Albedo", "_DiffuseTex", "_Diffuse" };
+		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
+		{
+			Material[] mats = r.sharedMaterials;
+			bool changed = false;
+			for (int i = 0; i < mats.Length; i++)
+			{
+				Material m = mats[i];
+				if (m == null || m.shader == null) continue;
+				string n = m.shader.name;
+				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal"))) continue;
+				int id = m.GetInstanceID();
+				Texture tex = null;
+				foreach (string pn in prefs) { if (m.HasProperty(pn)) { tex = m.GetTexture(pn); if (tex != null) break; } }
+				if (tex == null) foreach (string pn in m.GetTexturePropertyNames()) { if (pn.Contains("emissive") || pn.Contains("damage") || pn.Contains("translucency") || pn.Contains("normal") || pn.Contains("composite") || pn.Contains("metallic") || pn.Contains("roughness") || pn.Contains("_ao")) continue; Texture t = m.GetTexture(pn); if (t != null) { tex = t; break; } }
+				Material nm = new Material(_swapShader);
+				nm.name = m.name + "_swap";
+				if (tex != null) nm.mainTexture = tex;
+				nm.color = Color.white;
+				mats[i] = nm; changed = true;
+				if (_swapped.Add(id)) Debug.Log("[DIAG] swapped " + r.name + " shader=" + n.Substring(0, Mathf.Min(48, n.Length)) + " tex=" + (tex != null ? tex.name : "none") + " props=" + string.Join(",", m.GetTexturePropertyNames()));
+			}
+			if (changed)
+			{
+				r.sharedMaterials = mats;
+				MeshFilter mf2 = r.GetComponent<MeshFilter>();
+				Mesh m2 = mf2 != null ? mf2.sharedMesh : null;
+				if (!(r is SkinnedMeshRenderer) && m2 != null && m2.isReadable && m2.colors32.Length == 0)
+				{
+					Color32[] white = new Color32[m2.vertexCount];
+					for (int ci = 0; ci < white.Length; ci++) white[ci] = new Color32(255, 255, 255, 255);
+					m2.colors32 = white;
+					Debug.Log("[DIAG] painted white vertex colors on " + r.name + " (" + white.Length + ")");
+				}
+			}
+		}
+	}
+
+	private static void ApplyGlobals()
+	{
+		if (!_lodLogged) { _lodLogged = true; Debug.Log("[DIAG] globalMaximumLOD(before)=" + Shader.globalMaximumLOD + " rtCount=" + SystemInfo.supportedRenderTargetCount + " gles=" + SystemInfo.graphicsDeviceVersion); }
+		Shader.globalMaximumLOD = 100000;
+		Shader.SetGlobalFloat("_EBExposure", 1f);
+		Shader.SetGlobalFloat("_EBOneOverExposure", 1f);
+		Shader.SetGlobalFloat("_EBSkyLuminanceScale", 1f / 32f);
+		Shader.SetGlobalFloat("_EBEmissiveExposure", 1f);
+		Shader.SetGlobalFloat("_AODirectInfluence", 1f);
+		Shader.SetGlobalVector("_EBLightmapAdjust", new Vector4(1f, 1f, 1f, 1f));
+		Shader.SetGlobalVector("_EBDirectionalLightDirection", new Vector4(0.3f, 0.8f, -0.5f, 0f));
+		Shader.SetGlobalVector("_EBDirectionalLightLuminanceIntensity", new Vector4(1f, 1f, 1f, 1f));
+		Shader.SetGlobalVector("_PMREMScale", new Vector4(1f, 1f, 1f, 1f));
+		Shader.SetGlobalVector("_FogParams", Vector4.zero);
+		Shader.SetGlobalTexture("_lm", Texture2D.whiteTexture);
+	}
+
+	private Camera _rig;
+
+	private void LateUpdate()
+	{
+		if (_rig == null)
+		{
+			foreach (Camera c in Camera.allCameras) if (c.name == "RigCamera") _rig = c;
+		}
+		if (_rig != null) _rig.ResetProjectionMatrix();
+	}
+
+	private void Update()
+	{
+		if (QualitySettings.skinWeights != SkinWeights.FourBones) QualitySettings.skinWeights = SkinWeights.FourBones;
+		if (Time.realtimeSinceStartup >= _nextGlobals)
+		{
+			_nextGlobals = Time.realtimeSinceStartup + 1f;
+			if (!EB.Rendering.EBTimeOfDayManager.IsInitialized || EB.Rendering.EBTimeOfDayManager.Instance.GetActiveTimeOfDay() == null) ApplyGlobals();
+			SwapPbr();
+		}
+		if (Time.realtimeSinceStartup < _next) return;
+		_next = Time.realtimeSinceStartup + 15f;
+		StringBuilder sb = new StringBuilder("[DIAG] cameras:");
+		foreach (Camera c in Camera.allCameras)
+		{
+			sb.Append(" {").Append(c.name).Append(" en=").Append(c.enabled).Append(" mask=").Append(c.cullingMask)
+			  .Append(" depth=").Append(c.depth).Append(" clear=").Append(c.clearFlags).Append(" rt=").Append(c.targetTexture != null)
+			  .Append(" rect=").Append(c.rect).Append(" path=").Append(c.actualRenderingPath).Append("}");
+		}
+		Debug.Log(sb.ToString());
+		foreach (Camera cc in Camera.allCameras)
+		{
+			if (cc.name == "RigCamera")
+			{
+				cc.clearFlags = CameraClearFlags.SolidColor;
+				cc.backgroundColor = new Color(0f, 1f, 1f, 1f);
+				Debug.Log("[DIAG] RigCamera pos=" + cc.transform.position + " rot=" + cc.transform.eulerAngles + " ortho=" + cc.orthographic + " fov=" + cc.fieldOfView + " near=" + cc.nearClipPlane + " far=" + cc.farClipPlane + " hdr=" + cc.allowHDR + " msaa=" + cc.allowMSAA);
+			}
+		}
+		Renderer[] rs = Object.FindObjectsOfType<Renderer>();
+		int on = 0, off = 0;
+		var shaders = new System.Collections.Generic.Dictionary<string, int>();
+		int shown = 0;
+		foreach (Renderer r in rs)
+		{
+			if (r.enabled && r.gameObject.activeInHierarchy) on++; else off++;
+			Material m = r.sharedMaterial;
+			string sn = m == null ? "<nomat>" : (m.shader == null ? "<noshader>" : m.shader.name);
+			int n; shaders.TryGetValue(sn, out n); shaders[sn] = n + 1;
+		}
+		sb = new StringBuilder("[DIAG] renderers on=" + on + " off=" + off + " shaders:");
+		foreach (var kv in shaders) { if (shown++ < 14) sb.Append(" ").Append(kv.Key).Append("=").Append(kv.Value); }
+		Debug.Log(sb.ToString());
+		Camera rig = null;
+		foreach (Camera c3 in Camera.allCameras) if (c3.name == "RigCamera") rig = c3;
+		if (rig != null)
+		{
+			Debug.Log("[DIAG] rig activeTexture=" + (rig.activeTexture != null ? rig.activeTexture.name + " " + rig.activeTexture.width + "x" + rig.activeTexture.height : "null") + " targetTexture=" + (rig.targetTexture != null) + " pixelRect=" + rig.pixelRect + " screen=" + Screen.width + "x" + Screen.height + " stackedOver=" + rig.depth + " opaque=" + rig.opaqueSortMode + " useOcc=" + rig.useOcclusionCulling + " layerCull=" + (rig.layerCullDistances != null));
+			float[] lcd = rig.layerCullDistances;
+			StringBuilder lb = new StringBuilder("[DIAG] layerCullDistances spherical=" + rig.layerCullSpherical + " nonzero:");
+			for (int li = 0; li < lcd.Length; li++) if (lcd[li] != 0f) lb.Append(" L").Append(li).Append("=").Append(lcd[li]);
+			Debug.Log(lb.ToString() + " proj=" + rig.projectionMatrix.m00.ToString("F3") + "," + rig.projectionMatrix.m11.ToString("F3") + "," + rig.projectionMatrix.m22.ToString("F3") + "," + rig.projectionMatrix.m23.ToString("F3") + " nearCullMatrixSet=" + rig.nonJitteredProjectionMatrix.m00.ToString("F3") + " worldToCamera.m23=" + rig.worldToCameraMatrix.m23.ToString("F1") + " sceneCull=" + rig.cameraType);
+			Plane[] planes = GeometryUtility.CalculateFrustumPlanes(rig);
+			int inMask = 0, inFrustum = 0, listed = 0;
+			StringBuilder sb2 = new StringBuilder("[DIAG] visibility:");
+			foreach (Renderer r in rs)
+			{
+				if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+				bool m2 = ((1 << r.gameObject.layer) & rig.cullingMask) != 0;
+				bool f2 = GeometryUtility.TestPlanesAABB(planes, r.bounds);
+				if (m2) inMask++;
+				if (m2 && f2) inFrustum++;
+				if (r.name == "GameboardBuilder_terrain")
+				{
+					Material tm = r.sharedMaterial;
+					StringBuilder pb = new StringBuilder("[DIAG] terrain material=" + (tm != null ? tm.name : "null") + " passCount=" + (tm != null ? tm.passCount : -1) + " queue=" + (tm != null ? tm.renderQueue : -1) + " keywords=" + (tm != null ? string.Join(",", tm.shaderKeywords) : "") + " passes:");
+					if (tm != null && tm.shader != null)
+					{
+						for (int pi = 0; pi < tm.shader.passCount && pi < 12; pi++)
+						{
+							string lm = "?";
+							try { lm = tm.shader.FindPassTagValue(pi, new UnityEngine.Rendering.ShaderTagId("LightMode")).name; } catch (System.Exception) { }
+							pb.Append(" [").Append(pi).Append(":").Append(tm.GetPassName(pi)).Append("/LM=").Append(lm).Append(" en=").Append(tm.GetShaderPassEnabled(lm)).Append("]");
+						}
+					}
+					Debug.Log(pb.ToString());
+				}
+				if (listed < 8 && r.bounds.size.magnitude > 20f)
+				{
+					listed++;
+					Material mt = r.sharedMaterial;
+					MeshFilter mf = r.GetComponent<MeshFilter>();
+					Mesh ms = mf != null ? mf.sharedMesh : null;
+					sb2.Append(" {").Append(r.name).Append(" vis=").Append(r.isVisible).Append(" verts=").Append(ms != null ? ms.vertexCount : -1).Append(" subs=").Append(ms != null ? ms.subMeshCount : -1)
+					   .Append(" scale=").Append(r.transform.lossyScale).Append(" L=").Append(r.gameObject.layer).Append(" mask=").Append(m2).Append(" frus=").Append(f2)
+					   .Append(" c=").Append(r.bounds.center).Append(" sz=").Append(r.bounds.size.magnitude.ToString("F0"))
+					   .Append(" q=").Append(mt != null ? mt.renderQueue : -1).Append(" sh=").Append(mt != null && mt.shader != null ? mt.shader.name.Substring(0, Mathf.Min(40, mt.shader.name.Length)) : "-")
+					   .Append(" supp=").Append(mt != null && mt.shader != null ? mt.shader.isSupported : false).Append("}");
+				}
+			}
+			sb2.Insert(0, "[DIAG] inMask=" + inMask + " inFrustum=" + inFrustum + " ");
+			Debug.Log(sb2.ToString());
+		}
+		SkinnedMeshRenderer[] sms = Object.FindObjectsOfType<SkinnedMeshRenderer>();
+		StringBuilder sk = new StringBuilder("[DIAG] skinned=" + sms.Length + ":");
+		int skShown = 0;
+		foreach (SkinnedMeshRenderer sm in sms)
+		{
+			if (skShown++ >= 14) break;
+			Mesh sh = sm.sharedMesh;
+			Material m0 = sm.sharedMaterial;
+			sk.Append(" {").Append(sm.name).Append(" en=").Append(sm.enabled).Append(" act=").Append(sm.gameObject.activeInHierarchy)
+			  .Append(" vis=").Append(sm.isVisible).Append(" verts=").Append(sh != null ? sh.vertexCount : -1)
+			  .Append(" bones=").Append(sm.bones != null ? sm.bones.Length : -1).Append(" bindposes=").Append(sh != null ? sh.bindposes.Length : -1)
+			  .Append(" bpv=").Append(sh != null ? sh.GetBonesPerVertex().Length : -1)
+			  .Append(" mat=").Append(m0 != null ? m0.name : "null").Append(" sh=").Append(m0 != null && m0.shader != null ? m0.shader.name : "-")
+			  .Append(" b=").Append(sm.bounds.size).Append(" ctr=").Append(sm.bounds.center).Append(" L=").Append(sm.gameObject.layer)
+			  .Append(" rootpos=").Append(sm.rootBone != null ? sm.rootBone.position : sm.transform.position)
+			  .Append(" tex=").Append(m0 != null && m0.mainTexture != null ? m0.mainTexture.name : "none").Append("}");
+		}
+		Debug.Log(sk.ToString());
+		GameObject b = GameObject.Find("BaseRoot(Clone)");
+		if (b == null) b = GameObject.Find("BaseRoot");
+		Debug.Log("[DIAG] BaseRoot=" + (b != null) + (b != null ? " active=" + b.activeInHierarchy + " pos=" + b.transform.position + " childCount=" + b.transform.childCount : ""));
+	}
+}
+""")
+    replace_in(fp, "EB/Sparx/Hub.cs",
+               "System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;\n",
+               "System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;\n\t\t\tif (UnityEngine.GameObject.Find(\"TftfDiag\") == null) { UnityEngine.GameObject diag = new UnityEngine.GameObject(\"TftfDiag\"); UnityEngine.Object.DontDestroyOnLoad(diag); diag.AddComponent<TftfDiag>(); }\n",
+               "D2 start diagnostics from Hub.Awake")
+    # P27: the ripped GraphicsSettings tiers resolved to VertexLit, so PBR forward passes never draw (black board): force Forward
+    replace_in(fp, "EB/Rendering/EBDeferredCamera.cs",
+               "\t\tprivate void Start()\n\t\t{\n\t\t\tCameraCutAction = delegate",
+               "\t\tprivate void Start()\n\t\t{\n\t\t\tGetComponent<Camera>().renderingPath = UnityEngine.RenderingPath.Forward;\n\t\t\tCameraCutAction = delegate",
+               "P27a EBDeferredCamera.Start forces Forward rendering path")
+    replace_in(fp, "EB/Rendering/EBDeferredCamera.cs",
+               "\t\tpublic void Setup(bool forcePostFXReset = false)\n\t\t{\n",
+               "\t\tpublic void Setup(bool forcePostFXReset = false)\n\t\t{\n\t\t\tGetComponent<Camera>().renderingPath = UnityEngine.RenderingPath.Forward;\n",
+               "P27b EBDeferredCamera.Setup forces Forward rendering path")
+    # D3: trace the shared-camera setup chain
+    replace_in(fp, "EBSharedCameraController.cs", r"(protected virtual void OnDeferredReady\(\)\s*\{)",
+               r'\1 UnityEngine.Debug.Log("[SCC] OnDeferredReady");', "D3a SCC.OnDeferredReady log", regex=True)
+    replace_in(fp, "EBSharedCameraController.cs", r"(protected void CheckCameraUpdate\(\)\s*\{)",
+               r'\1 UnityEngine.Debug.Log("[SCC] CheckCameraUpdate setup=" + _SetupComplete + " stack=" + _CameraStack.Count + " current=" + (_CurrentCamera == null ? "null" : _CurrentCamera.Requester));', "D3b SCC.CheckCameraUpdate log", regex=True)
+    replace_in(fp, "EBSharedCameraController.cs", r"(private void SetCameraSettings\(SharedCameraSettings settings\)\s*\{)",
+               r'\1 UnityEngine.Debug.Log("[SCC] SetCameraSettings req=" + (settings == null ? "null" : settings.Requester) + " far=" + (settings == null ? 0f : settings.Far) + " near=" + (settings == null ? 0f : settings.Near) + " parent=" + (settings == null || settings.Parent == null ? "null" : settings.Parent.name));', "D3c SCC.SetCameraSettings log", regex=True)
+    replace_in(fp, "EB/Rendering/EBDeferredCamera.cs", "\t\t\tGetComponent<Camera>().renderingPath = UnityEngine.RenderingPath.Forward;\n\t\t\t_Setup = true;\n",
+               "\t\t\tUnityEngine.Debug.Log(\"[EDC] Setup begin\");\n\t\t\tGetComponent<Camera>().renderingPath = UnityEngine.RenderingPath.Forward;\n\t\t\t_Setup = true;\n", "D3d EDC.Setup begin log")
+    replace_in(fp, "EB/Rendering/EBDeferredCamera.cs", "\t\t\tif (OnSetupComplete != null)\n\t\t\t{\n\t\t\t\tOnSetupComplete();\n",
+               "\t\t\tUnityEngine.Debug.Log(\"[EDC] Setup end, listeners=\" + (OnSetupComplete != null));\n\t\t\tif (OnSetupComplete != null)\n\t\t\t{\n\t\t\t\tOnSetupComplete();\n", "D3e EDC.Setup end log")
+    # P28: missing localisation must not NRE the fight mode buttons
+    replace_in(main, "QuestModeButton.cs", "string text = _buttonData.CategoryTitle;", "string text = _buttonData.CategoryTitle ?? string.Empty;", "P28a QuestModeButton title null-safe")
+    replace_in(main, "QuestModeButton.cs", "string text2 = _buttonData.CategoryDescription;", "string text2 = _buttonData.CategoryDescription ?? string.Empty;", "P28b QuestModeButton description null-safe")
+    # P29: GetRenderPath(kMain) always answers Forward (and records it in the static table the buffer setup reads)
+    replace_in(fp, "EB/Rendering/EBGBuffer.cs",
+               "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n",
+               "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n\t\t\tif (buffer == eMRT_BUFFER.kMain)\n\t\t\t{\n\t\t\t\t_RenderPath[0] = eRENDER_PATH.Forward;\n\t\t\t\treturn eRENDER_PATH.Forward;\n\t\t\t}\n",
+               "P29 EBGBuffer forward render path for the main buffer")
+    # P30: Dictionary<T,..>(EnumComparer<T>) throws TypeLoadException under Unity 2020 Mono: use the default comparer
+    for root in (fp, main):
+        replace_in(root, "EnumMap.cs", "new Dictionary<T, string>(kComparer);", "new Dictionary<T, string>();", "P30 EnumMap default comparer")
+    # P31: EnumComparer<T> used an explicit-layout generic union struct, which Unity 2020 Mono cannot load
+    for root in (fp, main):
+        if (root / "EnumComparer.cs").exists():
+            wr(root / "EnumComparer.cs", """using System.Collections.Generic;
+
+public class EnumComparer<T> : IEqualityComparer<T> where T : struct
+{
+	public bool Equals(T x, T y)
+	{
+		return EqualityComparer<T>.Default.Equals(x, y);
+	}
+
+	public int GetHashCode(T x)
+	{
+		return x.GetHashCode();
+	}
+}
+""")
+            note("P31 EnumComparer rewritten without a generic union")
+    # P32: the ripped QualitySettings carry skinWeights=0 (invalid) which breaks skinned meshes (flat 'poster' fighters)
+    replace_in(main, "PerformanceManager.cs",
+               "Application.targetFrameRate = 30;\n\t\tQualitySettings.vSyncCount = 2;",
+               "Application.targetFrameRate = 30;\n\t\tQualitySettings.vSyncCount = 2;\n\t\tQualitySettings.skinWeights = SkinWeights.FourBones;\n\t\tQualitySettings.lodBias = 1f;",
+               "P32 PerformanceManager forces four-bone skinning and a sane lodBias")
+    # P12: forward camera path (the deferred G-buffer/light pipeline cannot work with stub shaders)
+    replace_in(fp, "EB/Rendering/EBDeferredCamera.cs",
+               "_renderPath = EBGBuffer.GetRenderPath(EBGBuffer.eMRT_BUFFER.kMain, nativeResolution, HasPostFX());",
+               "_renderPath = EBGBuffer.GetRenderPath(EBGBuffer.eMRT_BUFFER.kMain, nativeResolution, false);", "P12 EBDeferredCamera forced to Forward render path")
+    replace_in(fp, "EB/Rendering/EBDeferredCamera.cs",
+               "\t\t\tEBPlanarReflectionManager.Instance.Render(GetComponent<Camera>());",
+               "\t\t\ttry { EBPlanarReflectionManager.Instance.Render(GetComponent<Camera>()); } catch (System.Exception) { }",
+               "P13 planar reflection render guarded")
+    # P14: a missing UIScreenCapture shader must not throw out of the window-stack callbacks
+    for root in (fp, main):
+        replace_in(root, "EB/Rendering/EBUIScreenCapture.cs",
+                   "_SCBlitMaterial = new Material(shader);",
+                   "if (shader != null) { _SCBlitMaterial = new Material(shader); }",
+                   "P14 EBUIScreenCapture tolerates a missing shader")
+        replace_in(root, "EB/Rendering/EBUIScreenCapture.cs",
+                   "\tpublic bool Capture(ref UITextureRef uiTexture, UIScreenCaptureParams captureParams, Camera[] camerasToInclude = null)\n\t{\n",
+                   "\tpublic bool Capture(ref UITextureRef uiTexture, UIScreenCaptureParams captureParams, Camera[] camerasToInclude = null)\n\t{\n\t\tSetup();\n\t\tif (_SCBlitMaterial == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n",
+                   "P14 EBUIScreenCapture.Capture returns false without a material")
+    # P15: Unity-2020 port noise (stub shaders etc.) must not turn every logged exception into the critical-error popup
+    replace_in(fp, "EB/BugReport.cs", r"if \((!_sent && )?type == LogType\.Exception\)",
+               "if (false && type == LogType.Exception)",
+               "P15 exceptions no longer trigger the bug-report critical popup", regex=True)
+    # P16: tolerate a null callback in InventoryAPI._Sync
+    replace_in(fp, "EB/Sparx/InventoryAPI.cs", "\t\t\t\t\tcallback(result.id, null, result.hashtable);",
+               "\t\t\t\t\tif (callback != null) callback(result.id, null, result.hashtable);", "P16 InventoryAPI callback null-check")
+    # P17: log what AssetBundleManager actually hands back (bundle null? asset null? names)
+    replace_in(fp, "EB/AssetBundleManager.cs",
+               "\t\t\tAssetBundleRequest asyncOp = info.bundle.LoadAssetAsync(name, typeof(T));\n\t\t\tyield return asyncOp;\n\t\t\tT asset = (T)asyncOp.asset;\n",
+               "\t\t\tif (info.bundle == null) { UnityEngine.Debug.LogError(\"[ABM] bundle null for \" + path + \" (info.isLoaded=\" + info.isLoaded + \")\"); cb(null, default(T)); yield break; }\n"
+               "\t\t\tAssetBundleRequest asyncOp = info.bundle.LoadAssetAsync(name, typeof(T));\n\t\t\tyield return asyncOp;\n\t\t\tT asset = (T)asyncOp.asset;\n"
+               "\t\t\tif (asset == null) { string[] names = info.bundle.GetAllAssetNames(); UnityEngine.Debug.LogError(\"[ABM] asset null: path=\" + path + \" name=\" + name + \" type=\" + typeof(T).Name + \" bundleAssets=\" + names.Length + \" first=\" + (names.Length > 0 ? names[0] : \"-\")); }\n"
+               "\t\t\telse { UnityEngine.Debug.Log(\"[ABM] loaded \" + path + \" -> \" + asset.GetType().Name); }\n",
+               "P17 AssetBundleManager load diagnostics")
+    # P18: ILSpy lost the body of the requested-bundle match in ODRManager.OpenWad (same flags as the else-if branch beside it)
+    replace_in(fp, "EB/Sparx/ODRManager.cs",
+               r"if \(!string\.Equals\(assetBundleName, requestedBundle, StringComparison\.OrdinalIgnoreCase\)\)\s*\{\s*\}",
+               "if (string.Equals(assetBundleName, requestedBundle, StringComparison.OrdinalIgnoreCase))\n"
+               "\t\t\t\t\t\t{\n\t\t\t\t\t\t\tzipEntryOpenArchiveOptions |= ODRManager.OpenArchiveOptions.LoadInline;\n"
+               "\t\t\t\t\t\t\tzipEntryOpenArchiveOptions |= ODRManager.OpenArchiveOptions.LoadAssetBundles;\n"
+               "\t\t\t\t\t\t\tbreak;\n\t\t\t\t\t\t}",
+               "P18 ODRManager.OpenWad requested-bundle flags restored", regex=True)
+    # P19: ILSpy split iterator-closure captures into dead copies (val/flag/text) in Assets.DoLoadAsync: restore the originals
+    F = "EB/Assets.cs"
+    for old, new in (
+        ("\t\t\t\tT val;\n\t\t\t\tif (ODRManager.Instance == null)\n\t\t\t\t{\n\t\t\t\t\tbool flag;\n",
+         "\t\t\t\tif (ODRManager.Instance == null)\n\t\t\t\t{\n"),
+        ("\t\t\t\t\t\tval = resourceObj;\n\t\t\t\t\t\tflag = true;\n", "\t\t\t\t\t\tobj = resourceObj;\n\t\t\t\t\t\tcheckedResources = true;\n"),
+        ("\t\t\t\t\tstring text;\n\t\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(string err, T val2)\n\t\t\t\t\t{\n\t\t\t\t\t\tval = val2;\n\t\t\t\t\t\ttext = err;\n",
+         "\t\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(string err, T val2)\n\t\t\t\t\t{\n\t\t\t\t\t\tobj = val2;\n\t\t\t\t\t\terrFromAssetBundleManager = err;\n"),
+        ("\t\t\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\tval = resourceObj;\n",
+         "\t\t\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\tobj = resourceObj;\n"),
+    ):
+        replace_in(fp, F, old, new, "P19 Assets.DoLoadAsync closure captures restored")
+    # P20: bound the wait on the asset cleanup task (a stuck Resources.UnloadUnusedAssets froze every load behind it)
+    replace_in(fp, "EB/Assets.cs",
+               "\t\t\tT obj = (T)null;\n\t\t\twhile (_cleanupTask != null && !_cleanupTask.isDone)\n\t\t\t{\n\t\t\t\tyield return null;\n\t\t\t}\n",
+               "\t\t\tT obj = (T)null;\n\t\t\tfloat cleanupWaitStart = UnityEngine.Time.realtimeSinceStartup;\n"
+               "\t\t\twhile (_cleanupTask != null && !_cleanupTask.isDone && UnityEngine.Time.realtimeSinceStartup - cleanupWaitStart < 5f)\n\t\t\t{\n\t\t\t\tyield return null;\n\t\t\t}\n",
+               "P20 Assets.DoLoadAsync cleanup wait bounded")
+    # P21: library callbacks must always release the wait, even when the load returned null
+    replace_in(main, "Quests/Presentation/GameboardBuilder.cs",
+               r"if \(lib != null\)(\s*\{\s*_(?:Theme|Common|Building)Library = lib;)", r"if (true)\1",
+               "P21 GameboardBuilder library callbacks always set the loaded flag", regex=True)
+    # P22: DoLoadMultiAsync lost its per-iteration capture
+    replace_in(fp, "EB/Assets.cs",
+               "\t\t\tT[] array = default(T[]);\n\t\t\tint num = default(int);\n\t\t\tfor (int i = 0; i < paths.Length; i++)\n\t\t\t{\n\t\t\t\tyield return LoadAsync(paths[i], delegate(T asset)\n\t\t\t\t{\n\t\t\t\t\tarray[num] = asset;\n",
+               "\t\t\tfor (int i = 0; i < paths.Length; i++)\n\t\t\t{\n\t\t\t\tint num = i;\n\t\t\t\tyield return LoadAsync(paths[i], delegate(T asset)\n\t\t\t\t{\n\t\t\t\t\tobjectList[num] = asset;\n",
+               "P22 Assets.DoLoadMultiAsync per-iteration capture restored")
+    # P23: alliance-quest config alias
+    replace_in(main, "Quests/Presentation/GameboardBuilder.cs", "Config config2 = default(Config);", "Config config2 = config;",
+               "P23 GameboardBuilder config alias")
+    # P25: players without lvlB resources must not NRE the badge counters
+    replace_in(main, "TutorialManagerHelper.cs",
+               "if (Hub.Instance.ResourcesManager.GetResource(typeName).Amount > 0 && !IsTutorialComplete(text)",
+               "if (Hub.Instance.ResourcesManager.GetResource(typeName) != null && Hub.Instance.ResourcesManager.GetResource(typeName).Amount > 0 && !IsTutorialComplete(text)",
+               "P25 GetPendingBuildingUnlockTutorial null-safe")
+    # P26: honouring hold=true pins preloaded libraries and stalls the preload manager here; keep the previous behaviour
+    replace_in(fp, "EB/AssetManager.cs", "bool hold2 = hold;", "bool hold2 = false;", "P26 AssetManager hold pinning disabled")
+    p = fp / "EB/FileSystem/ZipDriver.cs"   # P7 (same fix as 2.0.2): SharpZipLib asks for OEM code page 850/437
+    if p.exists():
+        t = rd(p)
+        if "AsciiCodePageProvider" not in t:
+            t = t.replace("\tpublic class ZipDriver : Driver\n\t{",
+                "\tinternal sealed class AsciiCodePageProvider : System.Text.EncodingProvider\n\t{\n"
+                "\t\tpublic override System.Text.Encoding GetEncoding(int codepage) { return codepage == 850 || codepage == 437 ? System.Text.Encoding.ASCII : null; }\n"
+                "\t\tpublic override System.Text.Encoding GetEncoding(string name) { return null; }\n\t}\n\n\tpublic class ZipDriver : Driver\n\t{", 1)
+            t = t.replace("\t\tpublic ZipDriver()\n\t\t{\n", "\t\tpublic ZipDriver()\n\t\t{\n\t\t\tSystem.Text.Encoding.RegisterProvider(new AsciiCodePageProvider());\n", 1)
+            wr(p, t); note("P7 ZipDriver code-page 850/437 provider (APK zip reads)")
+    p = fp / "EB/Sparx/GachaManager.cs"
+    if p.exists():
+        t = rd(p)
+        t2 = re.sub(r"default:\s*\{\s*int num;\s*if \(num == 1\)\s*\{\s*result = GetBox\(data\);\s*break;\s*\}\s*(Debug\.LogError\([^;]*\);)\s*break;\s*\}",
+                    r'case "box":\n\t\t\t\t\tresult = GetBox(data);\n\t\t\t\t\tbreak;\n\t\t\t\tdefault:\n\t\t\t\t\t\1\n\t\t\t\t\tbreak;', t)
+        if t2 != t: wr(p, t2); note("S16 ILSpy string-switch lost case (GachaManager 'box')")
+    stub = fp / "EB/Replication/Unity2020NetworkEnums.cs"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    wr(stub, """namespace EB.Replication
+{
+\tpublic enum NetworkStateSynchronization { Off = 0, ReliableDeltaCompressed = 1, Unreliable = 2 }
+\tpublic enum RPCMode { Server = 0, Others = 1, OthersBuffered = 2, All = 3, AllBuffered = 4 }
+}
+""")
+    note("S6 stub legacy-networking enums (removed in 2018.2)")
+    # S7 ISocialPlatform/ILocalUser gained Authenticate(Action<bool,string>) after Unity 5
+    p = fp / "GooglePlayGames/PlayGamesPlatform.cs"
+    if p.exists():
+        t = rd(p)
+        if "Action<bool, string> callback" not in t:
+            t = re.sub(r"(?m)^(\t+)public void Authenticate\(ILocalUser (\w+), Action<bool> callback\)",
+                       lambda m: (f"{m[1]}public void Authenticate(ILocalUser {m[2]}, Action<bool, string> callback)\n{m[1]}{{\n"
+                                  f"{m[1]}\tAuthenticate({m[2]}, (Action<bool>)(ok => callback?.Invoke(ok, ok ? null : \"authentication failed\")));\n{m[1]}}}\n\n"
+                                  f"{m[1]}public void Authenticate(ILocalUser {m[2]}, Action<bool> callback)"), t, count=1)
+            t = re.sub(r"(?m)^(\t+)public void Authenticate\(Action<bool> callback\)",
+                       lambda m: (f"{m[1]}public void Authenticate(Action<bool, string> callback)\n{m[1]}{{\n"
+                                  f"{m[1]}\tAuthenticate((Action<bool>)(ok => callback?.Invoke(ok, ok ? null : \"authentication failed\")));\n{m[1]}}}\n\n"
+                                  f"{m[1]}public void Authenticate(Action<bool> callback)"), t, count=1)
+            wr(p, t); note("S7 Authenticate(Action<bool,string>) overload")
+    p = fp / "GooglePlayGames/PlayGamesLocalUser.cs"
+    if p.exists():
+        t = rd(p)
+        if "Action<bool, string> callback" not in t:
+            t = re.sub(r"(?m)^(\t+)public void Authenticate\(Action<bool> callback\)",
+                       lambda m: (f"{m[1]}public void Authenticate(Action<bool, string> callback)\n{m[1]}{{\n"
+                                  f"{m[1]}\tmPlatform.Authenticate(callback);\n{m[1]}}}\n\n"
+                                  f"{m[1]}public void Authenticate(Action<bool> callback)"), t, count=1)
+            wr(p, t); note("S7 Authenticate(Action<bool,string>) overload (local user)")
+
+REPAIRS = Path(__file__).resolve().parent / "repairs.json"  # accumulated compiler-log-driven repairs
+
+def collect(log: Path):
+    """Parse a Unity compile log; append line-preserving repair records to repairs.json."""
+    import json
+    recs = json.loads(REPAIRS.read_text()) if REPAIRS.exists() else []
+    seen = {(r["file"], r["line"], r["kind"], r.get("var")) for r in recs}
+    pat = re.compile(r"^(Assets/[^()]+\.cs)\((\d+),\d+\): error (CS\d+): (.*)$")
+    added = 0
+    for ln in log.read_text(errors="replace").splitlines():
+        m = pat.match(ln)
+        if not m: continue
+        f, line, code, msg = m[1], int(m[2]), m[3], m[4]
+        rec = None
+        if code == "CS0165":
+            v = re.search(r"'(\w+)'", msg)
+            rec = {"kind": "unassigned-local", "var": v[1]}
+        elif code == "CS0843":
+            rec = {"kind": "struct-this"}
+        elif code == "CS0304":
+            rec = {"kind": "new-constraint"}
+        if rec:
+            rec.update(file=f, line=line)
+            key = (f, line, rec["kind"], rec.get("var"))
+            if key not in seen:
+                seen.add(key); recs.append(rec); added += 1
+    REPAIRS.write_text(json.dumps(recs, indent=1))
+    print(f"collected {added} new log-driven repairs ({len(recs)} total)")
+
+def log_driven(proj: Path):
+    import json
+    if not REPAIRS.exists(): return
+    recs = json.loads(REPAIRS.read_text())
+    by_file = {}
+    for r in recs: by_file.setdefault(r["file"], []).append(r)
+    for f, rs in by_file.items():
+        p = proj / f
+        if not p.exists(): continue
+        lines = rd(p).split("\n")
+        for r in rs:
+            i = r["line"] - 1
+            if r["kind"] == "unassigned-local":
+                # nearest preceding declaration 'T name;' -> 'T name = default;'
+                for j in range(i, max(i - 80, -1), -1):
+                    m = re.match(r"^(\s*)([\w.<>\[\]?]+) " + re.escape(r["var"]) + r";\s*$", lines[j])
+                    if m:
+                        lines[j] = f"{m[1]}{m[2]} {r['var']} = default;"
+                        note("L1 unassigned local -> '= default' (ILSpy lost string-switch map; SEMANTIC RISK)")
+                        break
+            elif r["kind"] == "struct-this":
+                # ctors of the struct containing/at this line: add ': this()'
+                for j in range(len(lines)):
+                    if re.match(r"^\s*public \w+\([^)]*\)\s*$", lines[j]) and not lines[j].rstrip().endswith("this()") \
+                       and j + 1 < len(lines) and lines[j + 1].strip() == "{" and abs(j - i) < 12:
+                        lines[j] = lines[j].rstrip() + " : this()"
+                        note("L2 struct ctor ': this()' for auto-properties")
+            elif r["kind"] == "new-constraint":
+                for j in range(i, max(i - 12, -1), -1):
+                    if re.search(r"where T : [\w.<>, ]+$", lines[j]) and "new()" not in lines[j]:
+                        lines[j] = lines[j].rstrip() + ", new()"
+                        note("L3 add new() constraint")
+                        break
+        wr(p, "\n".join(lines))
+
+def third_party(assets: Path):
+    """Repairs for the ILSpy output of the bundled third-party assemblies (Fabric, Facebook, NBidi)."""
+    sc = assets / "Scripts"
+    # Unity 5 WWW.audioClip property -> GetAudioClip()
+    replace_in(sc, "Fabric.Core/Fabric/AudioComponent.cs", "www.audioClip;", "www.GetAudioClip(false, false);",
+               "T1 WWW.audioClip -> GetAudioClip")
+    # Profiler moved to UnityEngine.Profiling; usedHeapSize is a uint property there too
+    replace_in(sc, "Fabric.Core/Fabric/FabricManager.cs", r"(?<![\w.])Profiler\.usedHeapSize",
+               "(uint)UnityEngine.Profiling.Profiler.usedHeapSize", "T2 Profiler namespace", regex=True)
+    # setter-only properties whose backing field was lost by the decompiler
+    replace_in(sc, "Facebook.Unity/Facebook.Unity/MethodCall.cs",
+               "\t\tprotected FacebookBase FacebookImpl\n\t\t{\n\t\t\t[CompilerGenerated]\n\t\t\tset\n\t\t\t{\n\t\t\t\t_003CFacebookImpl_003Ek__BackingField = value;\n\t\t\t}\n\t\t}",
+               "\t\tprotected FacebookBase FacebookImpl { get; set; }", "T3 MethodCall.FacebookImpl auto-property")
+    replace_in(sc, "Facebook.Unity/Facebook.Unity/MethodCall.cs",
+               "\t\tprotected MethodArguments Parameters\n\t\t{\n\t\t\t[CompilerGenerated]\n\t\t\tset\n\t\t\t{\n\t\t\t\t_003CParameters_003Ek__BackingField = value;\n\t\t\t}\n\t\t}",
+               "\t\tprotected MethodArguments Parameters { get; set; }", "T4 MethodCall.Parameters auto-property")
+
+
+def apply(assets: Path):
+    fp = assets / "Plugins/Assembly-CSharp-firstpass"
+    main = assets / "Scripts/Assembly-CSharp"
+    generic(fp); generic(main)
+    third_party(assets)
+    specific(fp, main)
+    log_driven(assets.parent)
+    for k, v in LOG.items():
+        print(f"  {v:5d}  {k}")
+
+if __name__ == "__main__":
+    if sys.argv[1] == "--collect":
+        collect(Path(sys.argv[2]))
+    else:
+        apply(Path(sys.argv[1]))

@@ -1005,3 +1005,23 @@ The on-device APK patcher validates SHA-256 fingerprints of the 16-byte windows 
 output; no APK bytes, dex, manifest or game code is committed. The `Activity.java`
 shim is a fresh implementation of the permission bridge, written from the observed
 JNI method signatures, not copied game code.
+
+## 3.1.0 recompile (mono310)
+
+`mono310/` rebuilds the operator's own 3.1.0 APK with Unity 2020 and, optionally, packs
+bundles from the operator's own 9.2.0 APK for the story map, arena and fighters. The
+repository contains only newly authored tooling:
+
+- No APK bytes, decompiled sources, rips, textures, models, audio, scenes, bundles, WADs or
+  compiled game assemblies. Every generated tree (`build/mono310/` or `TFTF_WORK`) is ignored
+  and must not be committed or redistributed; the resulting APK and WAD are for the operator's
+  own device only.
+- `scripts/compat310.py` holds short text anchors used to locate and patch the operator's
+  local decompilation, plus replacement snippets written for this project. It does not copy
+  game method bodies. `repairs.json` records file names, line numbers and repair kinds only.
+- Shaders under `unity/shaders/` and `gen_shaders.py` output are newly authored placeholders
+  inferred from call sites; they approximate, and do not reproduce, the original shaders.
+- `unity/Packages/manifest.json` and `unity/Recompile310Build.cs` are generic Unity build glue.
+- `build_odr_wad.py` reads the operator's 9.2.0 APK at run time and writes its output only
+  under the ignored work directory.
+- Device screenshots, recordings and logs stay local.
