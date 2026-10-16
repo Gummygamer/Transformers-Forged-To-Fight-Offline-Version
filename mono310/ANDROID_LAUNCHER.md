@@ -60,9 +60,17 @@ The original player data cannot be loaded by a 2020 player:
 - Its content is small and regular: one boot scene, about 1018 prefabs (mostly NGUI
   `MonoBehaviour`s, 28,864 of them), 137 config `TextAsset`s (6.8 MB), 41 textures, 17 materials,
   2 fonts, 26 `.asset`. **[📄 binary]** (ripped project, UnityPy object census)
-- The game code (`Assembly-CSharp`, `-firstpass`) was written for Unity 5.3 APIs. The compat
-  repairs in `scripts/compat310.py` are mostly decompiler fixes, which a start from the original
-  IL would not need, plus a smaller set of 2020 API and behaviour fixes. **[⚠ inferred]**
+- **The code needs very little API repair.** `launcher/tools/ApiGap.cs` checks every external
+  type, method and field reference of the original IL against the Unity 2020 Android Mono
+  assemblies. `Assembly-CSharp` (11,189 member references) has **0 unresolved members and 2
+  unresolved types**; `Assembly-CSharp-firstpass` (7,413) has **11 unresolved members and 6
+  unresolved types**. The gaps are the removed legacy networking types (`RPC`, `RPCMode`,
+  `NetworkStateSynchronization`), `UnityEngine.Profiler` (now `UnityEngine.Profiling`),
+  `Application.bundleIdentifier`, `RenderTexture.generateMips`, `Texture2D.EncodeToPNG`,
+  `DownloadHandlerScript` (namespace moved) and one `SharpZipLib` overload. **[📄 binary]**
+  Most of `scripts/compat310.py` therefore repairs decompiler output rather than API drift and
+  would not be needed when patching the original IL. Behavioural fixes (for example `EnumMap`'s
+  comparer, the fight fixes) still need IL-level patches. **[⚠ inferred]**
 
 ## Proposed architecture
 
