@@ -23,10 +23,9 @@ with Unity 2020.3.31f1.
 
 ## Goal
 
-Ship one APK that contains **no game bytes**: the Unity 2020 Mono player, newly authored code and
-shaders, and the offline server. The user supplies the original 3.1.0 and 9.2.0 APKs (copyright
-compliance, as in the console recompilation projects) and the launcher reads or converts what it
-needs on the phone, so users without a PC can play.
+Ship one APK that is the recompiled game **without its assets**, so users without a PC can play.
+The user supplies the original 3.1.0 and 9.2.0 APKs, as in the console recompilation projects,
+and the launcher reads or converts the assets it needs on the phone.
 
 ## What the build is made of
 
@@ -74,49 +73,61 @@ The original player data cannot be loaded by a 2020 player:
 
 ## Proposed architecture
 
-An empty-shell player plus an on-device **ingest** step.
+The shipped APK is the recompiled game itself, **without its assets**. The user's APKs supply the
+assets at run time.
 
-1. **Shell APK (distributed).** Unity 2020 Mono player, authored shaders, `Hud_Health` and the
-   other replacement shaders, the offline server, and an ingest UI. No game data or game code.
-2. **Ingest, once, on the phone.** The user picks the 3.1.0 and 9.2.0 APKs (Storage Access
-   Framework). The launcher then:
-   1. extracts the 3.1.0 bundle folders and lays out the 9.2.0 bundles plus `toc` (port of
-      `build_odr_wad.py`, plain file copying);
-   2. converts the player data into type-tree bundles: add type trees (engine classes from a
-      published class database, `MonoBehaviour`s from the script fields in the user's own
-      `Assembly-CSharp`), swap shader references for the authored shaders, wrap as `UnityFS`;
-   3. patches the user's own `Assembly-CSharp*.dll` at IL level with authored rules and keeps
-      the result in app storage;
-   4. extracts the move data the 9.2.0 fighters need (already scripted in
-      `scripts/extract_donor_moves.py`).
-3. **Run.** The shell `Assembly.Load`s the patched DLLs before loading any prefab bundle, then
-   starts the boot scene from the converted bundle. All outputs stay in app-private storage and
-   are never uploaded.
+1. **Shell APK (distributed).** The Unity 2020.3 Mono player build we already produce, containing:
+   the recompiled game scripts, the authored replacement shaders, the offline server and a small
+   authored bootstrap scene. Its `Resources`, scenes, textures, audio and bundles are empty.
+2. **First launch, on the phone.** The user picks the original 3.1.0 and 9.2.0 APKs (Storage
+   Access Framework). The launcher then:
+   1. extracts the four 3.1.0 bundle folders and lays out the 9.2.0 bundles plus `toc` (port of
+      `build_odr_wad.py`; plain file copying, no conversion);
+   2. converts the 3.1.0 player data into type-tree bundles that a 2020 player can load (see
+      below);
+   3. extracts the 9.2.0 move data the donor fighters need (`scripts/extract_donor_moves.py`
+      logic);
+   4. stores everything in app-private storage and never uploads it.
+3. **Run.** The bootstrap scene loads the converted bundles and starts the original boot scene.
+   The recompiled scripts resolve the `MonoBehaviour`s in those bundles by class name.
 
-Because everything game-derived is produced on the user's device from the user's files, the
-distributable stays free of game bytes, as in the PC pipeline.
+**The one piece that does not exist yet is the converter in step 2.2.** Recipe: read the 5.3.5
+serialized files (no type trees), attach type trees (engine classes harvested from the user's own
+3.1.0 bundles, which carry them; `MonoBehaviour` layouts from the shell's own compiled script
+classes), swap shader references for the authored shaders, and write `UnityFS` bundles. The 2020
+runtime then upgrades them on load, exactly as it already does for the 3.1.0 bundles.
+
+### Rejected alternative: patch the original IL
+
+Instead of shipping recompiled scripts, an on-device Cecil patcher could repair the user's own
+`Assembly-CSharp` (the measured API gap above is small). This keeps game code out of the
+distributable, but it is a patcher rather than the recompiled game, and the functional fixes in
+`scripts/compat310.py` would all need re-expressing as IL patches. Not pursued; the measurements
+are kept because they are true and cheap to reuse.
+
+### Compliance note
+
+Shipping the compiled recompiled scripts differs from the current rule in `COMPLIANCE.md` ("no
+compiled game assemblies"). That section must be updated before a release if this design is
+adopted.
 
 ## Milestones
 
 | | milestone | proves |
 |---|---|---|
-| M0 | PC-side release kit: one `package` command plus the launcher that installs the result and hosts the server | a distributable that needs no `adb reverse` or host server |
-| M1 | Spike: a 2020 Mono shell `Assembly.Load`s an IL-patched original `Assembly-CSharp` and instantiates one converted NGUI prefab | the code and data halves of the design work together |
-| M2 | Converter for the player data in a PC tool (UnityPy or .NET) validated against the current Editor build | conversion correctness |
-| M3 | Port of M2 to C# running inside the shell on the phone | no PC needed |
-| M4 | On-device IL patch rules, then ingest UI and signing/installation flow | the end-user experience |
+| M1 | Converter spike on the PC: wrap one 5.3.5 prefab as a type-tree bundle and load it in a 2020 player | the conversion idea works at all |
+| M2 | Converter for the whole player data on the PC, checked against the current Editor build | conversion correctness |
+| M3 | Shell project: strip the build to scripts plus bootstrap scene; loader that mounts the converted bundles | the game runs from converted assets |
+| M4 | Port the converter to C# inside the shell; ingest UI (pick APKs, progress, errors) | no PC needed |
+| M5 | Offline server inside the shell, signing and packaging, version 0.1 release | a distributable launcher |
 
 ## Risks and open questions
 
-- **Runtime `Assembly.Load` with prefab bundles.** Mono builds are commonly extended this way,
-  but it is untested here. **[⚠ inferred]** M1 decides it.
-- **Mono 2.0 era IL on a 2020 runtime.** The original references `mscorlib 2.0.5.0`; the IL
-  patch rules for removed or changed Unity APIs are not yet enumerated. **[⚠ inferred]**
-- **Type-tree generation for `MonoBehaviour`s** must follow Unity 5.3 serialization rules
-  (public and `[SerializeField]` fields, nested `[Serializable]` types, arrays and lists).
+- **Type trees for `MonoBehaviour`s** must match what the compiled scripts serialize; the
+  recompile keeps field layouts, so this should hold. **[⚠ inferred]**
 - **Shader and material fidelity** stays at the current placeholder level.
 - **Distributing the Unity runtime** inside the shell must satisfy the Unity license terms.
-- **Android-only ingest cost:** the WAD is about 400 MB and the conversion allocates a lot of
-  memory; both need measuring on a mid-range phone.
+- **Ingest cost:** the WAD is about 400 MB and conversion allocates a lot of memory; both need
+  measuring on a mid-range phone.
 - **Not feasible:** running the existing PC tools on the phone. AssetRipper, ILSpy and the Unity
   Editor cannot run on Android, and the Editor has no ARM Linux build.
