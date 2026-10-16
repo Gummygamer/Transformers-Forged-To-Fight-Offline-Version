@@ -1025,3 +1025,29 @@ repository contains only newly authored tooling:
 - `build_odr_wad.py` reads the operator's 9.2.0 APK at run time and writes its output only
   under the ignored work directory.
 - Device screenshots, recordings and logs stay local.
+
+## Assetless launcher (mono310/launcher) — 2026-10-16
+
+`mono310/launcher/` builds a shell app that contains **no game assets** and reads them from the
+operator's own 3.1.0 and 9.2.0 APKs on the device. The repository still contains only newly
+authored source: the on-phone converter (`Tftf/Convert`), the ODR package builder
+(`Tftf/Odr`), the first-run screen and installer (`Tftf/TftfLauncher.cs`,
+`Tftf/TftfInstaller.cs`), the in-app server host (`Tftf/TftfServer.cs`,
+`Tftf/TftfStaticServer.cs`) and the Java file-picker bridge in `Activity.java`.
+
+What changed compared with the rules in the previous section:
+
+- **The shell APK is a build product that contains compiled recompiled game scripts.** Those
+  scripts are produced from the operator's local decompilation plus the authored repairs, so the
+  APK is derived from game code. The earlier rule "no compiled game assemblies" applies to the
+  repository; it does not make the APK safe to publish. **Do not publish, attach to a release or
+  otherwise distribute a shell APK until the maintainer has decided that this is acceptable.**
+  Until then it is, like every other build here, for the operator's own device.
+- `launcher/convert/export_tree_db.py` writes `trees.bin` (type layouts of engine classes and of
+  the game's scripts). It is generated locally from the operator's build, is not committed and
+  is packed into the shell APK only.
+- At run time the launcher writes everything it derives (converted data bundle, move bundle,
+  ODR package) to the app's private storage on the device and sends none of it anywhere.
+- The embedded server host runs the authored `Server/*.lbl` files with the Legible interpreter
+  built for Android. These contain no game bytes. The interpreter binary is built from the
+  Legible repository and carries its own license.
