@@ -3,7 +3,7 @@
 under Unity 2020.3 / C# 8. Each repair class logs how many files/sites it touched.
 Usage: compat310.py <Assets dir>   (also imported by assemble_project.py)
 """
-import re, sys
+import os, re, sys
 from pathlib import Path
 from collections import OrderedDict
 
@@ -464,6 +464,16 @@ public class TftfDiag : MonoBehaviour
     # Resources/movedata92 by extract_donor_moves.py.
     replace_in(main, "EB/MoveEditor/MoveInfo.cs", "\t\tpublic void DeserializeFromTextAsset()\n\t\t{\n",
                "\t\tpublic void DeserializeFromTextAsset()\n\t\t{\n\t\t\tif (_asset == null && !string.IsNullOrEmpty(_name))\n\t\t\t{\n\t\t\t\t_asset = Resources.Load<TextAsset>(\"movedata92/\" + _name);\n\t\t\t}\n", "P38 donor move data fallback")
+    # P40 (shell only): the game's Resources live in the converted bundle, not in the player
+    if os.environ.get("TFTF_SHELL") == "1":
+        for p in list(fp.rglob("*.cs")) + list(main.rglob("*.cs")):
+            if p.name == "TftfResources.cs":
+                continue
+            t = rd(p)
+            t2, n = re.subn(r"(?<![\w])(?:UnityEngine\.)?Resources\.(Load|LoadAsync|LoadAll)\b", r"TftfResources.\1", t)
+            t2 = re.sub(r"\bResourceRequest\b", "TftfRequest", t2)      # EB.Assets.LoadFromResources' request type
+            if t2 != t:
+                wr(p, t2); note("P40 Resources.Load -> TftfResources.Load", n)
     # P29: GetRenderPath(kMain) always answers Forward (and records it in the static table the buffer setup reads)
     replace_in(fp, "EB/Rendering/EBGBuffer.cs",
                "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n",

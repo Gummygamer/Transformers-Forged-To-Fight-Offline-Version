@@ -9,11 +9,13 @@ REPO_DIR="$(cd "$MONO310_DIR/.." && pwd)"
 
 # Everything generated lives under one ignored work directory.
 : "${TFTF_WORK:=$REPO_DIR/build/mono310}"
+# TFTF_SHELL=1 selects the assetless launcher shell: its own project and APK, scripts only.
+if [ "${TFTF_SHELL:-}" = 1 ]; then SHELL_NAME=ShellProject; SHELL_APK=tftf-launcher-armv7.apk; else SHELL_NAME=UnityProject; SHELL_APK=3.1.0-recompiled-armv7.apk; fi
 RIPPED="$TFTF_WORK/ripped"            # AssetRipper export of the 3.1.0 APK
 ILSPY_OUT="$TFTF_WORK/ilspy-out"      # decompiled C# (never committed)
-PROJECT="$TFTF_WORK/UnityProject"     # assembled Unity project
+PROJECT="$TFTF_WORK/$SHELL_NAME"     # assembled Unity project
 ODR_DIR="$TFTF_WORK/odr"              # toc.wad / toc.zip / manifest.json
-OUT_APK="$TFTF_WORK/3.1.0-recompiled-armv7.apk"
+OUT_APK="$TFTF_WORK/$SHELL_APK"
 
 # Tools (not bundled; see mono310/README.md).
 : "${ASSETRIPPER_BIN:=}"              # AssetRipper.GUI.Free (headless)

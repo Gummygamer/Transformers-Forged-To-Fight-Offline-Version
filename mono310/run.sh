@@ -54,12 +54,14 @@ step_decompile() {
   done
 }
 
-step_assets() {  # non-script assets, audio, replacement shaders
+step_assets() {  # non-script assets, audio, replacement shaders (the shell keeps only the shaders)
   local E="$RIPPED/ExportedProject/Assets" N="$PROJECT/Assets"
   mkdir -p "$N"
+  if [ "${TFTF_SHELL:-}" != 1 ]; then
   ( cd "$E" && for d in *; do case $d in Scripts|Plugins|Scenes) ;; *) rsync -a "$d" "$N/";; esac; done )
   mkdir -p "$N/Scenes"; rsync -a "$E/Scenes/" "$N/Scenes/"
   python3 "$S/convert_audio.py" "$N"
+  fi
   rm -rf "$N/Shader310" "$N/Shader310.meta"
   python3 "$S/gen_shaders.py" "$N/Resources/Shader310"
   if [ -f "$TFTF_92_APK" ]; then python3 "$S/extract_donor_moves.py" "$TFTF_92_APK" "$N/Resources/movedata92" || echo "warn: donor move data not extracted; 9.2 fighters will have no hit events"; fi
@@ -68,14 +70,15 @@ step_assets() {  # non-script assets, audio, replacement shaders
   cp "$MONO310_DIR/unity/shaders/EBNoToneMapBlit.shader" "$N/Resources/Shader310/Hidden_EB_PostFX_NoToneMapBlit.shader"
   cp "$MONO310_DIR/unity/shaders/EBToneMapBlit.shader" "$N/Resources/Shader310/Hidden_EB_PostFX_ToneMapBlit.shader"
   cp "$MONO310_DIR/unity/shaders/EBUIScreenCapture.shader" "$N/Resources/Shader310/Hidden_EB_UIScreenCapture.shader"
-  cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/ui/shaders/Hud_Health.shader"   # keeps the ripped .meta guid the HealthBar material points at
+  cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/Shader310/Hud_Health.shader"   # found by ShaderFallback under the original shader name
+  if [ "${TFTF_SHELL:-}" != 1 ]; then cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/ui/shaders/Hud_Health.shader"; fi   # keeps the ripped .meta guid the HealthBar material points at
 }
 
 step_assemble() { python3 "$S/assemble_project.py"; }
 
 step_compile() {  # scripts only (seconds); returns non-zero on compiler errors
   local log="${1:-unity-scripts.log}"; mkdir -p "$PROJECT/scripts-out"
-  unity_run -e TFTF_310_SCRIPTS_OUT=/workspace/project/scripts-out -- \
+  unity_run -e TFTF_310_SCRIPTS_OUT=/workspace/project/scripts-out -e TFTF_SHELL="${TFTF_SHELL:-}" -- \
     -batchmode -nographics -quit -projectPath /workspace/project \
     -executeMethod Recompile310Build.CompileScriptsOnly -logFile "/workspace/project/$log" || true
   if grep -q "error CS" "$PROJECT/$log"; then grep "error CS" "$PROJECT/$log" | sort -u | head -20; return 1; fi
@@ -83,7 +86,7 @@ step_compile() {  # scripts only (seconds); returns non-zero on compiler errors
 
 step_build() {  # full licensed player build (minutes)
   local log="${1:-unity-build.log}"
-  unity_run -e TFTF_310_OUTPUT=/workspace/project/3.1.0-recompiled-armv7-unity.apk -- \
+  unity_run -e TFTF_310_OUTPUT=/workspace/project/3.1.0-recompiled-armv7-unity.apk -e TFTF_SHELL="${TFTF_SHELL:-}" -- \
     -batchmode -nographics -projectPath /workspace/project \
     -executeMethod Recompile310Build.BuildAndroid -logFile "/workspace/project/$log" || true
   grep -n "Android build:" "$PROJECT/$log" | tail -1
@@ -92,7 +95,7 @@ step_build() {  # full licensed player build (minutes)
 
 step_finalize() {  # restore original Java dex, endpoint, align and sign
   python3 "$REPO_DIR/tools/finalize_recompiled_202_apk.py" "$PROJECT/3.1.0-recompiled-armv7-unity.apk" \
-    "$TFTF_310_APK" "$OUT_APK" --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}" \
+    "$TFTF_310_APK" "$OUT_APK" ${TFTF_SHELL:+} $([ "${TFTF_SHELL:-}" = 1 ] || echo --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}") \
     ${TFTF_KEYSTORE:+--keystore "$TFTF_KEYSTORE"}
 }
 

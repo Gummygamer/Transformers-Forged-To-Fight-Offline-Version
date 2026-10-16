@@ -78,7 +78,8 @@ def main():
           "System.Runtime.CompilerServices.Unsafe.meta"]
     rsync(RIP / "Assets/Scripts", A / "Scripts", *ex)
     rsync(RIP / "Assets/Plugins", A / "Plugins")
-    rsync(RIP / "Assets/Scenes", A / "Scenes")
+    if os.environ.get("TFTF_SHELL") != "1":     # the shell has its own bootstrap scene and no game scenes
+        rsync(RIP / "Assets/Scenes", A / "Scenes")
 
     # Managed plugin DLLs straight from the APK (no .meta: Unity generates plugin importers).
     with zipfile.ZipFile(APK) as z:
@@ -140,6 +141,11 @@ def main():
     sys.path.insert(0, str(HERE)); import compat310; compat310.apply(A)
     for p in list(A.rglob("-PrivateImplementationDetails-*")):
         p.unlink()
+    if os.environ.get("TFTF_SHELL") == "1":
+        shell_src = REPO / "mono310/launcher/shell/Tftf"
+        shell_dst = fp / "Tftf"            # first-pass assembly: the game's first-pass code calls TftfResources
+        shutil.rmtree(shell_dst, ignore_errors=True)
+        shutil.copytree(shell_src, shell_dst)
 
 
 if __name__ == "__main__":

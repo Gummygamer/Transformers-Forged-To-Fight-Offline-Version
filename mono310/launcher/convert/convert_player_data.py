@@ -5,7 +5,7 @@
 Usage: convert_player_data.py <apk Data dir> <typetrees bundle (TypeTreeDump)> <3.1.0 moves.assetbundle> <out bundle>
 Needs UnityPy. The moves bundle is only a structural template for the bundle's AssetBundle object.
 """
-import copy, hashlib, json, os, sys
+import copy, hashlib, json, os, re, sys
 from pathlib import Path
 import UnityPy
 
@@ -54,11 +54,23 @@ def main(data_dir, dump_path, tmpl_path, out_path):
         container = [c for c in container if c[0] in only.split(",")]
         names = sorted({c[1] for c in container} | {"globalgamemanagers.assets"})
     else:
-        names = sorted({c[1] for c in container} | {"globalgamemanagers.assets", "sharedassets0.assets"})
+        names = sorted({c[1] for c in container} | {"globalgamemanagers.assets", "sharedassets0.assets", "level0"})
     main_node = cab("main")                        # an archive is mounted under its main CAB name
     node_of = {n: cab(n) for n in names}
     loaded = {n: list(UnityPy.load(str(data / n)).files.values())[0] for n in names}
     log("files", len(names))
+
+    # the boot scene is shipped as loose root objects the loader instantiates (scene settings are not carried over)
+    if "level0" in loaded:
+        lv = loaded["level0"]
+        tr_tree = engine(4)
+        for pid, o in lv.objects.items():
+            if o.type.name == "Transform":
+                t = o.read_typetree(tr_tree)
+                if t["m_Father"]["m_PathID"] == 0:
+                    go = lv.objects[t["m_GameObject"]["m_PathID"]].read_typetree()
+                    container.append(("scene/level0/%d/%s" % (t["m_GameObject"]["m_PathID"], go["m_Name"]), "level0",
+                                      t["m_GameObject"]["m_PathID"]))
 
     script_cache = {}
 
@@ -75,10 +87,9 @@ def main(data_dir, dump_path, tmpl_path, out_path):
     for n, sf in loaded.items():
         for pid, o in sf.objects.items():
             if o.type.name == "Shader":
-                try:
-                    shader_name[(n, pid)] = o.read_typetree()["m_ParsedForm"]["m_Name"]
-                except Exception:
-                    shader_name[(n, pid)] = o.read_typetree().get("m_Name", "")
+                t = o.read_typetree()
+                m = re.match(r'\s*Shader\s+"([^"]+)"', t.get("m_Script") or "")      # the declared name Shader.Find uses
+                shader_name[(n, pid)] = m.group(1) if m else t.get("m_Name", "")
 
     resource_blob = b"".join((data / ("sharedassets0.resource.split%d" % i)).read_bytes() for i in range(32)
                              if (data / ("sharedassets0.resource.split%d" % i)).exists())

@@ -28,6 +28,18 @@ public static class Recompile310Build
         Debug.Log("3.1.0 always-included shaders: " + list.arraySize);
     }
 
+    static string CreateBootstrapScene()
+    {
+        const string path = "Assets/Scenes/Bootstrap.unity";
+        System.IO.Directory.CreateDirectory("Assets/Scenes");
+        var scene = UnityEditor.SceneManagement.EditorSceneManager.NewScene(
+            UnityEditor.SceneManagement.NewSceneSetup.EmptyScene, UnityEditor.SceneManagement.NewSceneMode.Single);
+        var go = new GameObject("TftfBootstrap");
+        go.AddComponent<TftfBootstrap>();
+        UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene, path);
+        return path;
+    }
+
     public static void BuildAndroid()
     {
         if (System.Environment.GetEnvironmentVariable("TFTF_310_NO_INCLUDE") != "1") IncludeShaders();
@@ -51,8 +63,16 @@ public static class Recompile310Build
         Debug.Log("3.1.0 Android target architectures: " + PlayerSettings.Android.targetArchitectures);
         Debug.Log("3.1.0 Android toolchain: Unity embedded SDK and JDK");
 
+        if (System.Environment.GetEnvironmentVariable("TFTF_SHELL") == "1")
+        {
+            // No scenes reference the game's behaviours, so the linker would strip them and the engine modules they use.
+            PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Android, ManagedStrippingLevel.Disabled);
+            PlayerSettings.stripEngineCode = false;
+        }
         string[] scenes = EditorBuildSettings.scenes.Where(scene => scene.enabled)
             .Select(scene => scene.path).ToArray();
+        if (System.Environment.GetEnvironmentVariable("TFTF_SHELL") == "1")
+            scenes = new[] { CreateBootstrapScene() };       // assetless launcher shell: only the bootstrap scene
         if (scenes.Length == 0)
             throw new System.InvalidOperationException("No enabled scenes are configured.");
 
