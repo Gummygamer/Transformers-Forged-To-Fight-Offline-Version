@@ -16,6 +16,7 @@ including server setup, signing, installation, Wi-Fi, and USB operation, see
 
 - [The other documents in this repository](#the-other-documents-in-this-repository)
 - [What actually works right now](#what-actually-works-right-now)
+- [The 3.1.0 Unity-2020 recompile (mono310)](#the-310-unity-2020-recompile-mono310)
 - [What does not work, and why](#what-does-not-work-and-why)
 - [How the offline boot works](#how-the-offline-boot-works)
 - [What is in this package](#what-is-in-this-package)
@@ -58,6 +59,13 @@ kept deliberately apart so evidence from one is not mistaken for the other:
 | [`MONO_SERVER_COMPARISON.md`](MONO_SERVER_COMPARISON.md) | A compatibility work-item inventory comparing the 2.0.2 Mono client against this offline server. A static comparison, not a runtime result. |
 | [`MONO_PACKAGING_PLAN.md`](MONO_PACKAGING_PLAN.md) | The 2.0.2 Mono substitution plan. A candidate has been packaged and installed for evidence; it is not a release artifact and makes no playability claim. |
 | [`MONO_STORY_FIGHT_SCRATCHPAD.md`](MONO_STORY_FIGHT_SCRATCHPAD.md) | Working handoff for the recompiled Mono client investigation. Its `Fresh-session update` section supersedes older status text above it. |
+
+The **3.1.0 Unity-2020 recompile track** rebuilds the operator's own 3.1.0 Mono APK with the
+Unity 2020 toolchain and runs the story against this server:
+
+| document | what it covers |
+|---|---|
+| [`mono310/README.md`](mono310/README.md) | Requirements, the `run.sh` build driver, running on a device, current status and known rough edges. Generated from operator-supplied APKs; no game bytes are committed. |
 
 
 ## What actually works right now
@@ -103,6 +111,31 @@ On arm64, BOTS roster and detail views suppress residual base geometry, and leve
 render and animate the shipped alternate form before restoring robot form. These visual hooks
 are not ported to ARMv7.
 
+
+## The 3.1.0 Unity-2020 recompile (mono310)
+
+`mono310/` is a reproducible pipeline that turns an operator-supplied 3.1.0 APK (and,
+optionally, the 9.2.0 APK for the story map, arenas and fighters) into a signed
+`armeabi-v7a` APK built with Unity 2020.3.31f1, which runs against this repository's local
+server (profile `mono310`). It stores only newly authored tooling: the compatibility repairs,
+placeholder shaders and build glue. Rips, decompiled sources, bundles, WADs and the resulting
+APK stay in an ignored work directory (see `COMPLIANCE.md`, section "3.1.0 recompile").
+
+- **Pipeline.** `mono310/run.sh doctor` then `mono310/run.sh all`: rip, decompile, assemble,
+  assets, script compile, player build, finalize/sign, WAD. A clean work directory built from
+  only the committed scripts and the two APKs passed every step. **[👁 live]** (build log
+  `Android build: Succeeded`, WAD self-test OK, installed on a Samsung A52)
+- **What plays.** Boot, login, home base with the real 3D terrain board, FIGHT! -> Solo
+  Missions -> Story Missions -> Act 1 -> Chapter 1 -> "Bludgeon's Ambush", the quest map with
+  dialogue and node movement, the pre-fight screen, a fight in the Karnak arena with 3D
+  fighters, the K.O. screen, and the return to the quest map. **[👁 live]**
+- **What does not.** The original PBR shaders are not recoverable, so materials use a simple
+  lit placeholder and look flatter than the original; some UI atlas art draws black; only the
+  first story acts have been exercised; the first launch downloads a generated WAD of roughly
+  400 MB once. **[👁 live]**
+- **Needs from you.** Both APKs, AssetRipper, ILSpy 9.1.x, a licensed Unity 2020.3.31f1
+  editor in the provided Docker image, .NET 8, Android build-tools and a signing keystore. All
+  are listed, with the environment variable for each, in [`mono310/README.md`](mono310/README.md).
 
 ## What does not work, and why
 
