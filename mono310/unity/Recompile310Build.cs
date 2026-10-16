@@ -68,6 +68,7 @@ public static class Recompile310Build
             // No scenes reference the game's behaviours, so the linker would strip them and the engine modules they use.
             PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Android, ManagedStrippingLevel.Disabled);
             PlayerSettings.stripEngineCode = false;
+            PlayerSettings.productName = "Transformers Forged to Fight Revival";   // name shown by Android outside the app
             // App icon: the launcher logo (Assets/Icons/revival-icon.png) for every legacy icon size.
             const string iconPath = "Assets/Icons/revival-icon.png";
             if (System.IO.File.Exists(iconPath))
