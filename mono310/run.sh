@@ -32,6 +32,9 @@ step_doctor() {
   [ -n "$UNITY_2020_ROOT" ] && [ -x "$UNITY_2020_ROOT/Editor/Unity" ] || { echo "set UNITY_2020_ROOT to the 2020.3.31f1 install"; ok=1; }
   docker image inspect "$UNITY_DOCKER_IMAGE" >/dev/null 2>&1 || { echo "build the image: docker build -t $UNITY_DOCKER_IMAGE -f tools/unity/Dockerfile.ubuntu20 tools/unity"; ok=1; }
   [ -f "$UNITY_LICENSE" ] || { echo "missing Unity license: $UNITY_LICENSE"; ok=1; }
+  local bt="${ANDROID_HOME:-$HOME/Android/Sdk}/build-tools"
+  ls "$bt"/*/apksigner >/dev/null 2>&1 || { echo "missing Android build-tools (apksigner/zipalign) under $bt (set ANDROID_HOME)"; ok=1; }
+  [ -f "${TFTF_KEYSTORE:-$HOME/.android/debug.keystore}" ] || { echo "missing signing keystore: ${TFTF_KEYSTORE:-$HOME/.android/debug.keystore} (keytool -genkey ... or set TFTF_KEYSTORE)"; ok=1; }
   [ $ok = 0 ] && echo "doctor: ok (work dir: $TFTF_WORK)"; return $ok
 }
 
@@ -87,7 +90,8 @@ step_build() {  # full licensed player build (minutes)
 
 step_finalize() {  # restore original Java dex, endpoint, align and sign
   python3 "$REPO_DIR/tools/finalize_recompiled_202_apk.py" "$PROJECT/3.1.0-recompiled-armv7-unity.apk" \
-    "$TFTF_310_APK" "$OUT_APK" --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}"
+    "$TFTF_310_APK" "$OUT_APK" --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}" \
+    ${TFTF_KEYSTORE:+--keystore "$TFTF_KEYSTORE"}
 }
 
 step_wad() {  # story map / arena / character bundles from the 9.2.0 APK
