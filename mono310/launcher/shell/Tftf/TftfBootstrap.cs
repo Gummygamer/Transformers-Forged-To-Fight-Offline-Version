@@ -9,6 +9,13 @@ public class TftfBootstrap : MonoBehaviour
     IEnumerator Start()
     {
         string dir = Path.Combine(Application.persistentDataPath, "tftf");
+        Directory.CreateDirectory(dir);
+        if (!TftfInstaller.IsInstalled(dir))
+        {
+            var launcher = TftfLauncher.Create(dir);
+            while (!launcher.Finished) yield return null;
+            Destroy(launcher.gameObject);
+        }
         string path = Path.Combine(dir, "resources.bundle");
         Debug.Log("[TFTF] bootstrap, bundle=" + path + " exists=" + File.Exists(path));
         if (!File.Exists(path)) { Debug.LogError("[TFTF] converted resources bundle missing"); yield break; }
@@ -18,6 +25,13 @@ public class TftfBootstrap : MonoBehaviour
         var bundle = req.assetBundle;
         if (bundle == null) { Debug.LogError("[TFTF] resources bundle failed to load"); yield break; }
         TftfResources.Mount(bundle);
+        string movesPath = Path.Combine(dir, "moves92.bundle");
+        if (File.Exists(movesPath))
+        {
+            var mreq = AssetBundle.LoadFromFileAsync(movesPath);
+            yield return mreq;
+            if (mreq.assetBundle != null) TftfResources.MountDonorMoves(mreq.assetBundle);
+        }
         TftfResources.FixMaterialShaders(bundle);
         var fixer = new GameObject("TftfMaterialFixer");
         DontDestroyOnLoad(fixer);

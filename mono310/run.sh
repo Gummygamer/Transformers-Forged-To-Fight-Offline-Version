@@ -71,6 +71,7 @@ step_assets() {  # non-script assets, audio, replacement shaders (the shell keep
   cp "$MONO310_DIR/unity/shaders/EBToneMapBlit.shader" "$N/Resources/Shader310/Hidden_EB_PostFX_ToneMapBlit.shader"
   cp "$MONO310_DIR/unity/shaders/EBUIScreenCapture.shader" "$N/Resources/Shader310/Hidden_EB_UIScreenCapture.shader"
   cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/Shader310/Hud_Health.shader"   # found by ShaderFallback under the original shader name
+  cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/Shader310/EBG_UI_HudHealth.shader"   # the HealthBar material declares EBG/UI/HudHealth
   if [ "${TFTF_SHELL:-}" != 1 ]; then cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/ui/shaders/Hud_Health.shader"; fi   # keeps the ripped .meta guid the HealthBar material points at
 }
 

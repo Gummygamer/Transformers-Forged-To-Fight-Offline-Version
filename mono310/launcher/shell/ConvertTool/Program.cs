@@ -35,7 +35,7 @@ static class Program
         var db = TreeDb.Load(File.ReadAllBytes(a[1]));
         var stats = new ConvertStats();
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var bundle = PlayerDataConverter.Convert(new DirSource(a[0]), db, stats, s => { });
+        var bundle = PlayerDataConverter.Convert(new DirSource(a[0]), db, stats, s => Console.WriteLine(s));
         File.WriteAllBytes(a[2], bundle);
         Console.WriteLine(stats + " bytes=" + bundle.Length + " seconds=" + sw.Elapsed.TotalSeconds.ToString("F1"));
         return 0;

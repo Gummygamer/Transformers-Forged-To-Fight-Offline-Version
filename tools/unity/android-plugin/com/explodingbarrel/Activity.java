@@ -4,6 +4,9 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
+import android.database.Cursor;
+import android.os.ParcelFileDescriptor;
+import android.provider.OpenableColumns;
 import android.provider.Settings;
 import com.unity3d.player.UnityPlayer;
 import com.unity3d.player.UnityPlayerActivity;
@@ -70,6 +73,48 @@ public class Activity extends UnityPlayerActivity {
         if (receiver != null) {
             UnityPlayer.UnitySendMessage(receiver,
                     granted ? "OnPermissionGranted" : "OnPermissionDenied", String.valueOf(requestCode));
+        }
+    }
+
+    // ---- launcher file picking (Storage Access Framework): the user supplies the base game APKs ----
+    private static final int PICK_BASE = 7000;
+    private final Uri[] picked = new Uri[2];
+
+    /** slot 0 = the 3.1.0 APK, slot 1 = the 9.2.0 APK. Result arrives as UnitySendMessage(TftfLauncher, OnPicked, "slot|name"). */
+    public void tftfPickFile(int slot) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(i, PICK_BASE + slot);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        int slot = requestCode - PICK_BASE;
+        if (slot < 0 || slot > 1) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            UnityPlayer.UnitySendMessage("TftfLauncher", "OnPicked", slot + "|");
+            return;
+        }
+        picked[slot] = data.getData();
+        String name = "file";
+        try (Cursor c = getContentResolver().query(picked[slot], null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int col = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (col >= 0) name = c.getString(col);
+            }
+        } catch (Exception ignored) { }
+        UnityPlayer.UnitySendMessage("TftfLauncher", "OnPicked", slot + "|" + name);
+    }
+
+    /** A seekable file descriptor for the picked file, usable as /proc/self/fd/N; -1 when it cannot be opened. */
+    public int tftfOpenPicked(int slot) {
+        try {
+            ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(picked[slot], "r");
+            return pfd == null ? -1 : pfd.detachFd();
+        } catch (Exception e) {
+            return -1;
         }
     }
 

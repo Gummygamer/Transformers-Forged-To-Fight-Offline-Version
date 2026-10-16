@@ -173,6 +173,8 @@ def package_server(A):
         t.parent.mkdir(parents=True, exist_ok=True)
         if not t.exists():
             shutil.copy(p, t)
+    # Type-tree database the on-phone converter needs (generated locally by launcher/convert/export_tree_db.py).
+    shutil.copy(os.environ["TFTF_TREES_BIN"], sa / "trees.bin")
     lib = A / "Plugins/Android/libs/armeabi-v7a"
     lib.mkdir(parents=True, exist_ok=True)
     shutil.copy(os.environ["TFTF_LEGIBLE_ARMV7"], lib / "liblegible.so")

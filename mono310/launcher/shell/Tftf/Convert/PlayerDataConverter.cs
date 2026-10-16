@@ -134,6 +134,14 @@ namespace Tftf.Convert
                     var m = declared.Match(script);
                     shaderName[n + "|" + o.PathId] = m.Success ? m.Groups[1].Value : (TypeWalker.ReadString(db.Engine[ClsShader], o.Data, "m_Name") ?? "");
                 }
+            // Shaders with no readable name (baked in the 5.3 player data) are still known by their Resources path:
+            // its last segment (ui/shaders/hud_health -> hud_health) is what ShaderFallback matches against Shader310/.
+            foreach (var c in container)
+            {
+                string key = c.File + "|" + c.PathId, nm;
+                if (shaderName.TryGetValue(key, out nm) && string.IsNullOrEmpty(nm))
+                    shaderName[key] = c.Path.Substring(c.Path.LastIndexOf('/') + 1);
+            }
 
             // ---- streamed resource node: audio keeps its offsets, big textures are appended
             var resBlob = new ByteWriter();
@@ -200,12 +208,12 @@ namespace Tftf.Convert
                         // Components keep their Shader references (UITexture.mShader decides blend vs opaque): keep a
                         // named stub; the game resolves the real shader by name.
                         string stubName;
-                        if (!shaderName.TryGetValue(n + "|" + o.PathId, out stubName) || string.IsNullOrEmpty(stubName)) { stats.DroppedShaders++; continue; }
+                        if (!shaderName.TryGetValue(n + "|" + o.PathId, out stubName) || string.IsNullOrEmpty(stubName)) { stats.DroppedShaders++; log("nameless shader " + n + "|" + o.PathId + " script=" + (TypeWalker.ReadString(db.Engine[ClsShader], o.Data, "m_PathName") ?? "")); continue; }
                         StubShader(o, db, stubName);
                     }
                     kept.Add(o);
                     myDeps[o.PathId] = CollectDeps(sf, n, idOfName, o, db);
-                    if (o.ClassId == ClsMaterial) FixMaterial(sf, n, o, db, shaderName, stats);
+                    if (o.ClassId == ClsMaterial) FixMaterial(sf, n, o, db, shaderName, stats, log);
                     else if (o.ClassId == ClsAudioClip) FixAudio(o, db, resPath, stats);
                     else if (o.ClassId == ClsTextAsset) FixEndpoint(o, db, serverUrl, stats);
                     else if (o.ClassId == ClsTexture2D) FixTexture(o, db, resBlob, resPath, stats);
@@ -329,7 +337,7 @@ namespace Tftf.Convert
             o.Data = w.ToArray();
         }
 
-        static void FixMaterial(SerializedFile sf, string file, SerObject o, TreeDb db, Dictionary<string, string> shaderName, ConvertStats stats)
+        static void FixMaterial(SerializedFile sf, string file, SerObject o, TreeDb db, Dictionary<string, string> shaderName, ConvertStats stats, Action<string> log = null)
         {
             var tree = db.Engine[ClsMaterial];
             int fid; long pid;
@@ -340,8 +348,10 @@ namespace Tftf.Convert
             if (!shaderName.TryGetValue(owner + "|" + pid, out nm) || string.IsNullOrEmpty(nm))
             {
                 // Font materials point at the engine's built-in text shader (id 10101 in the 5.3 default resources).
-                if (owner == "unity default resources" && pid == 10101) nm = "GUI/Text Shader"; else return;
+                if (owner == "unity default resources" && pid == 10101) nm = "GUI/Text Shader";
+                else { if (log != null) log("material without shader name: " + (TypeWalker.ReadString(tree, o.Data, "m_Name") ?? "?") + " -> " + owner + "|" + pid); return; }
             }
+            if (log != null && (TypeWalker.ReadString(tree, o.Data, "m_Name") ?? "").IndexOf("health", StringComparison.OrdinalIgnoreCase) >= 0) log("health material: " + TypeWalker.ReadString(tree, o.Data, "m_Name") + " shader=" + nm);
             int s, e;
             TypeWalker.FindRange(tree, o.Data, out s, out e, "m_ShaderKeywords");
             string kw = new ByteReader(o.Data, s).AlignedString().Trim();

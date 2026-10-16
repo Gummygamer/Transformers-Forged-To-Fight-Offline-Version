@@ -13,6 +13,19 @@ public static class TftfResources
         Bundle = bundle;
     }
 
+    // Move files of the 9.2.0 characters (the 3.1.0 moves bundle lacks them): the launcher copies the 9.2.0 APK's
+    // characters/moves.assetbundle next to the converted bundle; "movedata92/<move name>" resolves against it.
+    static System.Collections.Generic.Dictionary<string, TextAsset> _donorMoves;
+
+    public static void MountDonorMoves(AssetBundle bundle)
+    {
+        _donorMoves = new System.Collections.Generic.Dictionary<string, TextAsset>(StringComparer.OrdinalIgnoreCase);
+        foreach (var ta in bundle.LoadAllAssets<TextAsset>()) _donorMoves[ta.name] = ta;
+        // The 3.1.0 'moves' bundle has the same identity: unload this one (the text assets stay) so both can load.
+        bundle.Unload(false);
+        Debug.Log("[TFTF] donor moves mounted: " + _donorMoves.Count);
+    }
+
     static string Key(string path)
     {
         return (path ?? string.Empty).Replace('\\', '/').Trim('/').ToLowerInvariant();
@@ -26,6 +39,11 @@ public static class TftfResources
     public static UnityEngine.Object Load(string path, Type type)
     {
         UnityEngine.Object o = null;
+        if (_donorMoves != null && path != null && path.StartsWith("movedata92/", StringComparison.Ordinal))
+        {
+            TextAsset ta;
+            return _donorMoves.TryGetValue(path.Substring("movedata92/".Length), out ta) ? ta : null;
+        }
         if (Bundle != null)
         {
             if (IsComponent(type))
