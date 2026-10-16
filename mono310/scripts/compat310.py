@@ -474,6 +474,11 @@ public class TftfDiag : MonoBehaviour
             t2 = re.sub(r"\bResourceRequest\b", "TftfRequest", t2)      # EB.Assets.LoadFromResources' request type
             if t2 != t:
                 wr(p, t2); note("P40 Resources.Load -> TftfResources.Load", n)
+    # P41 (shell only): the base game's assets/ folder is extracted from the user's APK into app storage by the launcher;
+    # the game's file driver searches it where it would otherwise have read the APK itself.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "EB/FileSystem/FileDriver.cs", "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n",
+                   "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n\t\t\tstring tftfBase = Path.Combine(Application.persistentDataPath, \"tftf/base/assets\");\n\t\t\tif (Directory.Exists(tftfBase))\n\t\t\t{\n\t\t\t\tAddSearchPath(tftfBase, SearchOrder.First);\n\t\t\t}\n", "P41 file driver searches the extracted base assets")
     # P29: GetRenderPath(kMain) always answers Forward (and records it in the static table the buffer setup reads)
     replace_in(fp, "EB/Rendering/EBGBuffer.cs",
                "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n",

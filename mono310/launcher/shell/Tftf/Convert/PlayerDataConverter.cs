@@ -17,12 +17,12 @@ namespace Tftf.Convert
 
     public sealed class ConvertStats
     {
-        public int Files, MissingScript, DroppedShaders, Materials, Audio, StreamedTextures, Roots, Resources;
+        public int Files, MissingScript, DroppedShaders, Materials, Audio, StreamedTextures, Roots, Resources, Preload, Endpoints;
         public override string ToString()
         {
             return "files=" + Files + " resources=" + Resources + " sceneRoots=" + Roots + " missingScript=" + MissingScript +
                    " droppedShaders=" + DroppedShaders + " materials=" + Materials + " audio=" + Audio +
-                   " streamedTextures=" + StreamedTextures;
+                   " streamedTextures=" + StreamedTextures + " preload=" + Preload + " endpoints=" + Endpoints;
         }
     }
 
@@ -31,7 +31,7 @@ namespace Tftf.Convert
         public const string ShaderMark = "TFTF_SHADER=";
         const int StreamTexturesOver = 64 * 1024;
         const int ClsGameObject = 1, ClsTransform = 4, ClsMaterial = 21, ClsTexture2D = 28, ClsShader = 48, ClsAudioClip = 83,
-                  ClsMonoBehaviour = 114, ClsMonoScript = 115, ClsAssetBundle = 142, ClsResourceManager = 147, ClsCgProgram = 109;
+                  ClsTextAsset = 49, ClsMonoBehaviour = 114, ClsMonoScript = 115, ClsAssetBundle = 142, ClsResourceManager = 147, ClsCgProgram = 109;
         // Type hash of the AssetBundle class in 5.3.5 bundles (taken from a genuine bundle).
         static readonly byte[] AssetBundleTypeHash = HexToBytes("f284abb6f2df17ebedae2b6b50436810");
 
@@ -57,7 +57,7 @@ namespace Tftf.Convert
 
         sealed class Entry { public string Path, File; public long PathId; }
 
-        public static byte[] Convert(IPlayerDataSource src, TreeDb db, ConvertStats stats, Action<string> log)
+        public static byte[] Convert(IPlayerDataSource src, TreeDb db, ConvertStats stats, Action<string> log, string serverUrl = "http://127.0.0.1:8080")
         {
             log = log ?? (s => { });
             // ---- Resources path map
@@ -81,9 +81,27 @@ namespace Tftf.Convert
             var nameSet = new SortedDictionary<string, bool>(StringComparer.Ordinal);
             foreach (var c in container) nameSet[c.File] = true;
             nameSet["globalgamemanagers.assets"] = true; nameSet["sharedassets0.assets"] = true; nameSet["level0"] = true;
-            var names = new List<string>(nameSet.Keys);
             var loaded = new Dictionary<string, SerializedFile>();
-            foreach (var n in names) loaded[n] = SerializedFile.Read(src.Read(n));
+            // Include every file reachable through external references: prefabs keep their materials and atlases in
+            // files the Resources map never names.
+            var pending = new Queue<string>(nameSet.Keys);
+            while (pending.Count > 0)
+            {
+                string n = pending.Dequeue();
+                if (loaded.ContainsKey(n)) continue;
+                var bytes = src.Read(n);
+                if (bytes == null) continue;
+                var sfile = SerializedFile.Read(bytes);
+                loaded[n] = sfile;
+                foreach (var e in sfile.Externals)
+                {
+                    string b = Base(e.Path);
+                    if (!loaded.ContainsKey(b) && !nameSet.ContainsKey(b) && b != "unity_builtin_extra" && !b.StartsWith("0000", StringComparison.Ordinal))
+                        if (src.Read(b) != null) { nameSet[b] = true; pending.Enqueue(b); }
+                }
+            }
+            var names = new List<string>(loaded.Keys);
+            names.Sort(StringComparer.Ordinal);
             stats.Files = names.Count;
 
             string mainNode = Cab("main");
@@ -146,6 +164,9 @@ namespace Tftf.Convert
                 return k;
             };
 
+            var idOfName = new Dictionary<string, int>();
+            for (int i = 0; i < names.Count; i++) idOfName[names[i]] = i;
+            var deps = new Dictionary<long, Ref[]>[names.Count];
             var fsNodes = new List<FsNode>();
             foreach (var n in names)
             {
@@ -169,12 +190,16 @@ namespace Tftf.Convert
                     else t.Node = db.Engine[t.ClassId];
                 }
                 var kept = new List<SerObject>();
+                var myDeps = new Dictionary<long, Ref[]>();
+                deps[idOfName[n]] = myDeps;
                 foreach (var o in sf.Objects)
                 {
                     if (o.ClassId == ClsShader || o.ClassId == ClsCgProgram) { stats.DroppedShaders++; continue; }
                     kept.Add(o);
+                    myDeps[o.PathId] = CollectDeps(sf, n, idOfName, o, db);
                     if (o.ClassId == ClsMaterial) FixMaterial(sf, n, o, db, shaderName, stats);
                     else if (o.ClassId == ClsAudioClip) FixAudio(o, db, resPath, stats);
+                    else if (o.ClassId == ClsTextAsset) FixEndpoint(o, db, serverUrl, stats);
                     else if (o.ClassId == ClsTexture2D) FixTexture(o, db, resBlob, resPath, stats);
                 }
                 sf.Objects.Clear();
@@ -197,14 +222,27 @@ namespace Tftf.Convert
             // ---- main node: AssetBundle object with the Resources container
             var idOf = new Dictionary<string, int>();
             for (int i = 0; i < names.Count; i++) idOf[names[i]] = i + 1;
+            // Each asset's preload range lists everything it needs, dependencies first; the player loads a range
+            // before the asset, which is what links behaviours to their scripts.
+            var preload = new List<Ref>();
+            var ranges = new int[container.Count][];
+            for (int ci = 0; ci < container.Count; ci++)
+            {
+                int start = preload.Count;
+                EmitClosure(deps, idOfName[container[ci].File], container[ci].PathId, preload);
+                ranges[ci] = new[] { start, preload.Count - start };
+            }
+            stats.Preload = preload.Count;
             var ab = new ByteWriter();
             ab.AlignedString("tftf/resources");
-            ab.I32(0);                                                       // m_PreloadTable
+            ab.I32(preload.Count);                                           // m_PreloadTable
+            foreach (var pr in preload) { ab.I32(pr.File + 1); ab.I64(pr.Path); }
             ab.I32(container.Count);
-            foreach (var c in container)
+            for (int ci = 0; ci < container.Count; ci++)
             {
+                var c = container[ci];
                 ab.AlignedString(c.Path.ToLowerInvariant());
-                ab.I32(0); ab.I32(0);                                        // preloadIndex, preloadSize
+                ab.I32(ranges[ci][0]); ab.I32(ranges[ci][1]);                // preloadIndex, preloadSize
                 ab.I32(idOf[c.File]); ab.I64(c.PathId);
             }
             ab.I32(0); ab.I32(0); ab.I32(0); ab.I64(0);                      // m_MainAsset
@@ -225,6 +263,51 @@ namespace Tftf.Convert
             return UnityFsWriter.Write(all);
         }
 
+        struct Ref { public int File; public long Path; }
+
+        static Ref[] CollectDeps(SerializedFile sf, string file, Dictionary<string, int> idOfName, SerObject o, TreeDb db)
+        {
+            var list = new List<Ref>();
+            TreeNode tree = null;
+            foreach (var t in sf.Types) if (t.ClassId == o.TypeId) { tree = t.Node; break; }
+            if (tree == null) return list.ToArray();
+            int self = idOfName[file];
+            TypeWalker.CollectPPtrs(tree, new ByteReader(o.Data), (fid, pid) =>
+            {
+                if (pid == 0) return;
+                int gf;
+                if (fid == 0) gf = self;
+                else if (fid - 1 < sf.Externals.Count && idOfName.TryGetValue(Base(sf.Externals[fid - 1].Path), out gf)) { }
+                else return;                                  // builtin resources are not part of the bundle
+                list.Add(new Ref { File = gf, Path = pid });
+            });
+            return list.ToArray();
+        }
+
+        /// <summary>Post-order walk of the dependency graph: every object appears after the objects it needs.</summary>
+        static void EmitClosure(Dictionary<long, Ref[]>[] deps, int file, long path, List<Ref> output)
+        {
+            var seen = new HashSet<long>();
+            var stack = new Stack<KeyValuePair<Ref, int>>();
+            Func<Ref, long> key = r => ((long)r.File << 48) ^ r.Path;
+            var root = new Ref { File = file, Path = path };
+            seen.Add(key(root));
+            stack.Push(new KeyValuePair<Ref, int>(root, 0));
+            while (stack.Count > 0)
+            {
+                var top = stack.Pop();
+                Ref[] d;
+                if (deps[top.Key.File] == null || !deps[top.Key.File].TryGetValue(top.Key.Path, out d)) d = new Ref[0];
+                if (top.Value < d.Length)
+                {
+                    stack.Push(new KeyValuePair<Ref, int>(top.Key, top.Value + 1));
+                    var next = d[top.Value];
+                    if (seen.Add(key(next))) stack.Push(new KeyValuePair<Ref, int>(next, 0));
+                }
+                else output.Add(top.Key);
+            }
+        }
+
         static void FixMaterial(SerializedFile sf, string file, SerObject o, TreeDb db, Dictionary<string, string> shaderName, ConvertStats stats)
         {
             var tree = db.Engine[ClsMaterial];
@@ -233,7 +316,11 @@ namespace Tftf.Convert
             TypeWalker.ReadLong(tree, o.Data, out pid, "m_Shader", "m_PathID");
             string owner = fid == 0 ? file : Base(sf.Externals[fid - 1].Path);
             string nm;
-            if (!shaderName.TryGetValue(owner + "|" + pid, out nm) || string.IsNullOrEmpty(nm)) return;
+            if (!shaderName.TryGetValue(owner + "|" + pid, out nm) || string.IsNullOrEmpty(nm))
+            {
+                // Font materials point at the engine's built-in text shader (id 10101 in the 5.3 default resources).
+                if (owner == "unity default resources" && pid == 10101) nm = "GUI/Text Shader"; else return;
+            }
             int s, e;
             TypeWalker.FindRange(tree, o.Data, out s, out e, "m_ShaderKeywords");
             string kw = new ByteReader(o.Data, s).AlignedString().Trim();
@@ -241,6 +328,20 @@ namespace Tftf.Convert
             w.AlignedString((kw + " " + ShaderMark + nm).Trim());
             o.Data = TypeWalker.Replace(o.Data, s, e, w.ToArray());
             stats.Materials++;
+        }
+
+        // The game reads its server address from a baked "endpointconfig" text asset; point it at the local server.
+        static void FixEndpoint(SerObject o, TreeDb db, string url, ConvertStats stats)
+        {
+            var tree = db.Engine[ClsTextAsset];
+            string script = TypeWalker.ReadString(tree, o.Data, "m_Script");
+            if (script == null || script.IndexOf("\"Default\"", StringComparison.Ordinal) < 0 || script.IndexOf("\"Prod\"", StringComparison.Ordinal) < 0) return;
+            int s, e;
+            TypeWalker.FindRange(tree, o.Data, out s, out e, "m_Script");
+            var w = new ByteWriter();
+            w.AlignedString("{\"Default\":{\"Prod\":\"" + url + "\"}}");
+            o.Data = TypeWalker.Replace(o.Data, s, e, w.ToArray());
+            stats.Endpoints++;
         }
 
         static void FixAudio(SerObject o, TreeDb db, string resPath, ConvertStats stats)

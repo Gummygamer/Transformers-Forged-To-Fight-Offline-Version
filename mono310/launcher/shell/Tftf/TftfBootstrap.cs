@@ -18,15 +18,16 @@ public class TftfBootstrap : MonoBehaviour
         if (bundle == null) { Debug.LogError("[TFTF] resources bundle failed to load"); yield break; }
         TftfResources.Mount(bundle);
         TftfResources.FixMaterialShaders(bundle);
+        var fixer = new GameObject("TftfMaterialFixer");
+        DontDestroyOnLoad(fixer);
+        fixer.AddComponent<TftfMaterialFixer>();
         foreach (var name in bundle.GetAllAssetNames())
         {
             if (!name.StartsWith("scene/level0/", System.StringComparison.Ordinal)) continue;
             var src = bundle.LoadAsset<GameObject>(name);
-            if (src == null) { Debug.Log("[TFTF] root not loadable: " + name); continue; }
-            Debug.Log("[TFTF] instantiating " + name + " components=" + src.GetComponentsInChildren<Component>(true).Length);
+            if (src == null) { Debug.LogError("[TFTF] boot object not loadable: " + name); continue; }
             var go = Instantiate(src);
             go.name = src.name;
-            Debug.Log("[TFTF] instantiated " + name);
         }
         Debug.Log("[TFTF] boot scene instantiated");
     }

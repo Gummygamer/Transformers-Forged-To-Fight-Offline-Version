@@ -22,17 +22,35 @@ namespace Tftf.Convert
 
         public static void Skip(TreeNode n, ByteReader r)
         {
-            SkipBody(n, r);
+            Visit(n, r, null);
+        }
+
+        /// <summary>Walks a value like Skip and reports every PPtr (file id, path id) it contains.</summary>
+        public static void CollectPPtrs(TreeNode n, ByteReader r, Action<int, long> found)
+        {
+            Visit(n, r, found);
+        }
+
+        static void Visit(TreeNode n, ByteReader r, Action<int, long> found)
+        {
+            VisitBody(n, r, found);
             if (n.Aligned) r.Align(4);
         }
 
-        static void SkipBody(TreeNode n, ByteReader r)
+        static void VisitBody(TreeNode n, ByteReader r, Action<int, long> found)
         {
             int p = PrimitiveSize(n.Type);
             if (p > 0) { r.Pos += p; return; }
             if (n.Type == "string") { int len = r.I32(); if (len > 0) { r.Pos += len; r.Align(4); } return; }
             if (n.Type == "TypelessData") { int len = r.I32(); r.Pos += len; return; }
-            if (n.Type == "pair") { Skip(n.Children[0], r); Skip(n.Children[1], r); return; }
+            if (found != null && n.Type.StartsWith("PPtr<", StringComparison.Ordinal))
+            {
+                int f = r.I32();
+                long pid = r.I64();
+                found(f, pid);
+                return;
+            }
+            if (n.Type == "pair") { Visit(n.Children[0], r, found); Visit(n.Children[1], r, found); return; }
             if (n.Children.Count > 0 && n.Children[0].Type == "Array")
             {
                 bool align = n.Children[0].Aligned;
@@ -40,17 +58,17 @@ namespace Tftf.Convert
                 var sub = n.Children[0].Children[1];
                 if (sub.Aligned)
                 {
-                    for (int i = 0; i < size; i++) SkipBody(sub, r);
+                    for (int i = 0; i < size; i++) VisitBody(sub, r, found);
                     r.Align(4);
                 }
                 else
                 {
-                    for (int i = 0; i < size; i++) Skip(sub, r);
+                    for (int i = 0; i < size; i++) Visit(sub, r, found);
                 }
                 if (align) r.Align(4);
                 return;
             }
-            foreach (var c in n.Children) Skip(c, r);
+            foreach (var c in n.Children) Visit(c, r, found);
         }
 
         /// <summary>Byte range [start, end) of the field at the given path of child names below the root.</summary>
