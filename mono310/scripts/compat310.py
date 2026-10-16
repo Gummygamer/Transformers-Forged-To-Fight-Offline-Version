@@ -443,6 +443,22 @@ public class TftfDiag : MonoBehaviour
     # P28: missing localisation must not NRE the fight mode buttons
     replace_in(main, "QuestModeButton.cs", "string text = _buttonData.CategoryTitle;", "string text = _buttonData.CategoryTitle ?? string.Empty;", "P28a QuestModeButton title null-safe")
     replace_in(main, "QuestModeButton.cs", "string text2 = _buttonData.CategoryDescription;", "string text2 = _buttonData.CategoryDescription ?? string.Empty;", "P28b QuestModeButton description null-safe")
+    # P33: Special 1/2 leave through the animator reaching Idle (PlayerController.OnAnimatorMove) and drop invulnerability
+    # through a move-sequencer event; when either never fires the fighter stays in SpecialAttack, untouchable, and the
+    # fight cannot end. Clear invulnerability on exit and fall back to Idle after a generous cap.
+    replace_in(main, "PlayerSpecialAttackState.cs", "\tprivate int SpecialLevel;\n",
+               "\tprivate int SpecialLevel;\n\n\tprivate float _elapsed;\n\n\tprivate const float MaxDuration = 6f;\n", "P33a special attack watchdog fields")
+    replace_in(main, "PlayerSpecialAttackState.cs", "\t\tbase.StateMachine.UseSpecial(SpecialLevel);\n",
+               "\t\t_elapsed = 0f;\n\t\tbase.StateMachine.UseSpecial(SpecialLevel);\n", "P33b special attack watchdog reset")
+    replace_in(main, "PlayerSpecialAttackState.cs", "\t\tbase.OnExit();\n\t\tbase.StateMachine.RemoveActionFlag(",
+               "\t\tbase.OnExit();\n\t\tbase.StateMachine.SetInvulnerability(invulnerable: false);\n\t\tbase.StateMachine.ToggleAttackWindow(value: true, PlayerController.AttackWindowFlags.All);\n\t\tbase.StateMachine.RemoveActionFlag(", "P33c special attack clears invulnerability on exit")
+    replace_in(main, "PlayerSpecialAttackState.cs", "\tpublic override void Simulate(float deltaTime)\n\t{\n",
+               "\tpublic override void Simulate(float deltaTime)\n\t{\n\t\t_elapsed += deltaTime;\n\t\tif (_elapsed > MaxDuration || (_elapsed > 0.5f && base.StateMachine.AnimatorNormalizedTime >= 1f))\n\t\t{\n\t\t\t_elapsed = 0f;\n\t\t\tbase.StateMachine.SwitchState(\"Idle\");\n\t\t\treturn;\n\t\t}\n", "P33d special attack watchdog")
+    # P36: an attack closes the attack window and only a move-sequencer event reopens it; when that event never fires the
+    # fighter idles with the window shut (no melee, no run, no dash) until a hit resets it. Idle means the move is over:
+    # reopen the normal/special/dash windows (the heavy-hit-reaction lock is left alone).
+    replace_in(main, "PlayerIdleState.cs", "\t\tbase.StateMachine.UpdateTargetVelocity(Vector3.zero);\n",
+               "\t\tbase.StateMachine.UpdateTargetVelocity(Vector3.zero);\n\t\tbase.StateMachine.ToggleAttackWindow(value: true, PlayerController.AttackWindowFlags.NormalAttack | PlayerController.AttackWindowFlags.SpecialAttack | PlayerController.AttackWindowFlags.Dash);\n", "P36 idle reopens the attack window")
     # P29: GetRenderPath(kMain) always answers Forward (and records it in the static table the buffer setup reads)
     replace_in(fp, "EB/Rendering/EBGBuffer.cs",
                "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n",
