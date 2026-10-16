@@ -146,6 +146,30 @@ def main():
         shell_dst = fp / "Tftf"            # first-pass assembly: the game's first-pass code calls TftfResources
         shutil.rmtree(shell_dst, ignore_errors=True)
         shutil.copytree(shell_src, shell_dst)
+        package_server(A)
+
+
+SERVER_FILES = ["run_local.lbl", "server_paths.lbl", "fakeserver.lbl", "gamedata.lbl", "jsonout.lbl",
+                "mods_catalog.json", "sp3_timings.json"]
+SERVER_DIRS = ["data", "fixtures", "responses"]
+
+
+def package_server(A):
+    """Shell only: authored server scripts as a streaming asset, plus the Legible interpreter as an executable
+    native library (TFTF_LEGIBLE_ARMV7 = a release build of Legible for armv7-linux-androideabi)."""
+    import zipfile
+    sa = A / "StreamingAssets"
+    sa.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(sa / "tftf_server.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        for f in SERVER_FILES:
+            z.write(REPO / "Server" / f, f"Server/{f}")
+        for d in SERVER_DIRS:
+            for p in sorted((REPO / "Server" / d).rglob("*")):
+                if p.is_file():
+                    z.write(p, f"Server/{d}/{p.relative_to(REPO / 'Server' / d)}")
+    lib = A / "Plugins/Android/libs/armeabi-v7a"
+    lib.mkdir(parents=True, exist_ok=True)
+    shutil.copy(os.environ["TFTF_LEGIBLE_ARMV7"], lib / "liblegible.so")
 
 
 if __name__ == "__main__":

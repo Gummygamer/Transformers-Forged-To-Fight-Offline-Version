@@ -12,6 +12,7 @@ public class TftfBootstrap : MonoBehaviour
         string path = Path.Combine(dir, "resources.bundle");
         Debug.Log("[TFTF] bootstrap, bundle=" + path + " exists=" + File.Exists(path));
         if (!File.Exists(path)) { Debug.LogError("[TFTF] converted resources bundle missing"); yield break; }
+        yield return TftfServer.Start(dir);
         var req = AssetBundle.LoadFromFileAsync(path);
         yield return req;
         var bundle = req.assetBundle;
