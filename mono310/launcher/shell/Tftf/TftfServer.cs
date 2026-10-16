@@ -41,6 +41,8 @@ public static class TftfServer
             File.Delete(zipPath);
             File.WriteAllText(marker, stamp);
         }
+        Directory.CreateDirectory(Path.Combine(root, "odr"));
+        TftfStaticServer.Start(Path.Combine(root, "odr"));
         string exe = NativeLibraryDir() + "/liblegible.so";
         if (!File.Exists(exe)) { UnityEngine.Debug.LogError("[TFTF] interpreter missing: " + exe); yield break; }
         var psi = new ProcessStartInfo(exe, "run Server/run_local.lbl")

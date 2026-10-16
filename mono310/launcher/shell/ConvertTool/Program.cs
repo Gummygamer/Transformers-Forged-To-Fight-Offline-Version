@@ -19,6 +19,11 @@ static class Program
 {
     static int Main(string[] a)
     {
+        if (a.Length == 5 && a[0] == "odr")      // odr <9.2.0 apk> <out dir> <cdn> <cl>
+        {
+            Tftf.Odr.OdrWadBuilder.Build(a[1], a[2], a[3], a[4], Console.WriteLine);
+            return 0;
+        }
         if (a.Length != 3) { Console.Error.WriteLine("usage: ConvertTool <Data dir> <trees.bin> <out bundle>"); return 2; }
         var db = TreeDb.Load(File.ReadAllBytes(a[1]));
         var stats = new ConvertStats();

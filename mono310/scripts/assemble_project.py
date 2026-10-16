@@ -167,6 +167,12 @@ def package_server(A):
             for p in sorted((REPO / "Server" / d).rglob("*")):
                 if p.is_file():
                     z.write(p, f"Server/{d}/{p.relative_to(REPO / 'Server' / d)}")
+    # The ripped shaders are empty stand-ins; the game loads them by Resources path and swaps in authored ones by name.
+    for p in (RIP / "Assets/Resources").rglob("*.shader*"):
+        t = A / "Resources" / p.relative_to(RIP / "Assets/Resources")
+        t.parent.mkdir(parents=True, exist_ok=True)
+        if not t.exists():
+            shutil.copy(p, t)
     lib = A / "Plugins/Android/libs/armeabi-v7a"
     lib.mkdir(parents=True, exist_ok=True)
     shutil.copy(os.environ["TFTF_LEGIBLE_ARMV7"], lib / "liblegible.so")
