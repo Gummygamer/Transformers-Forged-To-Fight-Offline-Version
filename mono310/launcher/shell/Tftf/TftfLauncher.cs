@@ -101,6 +101,8 @@ public sealed class TftfLauncher : MonoBehaviour
         {
             _installing = true; _message = "";
             TftfInstaller.Start(_root, _paths[0], _paths[1], _trees);
+            GUI.enabled = true;
+            return;
         }
         GUI.enabled = true;
         if (_message.Length > 0) GUI.Label(new Rect(x, 356, 560, 80), _message, _small);
