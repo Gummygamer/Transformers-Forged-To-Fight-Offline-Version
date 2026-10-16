@@ -111,6 +111,31 @@ Shipping the compiled recompiled scripts differs from the current rule in `COMPL
 compiled game assemblies"). That section must be updated before a release if this design is
 adopted.
 
+## Results so far
+
+PC prototype in `launcher/convert/`, checked in the Unity 2020.3.31f1 Editor against the recompiled scripts
+(2026-10-16). **[👁 live]**
+
+- **Type trees.** UnityPy's class database matches every genuine 5.3.5 tree in the user's bundles (29 of 29
+  classes) and parses all 40,000+ non-script objects of the original player data byte-exactly. Script layouts
+  built by the Editor from the recompiled scripts parse all 28,849 `MonoBehaviour`s whose script exists, once
+  the `Keyframe` and `Gradient` structs are restored to their 5.3.5 layout.
+- **Bundle.** `convert_player_data.py` writes one multi-file bundle (54.7 MB, uncompressed) from the whole
+  original `Data` folder. Unity loads it: 1,017 prefabs (47,830 components, 34 missing-script components in 27
+  prefabs), 138 text assets, 35 textures, 16 materials, 6 cubemaps, 3 fonts, 2 animator controllers and a
+  `ScriptableObject`. The 197 shaders are deliberately dropped (old compiled format); materials carry their shader
+  name as a `TFTF_SHADER=` keyword for the loader to resolve.
+- **Pitfalls that cost time** (symptom first):
+  - *`LoadAsset` returns null for assets in a second node of the same bundle*: external paths must be
+    `archive:/<main CAB name>/<node>` in lower case, not `archive:/<node>/<node>`.
+  - *"The file ... is corrupted ... Position out of bounds" when loading a `Texture2D`*: the `TypelessData`
+    node of the type tree must have `m_TypeFlags = 1` like `Array` nodes.
+  - *Scripts that fail to parse only when they contain a curve or gradient*: 5.3.5 `Keyframe` has no weight
+    fields and `Gradient` stores packed 32-bit colours and no `m_Mode`.
+
+Not yet done: the level scene (`level0`), builtin-asset references, material shader fixing, rendering
+correctness, the on-device port and everything after M2.
+
 ## Milestones
 
 | | milestone | proves |

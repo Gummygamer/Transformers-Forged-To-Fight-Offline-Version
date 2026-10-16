@@ -78,3 +78,18 @@ def script_tree(dumped_node):
     base = list(engine(114).m_Children)
     tail = list(dumped_node.m_Children)[4:]       # fields after m_GameObject/m_Enabled/m_Script/m_Name
     return swap_structs(clone(dumped_node, base + tail))
+
+
+def finalize(root):
+    """Give every node the integer fields the serialized-file writer needs (database nodes carry None)."""
+    for i, n in enumerate(root.traverse()):
+        n.m_Index = i
+        if n.m_TypeFlags is None:
+            n.m_TypeFlags = 1 if n.m_Type in ("Array", "TypelessData") else 0
+        if n.m_Version is None:
+            n.m_Version = 1
+        if n.m_ByteSize is None:
+            n.m_ByteSize = -1
+        if n.m_MetaFlag is None:
+            n.m_MetaFlag = 0
+    return root
