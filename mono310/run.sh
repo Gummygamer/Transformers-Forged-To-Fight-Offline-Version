@@ -68,6 +68,7 @@ step_assets() {  # non-script assets, audio, replacement shaders
   cp "$MONO310_DIR/unity/shaders/EBNoToneMapBlit.shader" "$N/Resources/Shader310/Hidden_EB_PostFX_NoToneMapBlit.shader"
   cp "$MONO310_DIR/unity/shaders/EBToneMapBlit.shader" "$N/Resources/Shader310/Hidden_EB_PostFX_ToneMapBlit.shader"
   cp "$MONO310_DIR/unity/shaders/EBUIScreenCapture.shader" "$N/Resources/Shader310/Hidden_EB_UIScreenCapture.shader"
+  cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/ui/shaders/Hud_Health.shader"   # keeps the ripped .meta guid the HealthBar material points at
 }
 
 step_assemble() { python3 "$S/assemble_project.py"; }
