@@ -53,7 +53,7 @@ public static class TftfInstaller
         new Thread(() =>
         {
             try { Run(root, apk310, apk92, treesBin, odrCacheDir); Done = true; }
-            catch (Exception e) { Error = e.Message; UnityEngine.Debug.LogError("[TFTF] install failed: " + e); }
+            catch (Exception e) { Error = e.Message; UnityEngine.Debug.LogError("[TFTF] install failed: " + e); Note("FAILED: " + e); }
         }) { Name = "TftfInstaller", IsBackground = true }.Start();
     }
 
@@ -61,6 +61,14 @@ public static class TftfInstaller
     {
         Status = status; Progress = progress;
         UnityEngine.Debug.Log("[TFTF] install: " + status);
+        Note(status);
+    }
+
+    // A small log next to the installed data, for bug reports: tftf/install.log
+    static void Note(string line)
+    {
+        try { File.AppendAllText(Path.Combine(_root, "install.log"), DateTime.Now.ToString("s") + " " + line + "\n"); }
+        catch { }
     }
 
     static void Run(string root, string apk310, string apk92, byte[] treesBin, string odrCacheDir)

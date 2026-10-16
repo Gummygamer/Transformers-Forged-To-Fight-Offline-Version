@@ -118,6 +118,18 @@ public class Activity extends UnityPlayerActivity {
         }
     }
 
+    /** Starts the app again in a fresh process (used once after the first-run installation). */
+    public void tftfRestart() {
+        Intent i = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (i == null) return;
+        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(i);
+        finish();
+        new android.os.Handler().postDelayed(new Runnable() {
+            public void run() { System.exit(0); }
+        }, 300);
+    }
+
     public void launchAppSettings() {
         Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", getPackageName(), null));

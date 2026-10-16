@@ -6,6 +6,22 @@ using UnityEngine;
 
 public class TftfBootstrap : MonoBehaviour
 {
+    static bool RestartApp()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                activity.Call("tftfRestart");
+            return true;
+        }
+        catch (System.Exception e) { Debug.LogWarning("[TFTF] restart failed: " + e.Message); return false; }
+#else
+        return false;
+#endif
+    }
+
     IEnumerator Start()
     {
         string dir = Path.Combine(Application.persistentDataPath, "tftf");
@@ -15,6 +31,9 @@ public class TftfBootstrap : MonoBehaviour
             var launcher = TftfLauncher.Create(dir);
             while (!launcher.Finished) yield return null;
             Destroy(launcher.gameObject);
+            // Start-up code of the game (file system, caches) ran before the files existed: begin again in a fresh
+            // process so the first start is identical to every later one.
+            if (TftfLauncher.RestartAfterInstall && RestartApp()) yield break;
         }
         string path = Path.Combine(dir, "resources.bundle");
         Debug.Log("[TFTF] bootstrap, bundle=" + path + " exists=" + File.Exists(path));

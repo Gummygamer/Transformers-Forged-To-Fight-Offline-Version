@@ -241,3 +241,9 @@ Symptom first.
   (after the change the same flow boots and the log shows no crash)
 - *Quick native iteration.* `launcher/tools/replace_apk_libs.py IN.apk OUT.apk DIR` swaps the `.so` files into a
   built APK and re-signs it (one minute instead of a full build). **[👁 live]**
+- *Only on the very first start after installing: `Fatal Filesystem Error! Missing: packs.txt`, title never appears;
+  a second start works.* The game's `EB.FileSystem.Manager` (and its `FileDriver`) is built by a static constructor
+  at application start, before the first-run screen has copied the base files. A search path added only when the
+  folder already exists is missing on a first run: register it unconditionally and let each lookup check the file.
+  Any other start-up code that captures "does this folder exist" has the same problem. **[👁 live]** (wipe-and-install run showed the error;
+  after the fix the same run boots into the game)

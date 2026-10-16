@@ -495,7 +495,7 @@ public class TftfDiag : MonoBehaviour
     # the game's file driver searches it where it would otherwise have read the APK itself.
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(fp, "EB/FileSystem/FileDriver.cs", "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n",
-                   "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n\t\t\tstring tftfBase = Path.Combine(Application.persistentDataPath, \"tftf/base/assets\");\n\t\t\tif (Directory.Exists(tftfBase))\n\t\t\t{\n\t\t\t\tAddSearchPath(tftfBase, SearchOrder.First);\n\t\t\t}\n", "P41 file driver searches the extracted base assets")
+                   "\t\t\tManager.Log(\"Datapath: \" + Application.dataPath);\n\t\t\tstring tftfBase = Path.Combine(Application.persistentDataPath, \"tftf/base/assets\");\n\t\t\tAddSearchPath(tftfBase, SearchOrder.First);   // registered even if the first-run installer has not copied the files yet\n", "P41 file driver searches the extracted base assets")
     # P42 (shell only): the attribution SDK (MAT) has no Java side in the shell; its binding calls it only outside the
     # editor, so switch those branches off (the default return values already exist after each branch).
     if os.environ.get("TFTF_SHELL") == "1":

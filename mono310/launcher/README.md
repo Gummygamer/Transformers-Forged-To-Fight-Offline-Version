@@ -7,6 +7,7 @@
 - [For builders](#for-builders)
 - [Layout](#layout)
 - [Limits](#limits)
+- [Release](#release)
 
 ## What this is
 
@@ -26,7 +27,8 @@ question in `../../COMPLIANCE.md` ("Assetless launcher") is settled.**
 5. The first time you press play, the game unpacks about 450 MB of content from inside the app. The
    title screen stays up for a few minutes. Later starts skip all of this.
 
-Everything is stored in the app's private folder; uninstalling the app removes it.
+Everything is stored in the app's private folder (`Android/data/com.kabam.bigrobot/files/tftf`); uninstalling the app
+removes it. If the install fails, the reason is shown on screen and written to `install.log` in that folder.
 
 ## For builders
 
@@ -46,7 +48,8 @@ The result is `tftf-launcher-armv7.apk` in `TFTF_WORK`. For script-only changes,
 is much quicker (it patches the managed code into the last finalized APK). The converter and the ODR
 package builder can also be run on a PC: `launcher/shell/ConvertTool/selftest.sh` compiles them with Unity's mcs, converts the
 3.1.0 data, builds the content package from the 9.2.0 APK and runs the package self-test (about 25 s, needs the same
-variables plus `UNITY_2020_ROOT`).
+variables plus `UNITY_2020_ROOT`). `launcher/shell/ConvertTool/compile_check.sh` compiles all phone-side C# against the
+Unity 2020 engine modules in a few seconds (run it before every player build).
 
 ## Layout
 
@@ -66,3 +69,8 @@ variables plus `UNITY_2020_ROOT`).
   separate port of the whole recompile.
 - Purchases, push notifications, analytics and Play Games sign-in are stubs.
 - The first-play content unpack is slow because the game extracts the package itself.
+
+## Release
+
+The checklist for a 0.1 release, including the compliance decision that blocks publishing, is in
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md); what changed is in [`CHANGELOG.md`](CHANGELOG.md).

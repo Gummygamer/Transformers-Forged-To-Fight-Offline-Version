@@ -7,6 +7,8 @@ using UnityEngine.Networking;
 
 public sealed class TftfLauncher : MonoBehaviour
 {
+    public const string LauncherVersion = "0.1.0";      // the launcher's own version; the game inside stays 3.1.0
+    public const bool RestartAfterInstall = true;
     string _root;
     string[] _names = { "", "" };
     string[] _paths = { "", "" };
@@ -53,7 +55,9 @@ public sealed class TftfLauncher : MonoBehaviour
             fd = activity.Call<int>("tftfOpenPicked", slot);
 #endif
         _paths[slot] = fd >= 0 ? "/proc/self/fd/" + fd : "";
-        if (fd < 0) { _names[slot] = ""; _message = "Could not open that file."; }
+        if (fd < 0) { _names[slot] = ""; _message = "Could not open that file."; return; }
+        string problem = Validate(_paths[slot], slot);
+        if (problem != null) { _names[slot] = ""; _paths[slot] = ""; _message = problem; }
         else _message = "";
     }
 
@@ -71,6 +75,27 @@ public sealed class TftfLauncher : MonoBehaviour
 #else
         return -1;
 #endif
+    }
+
+    // What each game APK must contain; also recognises the two files picked in the wrong order.
+    const string Marker310 = "assets/bin/Data/globalgamemanagers";
+    const string Marker92 = "assets/assetpack/characters/moves.assetbundle";
+
+    static string Validate(string path, int slot)
+    {
+        try
+        {
+            using (var zip = new System.IO.Compression.ZipArchive(File.OpenRead(path), System.IO.Compression.ZipArchiveMode.Read))
+            {
+                bool is310 = zip.GetEntry(Marker310) != null, is92 = zip.GetEntry(Marker92) != null;
+                if (slot == 0 && is310) return null;
+                if (slot == 1 && is92) return null;
+                if (slot == 0 && is92) return "That is the 9.2.0 APK. Choose it with the second button, and pick the 3.1.0 APK here.";
+                if (slot == 1 && is310) return "That is the 3.1.0 APK. Choose it with the first button, and pick the 9.2.0 APK here.";
+                return "That file is not the " + (slot == 0 ? "3.1.0" : "9.2.0") + " game APK.";
+            }
+        }
+        catch (System.Exception) { return "That file is not a readable APK."; }
     }
 
     void Pick(int slot)
@@ -105,6 +130,7 @@ public sealed class TftfLauncher : MonoBehaviour
         float x = w * 0.5f - 280;
         GUI.Label(new Rect(x, 20, 560, 40), "Transformers: Forged to Fight - offline launcher", _label);
         GUI.Label(new Rect(x, 62, 560, 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your phone.", _small);
+        GUI.Label(new Rect(x, h - 30, 560, 24), "Launcher " + LauncherVersion + "  (game build 3.1.0-822754)", _small);
         if (_installing)
         {
             GUI.Label(new Rect(x, 170, 560, 40), TftfInstaller.Status, _label);
