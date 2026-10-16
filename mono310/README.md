@@ -37,7 +37,7 @@ Game inputs (yours; never committed):
 | Variable | What |
 |---|---|
 | `TFTF_310_APK` | 3.1.0 APK (`com.kabam.bigrobot` 3.1.0-822754) |
-| `TFTF_92_APK` | optional, needed only for the `wad` step: 9.2.0 APK (story map, arenas, fighters) |
+| `TFTF_92_APK` | 9.2.0 APK (story map, arenas, fighters); needed for the `wad` step and for the `assets` step, which extracts the 9.2 fighters' move data (without it their attacks never hit) |
 
 Public external tools (not authored here, not bundled):
 
@@ -52,7 +52,7 @@ Public external tools (not authored here, not bundled):
 | `ANDROID_HOME` | Android SDK with `build-tools` (`zipalign`, `apksigner`) and `adb` |
 | `TFTF_KEYSTORE` | signing keystore (default `~/.android/debug.keystore`) |
 
-Host tools: python3, rsync, unzip, docker. To test on a device you also need the revival
+Host tools: python3, rsync, unzip, docker. `pip install UnityPy` (reads the 9.2.0 move bundle in the `assets` step). To test on a device you also need the revival
 server (Legible runtime) and `Server/odr_static_server.py`.
 
 Repository code it relies on (already committed): `tools/finalize_recompiled_202_apk.py`,

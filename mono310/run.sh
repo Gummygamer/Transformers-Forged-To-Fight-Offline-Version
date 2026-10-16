@@ -62,6 +62,7 @@ step_assets() {  # non-script assets, audio, replacement shaders
   python3 "$S/convert_audio.py" "$N"
   rm -rf "$N/Shader310" "$N/Shader310.meta"
   python3 "$S/gen_shaders.py" "$N/Resources/Shader310"
+  if [ -f "$TFTF_92_APK" ]; then python3 "$S/extract_donor_moves.py" "$TFTF_92_APK" "$N/Resources/movedata92" || echo "warn: donor move data not extracted; 9.2 fighters will have no hit events"; fi
   cp "$MONO310_DIR/unity/shaders/EBG_UI_BlendColored.shader" "$N/Resources/Shader310/EBG_UI_BlendColored.shader"
   cp "$MONO310_DIR/unity/shaders/EBBlit.shader" "$N/Resources/Shader310/Hidden_EB_Blit.shader"
   cp "$MONO310_DIR/unity/shaders/EBNoToneMapBlit.shader" "$N/Resources/Shader310/Hidden_EB_PostFX_NoToneMapBlit.shader"

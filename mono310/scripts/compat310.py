@@ -459,6 +459,11 @@ public class TftfDiag : MonoBehaviour
     # reopen the normal/special/dash windows (the heavy-hit-reaction lock is left alone).
     replace_in(main, "PlayerIdleState.cs", "\t\tbase.StateMachine.UpdateTargetVelocity(Vector3.zero);\n",
                "\t\tbase.StateMachine.UpdateTargetVelocity(Vector3.zero);\n\t\tbase.StateMachine.ToggleAttackWindow(value: true, PlayerController.AttackWindowFlags.NormalAttack | PlayerController.AttackWindowFlags.SpecialAttack | PlayerController.AttackWindowFlags.Dash);\n", "P36 idle reopens the attack window")
+    # P38: fighters from the 9.2.0 character packs reference move files the 3.1.0 'moves' bundle lacks, so MoveInfo._asset
+    # is null, no move events load and their attacks never hit. Fall back to the donor move files extracted into
+    # Resources/movedata92 by extract_donor_moves.py.
+    replace_in(main, "EB/MoveEditor/MoveInfo.cs", "\t\tpublic void DeserializeFromTextAsset()\n\t\t{\n",
+               "\t\tpublic void DeserializeFromTextAsset()\n\t\t{\n\t\t\tif (_asset == null && !string.IsNullOrEmpty(_name))\n\t\t\t{\n\t\t\t\t_asset = Resources.Load<TextAsset>(\"movedata92/\" + _name);\n\t\t\t}\n", "P38 donor move data fallback")
     # P29: GetRenderPath(kMain) always answers Forward (and records it in the static table the buffer setup reads)
     replace_in(fp, "EB/Rendering/EBGBuffer.cs",
                "\t\tpublic static eRENDER_PATH GetRenderPath(eMRT_BUFFER buffer, bool nativeResolution, bool hasPostFX)\n\t\t{\n",
