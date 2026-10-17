@@ -63,25 +63,50 @@ public sealed class TftfLauncher : MonoBehaviour
         if (logo.result == UnityWebRequest.Result.Success) _logo = DownloadHandlerTexture.GetContent(logo);
     }
 
-    // Called from Java: "slot|display name" (empty name = cancelled)
-    public void OnPicked(string arg)
+    // The Java side keeps what the picker returned until it is fetched here (a message sent to Unity while the picker was open could
+    // be lost when Android recreated the activity): name = display name, "" = cancelled.
+    void Poll()
     {
-        int bar = arg.IndexOf('|');
-        int slot = int.Parse(arg.Substring(0, bar));
-        string name = arg.Substring(bar + 1);
-        if (name.Length == 0) return;
-        _names[slot] = name;
-        int fd = -1;
 #if UNITY_ANDROID && !UNITY_EDITOR
-        using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-        using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-            fd = activity.Call<int>("tftfOpenPicked", slot);
+        try
+        {
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                for (int slot = 0; slot < 2; slot++)
+                {
+                    if (_copying[slot])
+                    {
+                        int state = activity.Call<int>("tftfCopyState", slot);
+                        if (state == 1) continue;
+                        _copying[slot] = false;
+                        if (state == 2) Accept(slot, _copyDest[slot]);
+                        else { _names[slot] = ""; _message = "Could not copy that file to the phone (is there enough free space?)."; }
+                        continue;
+                    }
+                    string name = activity.Call<string>("tftfTakePicked", slot);
+                    if (name == null || name.Length == 0) continue;
+                    _names[slot] = name;
+                    int fd = activity.Call<int>("tftfOpenPicked", slot);
+                    string path = fd >= 0 ? "/proc/self/fd/" + fd : "";
+                    if (path.Length > 0 && Validate(path, slot) != "unreadable") { Accept(slot, path); continue; }
+                    // some providers (cloud folders, downloads managers) hand out descriptors that cannot be read as a file: copy it instead
+                    _copyDest[slot] = Path.Combine(Application.persistentDataPath, "picked" + slot + ".apk");
+                    _copying[slot] = true; _message = "Copying " + name + " to the phone...";
+                    activity.Call("tftfCopyPicked", slot, _copyDest[slot]);
+                }
+        }
+        catch (System.Exception e) { Debug.LogWarning("[TFTF] pick poll failed: " + e.Message); }
 #endif
-        _paths[slot] = fd >= 0 ? "/proc/self/fd/" + fd : "";
-        if (fd < 0) { _names[slot] = ""; _message = "Could not open that file."; return; }
-        string problem = Validate(_paths[slot], slot);
-        if (problem != null) { _names[slot] = ""; _paths[slot] = ""; _message = problem; }
-        else _message = "";
+    }
+
+    bool[] _copying = { false, false };
+    string[] _copyDest = { "", "" };
+
+    void Accept(int slot, string path)
+    {
+        string problem = Validate(path, slot);
+        if (problem == null) { _paths[slot] = path; _message = ""; }
+        else { _names[slot] = ""; _paths[slot] = ""; _message = problem; }
     }
 
     const long RequiredBytes = 1200L << 20;      // content package 450 MB + converted data + base files + working room
@@ -118,7 +143,7 @@ public sealed class TftfLauncher : MonoBehaviour
                 return "That file is not the " + (slot == 0 ? "3.1.0" : "9.2.0") + " game APK.";
             }
         }
-        catch (System.Exception) { return "That file could not be read as an APK. If it is in a cloud folder, copy it to the phone first."; }
+        catch (System.Exception) { return path.StartsWith("/proc/self/fd/") ? "unreadable" : "That file could not be read as an APK."; }
     }
 
     void Pick(int slot)
@@ -132,6 +157,7 @@ public sealed class TftfLauncher : MonoBehaviour
 
     void Update()
     {
+        Poll();
         if (_installing && TftfInstaller.Done) { _installing = false; _finished = true; }
         if (_installing && TftfInstaller.Error != null) { _installing = false; _message = "Installation failed: " + TftfInstaller.Error; }
     }

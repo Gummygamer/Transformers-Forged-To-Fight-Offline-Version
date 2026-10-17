@@ -77,15 +77,27 @@ public class Activity extends UnityPlayerActivity {
     }
 
     // ---- launcher file picking (Storage Access Framework): the user supplies the base game APKs ----
+    // The choice is kept here (and in preferences) until the launcher polls it with tftfTakePicked: Android may recreate the activity,
+    // or even the process, while the picker is open, and a message sent to Unity before its scene is up is lost.
     private static final int PICK_BASE = 7000;
     private final Uri[] picked = new Uri[2];
+    private final String[] pending = new String[2];
+    private final int[] copyState = { 0, 0 };          // 0 idle, 1 copying, 2 done, 3 failed
 
-    /** slot 0 = the 3.1.0 APK, slot 1 = the 9.2.0 APK. Result arrives as UnitySendMessage(TftfLauncher, OnPicked, "slot|name"). */
+    /** slot 0 = the 3.1.0 APK, slot 1 = the 9.2.0 APK. The result is fetched with tftfTakePicked(slot). */
     public void tftfPickFile(int slot) {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
         startActivityForResult(i, PICK_BASE + slot);
+    }
+
+    private Uri pickedUri(int slot) {
+        if (picked[slot] == null) {
+            String u = getSharedPreferences("tftf", MODE_PRIVATE).getString("pick" + slot, null);
+            if (u != null) picked[slot] = Uri.parse(u);
+        }
+        return picked[slot];
     }
 
     @Override
@@ -94,10 +106,12 @@ public class Activity extends UnityPlayerActivity {
         int slot = requestCode - PICK_BASE;
         if (slot < 0 || slot > 1) return;
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
-            UnityPlayer.UnitySendMessage("TftfLauncher", "OnPicked", slot + "|");
+            pending[slot] = "";
             return;
         }
         picked[slot] = data.getData();
+        try { getContentResolver().takePersistableUriPermission(picked[slot], Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (Exception ignored) { }
+        getSharedPreferences("tftf", MODE_PRIVATE).edit().putString("pick" + slot, picked[slot].toString()).apply();
         String name = "file";
         try (Cursor c = getContentResolver().query(picked[slot], null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
@@ -105,18 +119,48 @@ public class Activity extends UnityPlayerActivity {
                 if (col >= 0) name = c.getString(col);
             }
         } catch (Exception ignored) { }
-        UnityPlayer.UnitySendMessage("TftfLauncher", "OnPicked", slot + "|" + name);
+        pending[slot] = name;
+    }
+
+    /** The name of a newly picked file for the slot ("" when the picker was cancelled), or null when there is nothing new. */
+    public String tftfTakePicked(int slot) {
+        String r = pending[slot];
+        pending[slot] = null;
+        return r;
     }
 
     /** A seekable file descriptor for the picked file, usable as /proc/self/fd/N; -1 when it cannot be opened. */
     public int tftfOpenPicked(int slot) {
         try {
-            ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(picked[slot], "r");
+            Uri u = pickedUri(slot);
+            if (u == null) return -1;
+            ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(u, "r");
             return pfd == null ? -1 : pfd.detachFd();
         } catch (Exception e) {
             return -1;
         }
     }
+
+    /** Copies the picked file to dest on a background thread (for providers whose files cannot be read in place). */
+    public void tftfCopyPicked(final int slot, final String dest) {
+        copyState[slot] = 1;
+        new Thread(new Runnable() {
+            public void run() {
+                try (java.io.InputStream in = getContentResolver().openInputStream(pickedUri(slot));
+                     java.io.OutputStream out = new java.io.FileOutputStream(dest)) {
+                    byte[] buf = new byte[1 << 20];
+                    int n;
+                    while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                    copyState[slot] = 2;
+                } catch (Exception e) {
+                    copyState[slot] = 3;
+                }
+            }
+        }).start();
+    }
+
+    /** 0 idle, 1 copying, 2 done, 3 failed. */
+    public int tftfCopyState(int slot) { return copyState[slot]; }
 
     /** Starts the app again in a fresh process (used once after the first-run installation). */
     public void tftfRestart() {

@@ -22,6 +22,12 @@
   entries in its manifest.
 - After the first-run install the app did not come back (it ended on the home screen): the restart now relaunches through an alarm.
 - Transparent donor materials (glow cards) are drawn additively by a separate stand-in shader (TFTF/AddFx) instead of opaque.
+- Robot and scene shading rebuilt: linear-space PBR-style lighting (sun specular, sky reflection, rim and back light, ACES tone mapping),
+  a real shadow-casting sun light, camera-relative key light, full texture quality (the game ran at Unity's Fastest level), and the
+  terrain shader's world-projected textures with its colour-layer blend - the story-map ground is textured sand instead of flat grey.
+- The file picker keeps the choice on the Java side until the launcher fetches it, takes a persistent permission, and copies files
+  from providers whose descriptors cannot be read in place.
+- Dev: `tftf/dbg.txt` (1-6) selects shader debug views, `probe_scene.txt` dumps lights, cameras and shaders of the current screen.
 
 ## 0.3.0
 

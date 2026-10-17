@@ -253,6 +253,11 @@ public sealed class TftfTextureProbe : MonoBehaviour
                 if (r.bounds.size.magnitude > 15f && big.Count < 25) big.Add(r.name + " mat=" + m.name + " sh=" + (m.shader == null ? "none" : TftfResources.NameOf(m.shader)) + " size=" + r.bounds.size.magnitude.ToString("F0"));
             }
         }
+        foreach (var l in Object.FindObjectsOfType<Light>())
+            Debug.Log("[TFTF] scene light " + l.name + " type=" + l.type + " en=" + l.enabled + " active=" + l.gameObject.activeInHierarchy + " shadows=" + l.shadows + " int=" + l.intensity + " mask=" + l.cullingMask + " rot=" + l.transform.eulerAngles);
+        foreach (var c in Camera.allCameras)
+            Debug.Log("[TFTF] scene camera " + c.name + " path=" + c.actualRenderingPath + " mask=" + c.cullingMask + " depth=" + c.depth + " clear=" + c.clearFlags + " hdr=" + c.allowHDR + " ortho=" + c.orthographic + " fov=" + c.fieldOfView + " near=" + c.nearClipPlane + " far=" + c.farClipPlane + " pos=" + c.transform.position + " fwd=" + c.transform.forward + " rt=" + (c.targetTexture != null));
+        Debug.Log("[TFTF] scene ambient mode=" + RenderSettings.ambientMode + " color=" + RenderSettings.ambientLight + " fog=" + RenderSettings.fog + " globalDir=" + Shader.GetGlobalVector("_EBDirectionalLightDirection") + " tftfDir=" + Shader.GetGlobalVector("_TftfLightDir") + " pixLights=" + QualitySettings.pixelLightCount + " shadowDist=" + QualitySettings.shadowDistance);
         foreach (var kv in groups) Debug.Log("[TFTF] scene shader " + kv.Key + " x" + kv.Value);
         foreach (var b in big) Debug.Log("[TFTF] scene big " + b);
         Debug.Log("[TFTF] scene done");

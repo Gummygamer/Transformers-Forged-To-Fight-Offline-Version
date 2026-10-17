@@ -115,6 +115,11 @@ PBR = r"""Shader "TFTF/PbrLite"
         _Flags ("has normal, metal, rough, ao", Vector) = (0,0,0,0)
         _MetalAmt ("Metallic scale", Float) = 1
         _RoughAmt ("Roughness scale", Float) = 1
+        _Base2Tex ("Terrain colour layer", 2D) = "white" {}
+        _MaskTex ("Terrain blend mask", 2D) = "white" {}
+        _Base2ST ("colour layer tiling", Vector) = (1,1,0,0)
+        _MaskST ("mask tiling", Vector) = (1,1,0,0)
+        _Blend ("mask offset, remap, colour layer on, world uv", Vector) = (0,1,0,0)
     }
     SubShader
     {
@@ -131,12 +136,12 @@ PBR = r"""Shader "TFTF/PbrLite"
             #include "UnityCG.cginc"
             #include "AutoLight.cginc"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) };
-            sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _EBDirectionalLightDirection;
+            struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; };
+            sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug;
             v2f vert(appdata_t v)
             {
-                v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
+                v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord;
                 o.n = UnityObjectToWorldNormal(v.normal); o.wp = mul(unity_ObjectToWorld, v.vertex).xyz;
                 TRANSFER_SHADOW(o)
                 return o;
@@ -152,41 +157,65 @@ PBR = r"""Shader "TFTF/PbrLite"
             }
             fixed4 frag(v2f i) : SV_Target
             {
+                // terrain (EB/PBRTerrain): textures are projected from the world position, tiled per metre
+                float2 uv = _Blend.w > 0.5 ? i.wp.xz * _MainTex_ST.xy + _MainTex_ST.zw : i.uv;
+                float2 uvR = _Blend.w > 0.5 ? i.wp.xz : i.uvRaw;
                 float3 n = normalize(i.n);
                 if (_Flags.x > 0.5)
                 {
-                    float3 tn = tex2D(_NormalTex, i.uv).xyz * 2 - 1; tn.xy *= 0.8; tn.z = sqrt(saturate(1 - dot(tn.xy, tn.xy)));
-                    n = perturb(n, i.wp, i.uv, tn);
+                    float3 tn = tex2D(_NormalTex, uv).xyz * 2 - 1; tn.xy *= 0.8; tn.z = sqrt(saturate(1 - dot(tn.xy, tn.xy)));
+                    n = perturb(n, i.wp, uv, tn);
                 }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
-                // the scene's own sun (EBLight pushes its up vector as the direction towards the light); a fixed one before it is set
-                float3 L = _EBDirectionalLightDirection.xyz;
-                L = dot(L, L) < 0.01 ? float3(0.4, 0.8, -0.45) : L;
-                L = normalize(L.y < 0 ? -L : L);
-                L = L.y < 0.3 ? normalize(float3(L.x, 0.3, L.z)) : L;      // same clamp as the TFTF sun light (TftfDiag.EnsureSun)
-                float3 L2 = normalize(float3(-L.x, 0.15, -L.z));
-                float3 alb = tex2D(_MainTex, i.uv).rgb * _Color.rgb;
-                float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, i.uv).r * _MetalAmt) : saturate(_MetalAmt);
-                float rough = _Flags.z > 0.5 ? saturate(tex2D(_RoughTex, i.uv).r * _RoughAmt) : saturate(_RoughAmt);
-                float ao = _Flags.w > 0.5 ? tex2D(_AoTex, i.uv).r : 1;
-                rough = clamp(rough, 0.08, 1);
-                float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - 0.55 * metal);
-                float aoL = lerp(0.45, 1, ao);
-                float ndl = dot(n, L);
+                // key light from the camera's upper left front, rim light from behind: fight cameras face the scene's sun, which lit the
+                // bots from the front and made them flat. TftfDiag points the shadow-casting TFTF sun the same way (TftfLightDir).
+                float3 camRight = UNITY_MATRIX_V[0].xyz, camBack = UNITY_MATRIX_V[2].xyz;
+                float3 L = _TftfLightDir.xyz;
+                L = dot(L, L) < 0.01 ? normalize(-0.55 * camRight + float3(0, 0.75, 0) + 0.35 * camBack) : normalize(L);
+                float3 L2 = normalize(0.45 * camRight + float3(0, 0.25, 0) - 0.85 * camBack);
+                // lit in linear space and tone mapped, like the original PBR pipeline (gamma-space lighting looked flat)
+                float3 albS = tex2D(_MainTex, uv).rgb;
+                if (_Blend.z > 0.5)      // EB/PBRTerrain: a large-scale colour layer mixed in through a breakup mask
+                {
+                    float mask = tex2D(_MaskTex, uvR * _MaskST.xy + _MaskST.zw).r;
+                    float k = saturate((mask + _Blend.x) * _Blend.y);
+                    albS = lerp(albS, tex2D(_Base2Tex, uvR * _Base2ST.xy + _Base2ST.zw).rgb, k);
+                }
+                float3 alb = pow(albS * _Color.rgb, 2.2);
+                float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, uv).r * _MetalAmt) : saturate(_MetalAmt);
+                float rough = _Flags.z > 0.5 ? saturate(tex2D(_RoughTex, uv).r * _RoughAmt) : saturate(_RoughAmt);
+                float ao = _Flags.w > 0.5 ? tex2D(_AoTex, uv).r : 1;
+                rough = clamp(rough, 0.12, 1);
+                float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - metal);
+                float ndl = dot(n, L), ndv = saturate(dot(n, V));
                 UNITY_LIGHT_ATTENUATION(atten, i, i.wp);      // the TFTF sun light's shadow (1 without one)
-                float nl = saturate((ndl + 0.2) / 1.2) * atten, nl2 = saturate(dot(n, L2));      // slightly wrapped key light
+                float nl = saturate(ndl) * atten, nl2 = saturate(dot(n, L2));
                 float3 H = normalize(L + V);
-                float a2 = pow(rough, 4), nh = saturate(dot(n, H));
+                float a2 = rough * rough * rough * rough, nh = saturate(dot(n, H));
                 float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
+                float vis = 0.25 / max(lerp(ndv, 1, rough * 0.5) * lerp(saturate(ndl), 1, rough * 0.5), 0.05);
                 float3 F = spec0 + (1 - spec0) * pow(1 - saturate(dot(V, H)), 5);
-                float3 specular = D * F * 0.3 * saturate(ndl) * atten;
+                float3 sun = float3(1.0, 0.96, 0.9) * 2.8;
+                float3 direct = (diff / 3.14159 * 3.14159 + D * vis * F) * nl * sun;          // diffuse * pi cancels the 1/pi of lambert
                 float hemi = saturate(n.y * 0.5 + 0.5);
-                float3 ambient = lerp(float3(0.20, 0.19, 0.19), float3(0.52, 0.58, 0.70), hemi);     // dark underside, bluish sky
+                float3 ambient = lerp(float3(0.05, 0.048, 0.05), float3(0.27, 0.30, 0.38), hemi) + nl2 * float3(0.14, 0.15, 0.19);
                 float3 r = reflect(-V, n);
-                float3 env = lerp(float3(0.22, 0.21, 0.20), float3(0.70, 0.78, 0.92), saturate(r.y * 0.5 + 0.5)) * (1 - rough * 0.6);
-                float3 col = diff * (nl * 1.05 + nl2 * 0.18 + ambient) * aoL + specular + env * F * aoL * (0.25 + metal * 0.75);
-                col += tex2D(_EmisTex, i.uv).rgb * _EmisColor.rgb;
-                col = 1 - exp(-1.3 * col);      // soft shoulder: bright albedo (snow) keeps its shape instead of clipping
+                float3 sky = lerp(float3(0.03, 0.03, 0.035), float3(0.55, 0.62, 0.78), saturate(r.y * 0.5 + 0.5));
+                float3 Fenv = spec0 + (max(1 - rough, spec0) - spec0) * pow(1 - ndv, 5);
+                float3 env = sky * Fenv * (1 - rough * 0.7);
+                float rim = pow(1 - ndv, 4) * 0.35 * (1 - rough * 0.5);
+                float aoL = lerp(0.35, 1, ao);
+                float back = pow(saturate(dot(n, L2)), 2) * (0.35 + 0.65 * pow(1 - ndv, 2));
+                if (_TftfDebug > 0.5)      // tftf/dbg.txt: 1 world normal, 2 key light lambert, 3 shadow atten, 4 albedo, 5 light dir, 6 n.v, 7 ambient+rim only
+                {
+                    float dbg = _TftfDebug;
+                    float3 o = dbg < 1.5 ? n * 0.5 + 0.5 : dbg < 2.5 ? nl.xxx : dbg < 3.5 ? atten.xxx : dbg < 4.5 ? albS : dbg < 5.5 ? L * 0.5 + 0.5 : dbg < 6.5 ? ndv.xxx : ambient;
+                    return fixed4(o, 1);
+                }
+                float3 col = direct + (diff * ambient + env + rim * float3(0.20, 0.23, 0.30)) * aoL + back * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
+                col += pow(tex2D(_EmisTex, uv).rgb * _EmisColor.rgb, 2.2) * 4;
+                col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);      // ACES approximation
+                col = pow(saturate(col), 1 / 2.2);
                 return fixed4(col, 1);
             }
             ENDCG

@@ -249,7 +249,7 @@ public class TftfDiag : MonoBehaviour
 			_sun.color = Color.white;
 			_sun.intensity = 1f;
 			_sun.shadows = LightShadows.Soft;
-			_sun.shadowStrength = 0.75f;
+			_sun.shadowStrength = 0.85f;
 			_sun.shadowBias = 0.05f;
 			_sun.shadowNormalBias = 0.4f;
 			_sun.renderMode = LightRenderMode.ForcePixel;
@@ -258,16 +258,34 @@ public class TftfDiag : MonoBehaviour
 			QualitySettings.shadowDistance = 30f;
 			QualitySettings.shadowCascades = 1;
 			QualitySettings.shadowProjection = ShadowProjection.StableFit;
-			Debug.Log("[DIAG] TFTF sun light created");
+			Debug.Log("[DIAG] quality before: textureLimit=" + QualitySettings.masterTextureLimit + " pixelLights=" + QualitySettings.pixelLightCount + " aniso=" + QualitySettings.anisotropicFiltering + " lodBias=" + QualitySettings.lodBias + " levels=" + string.Join(",", QualitySettings.names));
+			QualitySettings.masterTextureLimit = 0;          // full-resolution textures (the game runs at the Fastest level)
+			QualitySettings.pixelLightCount = Mathf.Max(1, QualitySettings.pixelLightCount);
+			QualitySettings.anisotropicFiltering = AnisotropicFiltering.Enable;
+			QualitySettings.lodBias = Mathf.Max(1f, QualitySettings.lodBias);
+			Debug.Log("[DIAG] TFTF sun light created: supportsShadows=" + SystemInfo.supportsShadows + " quality=" + QualitySettings.names[QualitySettings.GetQualityLevel()] + " shadows=" + QualitySettings.shadows + " dist=" + QualitySettings.shadowDistance);
 		}
 		_sun.enabled = true;
-		Vector4 d = Shader.GetGlobalVector("_EBDirectionalLightDirection");
-		Vector3 L = new Vector3(d.x, d.y, d.z);
-		if (L.sqrMagnitude < 0.01f) L = new Vector3(0.4f, 0.8f, -0.45f);
-		if (L.y < 0f) L = -L;
-		L.Normalize();
-		if (L.y < 0.3f) { L.y = 0.3f; L.Normalize(); }      // a very low sun would throw endless shadows
-		_sun.transform.rotation = Quaternion.LookRotation(-L);
+	}
+
+	// Every frame: the key light comes from the camera's upper left front (TFTF/PbrLite reads _TftfLightDir), and the shadow light matches it.
+	private static float _dbgNext;
+	private static void AimSun()
+	{
+		if (Time.realtimeSinceStartup >= _dbgNext)
+		{
+			_dbgNext = Time.realtimeSinceStartup + 1f;
+			float dv = 0f;
+			try { string f = System.IO.Path.Combine(Application.persistentDataPath, "tftf/dbg.txt"); if (System.IO.File.Exists(f)) float.TryParse(System.IO.File.ReadAllText(f).Trim(), out dv); } catch (System.Exception) { }
+			Shader.SetGlobalFloat("_TftfDebug", dv);
+		}
+		Camera cam = Camera.main;
+		if (cam == null) foreach (Camera c in Camera.allCameras) if (c.name == "RigCamera") cam = c;
+		if (cam == null) { Shader.SetGlobalVector("_TftfLightDir", Vector4.zero); return; }
+		Transform t = cam.transform;
+		Vector3 L = (-0.9f * t.right + new Vector3(0f, 0.55f, 0f) - 0.05f * t.forward).normalized;      // from the side: surfaces facing the camera are only partly lit
+		Shader.SetGlobalVector("_TftfLightDir", new Vector4(L.x, L.y, L.z, 0f));
+		if (_sun != null && _sun.enabled) _sun.transform.rotation = Quaternion.LookRotation(-L);
 	}
 
 	// The donor PBR shaders draw nothing in this pipeline: give those renderers a plain textured material.
@@ -289,14 +307,26 @@ public class TftfDiag : MonoBehaviour
 				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal"))) continue;
 				int id = m.GetInstanceID();
 				Texture tex = null;
-				foreach (string pn in prefs) { if (m.HasProperty(pn)) { tex = m.GetTexture(pn); if (tex != null) break; } }
+				string texProp = null;
+				foreach (string pn in prefs) { if (m.HasProperty(pn)) { tex = m.GetTexture(pn); if (tex != null) { texProp = pn; break; } } }
 				if (tex == null) foreach (string pn in m.GetTexturePropertyNames()) { if (pn.Contains("emissive") || pn.Contains("damage") || pn.Contains("translucency") || pn.Contains("normal") || pn.Contains("composite") || pn.Contains("metallic") || pn.Contains("roughness") || pn.Contains("_ao")) continue; Texture t = m.GetTexture(pn); if (t != null) { tex = t; break; } }
 				bool tftfFx = _fxShader != null && (m.renderQueue >= 2500 || m.name.StartsWith("fx_"));     // glow cards, trails, hit/special effects
-				if (!tftfFx && _fxShader != null) foreach (string kw in m.shaderKeywords) if (kw.StartsWith("_MODE_EMISSIVE") || kw == "EB_PARTICLE_ALPHA_FROM_EMISSIVE_ON") { tftfFx = true; break; }
 				Material nm = new Material(tftfFx ? _fxShader : _swapShader);
 				nm.name = m.name + "_swap";
 				if (tex != null) nm.mainTexture = tex;
+				// keep the texture's tiling: terrain materials tile by world units (0.035 per metre), which the default 1 turned into noise
+				if (texProp != null) { nm.mainTextureScale = m.GetTextureScale(texProp); nm.mainTextureOffset = m.GetTextureOffset(texProp); }
 				nm.color = Color.white;
+				if (nm.HasProperty("_Blend") && n.StartsWith("Hidden/PBRTerrain")) nm.SetVector("_Blend", new Vector4(0f, 1f, 0f, 1f));      // world-projected terrain
+				if (nm.HasProperty("_Base2Tex") && m.HasProperty("_base2_tex") && m.HasProperty("_mask_tex") && m.GetTexture("_base2_tex") != null && m.GetTexture("_mask_tex") != null)
+				{
+					nm.SetTexture("_Base2Tex", m.GetTexture("_base2_tex"));
+					nm.SetTexture("_MaskTex", m.GetTexture("_mask_tex"));
+					Vector2 s2 = m.GetTextureScale("_base2_tex"), o2 = m.GetTextureOffset("_base2_tex"), sm = m.GetTextureScale("_mask_tex"), om = m.GetTextureOffset("_mask_tex");
+					nm.SetVector("_Base2ST", new Vector4(s2.x, s2.y, o2.x, o2.y));
+					nm.SetVector("_MaskST", new Vector4(sm.x, sm.y, om.x, om.y));
+					nm.SetVector("_Blend", new Vector4(m.HasProperty("_blendoffset_range") ? m.GetFloat("_blendoffset_range") : 0f, m.HasProperty("_blendremap_range") ? m.GetFloat("_blendremap_range") : 1f, 1f, n.StartsWith("Hidden/PBRTerrain") ? 1f : 0f));
+				}
 				if (tftfFx)
 				{
 					// effect meshes glow with their emissive map (or base map) in their emissive tint; nothing to draw otherwise
@@ -325,6 +355,9 @@ public class TftfDiag : MonoBehaviour
 			if (changed)
 			{
 				r.sharedMaterials = mats;
+				// the game's renderers have Unity shadows switched off (it had its own shadow system): the TFTF sun needs them
+				r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+				r.receiveShadows = true;
 				MeshFilter mf2 = r.GetComponent<MeshFilter>();
 				Mesh m2 = mf2 != null ? mf2.sharedMesh : null;
 				if (!(r is SkinnedMeshRenderer) && m2 != null && m2.isReadable && m2.colors32.Length == 0)
@@ -364,6 +397,7 @@ public class TftfDiag : MonoBehaviour
 			foreach (Camera c in Camera.allCameras) if (c.name == "RigCamera") _rig = c;
 		}
 		if (_rig != null) _rig.ResetProjectionMatrix();
+		AimSun();
 	}
 
 	private void Update()
