@@ -354,6 +354,9 @@ public class TftfDiag : MonoBehaviour
 				Material m = mats[i];
 				if (m == null || m.shader == null) continue;
 				string n = m.shader.name;
+				// the blob "contact shadow" quads under the feet and hips use an opaque white-on-black mask that the stand-in shader draws as
+				// cards; the TFTF sun light casts real shadows now, so these are switched off
+				if (n == "EB/Misc/ContactShadow") { if (r.enabled) r.enabled = false; continue; }
 				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{

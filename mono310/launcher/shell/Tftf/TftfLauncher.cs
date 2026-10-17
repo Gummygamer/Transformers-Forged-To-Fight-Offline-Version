@@ -7,7 +7,7 @@ using UnityEngine.Networking;
 
 public sealed class TftfLauncher : MonoBehaviour
 {
-    public const string LauncherVersion = "0.4.1";      // the launcher's own version; the game inside stays 3.1.0
+    public const string LauncherVersion = "0.4.2";      // the launcher's own version; the game inside stays 3.1.0
     public const bool RestartAfterInstall = true;
     string _root;
     string[] _names = { "", "" };

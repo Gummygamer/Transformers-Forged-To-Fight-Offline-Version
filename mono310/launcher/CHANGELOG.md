@@ -2,13 +2,21 @@
 
 ## Table of contents
 
-- [0.4.1 (unreleased)](#041-unreleased)
+- [0.4.2 (unreleased)](#042-unreleased)
+- [0.4.1](#041)
 - [0.4.0](#040)
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.4.1 (unreleased)
+## 0.4.2 (unreleased)
+
+**Fixed**
+
+- The black cards with a white glow that floated on the robots (hips, feet, "swords") were the contact-shadow quads: their opaque
+  white-on-black mask texture was drawn as a card. They are switched off; the sun light casts real shadows instead.
+
+## 0.4.1
 
 **Fixed**
 
