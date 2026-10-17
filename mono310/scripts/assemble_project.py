@@ -134,7 +134,8 @@ def main():
         shutil.copytree(REPO / "mono310/launcher/shell/android", android, dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("native", "icon"))
         subprocess.check_call([str(REPO / "mono310/launcher/shell/android/native/build.sh"),
-                               str(android / "libs/armeabi-v7a")])   # stand-ins for the original native libraries
+                               str(android / "libs" / os.environ["TFTF_ANDROID_ABI"]),
+                               os.environ["TFTF_ANDROID_ABI"]])   # stand-ins for the original native libraries
     else:
         subprocess.check_call([sys.executable, str(REPO / "tools/original_manifest_to_xml.py"), str(APK),
                                str(android / "AndroidManifest.xml")])
@@ -191,7 +192,7 @@ SERVER_DIRS = ["data", "fixtures", "responses"]
 
 def package_server(A):
     """Shell only: authored server scripts as a streaming asset, plus the Legible interpreter as an executable
-    native library (TFTF_LEGIBLE_ARMV7 = a release build of Legible for armv7-linux-androideabi)."""
+    native library (TFTF_LEGIBLE_ARMV7 or TFTF_LEGIBLE_ARM64, matching TFTF_ANDROID_ABI)."""
     import zipfile
     sa = A / "StreamingAssets"
     sa.mkdir(parents=True, exist_ok=True)
@@ -214,9 +215,13 @@ def package_server(A):
     shutil.copy(REPO / "mono310/launcher/shell/android/icon/icon-512.png", A / "Icons/revival-icon.png")   # app icon (set by the build script)
     # Type-tree database the on-phone converter needs (generated locally by launcher/convert/export_tree_db.py).
     shutil.copy(os.environ["TFTF_TREES_BIN"], sa / "trees.bin")
-    lib = A / "Plugins/Android/libs/armeabi-v7a"
+    abi = os.environ["TFTF_ANDROID_ABI"]
+    legible_var = "TFTF_LEGIBLE_ARM64" if abi == "arm64-v8a" else "TFTF_LEGIBLE_ARMV7"
+    if not os.environ.get(legible_var):
+        raise SystemExit(f"{legible_var} is required for TFTF_ANDROID_ABI={abi}")
+    lib = A / "Plugins/Android/libs" / abi
     lib.mkdir(parents=True, exist_ok=True)
-    shutil.copy(os.environ["TFTF_LEGIBLE_ARMV7"], lib / "liblegible.so")
+    shutil.copy(os.environ[legible_var], lib / "liblegible.so")
 
 
 if __name__ == "__main__":

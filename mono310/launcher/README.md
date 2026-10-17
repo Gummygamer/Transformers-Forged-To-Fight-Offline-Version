@@ -38,13 +38,16 @@ Same environment as [`../README.md`](../README.md), plus:
 |---|---|
 | `TFTF_SHELL=1` | build the shell instead of the full recompile |
 | `TFTF_LEGIBLE_ARMV7` | release build of the Legible interpreter for `armv7-linux-androideabi` (`cargo build --release --no-default-features --target armv7-linux-androideabi`). It must support the `LEGIBLE_BIND` setting (the HTTP listener binds the address in that variable instead of all interfaces); the app sets it to `127.0.0.1`, so the game server is not reachable from other devices on the network. Older Legible builds ignore it and listen on every interface |
+| `TFTF_ANDROID_ABI=arm64-v8a` | build the ARM64 shell release (IL2CPP, Android 5.0/API 21 minimum); requires Unity's IL2CPP Android module and the ARM64 Legible library below. Omit it for the ARMv7/Mono build |
+| `TFTF_LEGIBLE_ARM64` | ARM64 `liblegible.so`, built from Legible for `aarch64-linux-android`, with `LEGIBLE_BIND` support; required when `TFTF_ANDROID_ABI=arm64-v8a` |
 | `TFTF_TREES_BIN` | type-tree database for the on-phone converter. Make it once with the full project: `mono310/run.sh assemble && mono310/run.sh treedb` (needs `pip install UnityPy`, Docker and the Unity 2020 install); it prints the path of `trees.bin` |
 
 ```bash
 TFTF_SHELL=1 mono310/run.sh assemble && mono310/run.sh assets && mono310/run.sh build && mono310/run.sh finalize
 ```
 
-The result is `tftf-launcher-armv7.apk` in `TFTF_WORK`. For script-only changes, `run.sh fast --install`
+The result is `tftf-launcher-armv7.apk` by default, or `tftf-launcher-arm64.apk` when `TFTF_ANDROID_ABI=arm64-v8a`.
+For script-only changes, `run.sh fast --install`
 is much quicker (it patches the managed code into the last finalized APK). The converter and the ODR
 package builder can also be run on a PC: `launcher/shell/ConvertTool/selftest.sh` compiles them with Unity's mcs, converts the
 3.1.0 data, builds the content package from the 9.2.0 APK and runs the package self-test (about 25 s, needs the same
@@ -54,6 +57,12 @@ connected phone (wipe, install, pick the APKs, install, boot) and writes a repor
 game APKs in the phone's Downloads folder and uses the phone while it runs. It pre-selects the APKs through a test hook of the
 launcher (`tftf/autopick.txt` in the app's folder, two lines with readable APK paths) instead of driving the system file
 picker. `launcher/tools/capture_boot.sh` saves a screenshot series of the boot sequence (Kabam logo, splash, title).
+
+To build the ARM64 release, build Legible for `aarch64-linux-android`, then run the same steps with
+`TFTF_ANDROID_ABI=arm64-v8a` and `TFTF_LEGIBLE_ARM64=/path/to/liblegible.so`. It uses IL2CPP and requires
+a full player build when changing the ABI. For managed-code-only edits, `run.sh fast` compiles and swaps the
+managed DLLs into the existing APK. Android starts the Legible server through `TftfProcess.java` because the
+IL2CPP player's `System.Diagnostics.Process.Start` cannot launch it.
 
 ## Layout
 
@@ -68,10 +77,8 @@ picker. `launcher/tools/capture_boot.sh` saves a screenshot series of the boot s
 
 ## Limits
 
-- `armeabi-v7a` (32-bit) only, one test device. Phones that no longer run 32-bit apps cannot use this build. A 64-bit
-  build would need Unity's IL2CPP backend (as far as the Unity 2020 Android documentation says, the Mono backend
-  has no ARM64) plus 64-bit builds of the Legible interpreter and the native stand-ins **[⚠ inferred]**, which is a
-  separate port of the whole recompile.
+- Version 0.4.3 is an ARM64 (`arm64-v8a`) release tested to launch on a Samsung Galaxy A52. The complete first-run
+  flow has not yet been validated on a 64-bit-only phone.
 - Purchases, push notifications, analytics and Play Games sign-in are stubs.
 - The first-play content unpack is slow because the game extracts the package itself.
 

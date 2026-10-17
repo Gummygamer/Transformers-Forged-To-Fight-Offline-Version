@@ -10,7 +10,14 @@ REPO_DIR="$(cd "$MONO310_DIR/.." && pwd)"
 # Everything generated lives under one ignored work directory.
 : "${TFTF_WORK:=$REPO_DIR/build/mono310}"
 # TFTF_SHELL=1 selects the assetless launcher shell: its own project and APK, scripts only.
-if [ "${TFTF_SHELL:-}" = 1 ]; then SHELL_NAME=ShellProject; SHELL_APK=tftf-launcher-armv7.apk; else SHELL_NAME=UnityProject; SHELL_APK=3.1.0-recompiled-armv7.apk; fi
+# ARM64 is supported only for that shell (IL2CPP); the full recompile still uses Mono/ARMv7.
+: "${TFTF_ANDROID_ABI:=armeabi-v7a}"
+case "$TFTF_ANDROID_ABI" in
+  armeabi-v7a) TFTF_ANDROID_ARCH=armv7 ;;
+  arm64-v8a)   TFTF_ANDROID_ARCH=arm64 ;;
+  *) echo "error: TFTF_ANDROID_ABI must be armeabi-v7a or arm64-v8a" >&2; exit 2 ;;
+esac
+if [ "${TFTF_SHELL:-}" = 1 ]; then SHELL_NAME=ShellProject; SHELL_APK="tftf-launcher-$TFTF_ANDROID_ARCH.apk"; else SHELL_NAME=UnityProject; SHELL_APK=3.1.0-recompiled-armv7.apk; fi
 RIPPED="$TFTF_WORK/ripped"            # AssetRipper export of the 3.1.0 APK
 ILSPY_OUT="$TFTF_WORK/ilspy-out"      # decompiled C# (never committed)
 PROJECT="$TFTF_WORK/$SHELL_NAME"     # assembled Unity project
@@ -27,4 +34,4 @@ OUT_APK="$TFTF_WORK/$SHELL_APK"
 : "${ADB:=adb}"
 : "${ADB_DEVICE:=}"
 
-export TFTF_WORK TFTF_310_APK TFTF_92_APK RIPPED ILSPY_OUT PROJECT ODR_DIR OUT_APK
+export TFTF_WORK TFTF_310_APK TFTF_92_APK RIPPED ILSPY_OUT PROJECT ODR_DIR OUT_APK TFTF_ANDROID_ABI TFTF_ANDROID_ARCH

@@ -16,7 +16,7 @@
 
 ## Scope and status
 
-**Status 2026-10-16: the launcher (version 0.2.0) works end to end on one device.** A shell APK
+**Status 2026-10-17: launcher 0.4.3 has an ARM64 build that starts on a Samsung Galaxy A52.** A shell APK
 (recompiled scripts, no game assets) starts a first-run screen; the user picks their own 3.1.0 and 9.2.0
 APKs; the app converts and unpacks everything into its private storage in about 43 s and boots to the
 title screen, the home base, the quest board and a fight with hits and health bars. **[👁 live]**
@@ -26,8 +26,8 @@ What does **not** work or is not done (read before relying on this):
 
 - **The shell APK still carries game-derived code** (compiled recompiled scripts) and, until the build in
   `COMPLIANCE.md` ("Assetless launcher") is reviewed, **must not be published**.
-- Only `armeabi-v7a` (32-bit) was built and tested, on one device. A 64-bit build is a separate port (see
-  [`launcher/README.md`](launcher/README.md#limits)).
+- The ARM64/IL2CPP 0.4.3 build starts on-device; first-run validation on a 64-bit-only phone remains outstanding
+  (see [`launcher/README.md`](launcher/README.md#limits)).
 - Original-app Java code, loose assets and native libraries are no longer copied into the shell, and the
   three third-party managed libraries come from NuGet instead (see [`THIRD_PARTY.md`](THIRD_PARTY.md)).
   Features that depended on them (purchases, push, analytics, Play Games) are stubbed or absent.
@@ -177,7 +177,8 @@ Superseded: the level scene, shader fixing and the on-device port were done late
 
 Built with `TFTF_SHELL=1 mono310/run.sh assemble && run.sh assets && run.sh build && run.sh finalize`
 (environment variables in `mono310/README.md`; extra for the shell: `TFTF_LEGIBLE_ARMV7` = Legible built for
-`armv7-linux-androideabi`, `TFTF_TREES_BIN` = the type-tree database from
+`armv7-linux-androideabi`, or set `TFTF_ANDROID_ABI=arm64-v8a` and `TFTF_LEGIBLE_ARM64` for the IL2CPP ARM64 build;
+`TFTF_TREES_BIN` = the type-tree database from
 `launcher/convert/export_tree_db.py`). **[📄 binary]** (build scripts)
 
 | piece | where | what it does |

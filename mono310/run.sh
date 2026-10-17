@@ -87,7 +87,10 @@ step_compile() {  # scripts only (seconds); returns non-zero on compiler errors
 
 step_build() {  # full licensed player build (minutes)
   local log="${1:-unity-build.log}"
-  unity_run -e TFTF_310_OUTPUT=/workspace/project/3.1.0-recompiled-armv7-unity.apk -e TFTF_SHELL="${TFTF_SHELL:-}" -- \
+  local unity_apk="3.1.0-recompiled-armv7-unity.apk"
+  [ "${TFTF_SHELL:-}" != 1 ] || unity_apk="tftf-launcher-${TFTF_ANDROID_ARCH}-unity.apk"
+  unity_run -e TFTF_310_OUTPUT="/workspace/project/$unity_apk" -e TFTF_SHELL="${TFTF_SHELL:-}" \
+    -e TFTF_ANDROID_ABI="$TFTF_ANDROID_ABI" -- \
     -batchmode -nographics -projectPath /workspace/project \
     -executeMethod Recompile310Build.BuildAndroid -logFile "/workspace/project/$log" || true
   grep -n "Android build:" "$PROJECT/$log" | tail -1
@@ -95,7 +98,12 @@ step_build() {  # full licensed player build (minutes)
 }
 
 step_finalize() {  # restore original Java dex, endpoint, align and sign
-  python3 "$REPO_DIR/tools/finalize_recompiled_202_apk.py" "$PROJECT/3.1.0-recompiled-armv7-unity.apk" \
+  local unity_apk="$PROJECT/3.1.0-recompiled-armv7-unity.apk"
+  [ "${TFTF_SHELL:-}" != 1 ] || unity_apk="$PROJECT/tftf-launcher-${TFTF_ANDROID_ARCH}-unity.apk"
+  if [ "${TFTF_SHELL:-}" = 1 ] && [ "$TFTF_ANDROID_ABI" = arm64-v8a ]; then
+    [ -n "${TFTF_LEGIBLE_ARM64:-}" ] || die "set TFTF_LEGIBLE_ARM64 to the arm64-v8a Legible release library"
+  fi
+  python3 "$REPO_DIR/tools/finalize_recompiled_202_apk.py" "$unity_apk" \
     "$TFTF_310_APK" "$OUT_APK" $([ "${TFTF_SHELL:-}" = 1 ] && echo --shell || echo --endpoint "${TFTF_ENDPOINT:-http://127.0.0.1:8080}") \
     ${TFTF_KEYSTORE:+--keystore "$TFTF_KEYSTORE"}
 }

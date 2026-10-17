@@ -65,9 +65,14 @@ Revival". **[👁 live]**
 Automated run (`tools/phone_firstrun_test.sh`, autopick): wipe, install, auto-select, install, restart, boot to the
 story board: pass, no native crash, no Java errors.
 
-## Known gaps accepted for 0.2
+ARM64 smoke check (Samsung A52, 2026-10-17): installed the IL2CPP APK, confirmed the in-app Legible server reports
+listening, and observed the game reach its HUD. This was an update install with existing app data; the full first-run
+flow remains untested on a 64-bit-only phone.
 
-- 32-bit only ([`README.md#limits`](README.md#limits)).
+## Known gaps
+
+- Version 0.4.3 is ARM64-only; 0.2–0.4.2 were ARMv7-only. First-run validation on a 64-bit-only phone remains outstanding
+  ([`README.md#limits`](README.md#limits)).
 - Purchases, push, analytics and Play Games are stubs.
 - Visual issues shared with the non-launcher build: black terrain hexes, missing small portraits, one arena background.
 - The first play after install unpacks nothing, but the very first boot of the game scripts takes about a minute.

@@ -2,14 +2,31 @@
 
 ## Table of contents
 
-- [0.4.2 (unreleased)](#042-unreleased)
+- [0.4.3](#043)
+- [0.4.2 (development snapshot)](#042-development-snapshot)
 - [0.4.1](#041)
 - [0.4.0](#040)
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.4.2 (unreleased)
+## 0.4.3
+
+**Added**
+
+- ARM64 (`arm64-v8a`) launcher release built with Unity IL2CPP and matching ARM64 native libraries. Verified to start on a
+  Samsung Galaxy A52.
+
+**Fixed**
+
+- ARM64 startup left the game on a black screen because `System.Diagnostics.Process.Start` could not start the Legible
+  server in the IL2CPP player. Android now starts it with `ProcessBuilder`.
+
+## 0.4.2 (development snapshot)
+
+**Added**
+
+- Initial ARM64 launcher build path using IL2CPP, with matching ARM64 Legible and native stand-in libraries.
 
 **Fixed**
 

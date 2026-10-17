@@ -1,6 +1,6 @@
-// Newly authored. Starts the offline game server inside the app: the Legible interpreter ships as
-// liblegible.so (an executable in the native-library folder) and the authored server scripts ship as
-// StreamingAssets/tftf_server.zip.
+// Newly authored. Starts the offline game server inside the app: Android's ProcessBuilder launches
+// the Legible interpreter shipped as liblegible.so, while the authored server scripts ship as
+// StreamingAssets/tftf_server.zip. System.Diagnostics.Process is kept for editor/non-Android runs.
 using System.Collections;
 using System.Diagnostics;
 using System.IO;
@@ -11,7 +11,11 @@ using UnityEngine.Networking;
 public static class TftfServer
 {
     public const int Port = 8080;
+#if UNITY_ANDROID && !UNITY_EDITOR
+    static AndroidJavaObject process;
+#else
     static Process process;
+#endif
 
     public static IEnumerator Start(string root)
     {
@@ -45,6 +49,15 @@ public static class TftfServer
         TftfStaticServer.Start(Path.Combine(root, "odr"));
         string exe = NativeLibraryDir() + "/liblegible.so";
         if (!File.Exists(exe)) { UnityEngine.Debug.LogError("[TFTF] interpreter missing: " + exe); yield break; }
+        string log = Path.Combine(root, "server.log");
+#if UNITY_ANDROID && !UNITY_EDITOR
+        using (var bridge = new AndroidJavaClass("com.explodingbarrel.TftfProcess"))
+        {
+            process = bridge.CallStatic<AndroidJavaObject>("start", exe, root, log,
+                Path.Combine(root, "odr"), Port.ToString());
+        }
+        UnityEngine.Debug.Log("[TFTF] server process started through Android");
+#else
         var psi = new ProcessStartInfo(exe, "run Server/run_local.lbl")
         {
             WorkingDirectory = root,
@@ -56,7 +69,6 @@ public static class TftfServer
         psi.EnvironmentVariables["LEGIBLE_BIND"] = "127.0.0.1";     // only this phone may talk to the game server
         psi.EnvironmentVariables["TFTF_TUTORIAL_BLOCKLIST"] = "";   // every tutorial request succeeds (see README)
         psi.EnvironmentVariables["TFTF_ODR_DIR"] = Path.Combine(root, "odr");
-        string log = Path.Combine(root, "server.log");
         var sw = new StreamWriter(log, false) { AutoFlush = true };
         process = new Process { StartInfo = psi };
         process.OutputDataReceived += (s, e) => { if (e.Data != null) lock (sw) sw.WriteLine(e.Data); };
@@ -65,6 +77,7 @@ public static class TftfServer
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         UnityEngine.Debug.Log("[TFTF] server started pid=" + process.Id);
+#endif
         Application.quitting += Stop;
         // The game fetches its manifest right away; hold the boot until the listener accepts connections.
         for (int i = 0; i < 300; i++)
@@ -78,7 +91,21 @@ public static class TftfServer
 
     public static void Stop()
     {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            if (process != null)
+            {
+                using (var bridge = new AndroidJavaClass("com.explodingbarrel.TftfProcess"))
+                    bridge.CallStatic("stop", process);
+                process.Dispose();
+                process = null;
+            }
+        }
+        catch { }
+#else
         try { if (process != null && !process.HasExited) process.Kill(); } catch { }
+#endif
     }
 
     static string NativeLibraryDir()

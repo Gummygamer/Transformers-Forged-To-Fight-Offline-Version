@@ -57,9 +57,16 @@ public static class Recompile310Build
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, System.Environment.GetEnvironmentVariable("TFTF_SHELL") == "1" ? "unicronslair.bigrobot" : "com.kabam.bigrobot");   // the assetless launcher is its own app
         PlayerSettings.bundleVersion = "3.1.0";
         PlayerSettings.Android.bundleVersionCode = 822754;
-        PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel19;
-        PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARMv7 | AndroidArchitecture.X86;
-        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.Mono2x);
+        string androidAbi = System.Environment.GetEnvironmentVariable("TFTF_ANDROID_ABI") ?? "armeabi-v7a";
+        bool arm64Shell = System.Environment.GetEnvironmentVariable("TFTF_SHELL") == "1" && androidAbi == "arm64-v8a";
+        if (androidAbi == "arm64-v8a" && !arm64Shell)
+            throw new System.InvalidOperationException("ARM64 is currently supported only by the assetless launcher shell.");
+        if (androidAbi != "armeabi-v7a" && androidAbi != "arm64-v8a")
+            throw new System.InvalidOperationException("Unsupported TFTF_ANDROID_ABI: " + androidAbi);
+        PlayerSettings.Android.targetArchitectures = arm64Shell ? AndroidArchitecture.ARM64 : AndroidArchitecture.ARMv7 | AndroidArchitecture.X86;
+        PlayerSettings.Android.minSdkVersion = arm64Shell ? AndroidSdkVersions.AndroidApiLevel21 : AndroidSdkVersions.AndroidApiLevel19;
+        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android,
+            arm64Shell ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
         Debug.Log("3.1.0 Android target architectures: " + PlayerSettings.Android.targetArchitectures);
         Debug.Log("3.1.0 Android toolchain: Unity embedded SDK and JDK");
 
