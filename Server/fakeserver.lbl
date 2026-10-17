@@ -106,7 +106,8 @@ end
 
 public function log_dir(): text
   intent: get
-  path_join(here(), "logs")
+  let override: text = unwrap_or(env_get("TFTF_LOG_DIR"), "")
+  if override != "" then override else path_join(here(), "logs") end
 end
 
 public function pem_path(): text

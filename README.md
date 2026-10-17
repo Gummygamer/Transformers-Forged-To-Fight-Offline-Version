@@ -66,6 +66,7 @@ Unity 2020 toolchain and runs the story against this server:
 | document | what it covers |
 |---|---|
 | [`mono310/README.md`](mono310/README.md) | Requirements, the `run.sh` build driver, running on a device, current status and known rough edges. Generated from operator-supplied APKs; no game bytes are committed. |
+| [`mono310/launcher/README.md`](mono310/launcher/README.md) | The assetless "Revival Launcher" variant: the APK carries no game assets; the player picks their own 3.1.0 and 9.2.0 APKs on the phone. How to use, build and test it. Design, measurements and pitfalls: [`mono310/ANDROID_LAUNCHER.md`](mono310/ANDROID_LAUNCHER.md). |
 
 
 ## What actually works right now
@@ -129,6 +130,10 @@ APK stay in an ignored work directory (see `COMPLIANCE.md`, section "3.1.0 recom
   Missions -> Story Missions -> Act 1 -> Chapter 1 -> "Bludgeon's Ambush", the quest map with
   dialogue and node movement, the pre-fight screen, a fight in the Karnak arena with 3D
   fighters, the K.O. screen, and the return to the quest map. **[👁 live]**
+- **Assetless launcher.** `mono310/launcher/` builds the same game without any game assets; the first-run screen asks
+  for the player's own 3.1.0 and 9.2.0 APKs and prepares everything on the phone in under a minute, with the game
+  server running inside the app. Verified on one device (armeabi-v7a). **[👁 live]** See
+  [`mono310/launcher/README.md`](mono310/launcher/README.md).
 - **What does not.** The original PBR shaders are not recoverable, so materials use a simple
   lit placeholder and look flatter than the original; some UI atlas art draws black; only the
   first story acts have been exercised; the first launch downloads a generated WAD of roughly
@@ -842,7 +847,10 @@ The Python test suite (the former game-data, fake-server, payload, APK-builder, 
 and quest-walk tests) was removed once its Legible replacements were verified; the files
 remain recoverable from git history at commit `23950a3`, for example
 `git show 23950a3:Server/test_gamedata.py`. The equivalent tests now run as
-`legible run Server/test_<name>.lbl`.
+`legible run Server/test_<name>.lbl`. `Server/run_tests.sh [test_x.lbl ...]` runs the files in parallel (each gets
+its own state directory through `TFTF_LOG_DIR`, because the fake server keeps saved team, positions and sessions in files)
+and prints one summary line per file; `TFTF_TEST_QUICK=1` skips the second full payload build of the determinism check
+(about half of `test_export_payload.lbl`'s time). Without it a single sequential run of the slow file takes about ten minutes.
 
 ## The gotchas that will eat your time
 

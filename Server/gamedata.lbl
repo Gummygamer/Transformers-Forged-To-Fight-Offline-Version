@@ -354,15 +354,15 @@ end
 function star_hp(star: integer): integer
   intent: return
   if star == 2 then
-  3400
+  1800
 else if star == 3 then
-  5200
+  2700
 else if star == 4 then
-  7800
+  4100
 else if star == 5 then
-  11500
+  6000
 else
-  2200
+  1150
 end
 end
 
@@ -399,7 +399,7 @@ end
 
 public function final_boss_stats(): Stats
   intent: build
-  Stats { hp: 20000, atk: 800 }
+  Stats { hp: 10500, atk: 800 }
 end
 
 public function base_stats(bid: text, rank: integer, level: integer): Stats

@@ -3485,7 +3485,7 @@
                   "team": {
                     "optimusprime_cin_tf": {
                       "hp": 1.0,
-                      "pi": 757,
+                      "pi": 413,
                       "sig_lvl": 0,
                       "stat_mods": [
                         "kit_bleed",
@@ -3496,7 +3496,7 @@
                     },
                     "optimusprimal_bw_mp32": {
                       "hp": 1.0,
-                      "pi": 757,
+                      "pi": 413,
                       "sig_lvl": 0,
                       "stat_mods": [
                         "kit_bleed",
@@ -3507,7 +3507,7 @@
                     },
                     "megatron_gs_leader2015": {
                       "hp": 1.0,
-                      "pi": 617,
+                      "pi": 342,
                       "sig_lvl": 0,
                       "stat_mods": [
                         "kit_bleed",
@@ -3586,7 +3586,7 @@
                 "team": {
                   "optimusprime_cin_tf": {
                     "hp": 1.0,
-                    "pi": 757,
+                    "pi": 413,
                     "sig_lvl": 0,
                     "stat_mods": [
                       "kit_bleed",
@@ -3597,7 +3597,7 @@
                   },
                   "optimusprimal_bw_mp32": {
                     "hp": 1.0,
-                    "pi": 757,
+                    "pi": 413,
                     "sig_lvl": 0,
                     "stat_mods": [
                       "kit_bleed",
@@ -3608,7 +3608,7 @@
                   },
                   "megatron_gs_leader2015": {
                     "hp": 1.0,
-                    "pi": 617,
+                    "pi": 342,
                     "sig_lvl": 0,
                     "stat_mods": [
                       "kit_bleed",
@@ -3735,7 +3735,7 @@
           "team": {
             "optimusprime_cin_tf": {
               "hp": 1.0,
-              "pi": 757,
+              "pi": 413,
               "sig_lvl": 0,
               "stat_mods": [
                 "kit_bleed",
@@ -3746,7 +3746,7 @@
             },
             "optimusprimal_bw_mp32": {
               "hp": 1.0,
-              "pi": 757,
+              "pi": 413,
               "sig_lvl": 0,
               "stat_mods": [
                 "kit_bleed",
@@ -3757,7 +3757,7 @@
             },
             "megatron_gs_leader2015": {
               "hp": 1.0,
-              "pi": 617,
+              "pi": 342,
               "sig_lvl": 0,
               "stat_mods": [
                 "kit_bleed",
@@ -3805,13 +3805,13 @@
           "stamina_ts": 0,
           "stamina_full_ts": 0,
           "stt": "",
-          "max_hp": 14375,
+          "max_hp": 7500,
           "attack": 765,
-          "rating": 757,
+          "rating": 413,
           "rating_attack": 382,
-          "rating_hp": 7187,
+          "rating_hp": 3750,
           "rating_attack_base": 382,
-          "rating_hp_base": 7187,
+          "rating_hp_base": 3750,
           "special_attacks": 3,
           "stat_mods": [
             "kit_bleed",
@@ -3841,13 +3841,13 @@
           "stamina_ts": 0,
           "stamina_full_ts": 0,
           "stt": "",
-          "max_hp": 14375,
+          "max_hp": 7500,
           "attack": 765,
-          "rating": 757,
+          "rating": 413,
           "rating_attack": 382,
-          "rating_hp": 7187,
+          "rating_hp": 3750,
           "rating_attack_base": 382,
-          "rating_hp_base": 7187,
+          "rating_hp_base": 3750,
           "special_attacks": 3,
           "stat_mods": [
             "kit_bleed",
@@ -3877,13 +3877,13 @@
           "stamina_ts": 0,
           "stamina_full_ts": 0,
           "stt": "",
-          "max_hp": 11500,
+          "max_hp": 6000,
           "attack": 850,
-          "rating": 617,
+          "rating": 342,
           "rating_attack": 425,
-          "rating_hp": 5750,
+          "rating_hp": 3000,
           "rating_attack_base": 425,
-          "rating_hp_base": 5750,
+          "rating_hp_base": 3000,
           "special_attacks": 3,
           "stat_mods": [
             "kit_bleed",
@@ -3924,13 +3924,13 @@
                 "stamina_ts": 0,
                 "stamina_full_ts": 0,
                 "stt": "",
-                "max_hp": 14375,
+                "max_hp": 7500,
                 "attack": 765,
-                "rating": 757,
+                "rating": 413,
                 "rating_attack": 382,
-                "rating_hp": 7187,
+                "rating_hp": 3750,
                 "rating_attack_base": 382,
-                "rating_hp_base": 7187,
+                "rating_hp_base": 3750,
                 "special_attacks": 3,
                 "stat_mods": [
                   "kit_bleed",
@@ -3960,13 +3960,13 @@
                 "stamina_ts": 0,
                 "stamina_full_ts": 0,
                 "stt": "",
-                "max_hp": 14375,
+                "max_hp": 7500,
                 "attack": 765,
-                "rating": 757,
+                "rating": 413,
                 "rating_attack": 382,
-                "rating_hp": 7187,
+                "rating_hp": 3750,
                 "rating_attack_base": 382,
-                "rating_hp_base": 7187,
+                "rating_hp_base": 3750,
                 "special_attacks": 3,
                 "stat_mods": [
                   "kit_bleed",
@@ -3996,13 +3996,13 @@
                 "stamina_ts": 0,
                 "stamina_full_ts": 0,
                 "stt": "",
-                "max_hp": 11500,
+                "max_hp": 6000,
                 "attack": 850,
-                "rating": 617,
+                "rating": 342,
                 "rating_attack": 425,
-                "rating_hp": 5750,
+                "rating_hp": 3000,
                 "rating_attack_base": 425,
-                "rating_hp_base": 5750,
+                "rating_hp_base": 3000,
                 "special_attacks": 3,
                 "stat_mods": [
                   "kit_bleed",

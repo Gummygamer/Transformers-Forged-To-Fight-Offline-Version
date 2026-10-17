@@ -207,7 +207,7 @@ function test_base_stats_spot_checks(): boolean
   intent: test
   let optimus: Stats = gamedata.base_stats("fte_optimus_gs_t3", 1, 1)
   let unknown: Stats = gamedata.base_stats("no_such_bot_xyz", 1, 1)
-  optimus.hp == 5200 and optimus.atk == 430 and unknown.hp == 2200 and unknown.atk == 210
+  optimus.hp == 2700 and optimus.atk == 430 and unknown.hp == 1150 and unknown.atk == 210
 end
 
 function has_three_special_attacks(node: Json): boolean
