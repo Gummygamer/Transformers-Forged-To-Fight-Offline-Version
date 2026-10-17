@@ -53,6 +53,7 @@ public static class TftfServer
             RedirectStandardError = true,
         };
         psi.EnvironmentVariables["HTTP_PORT"] = Port.ToString();
+        psi.EnvironmentVariables["LEGIBLE_BIND"] = "127.0.0.1";     // only this phone may talk to the game server
         psi.EnvironmentVariables["TFTF_TUTORIAL_BLOCKLIST"] = "";   // every tutorial request succeeds (see README)
         psi.EnvironmentVariables["TFTF_ODR_DIR"] = Path.Combine(root, "odr");
         string log = Path.Combine(root, "server.log");

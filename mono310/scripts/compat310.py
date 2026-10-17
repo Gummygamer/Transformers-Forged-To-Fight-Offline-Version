@@ -504,6 +504,11 @@ public class TftfDiag : MonoBehaviour
             t = rd(mat)
             wr(mat, t.replace("!Application.isEditor", "false"))
             note("P42 MATBinding attribution calls disabled", t.count("!Application.isEditor"))
+    # P44 (shell only): the revival splash (big logo, "Unicron's Lair") between the Kabam screen and the title screen
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "BootFlow.cs", "\t\tyield return Coroutines.Run(ReInitializeLoadingScreen());\n",
+                   "\t\tyield return Coroutines.Run(ReInitializeLoadingScreen());\n\t\tyield return Coroutines.Run(TftfSplash.Show());\n",
+                   "P44 revival splash after the Kabam screen")
     # P43 (shell only): the scene diagnostics log a dozen lines every 15 s; the shell logs them once, 20 s after start.
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(fp, "TftfDiag.cs", "_next = Time.realtimeSinceStartup + 15f;", "_next = Time.realtimeSinceStartup + 3600f;",

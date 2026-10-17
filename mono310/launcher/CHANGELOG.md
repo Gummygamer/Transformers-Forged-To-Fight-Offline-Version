@@ -2,9 +2,23 @@
 
 ## Table of contents
 
-- [0.1.0 (unreleased)](#010-unreleased)
+- [0.2.0 (unreleased)](#020-unreleased)
+- [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.1.0 (unreleased)
+## 0.2.0 (unreleased)
+
+**Added**
+
+- In-game splash after the Kabam screen: the logo, large, with the words "Unicron's Lair" (a tap skips it after a
+  moment).
+- The in-app game server listens on 127.0.0.1 only (`LEGIBLE_BIND`), so other devices on the network cannot reach it.
+- Launcher version 0.2.0 shown on the first-run screen.
+
+**Changed**
+
+- Everything of 0.1.0 below is part of this build; 0.1.0 was an internal milestone and was never released.
+
+## 0.1.0 (internal, never released)
 
 First version of the assetless launcher: the recompiled 3.1.0 game with no game assets, which prepares them from the
 player's own 3.1.0 and 9.2.0 APKs on the phone. Not released: see [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md).

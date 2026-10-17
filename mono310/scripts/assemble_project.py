@@ -209,6 +209,7 @@ def package_server(A):
         if not t.exists():
             shutil.copy(p, t)
     shutil.copy(REPO / "mono310/launcher/shell/android/icon/icon-512.png", sa / "revival-icon.png")   # first-run screen logo
+    shutil.copy(REPO / "mono310/launcher/shell/android/icon/icon-1024.png", sa / "revival-splash.png")   # in-game splash
     (A / "Icons").mkdir(exist_ok=True)
     shutil.copy(REPO / "mono310/launcher/shell/android/icon/icon-512.png", A / "Icons/revival-icon.png")   # app icon (set by the build script)
     # Type-tree database the on-phone converter needs (generated locally by launcher/convert/export_tree_db.py).

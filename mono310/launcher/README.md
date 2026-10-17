@@ -37,7 +37,7 @@ Same environment as [`../README.md`](../README.md), plus:
 | Variable | What |
 |---|---|
 | `TFTF_SHELL=1` | build the shell instead of the full recompile |
-| `TFTF_LEGIBLE_ARMV7` | release build of the Legible interpreter for `armv7-linux-androideabi` (`cargo build --release --no-default-features --target armv7-linux-androideabi`) |
+| `TFTF_LEGIBLE_ARMV7` | release build of the Legible interpreter for `armv7-linux-androideabi` (`cargo build --release --no-default-features --target armv7-linux-androideabi`). It must support the `LEGIBLE_BIND` setting (the HTTP listener binds the address in that variable instead of all interfaces); the app sets it to `127.0.0.1`, so the game server is not reachable from other devices on the network. Older Legible builds ignore it and listen on every interface |
 | `TFTF_TREES_BIN` | type-tree database for the on-phone converter. Make it once with the full project: `mono310/run.sh assemble && mono310/run.sh treedb` (needs `pip install UnityPy`, Docker and the Unity 2020 install); it prints the path of `trees.bin` |
 
 ```bash
@@ -77,5 +77,5 @@ the system file picker.
 
 ## Release
 
-The checklist for a 0.1 release, including the compliance decision that blocks publishing, is in
+The checklist for a 0.2 release, including the compliance decision that blocks publishing, is in
 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md); what changed is in [`CHANGELOG.md`](CHANGELOG.md).

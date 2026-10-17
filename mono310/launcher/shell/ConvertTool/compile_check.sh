@@ -14,7 +14,7 @@ using UnityEngine;
 public static class ShaderFallback { public static Shader Find(string name) { return null; } }
 S
 REFS=(-r:"$LIB/mscorlib.dll" -r:"$LIB/System.dll" -r:"$LIB/System.Core.dll" -r:"$LIB/System.IO.Compression.dll")
-for m in CoreModule IMGUIModule AndroidJNIModule UnityWebRequestModule UnityWebRequestTextureModule AssetBundleModule TextRenderingModule; do
+for m in CoreModule IMGUIModule AndroidJNIModule UnityWebRequestModule UnityWebRequestTextureModule InputLegacyModule AssetBundleModule TextRenderingModule; do
   REFS+=(-r:"$ED/Managed/UnityEngine/UnityEngine.$m.dll")
 done
 "$MONO/bin/mcs" -noconfig -nostdlib+ -define:UNITY_ANDROID -target:library -out:"$OUT/Tftf.dll" "${REFS[@]}" \

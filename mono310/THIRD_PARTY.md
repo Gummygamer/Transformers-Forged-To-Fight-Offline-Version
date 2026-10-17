@@ -21,7 +21,7 @@ distributing the APK itself.
 |---|---|---|---|---|
 | ICSharpCode.SharpZipLib | 0.86.0 (assembly 0.86.0.518) | NuGet package `SharpZipLib` 0.86.0, `lib/20` | GNU GPL v2 or later with the library linking exception | the game's zip and gzip handling |
 | BouncyCastle.Crypto | 1.8.5 | NuGet package `BouncyCastle` 1.8.5 | Bouncy Castle licence (MIT style) | the game's hashing, HMAC and cipher calls |
-| Legible interpreter | built from `Gummygamer/legible-lang` | local build for `armv7-linux-androideabi`, shipped as `liblegible.so` | see that repository | runs the authored `Server/*.lbl` files |
+| Legible interpreter | built from `Gummygamer/legible-lang` (needs the `LEGIBLE_BIND` listener setting, see `launcher/README.md`) | local build for `armv7-linux-androideabi`, shipped as `liblegible.so` | see that repository | runs the authored `Server/*.lbl` files |
 | Unity player runtime | 2020.3.31f1 (Mono, armv7) | Unity Editor build output | Unity terms of service | the runtime itself |
 
 ## Tools used only at development time

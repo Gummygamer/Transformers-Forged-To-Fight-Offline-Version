@@ -1,4 +1,4 @@
-# Launcher 0.1 release checklist
+# Launcher 0.2 release checklist
 
 ## Table of contents
 
@@ -6,7 +6,7 @@
 - [Build](#build)
 - [Device test matrix](#device-test-matrix)
   - [Results so far](#results-so-far)
-- [Known gaps accepted for 0.1](#known-gaps-accepted-for-01)
+- [Known gaps accepted for 0.2](#known-gaps-accepted-for-02)
 
 ## Blocking decision
 
@@ -39,6 +39,7 @@ the first rows automatically and leaves the report and screenshots to attach to 
 | title and login | title art and labels correct; PLAY NOW logs in; base screen loads |
 | story fight | START opens a fight; hits land; both health bars move |
 | restart | closing and reopening skips the first-run screen and reaches the title in about a minute |
+| local-only server | with the game running, `adb shell cat /proc/net/tcp` shows the game server (port 8080, hex `1F90`) and the content server (8090, hex `1F9A`) listening on `0100007F` (127.0.0.1), not `00000000` |
 | uninstall | removes the app's folder; nothing is left on shared storage |
 
 Record device, Android version and result for each row.
@@ -61,7 +62,7 @@ Revival". **[👁 live]**
 Automated run (`tools/phone_firstrun_test.sh`, autopick): wipe, install, auto-select, install, restart, boot to the
 story board: pass, no native crash, no Java errors.
 
-## Known gaps accepted for 0.1
+## Known gaps accepted for 0.2
 
 - 32-bit only ([`README.md#limits`](README.md#limits)).
 - Purchases, push, analytics and Play Games are stubs.
