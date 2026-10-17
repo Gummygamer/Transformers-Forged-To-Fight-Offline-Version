@@ -230,6 +230,46 @@ public class TftfDiag : MonoBehaviour
 	private static Shader _swapShader;
 	private static Shader _fxShader;
 
+	// The game's lights only push shader globals (EBLight), so nothing casts a shadow: one real directional light follows the scene's sun
+	// (_EBDirectionalLightDirection) and casts soft shadows onto and from the TFTF/PbrLite materials. tftf/noshadows.txt switches it off.
+	private static Light _sun;
+	private static void EnsureSun()
+	{
+		if (System.IO.File.Exists(System.IO.Path.Combine(Application.persistentDataPath, "tftf/noshadows.txt")))
+		{
+			if (_sun != null) _sun.enabled = false;
+			return;
+		}
+		if (_sun == null)
+		{
+			GameObject g = new GameObject("TftfSun");
+			DontDestroyOnLoad(g);
+			_sun = g.AddComponent<Light>();
+			_sun.type = LightType.Directional;
+			_sun.color = Color.white;
+			_sun.intensity = 1f;
+			_sun.shadows = LightShadows.Soft;
+			_sun.shadowStrength = 0.75f;
+			_sun.shadowBias = 0.05f;
+			_sun.shadowNormalBias = 0.4f;
+			_sun.renderMode = LightRenderMode.ForcePixel;
+			QualitySettings.shadows = ShadowQuality.All;
+			QualitySettings.shadowResolution = ShadowResolution.Medium;
+			QualitySettings.shadowDistance = 30f;
+			QualitySettings.shadowCascades = 1;
+			QualitySettings.shadowProjection = ShadowProjection.StableFit;
+			Debug.Log("[DIAG] TFTF sun light created");
+		}
+		_sun.enabled = true;
+		Vector4 d = Shader.GetGlobalVector("_EBDirectionalLightDirection");
+		Vector3 L = new Vector3(d.x, d.y, d.z);
+		if (L.sqrMagnitude < 0.01f) L = new Vector3(0.4f, 0.8f, -0.45f);
+		if (L.y < 0f) L = -L;
+		L.Normalize();
+		if (L.y < 0.3f) { L.y = 0.3f; L.Normalize(); }      // a very low sun would throw endless shadows
+		_sun.transform.rotation = Quaternion.LookRotation(-L);
+	}
+
 	// The donor PBR shaders draw nothing in this pipeline: give those renderers a plain textured material.
 	private static void SwapPbr()
 	{
@@ -251,11 +291,21 @@ public class TftfDiag : MonoBehaviour
 				Texture tex = null;
 				foreach (string pn in prefs) { if (m.HasProperty(pn)) { tex = m.GetTexture(pn); if (tex != null) break; } }
 				if (tex == null) foreach (string pn in m.GetTexturePropertyNames()) { if (pn.Contains("emissive") || pn.Contains("damage") || pn.Contains("translucency") || pn.Contains("normal") || pn.Contains("composite") || pn.Contains("metallic") || pn.Contains("roughness") || pn.Contains("_ao")) continue; Texture t = m.GetTexture(pn); if (t != null) { tex = t; break; } }
-				bool tftfFx = m.renderQueue >= 2500 && _fxShader != null;     // authored as transparent: glow cards, trails
+				bool tftfFx = _fxShader != null && (m.renderQueue >= 2500 || m.name.StartsWith("fx_"));     // glow cards, trails, hit/special effects
+				if (!tftfFx && _fxShader != null) foreach (string kw in m.shaderKeywords) if (kw.StartsWith("_MODE_EMISSIVE") || kw == "EB_PARTICLE_ALPHA_FROM_EMISSIVE_ON") { tftfFx = true; break; }
 				Material nm = new Material(tftfFx ? _fxShader : _swapShader);
 				nm.name = m.name + "_swap";
 				if (tex != null) nm.mainTexture = tex;
 				nm.color = Color.white;
+				if (tftfFx)
+				{
+					// effect meshes glow with their emissive map (or base map) in their emissive tint; nothing to draw otherwise
+					Texture fxTex = m.HasProperty("_emissive_tex") ? m.GetTexture("_emissive_tex") : null;
+					if (fxTex == null && m.HasProperty("_base_tex")) fxTex = m.GetTexture("_base_tex");
+					if (fxTex != null) nm.mainTexture = fxTex;
+					Color fxCol = m.HasProperty("_emissive_intensity_col") ? m.GetColor("_emissive_intensity_col") : Color.white;
+					nm.color = fxTex != null ? fxCol : Color.black;
+				}
 				if (nm.HasProperty("_NormalTex"))
 				{
 					Texture tn = m.HasProperty("_normal_tex") ? m.GetTexture("_normal_tex") : null, tm = m.HasProperty("_metallic_tex") ? m.GetTexture("_metallic_tex") : null;
@@ -324,6 +374,7 @@ public class TftfDiag : MonoBehaviour
 			_nextGlobals = Time.realtimeSinceStartup + 1f;
 			if (!EB.Rendering.EBTimeOfDayManager.IsInitialized || EB.Rendering.EBTimeOfDayManager.Instance.GetActiveTimeOfDay() == null) ApplyGlobals();
 			SwapPbr();
+			EnsureSun();
 			// The 16:9 UI viewport leaves bars on wider phones: clear them to black instead of Unity's default skybox.
 			RenderSettings.skybox = null;
 			foreach (Camera sc in Camera.allCameras) if (sc.clearFlags == CameraClearFlags.Skybox && sc.targetTexture == null) { sc.clearFlags = CameraClearFlags.SolidColor; sc.backgroundColor = Color.black; }

@@ -122,19 +122,24 @@ PBR = r"""Shader "TFTF/PbrLite"
         Cull Back ZWrite On
         Pass
         {
+            Tags { "LightMode"="ForwardBase" }
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #pragma target 3.0
+            #pragma multi_compile_fwdbase
             #include "UnityCG.cginc"
+            #include "AutoLight.cginc"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
-            struct v2f { float4 vertex : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; };
+            struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) };
             sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex;
             fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _EBDirectionalLightDirection;
-            v2f vert(appdata_t i)
+            v2f vert(appdata_t v)
             {
-                v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.uv = TRANSFORM_TEX(i.texcoord, _MainTex);
-                o.n = UnityObjectToWorldNormal(i.normal); o.wp = mul(unity_ObjectToWorld, i.vertex).xyz; return o;
+                v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
+                o.n = UnityObjectToWorldNormal(v.normal); o.wp = mul(unity_ObjectToWorld, v.vertex).xyz;
+                TRANSFER_SHADOW(o)
+                return o;
             }
             // normal mapping without tangents: cotangent frame from screen-space derivatives
             float3 perturb(float3 n, float3 wp, float2 uv, float3 tn)
@@ -158,6 +163,7 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float3 L = _EBDirectionalLightDirection.xyz;
                 L = dot(L, L) < 0.01 ? float3(0.4, 0.8, -0.45) : L;
                 L = normalize(L.y < 0 ? -L : L);
+                L = L.y < 0.3 ? normalize(float3(L.x, 0.3, L.z)) : L;      // same clamp as the TFTF sun light (TftfDiag.EnsureSun)
                 float3 L2 = normalize(float3(-L.x, 0.15, -L.z));
                 float3 alb = tex2D(_MainTex, i.uv).rgb * _Color.rgb;
                 float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, i.uv).r * _MetalAmt) : saturate(_MetalAmt);
@@ -167,12 +173,13 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - 0.55 * metal);
                 float aoL = lerp(0.45, 1, ao);
                 float ndl = dot(n, L);
-                float nl = saturate((ndl + 0.2) / 1.2), nl2 = saturate(dot(n, L2));      // slightly wrapped key light
+                UNITY_LIGHT_ATTENUATION(atten, i, i.wp);      // the TFTF sun light's shadow (1 without one)
+                float nl = saturate((ndl + 0.2) / 1.2) * atten, nl2 = saturate(dot(n, L2));      // slightly wrapped key light
                 float3 H = normalize(L + V);
                 float a2 = pow(rough, 4), nh = saturate(dot(n, H));
                 float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
                 float3 F = spec0 + (1 - spec0) * pow(1 - saturate(dot(V, H)), 5);
-                float3 specular = D * F * 0.3 * saturate(ndl);
+                float3 specular = D * F * 0.3 * saturate(ndl) * atten;
                 float hemi = saturate(n.y * 0.5 + 0.5);
                 float3 ambient = lerp(float3(0.20, 0.19, 0.19), float3(0.52, 0.58, 0.70), hemi);     // dark underside, bluish sky
                 float3 r = reflect(-V, n);
@@ -182,6 +189,20 @@ PBR = r"""Shader "TFTF/PbrLite"
                 col = 1 - exp(-1.3 * col);      // soft shoulder: bright albedo (snow) keeps its shape instead of clipping
                 return fixed4(col, 1);
             }
+            ENDCG
+        }
+        Pass
+        {
+            Tags { "LightMode"="ShadowCaster" }
+            ZWrite On ZTest LEqual Cull Back
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma multi_compile_shadowcaster
+            #include "UnityCG.cginc"
+            struct v2f { V2F_SHADOW_CASTER; };
+            v2f vert(appdata_base v) { v2f o; TRANSFER_SHADOW_CASTER_NORMALOFFSET(o) return o; }
+            float4 frag(v2f i) : SV_Target { SHADOW_CASTER_FRAGMENT(i) }
             ENDCG
         }
     }
