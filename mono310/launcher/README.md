@@ -38,7 +38,7 @@ Same environment as [`../README.md`](../README.md), plus:
 |---|---|
 | `TFTF_SHELL=1` | build the shell instead of the full recompile |
 | `TFTF_LEGIBLE_ARMV7` | release build of the Legible interpreter for `armv7-linux-androideabi` (`cargo build --release --no-default-features --target armv7-linux-androideabi`) |
-| `TFTF_TREES_BIN` | type-tree database, written by `convert/export_tree_db.py` from a local Editor build |
+| `TFTF_TREES_BIN` | type-tree database for the on-phone converter. Make it once with the full project: `mono310/run.sh assemble && mono310/run.sh treedb` (needs `pip install UnityPy`, Docker and the Unity 2020 install); it prints the path of `trees.bin` |
 
 ```bash
 TFTF_SHELL=1 mono310/run.sh assemble && mono310/run.sh assets && mono310/run.sh build && mono310/run.sh finalize

@@ -18,6 +18,10 @@ player's own 3.1.0 and 9.2.0 APKs on the phone. Not released: see [`RELEASE_CHEC
 - Offline game server inside the app (Legible interpreter and the authored server scripts).
 - Authored manifest, Java stand-ins and native stand-ins; nothing of the original app is copied into the APK.
   SharpZipLib and BouncyCastle come from NuGet.
+- Branding: the app is named "Transformers Forged to Fight Revival", the first-run screen says "revival launcher"
+  and shows the logo (a simplified, smiling orange Unicron head with sunglasses, drawn as SVG), which is also the app
+  icon.
+- The app restarts once after a successful install so the first start is identical to every later start.
 - Fighters from the 9.2.0 packs land hits (their move files come from the 9.2.0 APK).
 
 **Fixed compared with the first launcher builds**

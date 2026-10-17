@@ -1,6 +1,6 @@
 #!/bin/bash
 # 3.1.0 Unity-2020 recompile driver. See README.md. Usage: mono310/run.sh <step> [args]
-#   doctor | rip | decompile | assemble | assets | compile | build | finalize | wad | fast | all
+#   doctor | rip | decompile | assemble | assets | compile | build | finalize | wad | fast | treedb | all
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/config.sh"
 S="$MONO310_DIR/scripts"
@@ -107,6 +107,21 @@ step_wad() {  # story map / arena / character bundles from the 9.2.0 APK
   mkdir -p "$ODR_DIR/wad"; ln -f "$ODR_DIR/toc.zip" "$ODR_DIR/wad/toc.zip"
 }
 
+step_treedb() {  # type-tree database for the launcher's on-phone converter (full project, not the shell; needs UnityPy)
+  [ "${TFTF_SHELL:-}" != 1 ] || die "run treedb without TFTF_SHELL: it needs the full recompiled project (run assemble first)"
+  local d="$TFTF_WORK/treedb"; mkdir -p "$d" "$PROJECT/Assets/Editor"
+  unzip -q -o "$TFTF_310_APK" 'assets/bin/Data/*' -d "$d/apk"
+  python3 "$MONO310_DIR/launcher/convert/list_scripts.py" "$d/apk/assets/bin/Data" "$PROJECT/tt_scripts.json"
+  cp "$MONO310_DIR/launcher/spike/TypeTreeDump.cs" "$PROJECT/Assets/Editor/"
+  rm -rf "$PROJECT/tt_out"
+  unity_run -e TT_SCRIPTS=/workspace/project/tt_scripts.json -e TT_OUT=/workspace/project/tt_out -- \
+    -batchmode -nographics -projectPath /workspace/project -buildTarget Android \
+    -executeMethod TypeTreeDump.Run -logFile /workspace/project/ttdump.log || true
+  [ -f "$PROJECT/tt_out/typetrees" ] || die "TypeTreeDump produced no bundle; see $PROJECT/ttdump.log"
+  python3 "$MONO310_DIR/launcher/convert/export_tree_db.py" "$PROJECT/tt_out/typetrees" "$d/trees.bin"
+  echo "type-tree database: $d/trees.bin  (use it as TFTF_TREES_BIN)"
+}
+
 step_fast() {  # script-only iteration: assemble, compile, inject DLLs, optional install
   step_assemble; step_compile unity-scripts-fast.log
   python3 "$REPO_DIR/tools/fast_patch_managed.py" "$OUT_APK" "$PROJECT/scripts-out" "$OUT_APK.fast"
@@ -118,7 +133,7 @@ step=${1:-}; shift || true
 case "$step" in
   doctor) step_doctor ;;  rip) step_rip ;;  decompile) step_decompile ;;  assets) step_assets ;;
   assemble) step_assemble ;;  compile) step_compile "$@" ;;  build) step_build "$@" ;;
-  finalize) step_finalize ;;  wad) step_wad "$@" ;;  fast) step_fast "$@" ;;
+  finalize) step_finalize ;;  wad) step_wad "$@" ;;  fast) step_fast "$@" ;;  treedb) step_treedb ;;
   all) step_doctor; step_rip; step_decompile; step_assemble; step_assets; step_compile; step_build; step_finalize
        [ -f "$TFTF_92_APK" ] && step_wad || echo "skipping WAD (no 9.2.0 APK)"
        echo "done: $OUT_APK" ;;
