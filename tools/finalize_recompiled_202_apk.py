@@ -68,7 +68,7 @@ def main():
     aligned = out.with_suffix(".aligned.apk")
     subprocess.check_call([bt / "zipalign", "-f", "-p", "4", tmp, aligned])
     subprocess.check_call([bt / "apksigner", "sign", "--ks", a.keystore,
-                           "--ks-pass", "pass:android", "--out", out, aligned])
+                           "--ks-pass", "env:TFTF_KEYSTORE_PASS" if os.environ.get("TFTF_KEYSTORE_PASS") else "pass:android", "--out", out, aligned])
     tmp.unlink(); aligned.unlink()
     print(out)
 

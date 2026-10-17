@@ -36,7 +36,7 @@ def main():
         raise SystemExit("not present in APK: " + ", ".join(dlls))
     bt = sorted((Path(os.environ.get("ANDROID_HOME", Path.home() / "Android/Sdk")) / "build-tools").iterdir())[-1]
     subprocess.check_call([bt / "zipalign", "-f", "-p", "4", tmp, al])
-    subprocess.check_call([bt / "apksigner", "sign", "--ks", a.keystore, "--ks-pass", "pass:android",
+    subprocess.check_call([bt / "apksigner", "sign", "--ks", a.keystore, "--ks-pass", "env:TFTF_KEYSTORE_PASS" if os.environ.get("TFTF_KEYSTORE_PASS") else "pass:android",
                            "--out", out, al])
     tmp.unlink(); al.unlink(); print(out)
 

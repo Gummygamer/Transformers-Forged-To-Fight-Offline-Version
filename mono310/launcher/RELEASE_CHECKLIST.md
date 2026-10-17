@@ -18,8 +18,11 @@ without publishing.
 
 - [ ] Clean work directory, then `TFTF_SHELL=1 mono310/run.sh assemble && run.sh assets && run.sh build && run.sh finalize`
       (see [`README.md`](README.md)); no step may fail and the log must show the third-party libraries coming from NuGet.
-- [ ] Sign with a release key: `TFTF_KEYSTORE=<your keystore>` (the build otherwise uses the Android debug key, which
-      must never be used for a published file). Keep the key out of the repository.
+- [x] Sign with a release key: `TFTF_KEYSTORE=<your keystore>` and `TFTF_KEYSTORE_PASS=<its password>` (the build otherwise
+      uses the Android debug key, which must never be used for a published file). Keep the key out of the repository.
+      0.3.0 was signed with `~/.android/tftf-release.keystore` (alias `tftf-release`, RSA 4096, certificate SHA-256
+      `79cbe365...f84e`); back that file and its password up: an APK signed with another key cannot update an installed one.
+      A release-signed APK cannot be installed over a debug-signed one: uninstall the old one first.
 - [ ] `unzip -l` the APK: no `assets/` folder of the original game, no `classes2.dex`, only `classes.dex`, the Unity
       player libraries, `liblegible.so` and the three stand-in libraries.
 - [ ] Record the SHA-256 of the APK next to the commit it was built from.
