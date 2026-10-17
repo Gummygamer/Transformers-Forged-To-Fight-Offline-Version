@@ -2,12 +2,12 @@
 
 ## Table of contents
 
-- [0.3.1 (unreleased)](#031-unreleased)
+- [0.4.0 (unreleased)](#040-unreleased)
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.3.1 (unreleased)
+## 0.4.0 (unreleased)
 
 **Fixed**
 
@@ -27,7 +27,9 @@
   terrain shader's world-projected textures with its colour-layer blend - the story-map ground is textured sand instead of flat grey.
 - The file picker keeps the choice on the Java side until the launcher fetches it, takes a persistent permission, and copies files
   from providers whose descriptors cannot be read in place.
-- Dev: `tftf/dbg.txt` (1-6) selects shader debug views, `probe_scene.txt` dumps lights, cameras and shaders of the current screen.
+- Separate exposure for fights (0.45 / sun 1.5, while a battle is running) and for the base, story map and menus (1.35 / sun 3.0);
+  `tftf/tune.txt` ("exposure sun fightExposure fightSun") overrides them on the phone without a rebuild.
+- Dev: `tftf/hide.txt` switches renderers off by name part; `tftf/dbg.txt` (1-6) selects shader debug views, `probe_scene.txt` dumps lights, cameras and shaders of the current screen.
 
 ## 0.3.0
 

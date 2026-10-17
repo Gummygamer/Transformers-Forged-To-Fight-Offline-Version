@@ -270,6 +270,24 @@ public class TftfDiag : MonoBehaviour
 
 	// Every frame: the key light comes from the camera's upper left front (TFTF/PbrLite reads _TftfLightDir), and the shadow light matches it.
 	private const float DefaultExposure = 1.35f, DefaultSun = 3f, FightExposure = 0.45f, FightSun = 1.5f;     // fights are lit by a much brighter arena
+	// BattleArbiter lives in the main assembly, which this first-pass script cannot reference: reach it by reflection.
+	private static System.Type _arbiterType;
+	private static bool InFight()
+	{
+		try
+		{
+			if (_arbiterType == null) _arbiterType = System.Type.GetType("BattleArbiter, Assembly-CSharp");
+			if (_arbiterType == null) return false;
+			object inst = _arbiterType.GetProperty("Instance").GetValue(null, null);
+			if (inst == null) return false;
+			System.Reflection.MethodInfo m = _arbiterType.GetMethod("IsCurrentState");
+			foreach (string st in new string[] { "Intro", "Main", "CinematicSpecial", "WaitForKnockout", "Timeout", "Outro" })
+				if ((bool)m.Invoke(inst, new object[] { st })) return true;
+		}
+		catch (System.Exception) { }
+		return false;
+	}
+
 	private static float _dbgNext;
 	private static void AimSun()
 	{
@@ -279,7 +297,7 @@ public class TftfDiag : MonoBehaviour
 			float dv = 0f;
 			try { string f = System.IO.Path.Combine(Application.persistentDataPath, "tftf/dbg.txt"); if (System.IO.File.Exists(f)) float.TryParse(System.IO.File.ReadAllText(f).Trim(), out dv); } catch (System.Exception) { }
 			Shader.SetGlobalFloat("_TftfDebug", dv);
-			bool inFight = BattleArbiter.Instance != null && (BattleArbiter.Instance.IsCurrentState("Intro") || BattleArbiter.Instance.IsCurrentState("Main") || BattleArbiter.Instance.IsCurrentState("CinematicSpecial") || BattleArbiter.Instance.IsCurrentState("WaitForKnockout") || BattleArbiter.Instance.IsCurrentState("Timeout") || BattleArbiter.Instance.IsCurrentState("Outro"));
+			bool inFight = InFight();
 			Vector4 tune = inFight ? new Vector4(FightExposure, FightSun, 0f, 0f) : new Vector4(DefaultExposure, DefaultSun, 0f, 0f);
 			try
 			{
