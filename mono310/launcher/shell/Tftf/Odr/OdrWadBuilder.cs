@@ -17,6 +17,9 @@ namespace Tftf.Odr
     static readonly string[] TowerRelicPacks = { "towers_odr", "relics_odr" };
     static readonly string[] TimeOfDayPacks = { "primordial", "base", "ruinedcity", "unicron", "quintessa_merged_odr", "mine" };
     static readonly string[] RequestedPaths = { "assets_quest/QuestRoot", "assets_quest/TapIndicator", "assets_quest/TapFeedback", "assets_quest/ItemPickup", "assets_quest/ItemTrail", "assets_quest/Ambush", "assets_quest/TriggerFight", "assets_quest/PlayerMarker", "assets_quest/ItemCard", "assets_quest/FinalBossLight", "assets_quest/NodeNumber", "assets_quest/GateOpened", "assets_quest/QuestComplete", "assets_base/BaseRoot", "assets_base/BaseTapFeedback", "assets_base/BaseRelicTapFeedback", "assets_base/BaseTapIndicator", "assets_base/BotPlaced", "assets_base/BotRemoved", "assets_base/ModPlaced", "assets_base/ModRemoved", "assets_base/CrystalClaim", "assets_base/RelicActive", "assets_base/RelicPlaced", "assets_base/RelicRemoved", "assets_base/RelicPedestalPlaced", "assets_base/RelicPedestalRemoved", "assets_base/BaseShieldActivate", "assets_base/BaseShieldDeactivate", "assets_base/BaseShieldActive", "assets_common/Boss", "assets_common/BossCard", "assets_common/RelicCard", "assets_common/Path", "assets_common/LinkedNode", "assets_common/LinkedNodeGlobal", "theme/primordial/prefabs/library_primordial", "theme/primordial_base/prefabs/library_primordial_base", "theme/common/prefabs/library_common", "buildings/prefabs/library_buildings" };
+    // Packs that only carry loose image files (hero portraits, dialogue art, item icons...): stored in the WAD as raw entries and listed
+    // in the manifest's "raw" array, which is where the game's ODRManager looks them up by relative path.
+    static readonly string[] RawPacks = { "portraits_odr", "dialogue_odr", "upgradeitems_odr", "redeemers_odr", "gacha_odr", "questboard_odr", "fightlanding_odr", "chests_odr", "cutscenes_odr", "misc_odr", "masks_odr", "ave_odr", "hc_odr", "raidbuttonbanner_odr" };
     static readonly string[] BaseApkBundles = { "character_audio", "character_fx", "characters", "moves", "quest" };
 
         static readonly string[] BundleKeyOrder = { "hash", "mount", "deterministic", "file", "ts", "manifest", "directory",
@@ -86,6 +89,7 @@ namespace Tftf.Odr
                 var entries = new List<Entry>();      // in order
                 var tocNames = new List<string>();
                 var bundleOffsets = new List<KeyValuePair<string, long>>();
+                var rawJson = new List<object>();
                 using (var wad = new FileStream(wadPath + ".tmp", FileMode.Create, FileAccess.ReadWrite))
                 {
                     foreach (var pack in packs)
@@ -101,6 +105,31 @@ namespace Tftf.Odr
                             bundleOffsets.Add(new KeyValuePair<string, long>(bname, e.DataOffset));
                         }
                         log("wad " + pack);
+                    }
+                    foreach (var rawPack in RawPacks)
+                    {
+                        ZipArchiveEntry rte;
+                        if (!byExact.TryGetValue("assets/" + rawPack + "/toc.txt", out rte)) continue;
+                        JObj rawToc;
+                        using (var r = new StreamReader(rte.Open(), Encoding.UTF8)) rawToc = (JObj)JsonLite.Parse(r.ReadToEnd());
+                        var files = rawToc["files"] as List<object>;
+                        if (files == null) continue;
+                        foreach (var fo in files)
+                        {
+                            string f = ((string)fo).Replace('\\', '/');
+                            ZipArchiveEntry src;
+                            if (!byLower.TryGetValue(("assets/assetpack/" + rawPack + "/" + f).ToLowerInvariant(), out src)) continue;
+                            var re = StoreStream(wad, f, src);
+                            int index = entries.Count;
+                            entries.Add(re);
+                            foreach (var nm in new[] { f, f.ToLowerInvariant() }.Distinct())      // the game's lookups are case sensitive
+                            {
+                                var rec = new JObj();
+                                rec["name"] = nm; rec["offset"] = re.DataOffset; rec["index"] = (long)index; rec["size"] = re.Size;
+                                rawJson.Add(rec);
+                            }
+                        }
+                        log("raw " + rawPack);
                     }
                     WriteCentralDirectory(wad, entries);
                 }
@@ -130,6 +159,7 @@ namespace Tftf.Odr
                 wadObj["size"] = wadSize; wadObj["crc"] = (long)wadCrc; wadObj["zip_size"] = zipSize;
                 wadObj["tocs"] = tocNames.Select(n => { var t = new JObj(); t["name"] = n; return (object)t; }).ToList();
                 wadObj["bundles"] = bundlesJson;
+                wadObj["raw"] = rawJson;
                 var build = new JObj();
                 build["cl"] = cl; build["platform"] = "android"; build["check_crc"] = false; build["cdn"] = cdn;
                 build["manifest"] = new List<object> { wadObj };

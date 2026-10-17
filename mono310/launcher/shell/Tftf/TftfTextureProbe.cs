@@ -233,6 +233,31 @@ public sealed class TftfTextureProbe : MonoBehaviour
         }
     }
 
+    // While tftf/probe_scene.txt exists (the probe deletes it afterwards): log what the scene is drawn with, one line per distinct
+    // shader (renderer count, materials, biggest bounds) and the large renderers by name. Push the file while a screen is up.
+    void ReportScene()
+    {
+        string f = Path.Combine(_dir, "probe_scene.txt");
+        if (!File.Exists(f)) return;
+        try { File.Delete(f); } catch (System.Exception) { }
+        var groups = new Dictionary<string, int>();
+        var big = new List<string>();
+        foreach (var r in Object.FindObjectsOfType<Renderer>())
+        {
+            if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+            foreach (var m in r.sharedMaterials)
+            {
+                if (m == null) continue;
+                string key = (m.shader == null ? "none" : TftfResources.NameOf(m.shader)) + (r is SkinnedMeshRenderer ? " [skinned]" : "");
+                int n; groups.TryGetValue(key, out n); groups[key] = n + 1;
+                if (r.bounds.size.magnitude > 15f && big.Count < 25) big.Add(r.name + " mat=" + m.name + " sh=" + (m.shader == null ? "none" : TftfResources.NameOf(m.shader)) + " size=" + r.bounds.size.magnitude.ToString("F0"));
+            }
+        }
+        foreach (var kv in groups) Debug.Log("[TFTF] scene shader " + kv.Key + " x" + kv.Value);
+        foreach (var b in big) Debug.Log("[TFTF] scene big " + b);
+        Debug.Log("[TFTF] scene done");
+    }
+
     readonly HashSet<int> _swapped = new HashSet<int>();
     Texture2D _pngTexture;
 
@@ -270,6 +295,7 @@ public sealed class TftfTextureProbe : MonoBehaviour
         _next = Time.unscaledTime + 0.5f;
         string list = Path.Combine(_dir, "probe.txt");
         TftfResources.EnableTrace(File.Exists(list));
+        ReportScene();
         if (!File.Exists(list)) return;
         var wanted = new List<string>();
         foreach (var line in File.ReadAllLines(list)) if (line.Trim().Length > 0) wanted.Add(line.Trim());

@@ -233,7 +233,7 @@ public static class TftfResources
         {
             // A dynamic font's material that ended up on a colour shader (Sprites/Default) draws its alpha-only font texture as black
             // glyphs (an Alpha8 texture samples as rgb 0): give it the text shader, which takes the colour from the tint.
-            var ft = m.mainTexture as Texture2D;
+            var ft = m.HasProperty("_MainTex") ? m.mainTexture as Texture2D : null;     // mainTexture logs an error on a material without _MainTex
             if (ft != null && ft.format == TextureFormat.Alpha8 && m.shader != null && m.shader.name == "Sprites/Default")
             {
                 var ts = ShaderFallback.Find("TFTF/Text");

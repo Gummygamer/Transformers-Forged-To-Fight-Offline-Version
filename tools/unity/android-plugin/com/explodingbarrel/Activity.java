@@ -123,7 +123,12 @@ public class Activity extends UnityPlayerActivity {
         Intent i = getPackageManager().getLaunchIntentForPackage(getPackageName());
         if (i == null) return;
         i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK);
-        startActivity(i);
+        // An alarm starts the app again after this process is gone: starting the activity directly lets it come up inside the dying
+        // process, which then exits and takes the new start with it (the app ended up on the home screen).
+        int flags = android.os.Build.VERSION.SDK_INT >= 23 ? (android.app.PendingIntent.FLAG_CANCEL_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE) : android.app.PendingIntent.FLAG_CANCEL_CURRENT;
+        android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 7331, i, flags);
+        android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+        am.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 700, pi);
         finish();
         new android.os.Handler().postDelayed(new Runnable() {
             public void run() { System.exit(0); }

@@ -228,12 +228,14 @@ public class TftfDiag : MonoBehaviour
 	private static bool _lodLogged;
 	private static readonly System.Collections.Generic.HashSet<int> _swapped = new System.Collections.Generic.HashSet<int>();
 	private static Shader _swapShader;
+	private static Shader _fxShader;
 
 	// The donor PBR shaders draw nothing in this pipeline: give those renderers a plain textured material.
 	private static void SwapPbr()
 	{
 		if (_swapShader == null) _swapShader = ShaderFallback.Find("TFTF/PbrLite"); if (_swapShader == null || _swapShader.name != "TFTF/PbrLite") _swapShader = ShaderFallback.Find("TFTF/LitTex"); if (_swapShader == null || (_swapShader.name != "TFTF/LitTex" && _swapShader.name != "TFTF/PbrLite")) _swapShader = ShaderFallback.Find("EBG/UI/Opaque");
 		if (_swapShader == null) return;
+		if (_fxShader == null) _fxShader = ShaderFallback.Find("TFTF/AddFx");
 		string[] prefs = new string[] { "_base_tex", "_BaseTex", "_MainTex", "_BaseMap", "_AlbedoTex", "_Albedo", "_DiffuseTex", "_Diffuse" };
 		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
 		{
@@ -249,7 +251,8 @@ public class TftfDiag : MonoBehaviour
 				Texture tex = null;
 				foreach (string pn in prefs) { if (m.HasProperty(pn)) { tex = m.GetTexture(pn); if (tex != null) break; } }
 				if (tex == null) foreach (string pn in m.GetTexturePropertyNames()) { if (pn.Contains("emissive") || pn.Contains("damage") || pn.Contains("translucency") || pn.Contains("normal") || pn.Contains("composite") || pn.Contains("metallic") || pn.Contains("roughness") || pn.Contains("_ao")) continue; Texture t = m.GetTexture(pn); if (t != null) { tex = t; break; } }
-				Material nm = new Material(_swapShader);
+				bool tftfFx = m.renderQueue >= 2500 && _fxShader != null;     // authored as transparent: glow cards, trails
+				Material nm = new Material(tftfFx ? _fxShader : _swapShader);
 				nm.name = m.name + "_swap";
 				if (tex != null) nm.mainTexture = tex;
 				nm.color = Color.white;
@@ -528,6 +531,13 @@ public class TftfDiag : MonoBehaviour
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(fp, "UIDrawCall.cs", "string text = ((mShader != null) ? mShader.name :", "string text = ((mShader != null) ? TftfResources.NameOf(mShader) :",
                    "P46 draw calls use the declared shader name")
+    # P48 (shell only): the base's defender slots are not authored, so selecting a base node made DefenderSlot.Refresh throw inside the
+    # edit popup's SetEnterParams; the popup never finished opening and the base UI stayed hidden ("frozen"). The refresh is guarded.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "DefenderSlot.cs",
+                   "\tpublic void Refresh(BCGEntity entity, List<string> modes, BCGEntity secondEntity = null, bool isBossFinal = false, int possibleReplacements = 0, bool shouldScaleHeroRating = false)\n\t{\n",
+                   "\tpublic void Refresh(BCGEntity entity, List<string> modes, BCGEntity secondEntity = null, bool isBossFinal = false, int possibleReplacements = 0, bool shouldScaleHeroRating = false)\n\t{\n\t\ttry\n\t\t{\n\t\t\tRefreshUnguarded(entity, modes, secondEntity, isBossFinal, possibleReplacements, shouldScaleHeroRating);\n\t\t}\n\t\tcatch (System.Exception ex)\n\t\t{\n\t\t\tUnityEngine.Debug.LogWarning(\"[TFTF] DefenderSlot.Refresh failed, slot left empty: \" + ex.Message);\n\t\t}\n\t}\n\n\tprivate void RefreshUnguarded(BCGEntity entity, List<string> modes, BCGEntity secondEntity, bool isBossFinal, int possibleReplacements, bool shouldScaleHeroRating)\n\t{\n",
+                   "P48 DefenderSlot.Refresh guarded")
     # P47 (shell only): the prefab loader adds a widget's components one by one, so UIStretch.Awake runs before the UITexture/UISprite
     # exists and never finds it; the stretch then scales the transform instead of sizing the widget (the loading screen's background
     # became 770 times too tall: coloured streaks). Look the widget up again in Start.

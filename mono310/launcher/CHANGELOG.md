@@ -2,11 +2,28 @@
 
 ## Table of contents
 
-- [0.3.0 (unreleased)](#030-unreleased)
+- [0.3.1 (unreleased)](#031-unreleased)
+- [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.3.0 (unreleased)
+## 0.3.1 (unreleased)
+
+**Fixed**
+
+- The game slowed to a crawl when something in the base was selected: the 0.3.0 text-shader fix read `mainTexture` on every
+  material every 0.2 s, and each material without a `_MainTex` logged an error (about 950 per second). Now guarded.
+- Base buildings and terrain were too dark under the new stand-in shader; the stand-in shader now lights with the scene's own
+  sun direction, a wrapped key light, a soft tone curve and a darker underside (more contrast in the base and in fights).
+- Selecting a base node left the screen stuck: the edit popup threw in `DefenderSlot.Refresh` (defenders are not authored) and never
+  finished opening; the refresh is guarded (patch P48) and the popup opens with its controls.
+- Profile picture, BOTS portraits, dialogue and item art stayed unloaded (gears): the content package did not contain the loose
+  image files of the donor's portrait/dialogue/item packs; they are now stored in the package (about 64 MB) and listed as raw
+  entries in its manifest.
+- After the first-run install the app did not come back (it ended on the home screen): the restart now relaunches through an alarm.
+- Transparent donor materials (glow cards) are drawn additively by a separate stand-in shader (TFTF/AddFx) instead of opaque.
+
+## 0.3.0
 
 **Fixed**
 

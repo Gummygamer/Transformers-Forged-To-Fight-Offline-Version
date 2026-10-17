@@ -130,7 +130,7 @@ PBR = r"""Shader "TFTF/PbrLite"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
             struct v2f { float4 vertex : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; };
             sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _EBDirectionalLightDirection;
             v2f vert(appdata_t i)
             {
                 v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.uv = TRANSFORM_TEX(i.texcoord, _MainTex);
@@ -154,24 +154,32 @@ PBR = r"""Shader "TFTF/PbrLite"
                     n = perturb(n, i.wp, i.uv, tn);
                 }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
-                float3 L = normalize(float3(0.4, 0.8, -0.45)), L2 = normalize(float3(-0.5, 0.2, 0.6));
+                // the scene's own sun (EBLight pushes its up vector as the direction towards the light); a fixed one before it is set
+                float3 L = _EBDirectionalLightDirection.xyz;
+                L = dot(L, L) < 0.01 ? float3(0.4, 0.8, -0.45) : L;
+                L = normalize(L.y < 0 ? -L : L);
+                float3 L2 = normalize(float3(-L.x, 0.15, -L.z));
                 float3 alb = tex2D(_MainTex, i.uv).rgb * _Color.rgb;
                 float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, i.uv).r * _MetalAmt) : saturate(_MetalAmt);
                 float rough = _Flags.z > 0.5 ? saturate(tex2D(_RoughTex, i.uv).r * _RoughAmt) : saturate(_RoughAmt);
                 float ao = _Flags.w > 0.5 ? tex2D(_AoTex, i.uv).r : 1;
                 rough = clamp(rough, 0.08, 1);
-                float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - metal);
-                float nl = saturate(dot(n, L)), nl2 = saturate(dot(n, L2));
+                float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - 0.55 * metal);
+                float aoL = lerp(0.45, 1, ao);
+                float ndl = dot(n, L);
+                float nl = saturate((ndl + 0.2) / 1.2), nl2 = saturate(dot(n, L2));      // slightly wrapped key light
                 float3 H = normalize(L + V);
                 float a2 = pow(rough, 4), nh = saturate(dot(n, H));
                 float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
                 float3 F = spec0 + (1 - spec0) * pow(1 - saturate(dot(V, H)), 5);
-                float3 specular = D * F * 0.25 * nl;
-                float3 sky = lerp(float3(0.35, 0.33, 0.30), float3(0.62, 0.70, 0.85), saturate(n.y * 0.5 + 0.5));
+                float3 specular = D * F * 0.3 * saturate(ndl);
+                float hemi = saturate(n.y * 0.5 + 0.5);
+                float3 ambient = lerp(float3(0.20, 0.19, 0.19), float3(0.52, 0.58, 0.70), hemi);     // dark underside, bluish sky
                 float3 r = reflect(-V, n);
-                float3 env = lerp(float3(0.30, 0.28, 0.26), float3(0.70, 0.78, 0.92), saturate(r.y * 0.5 + 0.5)) * (1 - rough * 0.6);
-                float3 col = diff * (nl * 0.85 + nl2 * 0.2 + sky * 0.55) * ao + specular + env * F * ao * (0.4 + metal * 0.6);
+                float3 env = lerp(float3(0.22, 0.21, 0.20), float3(0.70, 0.78, 0.92), saturate(r.y * 0.5 + 0.5)) * (1 - rough * 0.6);
+                float3 col = diff * (nl * 1.05 + nl2 * 0.18 + ambient) * aoL + specular + env * F * aoL * (0.25 + metal * 0.75);
                 col += tex2D(_EmisTex, i.uv).rgb * _EmisColor.rgb;
+                col = 1 - exp(-1.3 * col);      // soft shoulder: bright albedo (snow) keeps its shape instead of clipping
                 return fixed4(col, 1);
             }
             ENDCG
@@ -181,6 +189,33 @@ PBR = r"""Shader "TFTF/PbrLite"
 }
 """
 (out / "TFTF_PbrLite.shader").write_text(PBR)
+
+FX = r"""Shader "TFTF/AddFx"
+{
+    // Stand-in for the donor PBR materials that were authored as transparent (glow cards, trails): additive, so black is nothing.
+    Properties { _MainTex ("Texture", 2D) = "white" {} _Color ("Tint", Color) = (1,1,1,1) }
+    SubShader
+    {
+        Tags { "Queue"="Transparent" "IgnoreProjector"="True" "RenderType"="Transparent" }
+        Cull Off Lighting Off ZWrite Off Blend One One
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            struct appdata_t { float4 vertex : POSITION; float2 texcoord : TEXCOORD0; };
+            struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
+            sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST;
+            v2f vert(appdata_t i) { v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.uv = TRANSFORM_TEX(i.texcoord, _MainTex); return o; }
+            fixed4 frag(v2f i) : SV_Target { fixed4 c = tex2D(_MainTex, i.uv); return fixed4(c.rgb * _Color.rgb * c.a * 0.6, 1); }
+            ENDCG
+        }
+    }
+    Fallback Off
+}
+"""
+(out / "TFTF_AddFx.shader").write_text(FX)
 print(len(names), "shaders ->", out)
 
 # --- also rewrite AssetRipper dummy shaders (white-output placeholders) in place, keeping GUIDs ---
