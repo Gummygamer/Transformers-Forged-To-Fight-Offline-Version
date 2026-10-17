@@ -113,11 +113,12 @@ step_treedb() {  # type-tree database for the launcher's on-phone converter (ful
   unzip -q -o "$TFTF_310_APK" 'assets/bin/Data/*' -d "$d/apk"
   python3 "$MONO310_DIR/launcher/convert/list_scripts.py" "$d/apk/assets/bin/Data" "$PROJECT/tt_scripts.json"
   cp "$MONO310_DIR/launcher/spike/TypeTreeDump.cs" "$PROJECT/Assets/Editor/"
-  rm -rf "$PROJECT/tt_out"
+  # tt_out is written by the container as root: do not delete it here, check that the bundle is newer than this marker
+  touch "$d/.treedb-start"; sleep 1
   unity_run -e TT_SCRIPTS=/workspace/project/tt_scripts.json -e TT_OUT=/workspace/project/tt_out -- \
     -batchmode -nographics -projectPath /workspace/project -buildTarget Android \
     -executeMethod TypeTreeDump.Run -logFile /workspace/project/ttdump.log || true
-  [ -f "$PROJECT/tt_out/typetrees" ] || die "TypeTreeDump produced no bundle; see $PROJECT/ttdump.log"
+  [ "$PROJECT/tt_out/typetrees" -nt "$d/.treedb-start" ] || die "TypeTreeDump produced no new bundle; see $PROJECT/ttdump.log"
   python3 "$MONO310_DIR/launcher/convert/export_tree_db.py" "$PROJECT/tt_out/typetrees" "$d/trees.bin"
   echo "type-tree database: $d/trees.bin  (use it as TFTF_TREES_BIN)"
 }

@@ -35,9 +35,14 @@ def main(dump_path, out_path):
         except Exception:
             pass
     scripts = []
+    skipped = 0
     for o in UnityPy.load(dump_path).objects:
         if o.type.name == "MonoBehaviour":
-            sc = o.read().m_Script.deref().read()
+            try:
+                sc = o.read().m_Script.deref().read()
+            except FileNotFoundError:        # script object lives in a built-in Unity file that is not part of the dump
+                skipped += 1
+                continue
             scripts.append(((sc.m_AssemblyName, sc.m_Namespace, sc.m_ClassName),
                             finalize(script_tree(o.assets_file.types[o.type_id].node))))
     b = bytearray(b"TFTT" + struct.pack("<II", 1, len(eng)))
@@ -49,7 +54,7 @@ def main(dump_path, out_path):
         w_str(b, a); w_str(b, n); w_str(b, c)
         w_tree(b, t)
     open(out_path, "wb").write(b)
-    print("engine classes", len(eng), "scripts", len(scripts), "bytes", len(b))
+    print("engine classes", len(eng), "scripts", len(scripts), "skipped", skipped, "bytes", len(b))
 
 
 if __name__ == "__main__":

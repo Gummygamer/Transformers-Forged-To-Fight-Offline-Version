@@ -5,6 +5,7 @@
 - [Blocking decision](#blocking-decision)
 - [Build](#build)
 - [Device test matrix](#device-test-matrix)
+  - [Results so far](#results-so-far)
 - [Known gaps accepted for 0.1](#known-gaps-accepted-for-01)
 
 ## Blocking decision
@@ -40,7 +41,25 @@ the first rows automatically and leaves the report and screenshots to attach to 
 | restart | closing and reopening skips the first-run screen and reaches the title in about a minute |
 | uninstall | removes the app's folder; nothing is left on shared storage |
 
-Record device, Android version and result for each row. So far: Samsung A52, Android 14, armeabi-v7a, partial.
+Record device, Android version and result for each row.
+
+### Results so far
+
+Samsung A52 (SM-A525M), Android 14, armeabi-v7a, 2026-10-16; build with the app name "Transformers Forged to Fight
+Revival". **[👁 live]**
+
+| check | result |
+|---|---|
+| first-run screen | pass: logo, title and version line shown; buttons clean; progress bar moves |
+| install time and space | pass: 13-43 s (the faster figure with a warm file cache); no space check failure seen |
+| wrong file | not tested on a device (code and compile check only) |
+| title and login | pass (earlier builds; the from-scratch run reaches the board directly after the restart) |
+| story fight | pass on an earlier build: hits land, both health bars move; not repeated on the latest build |
+| restart | pass: the app starts itself once after the install and boots into the game |
+| uninstall | not tested |
+
+Automated run (`tools/phone_firstrun_test.sh`, autopick): wipe, install, auto-select, install, restart, boot to the
+story board: pass, no native crash, no Java errors.
 
 ## Known gaps accepted for 0.1
 
