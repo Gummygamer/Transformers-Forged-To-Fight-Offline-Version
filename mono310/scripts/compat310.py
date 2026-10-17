@@ -269,6 +269,7 @@ public class TftfDiag : MonoBehaviour
 	}
 
 	// Every frame: the key light comes from the camera's upper left front (TFTF/PbrLite reads _TftfLightDir), and the shadow light matches it.
+	private const float DefaultExposure = 1.35f, DefaultSun = 3f, FightExposure = 0.45f, FightSun = 1.5f;     // fights are lit by a much brighter arena
 	private static float _dbgNext;
 	private static void AimSun()
 	{
@@ -278,6 +279,37 @@ public class TftfDiag : MonoBehaviour
 			float dv = 0f;
 			try { string f = System.IO.Path.Combine(Application.persistentDataPath, "tftf/dbg.txt"); if (System.IO.File.Exists(f)) float.TryParse(System.IO.File.ReadAllText(f).Trim(), out dv); } catch (System.Exception) { }
 			Shader.SetGlobalFloat("_TftfDebug", dv);
+			bool inFight = BattleArbiter.Instance != null && (BattleArbiter.Instance.IsCurrentState("Intro") || BattleArbiter.Instance.IsCurrentState("Main") || BattleArbiter.Instance.IsCurrentState("CinematicSpecial") || BattleArbiter.Instance.IsCurrentState("WaitForKnockout") || BattleArbiter.Instance.IsCurrentState("Timeout") || BattleArbiter.Instance.IsCurrentState("Outro"));
+			Vector4 tune = inFight ? new Vector4(FightExposure, FightSun, 0f, 0f) : new Vector4(DefaultExposure, DefaultSun, 0f, 0f);
+			try
+			{
+				string tf = System.IO.Path.Combine(Application.persistentDataPath, "tftf/tune.txt");
+				if (System.IO.File.Exists(tf))
+				{
+					string[] tp = System.IO.File.ReadAllText(tf).Trim().Split(new char[] { ' ', ',', ';' }, System.StringSplitOptions.RemoveEmptyEntries);
+					float te, ts;
+					int o = inFight ? 2 : 0;      // tune.txt: "exposure sun fightExposure fightSun"
+					if (tp.Length > o && float.TryParse(tp[o], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out te)) tune.x = te;
+					if (tp.Length > o + 1 && float.TryParse(tp[o + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ts)) tune.y = ts;
+				}
+			}
+			catch (System.Exception) { }
+			Shader.SetGlobalVector("_TftfTune", tune);
+			// dev: tftf/hide.txt lists renderer-name parts (one per line) to switch off; the matches are logged
+			try
+			{
+				string hf = System.IO.Path.Combine(Application.persistentDataPath, "tftf/hide.txt");
+				if (System.IO.File.Exists(hf))
+				{
+					string[] hl = System.IO.File.ReadAllLines(hf);
+					foreach (Renderer hr in Object.FindObjectsOfType<Renderer>())
+					{
+						if (!hr.enabled) continue;
+						foreach (string hp in hl) if (hp.Trim().Length > 0 && hr.name.IndexOf(hp.Trim(), System.StringComparison.OrdinalIgnoreCase) >= 0) { hr.enabled = false; Debug.Log("[TFTF] hid renderer " + hr.name); break; }
+					}
+				}
+			}
+			catch (System.Exception) { }
 		}
 		Camera cam = Camera.main;
 		if (cam == null) foreach (Camera c in Camera.allCameras) if (c.name == "RigCamera") cam = c;

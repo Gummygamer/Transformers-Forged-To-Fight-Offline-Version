@@ -138,7 +138,7 @@ PBR = r"""Shader "TFTF/PbrLite"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; };
             sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune;
             v2f vert(appdata_t v)
             {
                 v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord;
@@ -195,7 +195,7 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
                 float vis = 0.25 / max(lerp(ndv, 1, rough * 0.5) * lerp(saturate(ndl), 1, rough * 0.5), 0.05);
                 float3 F = spec0 + (1 - spec0) * pow(1 - saturate(dot(V, H)), 5);
-                float3 sun = float3(1.0, 0.96, 0.9) * 2.8;
+                float3 sun = float3(1.0, 0.96, 0.9) * (_TftfTune.y > 0 ? _TftfTune.y : 2.8);
                 float3 direct = (diff / 3.14159 * 3.14159 + D * vis * F) * nl * sun;          // diffuse * pi cancels the 1/pi of lambert
                 float hemi = saturate(n.y * 0.5 + 0.5);
                 float3 ambient = lerp(float3(0.05, 0.048, 0.05), float3(0.27, 0.30, 0.38), hemi) + nl2 * float3(0.14, 0.15, 0.19);
@@ -214,6 +214,7 @@ PBR = r"""Shader "TFTF/PbrLite"
                 }
                 float3 col = direct + (diff * ambient + env + rim * float3(0.20, 0.23, 0.30)) * aoL + back * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
                 col += pow(tex2D(_EmisTex, uv).rgb * _EmisColor.rgb, 2.2) * 4;
+                col *= _TftfTune.x > 0 ? _TftfTune.x : 1.0;      // exposure (tftf/tune.txt: "exposure sun")
                 col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);      // ACES approximation
                 col = pow(saturate(col), 1 / 2.2);
                 return fixed4(col, 1);

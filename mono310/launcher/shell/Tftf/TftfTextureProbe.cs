@@ -253,6 +253,17 @@ public sealed class TftfTextureProbe : MonoBehaviour
                 if (r.bounds.size.magnitude > 15f && big.Count < 25) big.Add(r.name + " mat=" + m.name + " sh=" + (m.shader == null ? "none" : TftfResources.NameOf(m.shader)) + " size=" + r.bounds.size.magnitude.ToString("F0"));
             }
         }
+        foreach (var r in Object.FindObjectsOfType<Renderer>())
+        {
+            if (!r.enabled || !r.gameObject.activeInHierarchy || r.sharedMaterial == null || r.sharedMaterial.shader == null) continue;
+            string sn = TftfResources.NameOf(r.sharedMaterial.shader);
+            if (sn.StartsWith("EBG/UI") || sn.StartsWith("TFTF/Text") || sn.StartsWith("EB/Light") || sn.StartsWith("Sprites/")) continue;
+            var mf = r.GetComponent<MeshFilter>();
+            var smr = r as SkinnedMeshRenderer;
+            string mesh = smr != null && smr.sharedMesh != null ? smr.sharedMesh.name : mf != null && mf.sharedMesh != null ? mf.sharedMesh.name : "-";
+            var tx = r.sharedMaterial.HasProperty("_MainTex") ? r.sharedMaterial.mainTexture : null;
+            Debug.Log("[TFTF] scene renderer " + r.name + " root=" + r.transform.root.name + " mesh=" + mesh + " mat=" + r.sharedMaterial.name + " sh=" + sn + " tex=" + (tx == null ? "-" : tx.name) + " size=" + r.bounds.size.ToString("F1") + " q=" + r.sharedMaterial.renderQueue);
+        }
         foreach (var l in Object.FindObjectsOfType<Light>())
             Debug.Log("[TFTF] scene light " + l.name + " type=" + l.type + " en=" + l.enabled + " active=" + l.gameObject.activeInHierarchy + " shadows=" + l.shadows + " int=" + l.intensity + " mask=" + l.cullingMask + " rot=" + l.transform.eulerAngles);
         foreach (var c in Camera.allCameras)
