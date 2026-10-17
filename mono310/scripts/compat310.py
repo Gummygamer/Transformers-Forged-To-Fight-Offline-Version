@@ -354,7 +354,12 @@ public class TftfDiag : MonoBehaviour
 				Material m = mats[i];
 				if (m == null || m.shader == null) continue;
 				string n = m.shader.name;
-				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal"))) continue;
+				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
+				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
+				{
+					string rn = r.name;
+					if (rn.Contains("LightMerged") || rn.Contains("Arealight") || rn.Contains("Sky") || rn.Contains("LensFlare") || rn.Contains("Shadow") || m.name.StartsWith("skybox")) continue;
+				}
 				int id = m.GetInstanceID();
 				Texture tex = null;
 				string texProp = null;

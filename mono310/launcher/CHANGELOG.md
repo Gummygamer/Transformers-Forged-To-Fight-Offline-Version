@@ -2,12 +2,21 @@
 
 ## Table of contents
 
-- [0.4.0 (unreleased)](#040-unreleased)
+- [0.4.1 (unreleased)](#041-unreleased)
+- [0.4.0](#040)
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.4.0 (unreleased)
+## 0.4.1 (unreleased)
+
+**Fixed**
+
+- Fights in arenas whose donor shaders did not load (Karnak and others) drew magenta, including the enemy robot: materials with an
+  empty or unsupported shader now get the stand-in shaders (lights, sky and flares are left to the game).
+- The base, story map and menus use a brighter exposure than live fights (the battle state is detected through `BattleArbiter`).
+
+## 0.4.0
 
 **Fixed**
 
