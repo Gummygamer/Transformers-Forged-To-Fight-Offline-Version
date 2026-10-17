@@ -27,7 +27,7 @@ pitfalls: [`../ANDROID_LAUNCHER.md`](../ANDROID_LAUNCHER.md). Third-party parts:
 5. The first time you press play, the game unpacks about 450 MB of content from inside the app. The
    title screen stays up for a few minutes. Later starts skip all of this.
 
-Everything is stored in the app's private folder (`Android/data/com.kabam.bigrobot/files/tftf`); uninstalling the app
+Everything is stored in the app's private folder (`Android/data/unicronslair.bigrobot/files/tftf`); uninstalling the app
 removes it. If the install fails, the reason is shown on screen and written to `install.log` in that folder.
 
 ## For builders
@@ -51,9 +51,9 @@ package builder can also be run on a PC: `launcher/shell/ConvertTool/selftest.sh
 variables plus `UNITY_2020_ROOT`). `launcher/shell/ConvertTool/compile_check.sh` compiles all phone-side C# against the
 Unity 2020 engine modules in a few seconds (run it before every player build). `launcher/tools/phone_firstrun_test.sh` runs the whole first-run flow on a
 connected phone (wipe, install, pick the APKs, install, boot) and writes a report and screenshots; it needs the two
-game APKs in the phone's Downloads folder and uses the phone while it runs. It pre-selects the APKs through a test
-hook of the launcher (`tftf/autopick.txt` in the app's folder, two lines with readable APK paths) instead of driving
-the system file picker.
+game APKs in the phone's Downloads folder and uses the phone while it runs. It pre-selects the APKs through a test hook of the
+launcher (`tftf/autopick.txt` in the app's folder, two lines with readable APK paths) instead of driving the system file
+picker. `launcher/tools/capture_boot.sh` saves a screenshot series of the boot sequence (Kabam logo, splash, title).
 
 ## Layout
 

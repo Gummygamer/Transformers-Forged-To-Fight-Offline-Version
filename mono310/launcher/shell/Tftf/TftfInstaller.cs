@@ -99,6 +99,7 @@ public static class TftfInstaller
             var bundle = PlayerDataConverter.Convert(new ZipDataSource(z310), TreeDb.Load(treesBin), stats, s => { });
             File.WriteAllBytes(Path.Combine(root, "resources.bundle.tmp"), bundle);
             ReplaceFile(Path.Combine(root, "resources.bundle.tmp"), Path.Combine(root, "resources.bundle"));
+            File.WriteAllText(Path.Combine(root, "shadermap.txt"), stats.ShaderMap);
             UnityEngine.Debug.Log("[TFTF] converted: " + stats);
         }
 

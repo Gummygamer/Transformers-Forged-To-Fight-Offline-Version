@@ -19,6 +19,7 @@ public sealed class TftfSplash : MonoBehaviour
         DontDestroyOnLoad(go);
         var splash = go.AddComponent<TftfSplash>();
         yield return splash.Run();
+        if (splash._logo != null) Destroy(splash._logo);
         Destroy(go);
     }
 

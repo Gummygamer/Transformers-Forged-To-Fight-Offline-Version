@@ -125,7 +125,7 @@ step_treedb() {  # type-tree database for the launcher's on-phone converter (ful
 
 step_fast() {  # script-only iteration: assemble, compile, inject DLLs, optional install
   step_assemble; step_compile unity-scripts-fast.log
-  python3 "$REPO_DIR/tools/fast_patch_managed.py" "$OUT_APK" "$PROJECT/scripts-out" "$OUT_APK.fast"
+  python3 "$REPO_DIR/tools/fast_patch_managed.py" "$OUT_APK" "$PROJECT/scripts-out" "$OUT_APK.fast" ${TFTF_SHELL:+--assets-dir "$PROJECT/Assets/StreamingAssets"}
   mv -f "$OUT_APK.fast" "$OUT_APK"
   if [ "${1:-}" = "--install" ]; then "$ADB" ${ADB_DEVICE:+-s "$ADB_DEVICE"} install -r "$OUT_APK"; fi
 }

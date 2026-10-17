@@ -44,6 +44,9 @@ public class TftfBootstrap : MonoBehaviour
         var bundle = req.assetBundle;
         if (bundle == null) { Debug.LogError("[TFTF] resources bundle failed to load"); yield break; }
         TftfResources.Mount(bundle);
+        TftfResources.MountShaderMap(Path.Combine(dir, "shadermap.txt"));
+        TftfTextureProbe.Start(dir);
+        TftfResources.Etc1Fix = File.Exists(Path.Combine(dir, "etc1fix.txt"));
         string movesPath = Path.Combine(dir, "moves92.bundle");
         if (File.Exists(movesPath))
         {

@@ -232,7 +232,7 @@ public class TftfDiag : MonoBehaviour
 	// The donor PBR shaders draw nothing in this pipeline: give those renderers a plain textured material.
 	private static void SwapPbr()
 	{
-		if (_swapShader == null) _swapShader = ShaderFallback.Find("TFTF/LitTex"); if (_swapShader == null || _swapShader.name != "TFTF/LitTex") _swapShader = ShaderFallback.Find("EBG/UI/Opaque");
+		if (_swapShader == null) _swapShader = ShaderFallback.Find("TFTF/PbrLite"); if (_swapShader == null || _swapShader.name != "TFTF/PbrLite") _swapShader = ShaderFallback.Find("TFTF/LitTex"); if (_swapShader == null || (_swapShader.name != "TFTF/LitTex" && _swapShader.name != "TFTF/PbrLite")) _swapShader = ShaderFallback.Find("EBG/UI/Opaque");
 		if (_swapShader == null) return;
 		string[] prefs = new string[] { "_base_tex", "_BaseTex", "_MainTex", "_BaseMap", "_AlbedoTex", "_Albedo", "_DiffuseTex", "_Diffuse" };
 		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
@@ -253,6 +253,19 @@ public class TftfDiag : MonoBehaviour
 				nm.name = m.name + "_swap";
 				if (tex != null) nm.mainTexture = tex;
 				nm.color = Color.white;
+				if (nm.HasProperty("_NormalTex"))
+				{
+					Texture tn = m.HasProperty("_normal_tex") ? m.GetTexture("_normal_tex") : null, tm = m.HasProperty("_metallic_tex") ? m.GetTexture("_metallic_tex") : null;
+					Texture tr = m.HasProperty("_roughness_tex") ? m.GetTexture("_roughness_tex") : null, ta = m.HasProperty("_ao_tex") ? m.GetTexture("_ao_tex") : null, te = m.HasProperty("_emissive_tex") ? m.GetTexture("_emissive_tex") : null;
+					if (tn != null) nm.SetTexture("_NormalTex", tn);
+					if (tm != null) nm.SetTexture("_MetalTex", tm);
+					if (tr != null) nm.SetTexture("_RoughTex", tr);
+					if (ta != null) nm.SetTexture("_AoTex", ta);
+					if (te != null) { nm.SetTexture("_EmisTex", te); if (m.HasProperty("_emissive_intensity_col")) nm.SetColor("_EmisColor", m.GetColor("_emissive_intensity_col") * 3f); }
+					nm.SetVector("_Flags", new Vector4(tn != null ? 1f : 0f, tm != null ? 1f : 0f, tr != null ? 1f : 0f, ta != null ? 1f : 0f));
+					nm.SetFloat("_MetalAmt", tm != null ? 1f : (m.HasProperty("_metallic_range") ? Mathf.Clamp01(m.GetFloat("_metallic_range")) : 0f));
+					nm.SetFloat("_RoughAmt", tr != null ? 1f : (m.HasProperty("_roughness_range") ? Mathf.Clamp01(m.GetFloat("_roughness_range")) : 0.6f));
+				}
 				mats[i] = nm; changed = true;
 				if (_swapped.Add(id)) Debug.Log("[DIAG] swapped " + r.name + " shader=" + n.Substring(0, Mathf.Min(48, n.Length)) + " tex=" + (tex != null ? tex.name : "none") + " props=" + string.Join(",", m.GetTexturePropertyNames()));
 			}
@@ -504,6 +517,24 @@ public class TftfDiag : MonoBehaviour
             t = rd(mat)
             wr(mat, t.replace("!Application.isEditor", "false"))
             note("P42 MATBinding attribution calls disabled", t.count("!Application.isEditor"))
+    # P45 (shell only): a shader the asset-bundle loader finds for a path (an old compiled shader from a 3.1.0 bundle, which Unity
+    # 2020 cannot name or use) is replaced by the authored shader with the same declared name (see TftfResources.ResolveShader)
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "EB/Assets.cs", "\t\t\tobj = AssetBundleManager.Instance.Load<T>(path);\n",
+                   "\t\t\tobj = AssetBundleManager.Instance.Load<T>(path);\n\t\t\tif (obj is Shader)\n\t\t\t{\n\t\t\t\tShader tftfShader = TftfResources.ResolveShader(path);\n\t\t\t\tif (tftfShader != null)\n\t\t\t\t{\n\t\t\t\t\tobj = tftfShader;\n\t\t\t\t}\n\t\t\t}\n",
+                   "P45 shaders found in bundles are replaced by the authored ones")
+    # P46 (shell only): the shader a widget was saved with is a stub object of the converted bundle whose Unity name is empty;
+    # the draw call asks for the declared name instead
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "UIDrawCall.cs", "string text = ((mShader != null) ? mShader.name :", "string text = ((mShader != null) ? TftfResources.NameOf(mShader) :",
+                   "P46 draw calls use the declared shader name")
+    # P47 (shell only): the prefab loader adds a widget's components one by one, so UIStretch.Awake runs before the UITexture/UISprite
+    # exists and never finds it; the stretch then scales the transform instead of sizing the widget (the loading screen's background
+    # became 770 times too tall: coloured streaks). Look the widget up again in Start.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "UIStretch.cs", "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n",
+                   "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n\t\tmWidget = GetComponent<UIWidget>();\n\t\tmSprite = GetComponent<UISprite>();\n\t\tmVectorArt = GetComponent<UIVectorArt>();\n\t\tmPanel = GetComponent<UIPanel>();\n",
+                   "P47 UIStretch finds its widget again in Start")
     # P44 (shell only): the revival splash (big logo, "Unicron's Lair") between the Kabam screen and the title screen
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "BootFlow.cs", "\t\tyield return Coroutines.Run(ReInitializeLoadingScreen());\n",

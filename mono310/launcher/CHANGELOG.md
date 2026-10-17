@@ -2,10 +2,29 @@
 
 ## Table of contents
 
-- [0.2.0 (unreleased)](#020-unreleased)
+- [0.3.0 (unreleased)](#030-unreleased)
+- [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.2.0 (unreleased)
+## 0.3.0 (unreleased)
+
+**Fixed**
+
+- Loading screen showed coloured vertical streaks instead of the planet artwork: `UIStretch` ran before the widget existed
+  and scaled the background 770 times too tall (patch P47).
+- The loading screen's Autobot/Decepticon logo drew black: its font material sat on a colour shader, which draws an
+  alpha-only font texture black; it now gets the text shader.
+- In-game splash no longer has the purple tile background (transparent logo).
+- Optimus Primal and the other bots started with about 14000 health at 5 stars; the health table is scaled down by about
+  half (a 5-star brawler is about 7500), the final boss to 10500.
+
+**Changed**
+
+- The app's package name is now `unicronslair.bigrobot` (it installs next to, and no longer replaces, the original game).
+- Robots use a richer stand-in shader (normal, metallic, roughness, ambient occlusion and emissive maps).
+- The fast build loop also refreshes the bundled splash/icon images.
+
+## 0.2.0
 
 **Added**
 

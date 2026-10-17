@@ -12,6 +12,7 @@ from pathlib import Path
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("apk"); ap.add_argument("scripts"); ap.add_argument("out")
+    ap.add_argument("--assets-dir", help="folder whose files replace same-named APK entries under assets/ (the StreamingAssets files)")
     ap.add_argument("--keystore", default=str(Path.home() / ".android/debug.keystore"))
     a = ap.parse_args()
     dlls = {f"assets/bin/Data/Managed/{p.name}": p.read_bytes()
@@ -24,6 +25,9 @@ def main():
             if info.filename.startswith("META-INF/"):
                 continue
             data = dlls.pop(info.filename, None)
+            if data is None and a.assets_dir and info.filename.startswith("assets/") and info.filename.count("/") == 1 \
+                    and (Path(a.assets_dir) / info.filename[7:]).is_file():
+                data = (Path(a.assets_dir) / info.filename[7:]).read_bytes()
             if data is None:
                 data = zi.read(info.filename)
             zw.writestr(info.filename, data, compress_type=(

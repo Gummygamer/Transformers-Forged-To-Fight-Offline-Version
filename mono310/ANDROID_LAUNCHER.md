@@ -16,7 +16,7 @@
 
 ## Scope and status
 
-**Status 2026-10-16: the launcher works end to end on one device, and is not releasable.** A shell APK
+**Status 2026-10-16: the launcher (version 0.2.0) works end to end on one device.** A shell APK
 (recompiled scripts, no game assets) starts a first-run screen; the user picks their own 3.1.0 and 9.2.0
 APKs; the app converts and unpacks everything into its private storage in about 43 s and boots to the
 title screen, the home base, the quest board and a fight with hits and health bars. **[👁 live]**
@@ -184,9 +184,10 @@ Built with `TFTF_SHELL=1 mono310/run.sh assemble && run.sh assets && run.sh buil
 |---|---|---|
 | Recompiled game scripts | `Assembly-CSharp*.dll` | the game itself |
 | Bootstrap and first-run screen | `launcher/shell/Tftf/TftfBootstrap.cs`, `TftfLauncher.cs` | picks APKs (Storage Access Framework through `Activity.java`), shows progress, then boots the converted data |
+| Splash | `Tftf/TftfSplash.cs`, patch P44 in `scripts/compat310.py` | after the Kabam screen and before the title screen: the logo (rendered from `launcher/shell/android/icon/revival-icon.svg`) large, with "UNICRON'S LAIR"; a tap skips it |
 | Restart | `Activity.java` `tftfRestart`, `TftfBootstrap.cs` | after a successful install the app starts itself in a fresh process, so no start-up code of the game can see a half-installed state **[👁 live]** |
 | Installer | `Tftf/TftfInstaller.cs` | copies the loose `assets/` from the 3.1.0 APK, converts `assets/bin/Data` (`Tftf/Convert`), copies the 9.2.0 move bundle, builds the ODR package (`Tftf/Odr`) |
-| Offline server | `Tftf/TftfServer.cs`, `Server/*.lbl`, Legible as `liblegible.so` | the Sparx backend, started inside the app on 127.0.0.1:8080 |
+| Offline server | `Tftf/TftfServer.cs`, `Server/*.lbl`, Legible as `liblegible.so` | the Sparx backend, started inside the app on 127.0.0.1:8080; `LEGIBLE_BIND=127.0.0.1` keeps it unreachable from other devices on the network (needs a Legible build that supports the setting) |
 | Content server | `Tftf/TftfStaticServer.cs` | serves files of the `odr/` folder on 127.0.0.1:8090 with Range support (only needed if the game ever has to fetch the package again; the installer pre-places it) |
 | Java stand-ins | `launcher/shell/android/` | newly authored classes for the plugin calls the game makes (device info, downloads, notifications, deep links, purchases) |
 | Native stand-ins | `launcher/shell/android/native/stubs.c`, `build.sh` | do-nothing `libandroid-signal.so`, `libapkprotect.so`, `libenetlib.so`, built with the NDK at assemble time; the game imports them with `DllImport` |
@@ -248,3 +249,13 @@ Symptom first.
   folder already exists is missing on a first run: register it unconditionally and let each lookup check the file.
   Any other start-up code that captures "does this folder exist" has the same problem. **[👁 live]** (wipe-and-install run showed the error;
   after the fix the same run boots into the game)
+- *The loading screen shows coloured vertical streaks (one row of the picture stretched) instead of its artwork.*
+  **Fixed (P47).** The picture was never the problem (pixels, texture rectangle, shader and uvs were all verified, and swapping the
+  shader changed nothing). A probe of the live draw-call mesh ([`Tftf/TftfTextureProbe.cs`](launcher/shell/Tftf/TftfTextureProbe.cs),
+  enabled by a `tftf/probe.txt` listing texture names) showed its y vertices at +-296450 instead of +-385: the widget's transform had
+  localScale (1, 770, 1), so one row of the picture covered the screen. **[👁 live]** The cause is `UIStretch` (style Vertical) on the
+  background: its `Awake` looks up the widget with `GetComponent<UIWidget>()`, but the game's prefab loader adds a widget's components
+  one by one, so `Awake` runs before the `UITexture` exists; the stretch then falls back to scaling the transform instead of sizing
+  the widget. Patch P47 looks the widget up again in `Start`. **[👁 live]** After it the mesh is +-385 and the planet artwork shows.
+  Also fixed on the way: shader stand-ins with an empty name (`Could not find appropriate variant of shader called ''`; patches P45,
+  P46, `shadermap.txt`). ETC1 -> RGBA32 conversion (`etc1fix.txt`) was a dead end and stays opt-in.

@@ -54,7 +54,7 @@ public static class Recompile310Build
         // NGUI raycasts physics colliders that layout code and tweens move every
         // frame; Unity 5 synced transforms automatically, Unity 2020 does not.
         Physics.autoSyncTransforms = true;
-        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "com.kabam.bigrobot");
+        PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, System.Environment.GetEnvironmentVariable("TFTF_SHELL") == "1" ? "unicronslair.bigrobot" : "com.kabam.bigrobot");   // the assetless launcher is its own app
         PlayerSettings.bundleVersion = "3.1.0";
         PlayerSettings.Android.bundleVersionCode = 822754;
         PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel19;

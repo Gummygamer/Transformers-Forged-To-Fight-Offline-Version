@@ -24,8 +24,8 @@
   </defs>
 
   <g clip-path="url(#tile)">
-    <rect width="1024" height="1024" fill="#1a0e26"/>
-    <circle cx="512" cy="520" r="470" fill="url(#glow)"/>
+    <rect id="bg" width="1024" height="1024" fill="#1a0e26"/>
+    <circle id="glowdisc" cx="512" cy="520" r="470" fill="url(#glow)"/>
 
     <!-- horns: tall centre crest, two forward-curving main horns, two short outer horns -->
     <g stroke="#461c06" stroke-width="8" stroke-linejoin="round" fill="url(#horn)">

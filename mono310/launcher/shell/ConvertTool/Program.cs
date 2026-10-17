@@ -37,6 +37,7 @@ static class Program
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var bundle = PlayerDataConverter.Convert(new DirSource(a[0]), db, stats, s => Console.WriteLine(s));
         File.WriteAllBytes(a[2], bundle);
+        File.WriteAllText(a[2] + ".shadermap.txt", stats.ShaderMap);
         Console.WriteLine(stats + " bytes=" + bundle.Length + " seconds=" + sw.Elapsed.TotalSeconds.ToString("F1"));
         return 0;
     }

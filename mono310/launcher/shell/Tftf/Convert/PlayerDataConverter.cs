@@ -17,6 +17,7 @@ namespace Tftf.Convert
 
     public sealed class ConvertStats
     {
+        public string ShaderMap = "";   // lines "resources path<TAB>declared shader name" (Unity gives the kept stub shaders no name)
         public int Files, MissingScript, DroppedShaders, Materials, Audio, StreamedTextures, Roots, Resources, Preload, Endpoints;
         public override string ToString()
         {
@@ -142,6 +143,15 @@ namespace Tftf.Convert
                 if (shaderName.TryGetValue(key, out nm) && string.IsNullOrEmpty(nm))
                     shaderName[key] = c.Path.Substring(c.Path.LastIndexOf('/') + 1);
             }
+
+            // Resources path -> declared shader name, for the game's loads of shader assets by path.
+            var map = new StringBuilder();
+            foreach (var c in container)
+            {
+                string key = c.File + "|" + c.PathId, nm;
+                if (shaderName.TryGetValue(key, out nm) && !string.IsNullOrEmpty(nm)) map.Append(c.Path).Append('\t').Append(nm).Append('\n');
+            }
+            stats.ShaderMap = map.ToString();
 
             // ---- streamed resource node: audio keeps its offsets, big textures are appended
             var resBlob = new ByteWriter();

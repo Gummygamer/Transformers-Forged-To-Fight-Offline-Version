@@ -30,7 +30,6 @@ public static class TftfStaticServer
         {
             TcpClient c;
             try { c = listener.AcceptTcpClient(); } catch { return; }
-            UnityEngine.Debug.Log("[TFTF] static accepted");
             ThreadPool.QueueUserWorkItem(_ => Serve(root, c));
         }
     }
@@ -63,8 +62,6 @@ public static class TftfStaticServer
                     string h;
                     while (!string.IsNullOrEmpty(h = ReadLine(net)))
                         if (h.StartsWith("Range:", StringComparison.OrdinalIgnoreCase)) range = h.Substring(6).Trim();
-                    UnityEngine.Debug.Log("[TFTF] static " + req + " range=" + range);
-                    var served = System.Diagnostics.Stopwatch.StartNew();
                     var parts = req.Split(' ');
                     if (parts.Length < 2) return;
                     string method = parts[0];
@@ -102,13 +99,12 @@ public static class TftfStaticServer
                                 net.Write(buf, 0, n);
                                 count -= n;
                             }
-                            UnityEngine.Debug.Log("[TFTF] static sent " + (end - start + 1 - count) + " bytes in " + served.Elapsed.TotalSeconds.ToString("F1") + "s");
                         }
                     }
                 }
             }
         }
-        catch (Exception e) { UnityEngine.Debug.Log("[TFTF] static ended: " + e.GetType().Name + " " + e.Message); }
+        catch (Exception) { }          // a client closing its connection is normal
     }
 
     static void Send(Stream s, string text)

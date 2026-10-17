@@ -16,10 +16,10 @@ Hidden/EB/RBIntegrator|Hidden/EB/RBCollisionReaction|Hidden/EB/RBBoundary
 Hidden/EB/PostFx/LowResParticleAlphaReplacement|Hidden/EB/PostFx/LowResCompReplacement|Hidden/EB/PostFx/DepthReplacement
 Hidden/EB/PostFx/BloomLowResParticleComp|Hidden/EB/PostFX/ToneMapBlit|Hidden/EB/PostFX/NoToneMapBlit|Hidden/EB/PostFX/FXAA
 Hidden/EB/LensFlare|Hidden/EB/DepthBlur|Hidden/EB/CharacterDamage|Hidden/EB/Blur
-GUI/Text Shader (SoftClip)|Particles/Alpha Blended|Particles/Additive
+GUI/Text Shader (SoftClip)|TFTF/Text|Particles/Alpha Blended|Particles/Additive
 Hidden/EB/PostFX/Generated/ParticleLowResVignetteBloomWarpFXAA""".replace("\n", "|").split("|")
 names = list(dict.fromkeys(n.strip() for n in names if n.strip()))
-TEXT = {"GUI/Text Shader", "GUI/Text Shader (SoftClip)"}
+TEXT = {"GUI/Text Shader", "GUI/Text Shader (SoftClip)", "TFTF/Text"}
 MULTIPASS = 8  # Hidden/EB/* effects index passes up to ~6 (Blur/DepthBlur/FXAA...)
 OPAQUE = {"EBG/UI/Opaque", "EBG/UI/OpaqueFlat", "Diffuse"}
 
@@ -97,6 +97,90 @@ LIT = '''Shader "TFTF/LitTex"
 }
 '''
 (out / "TFTF_LitTex.shader").write_text(LIT)
+
+PBR = r"""Shader "TFTF/PbrLite"
+{
+    // Stand-in for the donor PBR family (Hidden/PBR...): albedo, normal map, metallic/roughness, AO and emissive maps of the robots
+    // under one directional light plus a fake sky/ground reflection. Fed by SwapPbr in TftfDiag (compat310.py).
+    Properties
+    {
+        _MainTex ("Albedo", 2D) = "white" {}
+        _Color ("Tint", Color) = (1,1,1,1)
+        _NormalTex ("Normal", 2D) = "bump" {}
+        _MetalTex ("Metallic", 2D) = "black" {}
+        _RoughTex ("Roughness", 2D) = "white" {}
+        _AoTex ("AO", 2D) = "white" {}
+        _EmisTex ("Emissive", 2D) = "black" {}
+        _EmisColor ("Emissive colour", Color) = (0,0,0,0)
+        _Flags ("has normal, metal, rough, ao", Vector) = (0,0,0,0)
+        _MetalAmt ("Metallic scale", Float) = 1
+        _RoughAmt ("Roughness scale", Float) = 1
+    }
+    SubShader
+    {
+        Tags { "Queue"="Geometry" "RenderType"="Opaque" }
+        Cull Back ZWrite On
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma target 3.0
+            #include "UnityCG.cginc"
+            struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
+            struct v2f { float4 vertex : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; };
+            sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt;
+            v2f vert(appdata_t i)
+            {
+                v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.uv = TRANSFORM_TEX(i.texcoord, _MainTex);
+                o.n = UnityObjectToWorldNormal(i.normal); o.wp = mul(unity_ObjectToWorld, i.vertex).xyz; return o;
+            }
+            // normal mapping without tangents: cotangent frame from screen-space derivatives
+            float3 perturb(float3 n, float3 wp, float2 uv, float3 tn)
+            {
+                float3 dp1 = ddx(wp), dp2 = ddy(wp); float2 duv1 = ddx(uv), duv2 = ddy(uv);
+                float3 dp2perp = cross(dp2, n), dp1perp = cross(n, dp1);
+                float3 T = dp2perp * duv1.x + dp1perp * duv2.x, B = dp2perp * duv1.y + dp1perp * duv2.y;
+                float inv = rsqrt(max(dot(T, T), dot(B, B)) + 1e-12);
+                return normalize(T * inv * tn.x + B * inv * tn.y + n * tn.z);
+            }
+            fixed4 frag(v2f i) : SV_Target
+            {
+                float3 n = normalize(i.n);
+                if (_Flags.x > 0.5)
+                {
+                    float3 tn = tex2D(_NormalTex, i.uv).xyz * 2 - 1; tn.xy *= 0.8; tn.z = sqrt(saturate(1 - dot(tn.xy, tn.xy)));
+                    n = perturb(n, i.wp, i.uv, tn);
+                }
+                float3 V = normalize(_WorldSpaceCameraPos - i.wp);
+                float3 L = normalize(float3(0.4, 0.8, -0.45)), L2 = normalize(float3(-0.5, 0.2, 0.6));
+                float3 alb = tex2D(_MainTex, i.uv).rgb * _Color.rgb;
+                float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, i.uv).r * _MetalAmt) : saturate(_MetalAmt);
+                float rough = _Flags.z > 0.5 ? saturate(tex2D(_RoughTex, i.uv).r * _RoughAmt) : saturate(_RoughAmt);
+                float ao = _Flags.w > 0.5 ? tex2D(_AoTex, i.uv).r : 1;
+                rough = clamp(rough, 0.08, 1);
+                float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - metal);
+                float nl = saturate(dot(n, L)), nl2 = saturate(dot(n, L2));
+                float3 H = normalize(L + V);
+                float a2 = pow(rough, 4), nh = saturate(dot(n, H));
+                float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
+                float3 F = spec0 + (1 - spec0) * pow(1 - saturate(dot(V, H)), 5);
+                float3 specular = D * F * 0.25 * nl;
+                float3 sky = lerp(float3(0.35, 0.33, 0.30), float3(0.62, 0.70, 0.85), saturate(n.y * 0.5 + 0.5));
+                float3 r = reflect(-V, n);
+                float3 env = lerp(float3(0.30, 0.28, 0.26), float3(0.70, 0.78, 0.92), saturate(r.y * 0.5 + 0.5)) * (1 - rough * 0.6);
+                float3 col = diff * (nl * 0.85 + nl2 * 0.2 + sky * 0.55) * ao + specular + env * F * ao * (0.4 + metal * 0.6);
+                col += tex2D(_EmisTex, i.uv).rgb * _EmisColor.rgb;
+                return fixed4(col, 1);
+            }
+            ENDCG
+        }
+    }
+    Fallback Off
+}
+"""
+(out / "TFTF_PbrLite.shader").write_text(PBR)
 print(len(names), "shaders ->", out)
 
 # --- also rewrite AssetRipper dummy shaders (white-output placeholders) in place, keeping GUIDs ---

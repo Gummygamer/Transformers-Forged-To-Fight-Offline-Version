@@ -4,6 +4,7 @@
 #
 # usage: phone_firstrun_test.sh LAUNCHER.apk [OUT_DIR]
 # env:   ADB_DEVICE   serial (optional)         WAIT_SECONDS   boot wait after the install button (default 100)
+#        SWAP=1       wrong-file test: put the APKs in the wrong slots and only take the launcher screenshot
 #        APK310_NAME  file name of the 3.1.0 APK in Downloads (default tftf-3.1.0.apk)
 #        APK92_NAME   file name of the 9.2.0 APK in Downloads (default tftf-9.2.0.apk)
 # The two game APKs must already be in /sdcard/Download (adb push them once). AUTOPICK=1 (default) uses the launcher's
@@ -13,7 +14,7 @@ set -uo pipefail          # no -e: a grep without matches must not abort the rep
 APK=${1:?usage: phone_firstrun_test.sh LAUNCHER.apk [OUT_DIR]}
 OUT=${2:-./firstrun-test}
 ADB=(adb ${ADB_DEVICE:+-s "$ADB_DEVICE"})
-PKG=com.kabam.bigrobot
+PKG=unicronslair.bigrobot
 mkdir -p "$OUT"
 
 "${ADB[@]}" shell am force-stop $PKG
@@ -25,7 +26,9 @@ if [ "${AUTOPICK:-1}" = 1 ]; then
   "${ADB[@]}" shell mkdir -p $FILES/tftf
   "${ADB[@]}" shell cp "/sdcard/Download/${APK310_NAME:-tftf-3.1.0.apk}" "$FILES/a310.apk"
   "${ADB[@]}" shell cp "/sdcard/Download/${APK92_NAME:-tftf-9.2.0.apk}" "$FILES/a92.apk"
-  printf '%s\n%s\n' "/storage/emulated/0/Android/data/$PKG/files/a310.apk" "/storage/emulated/0/Android/data/$PKG/files/a92.apk" > "${TMPDIR:-/tmp}/autopick.txt"
+  FIRST=a310.apk; SECOND=a92.apk
+  if [ "${SWAP:-0}" = 1 ]; then FIRST=a92.apk; SECOND=a310.apk; fi      # wrong-file test: the two APKs in the wrong slots
+  printf '%s\n%s\n' "/storage/emulated/0/Android/data/$PKG/files/$FIRST" "/storage/emulated/0/Android/data/$PKG/files/$SECOND" > "${TMPDIR:-/tmp}/autopick.txt"
   "${ADB[@]}" push "${TMPDIR:-/tmp}/autopick.txt" $FILES/tftf/autopick.txt >/dev/null
 fi
 "${ADB[@]}" logcat -c
@@ -34,6 +37,10 @@ fi
 "${ADB[@]}" shell monkey -p $PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 sleep 12
 "${ADB[@]}" exec-out screencap -p > "$OUT/first_run.png"
+if [ "${SWAP:-0}" = 1 ]; then
+  echo "swap test: look at $OUT/first_run.png (expected: a message that the file is the other APK, both buttons still unselected, Install disabled)"
+  exit 0
+fi
 
 if [ "${AUTOPICK:-1}" = 1 ]; then
   "${ADB[@]}" shell input tap 1200 612        # "Install and play"
