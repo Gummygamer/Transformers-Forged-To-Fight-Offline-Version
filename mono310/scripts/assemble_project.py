@@ -88,8 +88,6 @@ def set_key(text, key, value):
 
 
 def main():
-    from check_inputs import check, identity
-    check(RIP.parent, ILSPY)
     A = OUT / "Assets"
     for d in (A / "Scripts", A / "Plugins/Assembly-CSharp-firstpass"):
         shutil.rmtree(d, ignore_errors=True)
@@ -185,11 +183,6 @@ def main():
         shutil.rmtree(shell_dst, ignore_errors=True)
         shutil.copytree(shell_src, shell_dst)
         package_server(A)
-    import json
-    source_record = json.dumps({"game_version": "3.1.0", "assemblies": identity(RIP.parent)}, indent=2) + "\n"
-    (OUT / "mono310-source.json").write_text(source_record)
-    if os.environ.get("TFTF_SHELL") == "1":
-        (A / "StreamingAssets/tftf-source.json").write_text(source_record)
 
 
 SERVER_FILES = ["run_local.lbl", "server_paths.lbl", "fakeserver.lbl", "gamedata.lbl", "jsonout.lbl",
@@ -204,9 +197,6 @@ def package_server(A):
     sa = A / "StreamingAssets"
     sa.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(sa / "tftf_server.zip", "w", zipfile.ZIP_DEFLATED) as z:
-        # Most game requests omit cl. Keep every endpoint on this shell's
-        # game track, including account resources, teams and tutorial data.
-        z.writestr("Server/client_profile.txt", "mono310\n")
         for f in SERVER_FILES:
             z.write(REPO / "Server" / f, f"Server/{f}")
         for d in SERVER_DIRS:

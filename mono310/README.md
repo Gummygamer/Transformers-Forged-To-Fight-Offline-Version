@@ -80,13 +80,6 @@ project settings, use `build` for those. `TFTF_ENDPOINT` sets the server URL bak
 APK (default `http://127.0.0.1:8080`); `TFTF_ODR_CDN` sets the WAD host (default
 `http://127.0.0.1:8090`).
 
-Keep `ripped` and `ilspy-out` from the same **3.1.0** export. Assembly, compile,
-build and finalization reject a 2.0.2 export or its incompatible shared UI layout.
-Assembly writes `mono310-source.json` with the input assembly hashes; the shell
-also includes it as `assets/tftf-source.json` for artifact identification.
-ARM64 uses IL2CPP, so its script changes require `build` and `finalize`.
-The `fast` DLL swap is available for Mono/ARMv7 builds.
-
 ## Running on a device
 
 ```bash

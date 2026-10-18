@@ -2,7 +2,7 @@
 
 ## Table of contents
 
-- [0.5.1](#051)
+- [0.5.2](#052)
 - [0.5.0](#050)
 - [0.4.3](#043)
 - [0.4.2 (development snapshot)](#042-development-snapshot)
@@ -12,23 +12,21 @@
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.5.1
+## 0.5.2
+
+The 0.5.0 code again, with two fixes. An unreleased 0.5.1 had changed the bundled server profile and the content package, which altered the story data, the starting squad and the base data; those changes are not part of this release.
 
 **Fixed**
 
-- The game stayed on the title screen after the splash screens: the bundled server's `auth/init` reply asked the client to start the Adjust SDK, which the launcher does not contain. The resulting exception ended the client's login start-up. The reply no longer carries an Adjust section.
-- Robust `trees.bin` fallback loading and a guarded boot-screen capture (merged from PR #30); ARM64 build of the latest `development` code.
+- The release code builds against the current ripped game sources (a callback signature in the asset-bundle loading patch).
+- Robust fallback loading of `trees.bin` directly from the APK zip or app storage when the streaming-assets request fails on Android, so "Install and play" does not stay disabled.
+- Guard the boot-screen capture against runtime capture exceptions, which could hang the transition while the home screen loads.
+- Keep launcher warning messages when selecting files and add the specific I/O error to APK validation failures.
 
 ## 0.5.0
 
 **Fixed**
 
-- Reject build caches from another game track. Mixing 2.0.2 scripts with 3.1.0 assets broke shared UI references and home-screen loading.
-- Pin the bundled server to 3.1.0 responses even when a request omits its build number, restoring account resources and level data.
-- Include every donor ODR catalog and its loose files, including the newer tower and relic assets.
-- Load base building models from the donor buildings library and release their instances correctly.
-- Keep a 256 MB asset memory budget when the phone has no benchmark entry.
-- Avoid querying an absent sky texture property every frame.
 - The Karnak arena's sky was magenta: its donor sky shader does not compile on the phone's GPU. The sky dome now uses its own texture
   on an unlit background shader (`TFTF/SkyLite`); when the broken material exposes no texture it is found by name.
 - Fight lighting is closer to the original: distance haze and ambient/reflection colour taken from each arena's sky texture, a warm

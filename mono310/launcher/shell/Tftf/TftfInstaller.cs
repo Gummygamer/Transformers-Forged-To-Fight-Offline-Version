@@ -31,7 +31,7 @@ public sealed class ZipDataSource : IPlayerDataSource
 
 public static class TftfInstaller
 {
-    public const int Version = 3;                                     // v3 rebuilds the full donor ODR catalog, including newer packs
+    public const int Version = 2;                                     // bump to force a reinstall
     public static volatile string Status = "";
     public static volatile float Progress;
     public static volatile string Error;

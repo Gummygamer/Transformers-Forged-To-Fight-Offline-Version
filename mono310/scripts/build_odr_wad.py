@@ -173,9 +173,11 @@ def resolve_requests(requests, tocs):
 
 
 def build(args):
-    packs = []
+    packs = list(BASE_PACKS)
+    packs += [c for c in CHARACTER_PACKS if c not in packs]
     requests = list(REQUESTED_PATHS)
     if args.towers_relics:
+        packs += TOWER_RELIC_PACKS
         requests += OPTIONAL_REQUESTED["towers"] + OPTIONAL_REQUESTED["relics"]
     if args.timeofday:
         packs += TIMEOFDAY_PACKS
@@ -185,13 +187,6 @@ def build(args):
     os.makedirs(args.out, exist_ok=True)
     apk = zipfile.ZipFile(args.donor)
     names = set(apk.namelist())
-    # Keep the package in step with the donor's current content catalog instead
-    # of a hand-maintained subset that can silently omit new ODR packs.
-    packs = sorted(set(packs + [
-        n[len("assets/"):-len("/toc.txt")]
-        for n in names
-        if n.startswith("assets/") and n.endswith("_odr/toc.txt")
-    ]))
 
     tocs, bundle_src = {}, {}
     for pack in packs:
@@ -236,16 +231,6 @@ def build(args):
                 _, src, fname = bundle_src[bname]
                 zw.writestr(zinfo(fname, zipfile.ZIP_STORED), apk.read(src))
                 entries.append((fname, "bundle", bname))
-        # Keep loose portraits, localization and other catalog files alongside
-        # the bundles, as the on-phone builder does.
-        lower_names = {name.lower(): name for name in names}
-        for pack in packs:
-            for filename in tocs[pack]["files"]:
-                filename = filename.replace("\\", "/")
-                src = lower_names.get(("assets/assetpack/" + pack + "/" + filename).lower())
-                if src is not None:
-                    zw.writestr(zinfo(filename, zipfile.ZIP_STORED), apk.read(src))
-                    entries.append((filename, "raw", None))
     os.replace(tmp, wad_path)
 
     with open(wad_path, "rb") as f:
@@ -255,13 +240,7 @@ def build(args):
     with zipfile.ZipFile(wad_path) as zr:
         for zi in zr.infolist():
             info[zi.filename] = zi
-    bundles_json, bundle_meta, raw_json = [], [], []
-    for index, (ename, kind, _) in enumerate(entries):
-        if kind == "raw":
-            zi = info[ename]
-            for name in dict.fromkeys((ename, ename.lower())):
-                raw_json.append({"name": name, "offset": data_offset(wad, zi.header_offset),
-                                 "index": index, "size": zi.file_size})
+    bundles_json, bundle_meta = [], []
     for ename, kind, bname in entries:
         if kind != "bundle":
             continue
@@ -287,7 +266,6 @@ def build(args):
             "size": len(wad), "crc": wad_crc, "zip_size": zip_size,
             "tocs": [{"name": e[0]} for e in entries if e[1] == "toc"],
             "bundles": bundles_json,
-            "raw": raw_json,
         }],
     }]}}
     man_path = os.path.join(args.out, "manifest.json")
@@ -399,7 +377,7 @@ def main():
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--cdn", default="CDN_PLACEHOLDER")
     ap.add_argument("--cl", default="822754")
-    ap.add_argument("--towers-relics", action="store_true", help="also register tower/relic lookup aliases")
+    ap.add_argument("--towers-relics", action="store_true", help="also pack towers_odr and relics_odr")
     ap.add_argument("--timeofday", action="store_true",
                     help="also pack primordial/base *_merged time-of-day bundles")
     ap.add_argument("--selftest", action="store_true", help="verify existing output in --out")
