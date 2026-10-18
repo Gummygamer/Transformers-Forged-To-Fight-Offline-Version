@@ -2021,17 +2021,49 @@ function resolved_outcome(req: Json): text
   json_text_or(nested, "result", json_text_or(req, "result", ""))
 end
 
+-- What the client learns when a quest fight ends. The real server pushed a "match-resolved" async to QuestsManager whose payload
+-- carries { qid, battleId, results: [actions], progression }: the client applies the actions (battlecomplete, fightlost,
+-- questcomplete...) and the progression. Without it a final-boss win never opens the quest results / act-chapter finish screen.
+function result_action(kind: text, position: Position, final_boss: boolean): Json
+  intent: build one quest result action (battlecomplete, fightlost, questcomplete) at the player position
+  let at: Json = jsonout.json_obj([jsonout.json_pair("x", jsonout.json_int(position.x)), jsonout.json_pair("y", jsonout.json_int(position.y)), jsonout.json_pair("isFinalBoss", jsonout.json_bool(final_boss))])
+  jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair(kind, at)]))])
+end
+
+function fight_result_actions(position: Position, encounter: QuestEncounter, won: boolean): a list of Json
+  intent: the result actions of a fight: a loss, a win, or a win of the final boss that also completes the quest
+  if not won then [result_action("fightlost", position, encounter.final_boss)]
+  else if encounter.final_boss then [result_action("battlecomplete", position, true), result_action("questcomplete", position, true)]
+  else [result_action("battlecomplete", position, false)] end
+end
+
+function match_resolved_async(qid: text, wire_qid: text, battle_id: text, won: boolean): a list of Json
+  intent: build the match-resolved async message for a won or lost quest fight
+  let position: Position = position_for(qid)
+  let encounter: QuestEncounter = gamedata.quest_encounter_at(qid, position.x, position.y)
+  let results: a list of Json = fight_result_actions(position, encounter, won)
+  let payload: Json = jsonout.json_obj([jsonout.json_pair("qid", jsonout.json_text(wire_qid)), jsonout.json_pair("battleId", jsonout.json_text(battle_id)), jsonout.json_pair("results", jsonout.json_list(results))])
+  [jsonout.json_obj([pair_text("component", "QuestsManager"), pair_text("channel", ""), pair_text("message", "match-resolved"), jsonout.json_pair("payload", payload)])]
+end
+
 function resolve_match_response(path: text, btxt: text): text
   intent: record a won quest match and report the outcome to the pvp reconciliation
   let req: Json = request_object(btxt)
   let outcome: text = resolved_outcome(req)
-  if uppercase(outcome) == "WON" then record_win(json_text_or(req, "qid", "")) end
+  let won: boolean = uppercase(outcome) == "WON"
+  let state_before: ServerState = load_state()
+  let effective_qid: text = if json_text_or(req, "qid", "") == "" then state_before.active_qid else normalize_qid(json_text_or(req, "qid", "")) end
+  -- the async is built from the position BEFORE the win clears it
+  -- the client keys its active quests by the instance id ("2.1.1-0"): send the id back as it was submitted
+  let wire_qid: text = if json_text_or(req, "qid", "") != "" then json_text_or(req, "qid", "") else effective_qid ++ "-0" end
+  let async_items: a list of Json = if effective_qid != "" and (won or uppercase(outcome) == "LOST") then match_resolved_async(effective_qid, wire_qid, json_text_or(req, "id", ""), won) else [] end
+  if won then record_win(json_text_or(req, "qid", "")) end
   let peer: text = peer_key(path)
   let m: Match = match_for_peer(peer)
   if m.match_id != "" and outcome != "" then
     report_result_at(m.match_id, peer, normalize_outcome(outcome), current_time_ms())
   end
-  ""
+  if length(async_items) > 0 and contains_text(path, "/quests_fight") then spaced_envelope_async(jsonout.json_obj([]), async_items) else "" end
 end
 
 function saved_team_envelope(team_id: text, heroes: a list of text): text

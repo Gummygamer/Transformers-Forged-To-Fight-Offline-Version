@@ -128,7 +128,7 @@ end
 
 function test_begin_then_walks_through_patrol_to_scout_part4(progression: Json, resolved: HttpReply, second_reply: HttpReply, second_results: Json, second_battle: Json): boolean
   intent: test
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid()), "currentBattleState")) == "activated" and resolved.status == "200" and resolved.body == "\{\"error\":null,\"result\":\{\}\}" and second_reply.status == "200" and encoded(jsonout.obj_get(jsonout.obj_get(item(second_results, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(second_battle, "x")) == 2 and jsonout.as_int(jsonout.obj_get(second_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(second_battle, "isFinalBoss"))
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(progression, "users"), gamedata.local_uid()), "currentBattleState")) == "activated" and resolved.status == "200" and contains_text(replace(resolved.body, " ", ""), "\"message\":\"match-resolved\"") and contains_text(resolved.body, "\"battlecomplete\"") and not contains_text(resolved.body, "\"questcomplete\"") and second_reply.status == "200" and encoded(jsonout.obj_get(jsonout.obj_get(item(second_results, 0), "action"), "moveto"), "\{\"x\":2,\"y\":1\}") and jsonout.as_int(jsonout.obj_get(second_battle, "x")) == 2 and jsonout.as_int(jsonout.obj_get(second_battle, "y")) == 1 and not jsonout.as_bool(jsonout.obj_get(second_battle, "isFinalBoss"))
 end
 
 function test_begin_then_walks_through_patrol_to_scout_part5(scout: text, second_battle: Json): boolean
@@ -395,17 +395,36 @@ function fail_run(): nothing
   exit_process(1)
 end
 
+function test_final_boss_win_completes_the_quest_and_a_loss_does_not(base: text, port: integer): boolean
+  intent: test
+  -- Act 3 board: start (0,2) -> Jazz (1,2) -> Grindor (2,1) -> (3,2) -> Bludgeon, the final boss
+  fakeserver.reset_quest_positions()
+  post(base, port, "/quests/quest-begin/2.3.1", "\{\"setId\":\"custom_story_act1\"\}")
+  post(base, port, "/quests/quest-movedir/2.3.1-0/1/0", "\{\}")
+  let lost: HttpReply = post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"LOST\"\},\"qid\":\"2.3.1-0\"\}")
+  let lost_ok: boolean = contains_text(lost.body, "fightlost") and not contains_text(lost.body, "battlecomplete") and not contains_text(lost.body, "questcomplete")
+  let won: HttpReply = post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.3.1-0\"\}")
+  let won_ok: boolean = contains_text(won.body, "battlecomplete") and not contains_text(won.body, "questcomplete")
+  post(base, port, "/quests/quest-movedir/2.3.1-0/1/-1", "\{\}")
+  post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.3.1-0\"\}")
+  post(base, port, "/quests/quest-movedir/2.3.1-0/1/1", "\{\}")
+  let boss_move: HttpReply = post(base, port, "/quests/quest-movedir/2.3.1-0/1/0", "\{\}")
+  let boss_won: HttpReply = post(base, port, "/matches/resolve-match/quests_fight", "\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"2.3.1-0\"\}")
+  lost_ok and won_ok and boss_move.status == "200" and contains_text(boss_won.body, "battlecomplete") and contains_text(boss_won.body, "questcomplete")
+end
+
 function run_walks(base: text, port: integer, started: HarnessStart): nothing
   intent: run the walk tests against the started server and clean up
   let walk: boolean = test_begin_then_walks_through_patrol_to_scout(base, port)
   let assets: boolean = test_both_quest_enemies_resolve_to_their_shipped_assets(base, port)
   let custom: boolean = test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_mirage_and_bumblebee(base, port)
   let branches: boolean = test_custom_story_act3_branches_from_jazz_to_grindor_or_ironhide_then_bludgeon(base, port)
+  let boss: boolean = test_final_boss_win_completes_the_quest_and_a_loss_does_not(base, port)
   stop_server(started.pid)
   reset_state()
   shell_exec("rm -rf -- " ++ base)
-  let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_mirage_and_bumblebee", custom) + report("test_custom_story_act3_branches_from_jazz_to_grindor_or_ironhide_then_bludgeon", branches)
-  print(to_text(4 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  let failed: integer = report("test_begin_then_walks_through_patrol_to_scout", walk) + report("test_both_quest_enemies_resolve_to_their_shipped_assets", assets) + report("test_custom_story_walks_from_intro_dialogue_through_bludgeon_starscream_to_ironhide_then_act2_kickback_mirage_and_bumblebee", custom) + report("test_final_boss_win_completes_the_quest_and_a_loss_does_not", boss) + report("test_custom_story_act3_branches_from_jazz_to_grindor_or_ironhide_then_bludgeon", branches)
+  print(to_text(5 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then exit_process(1) end
 end
 
