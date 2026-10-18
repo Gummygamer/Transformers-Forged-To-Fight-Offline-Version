@@ -2210,9 +2210,15 @@ else
 end
 end
 
+public function bundled_client_profile_in(dir: text): text
+  intent: read the optional client profile supplied with a packaged server
+  let file: text = path_join(dir, "client_profile.txt")
+  if file_exists(file) then trim(read_file(file)) else "" end
+end
+
 function client_profile(path: text): text
   intent: classify
-  let override: text = unwrap_or(env_get("TFTF_CLIENT_PROFILE"), "")
+  let override: text = unwrap_or(env_get("TFTF_CLIENT_PROFILE"), bundled_client_profile_in(here()))
   if override != "" then
   override
 else if text_length(replace(path, "cl=812553", "")) != text_length(path) then

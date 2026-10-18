@@ -12,16 +12,8 @@ namespace Tftf.Odr
 {
     public static class OdrWadBuilder
     {
-    static readonly string[] BasePacks = { "assets_base_odr", "assets_quest_odr", "assets_quest_fte_odr", "assets_common_odr", "common_odr", "primordial_odr", "primordial_base_odr", "buildings_odr", "characters_fx_procedural_odr", "ruinedcity_odr", "quintessa_odr", "unicron_odr", "characters_procedural_odr", "optimusprimal_bw_mp32_odr", "sharkticon_gs_brawler_odr", "bludgeon_gs_rd20_odr", "optimusprime_cin_tf_odr", "megatron_gs_leader2015_odr" };
-    static readonly string[] CharacterPacks = { "Jetfire_GS_Leader2014_odr", "arcee_gs_deluxe2014_odr", "barricade_cin_dotm_odr", "blaster_gs_leader2016_odr", "bludgeon_gs_rd20_odr", "bonecrusher_cin_rotf_odr", "bumblebee_cin_dotm_odr", "bumblebee_gs_kabam_odr", "cheetor_bw_transmetal_odr", "cliffjumper_gs_kabam_odr", "cyclonus_gs_uw06_odr", "dinobot_bw_kabam_odr", "dirge_gs_deluxe2008_odr", "drift_cin_aoe_odr", "galvatron_gs_voyager2016_odr", "grimlock_gs_mp08_odr", "grindor_cin_rotf_odr", "hotrod_cin_tlk_odr", "hound_cin_tlk_odr", "ironhide_cin_rotf_odr", "ironhide_gs_kabam_odr", "jazz_gs_twm05_odr", "kickback_gs_kabam_odr", "megatron_cin_rotf_odr", "megatron_gs_leader2015_odr", "megatronus_gs_kabam_odr", "mirage_gs_deluxe2016_odr", "mixmaster_cin_rotf_odr", "motormaster_gs_voyager2015_odr", "necrotronus_gs_kabam_odr", "nemesisprime_gs_voyager2015_odr", "optimusprimal_bw_mp32_odr", "optimusprime_cin_tf_odr", "prowl_gs_deluxe2016_odr", "ramjet_gs_deluxe2008_odr", "ratchet_gs_kabam_odr", "rhinox_gs_voyager2014_odr", "rodimusprime_gs_mp09_odr", "scorponok_bw_kabam_odr", "sharkticon_gs_brawler_odr", "sharkticon_gs_demolition_odr", "sharkticon_gs_kabam_odr", "sharkticon_gs_scout_odr", "sharkticon_gs_tactician_odr", "sharkticon_gs_tech_odr", "sharkticon_gs_warrior_odr", "shockwave_gs_odr", "sideswipe_gs_odr", "skywarp_gs_leader2015_odr", "slipstream_gs_odr", "soundblaster_gs_mp13b_odr", "soundwave_gs_odr", "sunstreaker_gs_deluxe2008_odr", "tantrum_gs_kabam_odr", "thundercracker_gs_leader2015_odr", "ultramagnus_gs_leader_odr", "waspinator_gs_deluxe_odr", "wheeljack_gs_mp20_odr", "windblade_gs_odr" };
-    static readonly string[] TowerRelicPacks = { "towers_odr", "relics_odr" };
     static readonly string[] TimeOfDayPacks = { "primordial", "base", "ruinedcity", "unicron", "quintessa_merged_odr", "mine" };
     static readonly string[] RequestedPaths = { "assets_quest/QuestRoot", "assets_quest/TapIndicator", "assets_quest/TapFeedback", "assets_quest/ItemPickup", "assets_quest/ItemTrail", "assets_quest/Ambush", "assets_quest/TriggerFight", "assets_quest/PlayerMarker", "assets_quest/ItemCard", "assets_quest/FinalBossLight", "assets_quest/NodeNumber", "assets_quest/GateOpened", "assets_quest/QuestComplete", "assets_base/BaseRoot", "assets_base/BaseTapFeedback", "assets_base/BaseRelicTapFeedback", "assets_base/BaseTapIndicator", "assets_base/BotPlaced", "assets_base/BotRemoved", "assets_base/ModPlaced", "assets_base/ModRemoved", "assets_base/CrystalClaim", "assets_base/RelicActive", "assets_base/RelicPlaced", "assets_base/RelicRemoved", "assets_base/RelicPedestalPlaced", "assets_base/RelicPedestalRemoved", "assets_base/BaseShieldActivate", "assets_base/BaseShieldDeactivate", "assets_base/BaseShieldActive", "assets_common/Boss", "assets_common/BossCard", "assets_common/RelicCard", "assets_common/Path", "assets_common/LinkedNode", "assets_common/LinkedNodeGlobal", "theme/primordial/prefabs/library_primordial", "theme/primordial_base/prefabs/library_primordial_base", "theme/common/prefabs/library_common", "buildings/prefabs/library_buildings" };
-    // Packs that only carry loose image files (hero portraits, dialogue art, item icons...): stored in the WAD as raw entries and listed
-    // in the manifest's "raw" array, which is where the game's ODRManager looks them up by relative path.
-    static readonly string[] RawPacks = { "portraits_odr", "dialogue_odr", "upgradeitems_odr", "redeemers_odr", "gacha_odr", "questboard_odr", "fightlanding_odr", "chests_odr", "cutscenes_odr", "misc_odr", "masks_odr", "ave_odr", "hc_odr", "raidbuttonbanner_odr" };
-    static readonly string[] BaseApkBundles = { "character_audio", "character_fx", "characters", "moves", "quest" };
-
         static readonly string[] BundleKeyOrder = { "hash", "mount", "deterministic", "file", "ts", "manifest", "directory",
             "typetreehash", "compression", "deps", "crc", "contenthash", "size", "paths", "parent" };
 
@@ -30,8 +22,9 @@ namespace Tftf.Odr
         /// <summary>Builds toc.wad, toc.zip and manifest.json in outDir from the 9.2.0 APK.</summary>
         public static void Build(string donorApk, string outDir, string cdn, string cl, Action<string> log, bool writeZip = true)
         {
-            var packs = new List<string>(BasePacks);
-            packs.AddRange(CharacterPacks.Where(c => !packs.Contains(c)));
+            // Use the donor's ODR catalog as the source of truth. A fixed list
+            // silently omitted newer packs (including towers_odr/relics_odr).
+            var packs = new List<string>();
             var requests = new List<string>(RequestedPaths);
             packs.AddRange(TimeOfDayPacks);
             for (int i = 0; i < 6; i++)
@@ -46,6 +39,12 @@ namespace Tftf.Odr
                 var byLower = new Dictionary<string, ZipArchiveEntry>();
                 foreach (var e in apk.Entries) byLower[e.FullName.ToLowerInvariant()] = e;
                 var byExact = apk.Entries.ToDictionary(e => e.FullName, e => e);
+                foreach (var e in apk.Entries)
+                {
+                    if (e.FullName.StartsWith("assets/", StringComparison.Ordinal) && e.FullName.EndsWith("_odr/toc.txt", StringComparison.Ordinal))
+                        packs.Add(e.FullName.Substring(7, e.FullName.Length - 15));
+                }
+                packs = packs.Distinct().OrderBy(p => p, StringComparer.Ordinal).ToList();
 
                 var tocs = new Dictionary<string, JObj>();                 // pack -> toc
                 var bundleSrc = new Dictionary<string, KeyValuePair<string, ZipArchiveEntry>>(); // bundle -> (pack, entry)
@@ -106,7 +105,9 @@ namespace Tftf.Odr
                         }
                         log("wad " + pack);
                     }
-                    foreach (var rawPack in RawPacks)
+                    // Loose files are part of the same donor catalog; index
+                    // them for every ODR pack so newer raw-only packs survive.
+                    foreach (var rawPack in packs)
                     {
                         ZipArchiveEntry rte;
                         if (!byExact.TryGetValue("assets/" + rawPack + "/toc.txt", out rte)) continue;

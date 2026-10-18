@@ -303,7 +303,7 @@ public class TftfDiag : MonoBehaviour
 		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
 		{
 			if (r.name != "Sky" || r.sharedMaterial == null) continue;
-			Texture t = r.sharedMaterial.mainTexture;
+			Texture t = r.sharedMaterial.HasProperty("_MainTex") ? r.sharedMaterial.GetTexture("_MainTex") : null;
 			if (t == null && r.sharedMaterial.HasProperty("_base_tex")) t = r.sharedMaterial.GetTexture("_base_tex");
 			if (t == null || t == _skySampled) return;
 			_skySampled = t;
@@ -853,7 +853,7 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
     # P17: log what AssetBundleManager actually hands back (bundle null? asset null? names)
     replace_in(fp, "EB/AssetBundleManager.cs",
                "\t\t\tAssetBundleRequest asyncOp = info.bundle.LoadAssetAsync(name, typeof(T));\n\t\t\tyield return asyncOp;\n\t\t\tT asset = (T)asyncOp.asset;\n",
-               "\t\t\tif (info.bundle == null) { UnityEngine.Debug.LogError(\"[ABM] bundle null for \" + path + \" (info.isLoaded=\" + info.isLoaded + \")\"); cb(default(T)); yield break; }\n"
+               "\t\t\tif (info.bundle == null) { UnityEngine.Debug.LogError(\"[ABM] bundle null for \" + path + \" (info.isLoaded=\" + info.isLoaded + \")\"); cb(\"Bundle unavailable: \" + path, default(T)); yield break; }\n"
                "\t\t\tAssetBundleRequest asyncOp = info.bundle.LoadAssetAsync(name, typeof(T));\n\t\t\tyield return asyncOp;\n\t\t\tT asset = (T)asyncOp.asset;\n"
                "\t\t\tif (asset == null) { string[] names = info.bundle.GetAllAssetNames(); UnityEngine.Debug.LogError(\"[ABM] asset null: path=\" + path + \" name=\" + name + \" type=\" + typeof(T).Name + \" bundleAssets=\" + names.Length + \" first=\" + (names.Length > 0 ? names[0] : \"-\")); }\n"
                "\t\t\telse { UnityEngine.Debug.Log(\"[ABM] loaded \" + path + \" -> \" + asset.GetType().Name); }\n",
@@ -923,20 +923,39 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                "\t\tif (state != null)\n\t\t{\n\t\t\tstate.StateName = StateName;\n\t\t\tAddState(state);\n\t\t}\n"
                "\t\treturn state;\n\t}\n",
                "P52 missing tutorial state definitions no longer resolve against mscorlib")
-    # The ARM64 IL2CPP crash resolves to Component.gameObject inside
-    # FuseUtil.SafeIsActive. Avoid that native Unity getter for shared components;
-    # readiness itself is a managed field and is enough to defer active instances.
-    replace_in(main, "GameUtil.cs",
-               "\t\tif (!sci.SafeIsActive() || sci.IsReady())\n",
-               "\t\tif (sci == null || sci.IsReady())\n",
-               "P53 shared-component initialization avoids the crashing Component.gameObject getter")
+    # The reported shared-component native crash came from mixing 2.0.2
+    # scripts with 3.1.0 serialized UI layouts. check_inputs.py now rejects
+    # that mismatch; retain the original inactive-component callback behavior.
+    # P55: the donor stores base buildings as children of library_buildings,
+    # rather than standalone relic assets. Use the loaded library throughout
+    # loading, spawning and cleanup so these models retain their real geometry.
+    replace_in(main, "Quests/Presentation/GameboardBuilder.cs",
+               "\t\tprivate void LoadBuildingObject(string assetName, EB.Action<object> callBack)\n\t\t{\n",
+               "\t\tprivate void LoadBuildingObject(string assetName, EB.Action<object> callBack)\n\t\t{\n"
+               "\t\t\tGameObject libraryPrefab;\n"
+               "\t\t\tif (_BuildingLibrary != null && _BuildingLibrary.Contents.TryGetValue(assetName, out libraryPrefab))\n"
+               "\t\t\t{\n\t\t\t\tcallBack.SafeInvoke(libraryPrefab);\n\t\t\t\treturn;\n\t\t\t}\n",
+               "P55 load base buildings from the donor prefab library")
+    replace_in(main, "Quests/Presentation/GameboardBuilder.cs",
+               "gameObject = TFormAssetManager.Instance.Use(basePathForType + modelId, TFormAssetManager.eASSET_TYPE.Relic, nodeTrans.position, Quaternion.identity, _BuildingParent.transform);",
+               "GameObject libraryPrefab;\n"
+               "\t\t\t\tif (_BuildingLibrary != null && _BuildingLibrary.Contents.TryGetValue(modelId, out libraryPrefab))\n"
+               "\t\t\t\t\tgameObject = UnityEngine.Object.Instantiate(libraryPrefab, nodeTrans.position, Quaternion.identity, _BuildingParent.transform);\n"
+               "\t\t\t\telse\n\t\t\t\t\tgameObject = TFormAssetManager.Instance.Use(basePathForType + modelId, TFormAssetManager.eASSET_TYPE.Relic, nodeTrans.position, Quaternion.identity, _BuildingParent.transform);",
+               "P55 spawn the library building prefab")
+    replace_in(main, "Quests/Presentation/GameboardBuilder.cs",
+               '\t\t\t\tstring assetName = GameboardManager.GetBasePathForType(GameboardManager.QuestboardPrefabType.Relics) + building.name;',
+               '\t\t\t\tif (_BuildingLibrary != null && _BuildingLibrary.Contents.ContainsKey(building.name))\n'
+               '\t\t\t\t{\n\t\t\t\t\tUnityEngine.Object.Destroy(building);\n\t\t\t\t\treturn;\n\t\t\t\t}\n'
+               '\t\t\t\tstring assetName = GameboardManager.GetBasePathForType(GameboardManager.QuestboardPrefabType.Relics) + building.name;',
+               "P55 release library building instances without entering the relic pool")
     # A missing local device-benchmark record must not set the asset cache
     # budget to zero. The decompiled manager's existing default is 256 MB.
-    replace_in(main, "EB/AssetManager.cs",
+    replace_in(fp, "EB/AssetManager.cs",
                'Dot.Single("memory_large_class", deviceBenchmarks, 0f)',
                'Dot.Single("memory_large_class", deviceBenchmarks, 256f)',
                "P54 asset memory cap falls back to 256 MB without benchmark data")
-    replace_in(main, "EB/AssetManager.cs", "\t\t\t\tUpdateMemoryCap(0f);\n",
+    replace_in(fp, "EB/AssetManager.cs", "\t\t\t\tUpdateMemoryCap(0f);\n",
                "\t\t\t\tUpdateMemoryCap(256f);\n",
                "P54 missing benchmark data no longer disables the asset memory budget")
     # P18: ILSpy lost the body of the requested-bundle match in ODRManager.OpenWad (same flags as the else-if branch beside it)

@@ -15,6 +15,12 @@
 
 **Fixed**
 
+- Reject build caches from another game track. Mixing 2.0.2 scripts with 3.1.0 assets broke shared UI references and home-screen loading.
+- Pin the bundled server to 3.1.0 responses even when a request omits its build number, restoring account resources and level data.
+- Include every donor ODR catalog and its loose files, including the newer tower and relic assets.
+- Load base building models from the donor buildings library and release their instances correctly.
+- Keep a 256 MB asset memory budget when the phone has no benchmark entry.
+- Avoid querying an absent sky texture property every frame.
 - The Karnak arena's sky was magenta: its donor sky shader does not compile on the phone's GPU. The sky dome now uses its own texture
   on an unlit background shader (`TFTF/SkyLite`); when the broken material exposes no texture it is found by name.
 - Fight lighting is closer to the original: distance haze and ambient/reflection colour taken from each arena's sky texture, a warm

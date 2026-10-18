@@ -78,6 +78,7 @@ step_assets() {  # non-script assets, audio, replacement shaders (the shell keep
 step_assemble() { python3 "$S/assemble_project.py"; }
 
 step_compile() {  # scripts only (seconds); returns non-zero on compiler errors
+  python3 "$S/check_inputs.py" --project "$PROJECT"
   local log="${1:-unity-scripts.log}"; mkdir -p "$PROJECT/scripts-out"
   unity_run -e TFTF_310_SCRIPTS_OUT=/workspace/project/scripts-out -e TFTF_SHELL="${TFTF_SHELL:-}" -- \
     -batchmode -nographics -quit -projectPath /workspace/project \
@@ -86,6 +87,7 @@ step_compile() {  # scripts only (seconds); returns non-zero on compiler errors
 }
 
 step_build() {  # full licensed player build (minutes)
+  python3 "$S/check_inputs.py" --project "$PROJECT"
   local log="${1:-unity-build.log}"
   local unity_apk="3.1.0-recompiled-armv7-unity.apk"
   [ "${TFTF_SHELL:-}" != 1 ] || unity_apk="tftf-launcher-${TFTF_ANDROID_ARCH}-unity.apk"
@@ -98,6 +100,7 @@ step_build() {  # full licensed player build (minutes)
 }
 
 step_finalize() {  # restore original Java dex, endpoint, align and sign
+  python3 "$S/check_inputs.py" --project "$PROJECT"
   local unity_apk="$PROJECT/3.1.0-recompiled-armv7-unity.apk"
   [ "${TFTF_SHELL:-}" != 1 ] || unity_apk="$PROJECT/tftf-launcher-${TFTF_ANDROID_ARCH}-unity.apk"
   if [ "${TFTF_SHELL:-}" = 1 ] && [ "$TFTF_ANDROID_ABI" = arm64-v8a ]; then
@@ -132,6 +135,7 @@ step_treedb() {  # type-tree database for the launcher's on-phone converter (ful
 }
 
 step_fast() {  # script-only iteration: assemble, compile, inject DLLs, optional install
+  [ "$TFTF_ANDROID_ABI" != arm64-v8a ] || die "ARM64 uses IL2CPP native code; DLL swapping requires a Mono/ARMv7 APK. Use build and finalize for ARM64."
   step_assemble; step_compile unity-scripts-fast.log
   python3 "$REPO_DIR/tools/fast_patch_managed.py" "$OUT_APK" "$PROJECT/scripts-out" "$OUT_APK.fast" ${TFTF_SHELL:+--assets-dir "$PROJECT/Assets/StreamingAssets"}
   mv -f "$OUT_APK.fast" "$OUT_APK"
