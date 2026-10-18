@@ -843,6 +843,10 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                    "\tpublic bool Capture(ref UITextureRef uiTexture, UIScreenCaptureParams captureParams, Camera[] camerasToInclude = null)\n\t{\n",
                    "\tpublic bool Capture(ref UITextureRef uiTexture, UIScreenCaptureParams captureParams, Camera[] camerasToInclude = null)\n\t{\n\t\tSetup();\n\t\tif (_SCBlitMaterial == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n",
                    "P14 EBUIScreenCapture.Capture returns false without a material")
+        replace_in(root, "UIScreenBackground.cs",
+                   "EBUIScreenCapture.Instance.Capture(ref _ScreenShotUITextureRef, _ScreenCaptureParams);",
+                   "try { EBUIScreenCapture.Instance.Capture(ref _ScreenShotUITextureRef, _ScreenCaptureParams); } catch (System.Exception ex) { UnityEngine.Debug.LogWarning(\"[TFTF] ScreenCapture guarded: \" + ex.Message); }",
+                   "P14b UIScreenBackground.CaptureScreenShot guarded against capture failures")
     # P15: Unity-2020 port noise (stub shaders etc.) must not turn every logged exception into the critical-error popup
     replace_in(fp, "EB/BugReport.cs", r"if \((!_sent && )?type == LogType\.Exception\)",
                "if (false && type == LogType.Exception)",
