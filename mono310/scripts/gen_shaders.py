@@ -138,7 +138,7 @@ PBR = r"""Shader "TFTF/PbrLite"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; };
             sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float4 _TftfSky;
             v2f vert(appdata_t v)
             {
                 v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord;
@@ -167,6 +167,7 @@ PBR = r"""Shader "TFTF/PbrLite"
                     n = perturb(n, i.wp, uv, tn);
                 }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
+                float4 G = _TftfGrade.w > 0 ? _TftfGrade : float4(1, 1, 1, 1);      // all zero until the game's first lighting update
                 // key light from the camera's upper left front, rim light from behind: fight cameras face the scene's sun, which lit the
                 // bots from the front and made them flat. TftfDiag points the shadow-casting TFTF sun the same way (TftfLightDir).
                 float3 camRight = UNITY_MATRIX_V[0].xyz, camBack = UNITY_MATRIX_V[2].xyz;
@@ -195,12 +196,13 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
                 float vis = 0.25 / max(lerp(ndv, 1, rough * 0.5) * lerp(saturate(ndl), 1, rough * 0.5), 0.05);
                 float3 F = spec0 + (1 - spec0) * pow(1 - saturate(dot(V, H)), 5);
-                float3 sun = float3(1.0, 0.96, 0.9) * (_TftfTune.y > 0 ? _TftfTune.y : 2.8);
+                float3 sun = float3(1.0, 0.9, 0.78) * (_TftfTune.y > 0 ? _TftfTune.y : 2.8);      // warm sun
                 float3 direct = (diff / 3.14159 * 3.14159 + D * vis * F) * nl * sun;          // diffuse * pi cancels the 1/pi of lambert
                 float hemi = saturate(n.y * 0.5 + 0.5);
-                float3 ambient = lerp(float3(0.05, 0.048, 0.05), float3(0.27, 0.30, 0.38), hemi) + nl2 * float3(0.14, 0.15, 0.19);
+                float3 skyUp = _TftfSky.a > 0 ? lerp(float3(0.27, 0.30, 0.38), _TftfSky.rgb, _TftfSky.a) : float3(0.27, 0.30, 0.38);      // a = how much of the arena sky colour (1 in fights, less elsewhere)       // the arena's own sky colour (TftfDiag.SampleSky)
+                float3 ambient = lerp(skyUp * 0.19, skyUp, hemi) + nl2 * skyUp * 0.5;
                 float3 r = reflect(-V, n);
-                float3 sky = lerp(float3(0.03, 0.03, 0.035), float3(0.55, 0.62, 0.78), saturate(r.y * 0.5 + 0.5));
+                float3 sky = lerp(skyUp * 0.06, skyUp * 2.0, saturate(r.y * 0.5 + 0.5));
                 float3 Fenv = spec0 + (max(1 - rough, spec0) - spec0) * pow(1 - ndv, 5);
                 float3 env = sky * Fenv * (1 - rough * 0.7);
                 float rim = pow(1 - ndv, 4) * 0.35 * (1 - rough * 0.5);
@@ -212,11 +214,18 @@ PBR = r"""Shader "TFTF/PbrLite"
                     float3 o = dbg < 1.5 ? n * 0.5 + 0.5 : dbg < 2.5 ? nl.xxx : dbg < 3.5 ? atten.xxx : dbg < 4.5 ? albS : dbg < 5.5 ? L * 0.5 + 0.5 : dbg < 6.5 ? ndv.xxx : ambient;
                     return fixed4(o, 1);
                 }
-                float3 col = direct + (diff * ambient + env + rim * float3(0.20, 0.23, 0.30)) * aoL + back * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
+                float3 col = direct + (diff * ambient * G.x + env + rim * G.y * float3(0.20, 0.23, 0.30)) * aoL + back * G.y * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
                 col += pow(tex2D(_EmisTex, uv).rgb * _EmisColor.rgb, 2.2) * 4;
+                // atmospheric haze: far geometry fades into the arena's sky colour (the original arenas are hazy and moody)
+                float fd = distance(_WorldSpaceCameraPos, i.wp);
+                float fogK = saturate((fd - 30) / 260) * _TftfTune.z;
+                col = lerp(col, skyUp * 1.5 + float3(0.02, 0.015, 0.01), fogK);
                 col *= _TftfTune.x > 0 ? _TftfTune.x : 1.0;      // exposure (tftf/tune.txt: "exposure sun")
                 col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);      // ACES approximation
                 col = pow(saturate(col), 1 / 2.2);
+                float lum = dot(col, float3(0.299, 0.587, 0.114));
+                col = lerp(lum.xxx, col, G.z);                       // saturation
+                col = saturate((col - 0.5) * G.w + 0.5);             // contrast
                 return fixed4(col, 1);
             }
             ENDCG
@@ -240,6 +249,34 @@ PBR = r"""Shader "TFTF/PbrLite"
 }
 """
 (out / "TFTF_PbrLite.shader").write_text(PBR)
+
+SKY = r"""Shader "TFTF/SkyLite"
+{
+    // Stand-in for the arenas' sky domes (EB/Transformers/Sky, EB/PBRSky) whose donor shaders do not compile on this GPU: the dome's own
+    // texture, unlit, behind everything.
+    Properties { _MainTex ("Sky", 2D) = "white" {} _Color ("Tint", Color) = (1,1,1,1) }
+    SubShader
+    {
+        Tags { "Queue"="Background" "RenderType"="Background" "IgnoreProjector"="True" }
+        Cull Off ZWrite Off Lighting Off
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            struct appdata_t { float4 vertex : POSITION; float2 texcoord : TEXCOORD0; };
+            struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
+            sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST;
+            v2f vert(appdata_t v) { v2f o; o.vertex = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); return o; }
+            fixed4 frag(v2f i) : SV_Target { return fixed4(tex2D(_MainTex, i.uv).rgb * _Color.rgb, 1); }
+            ENDCG
+        }
+    }
+    Fallback Off
+}
+"""
+(out / "TFTF_SkyLite.shader").write_text(SKY)
 
 FX = r"""Shader "TFTF/AddFx"
 {

@@ -229,6 +229,8 @@ public class TftfDiag : MonoBehaviour
 	private static readonly System.Collections.Generic.HashSet<int> _swapped = new System.Collections.Generic.HashSet<int>();
 	private static Shader _swapShader;
 	private static Shader _fxShader;
+	private static Shader _skyShader;
+	private static bool _skyMissLogged;
 
 	// The game's lights only push shader globals (EBLight), so nothing casts a shadow: one real directional light follows the scene's sun
 	// (_EBDirectionalLightDirection) and casts soft shadows onto and from the TFTF/PbrLite materials. tftf/noshadows.txt switches it off.
@@ -249,12 +251,12 @@ public class TftfDiag : MonoBehaviour
 			_sun.color = Color.white;
 			_sun.intensity = 1f;
 			_sun.shadows = LightShadows.Soft;
-			_sun.shadowStrength = 0.85f;
+			_sun.shadowStrength = 0.95f;
 			_sun.shadowBias = 0.05f;
 			_sun.shadowNormalBias = 0.4f;
 			_sun.renderMode = LightRenderMode.ForcePixel;
 			QualitySettings.shadows = ShadowQuality.All;
-			QualitySettings.shadowResolution = ShadowResolution.Medium;
+			QualitySettings.shadowResolution = ShadowResolution.High;
 			QualitySettings.shadowDistance = 30f;
 			QualitySettings.shadowCascades = 1;
 			QualitySettings.shadowProjection = ShadowProjection.StableFit;
@@ -269,7 +271,9 @@ public class TftfDiag : MonoBehaviour
 	}
 
 	// Every frame: the key light comes from the camera's upper left front (TFTF/PbrLite reads _TftfLightDir), and the shadow light matches it.
-	private const float DefaultExposure = 1.35f, DefaultSun = 3f, FightExposure = 0.45f, FightSun = 1.5f;     // fights are lit by a much brighter arena
+	// fights are lit by a much brighter arena than the base and story map
+	private const float DefaultExposure = 1.35f, DefaultSun = 3f, FightExposure = 0.45f, FightSun = 1.5f, FightAmbient = 1f, FightRim = 1f, FightSat = 1.1f, FightContrast = 1.08f, FightFog = 0.55f;
+	private static readonly string[] TuneNames = { "exposure", "sun", "ambient", "rim", "sat", "contrast", "fog" };
 	// BattleArbiter lives in the main assembly, which this first-pass script cannot reference: reach it by reflection.
 	private static System.Type _arbiterType;
 	private static bool InFight()
@@ -288,6 +292,40 @@ public class TftfDiag : MonoBehaviour
 		return false;
 	}
 
+	// The average colour of the arena's sky texture, pushed as _TftfSky (rgb scaled up so a mid sky gives about the old fixed colour).
+	private static Texture _skySampled;
+	private static Vector3 _skyRgb;
+	private static void SampleSky()
+	{
+		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
+		{
+			if (r.name != "Sky" || r.sharedMaterial == null) continue;
+			Texture t = r.sharedMaterial.mainTexture;
+			if (t == null && r.sharedMaterial.HasProperty("_base_tex")) t = r.sharedMaterial.GetTexture("_base_tex");
+			if (t == null || t == _skySampled) return;
+			_skySampled = t;
+			RenderTexture rt = RenderTexture.GetTemporary(8, 8, 0, RenderTextureFormat.ARGB32);
+			Graphics.Blit(t, rt);
+			RenderTexture prev = RenderTexture.active;
+			RenderTexture.active = rt;
+			Texture2D px = new Texture2D(8, 8, TextureFormat.RGBA32, false);
+			px.ReadPixels(new Rect(0, 0, 8, 8), 0, 0);
+			RenderTexture.active = prev;
+			RenderTexture.ReleaseTemporary(rt);
+			Color sum = Color.black;
+			Color[] cs = px.GetPixels();
+			foreach (Color c in cs) sum += c;
+			Object.Destroy(px);
+			Color avg = sum / cs.Length;
+			Color g = new Color(Mathf.Pow(avg.r, 2.2f), Mathf.Pow(avg.g, 2.2f), Mathf.Pow(avg.b, 2.2f));      // the shader lights in linear space
+			float peak = Mathf.Max(0.02f, Mathf.Max(g.r, Mathf.Max(g.g, g.b)));
+			float k = Mathf.Clamp(0.34f / peak, 0.4f, 6f);                                                   // normalise so the brightest channel is about 0.34
+			_skyRgb = new Vector3(g.r * k, g.g * k, g.b * k);
+			Debug.Log("[DIAG] sky colour from " + t.name + " avg=" + avg + " -> " + (g * k));
+			return;
+		}
+	}
+
 	private static float _dbgNext;
 	private static void AimSun()
 	{
@@ -298,21 +336,29 @@ public class TftfDiag : MonoBehaviour
 			try { string f = System.IO.Path.Combine(Application.persistentDataPath, "tftf/dbg.txt"); if (System.IO.File.Exists(f)) float.TryParse(System.IO.File.ReadAllText(f).Trim(), out dv); } catch (System.Exception) { }
 			Shader.SetGlobalFloat("_TftfDebug", dv);
 			bool inFight = InFight();
-			Vector4 tune = inFight ? new Vector4(FightExposure, FightSun, 0f, 0f) : new Vector4(DefaultExposure, DefaultSun, 0f, 0f);
+			// lighting values, per screen type; tftf/tune.txt overrides them with "name value" lines (see TuneNames) without a rebuild
+			float[] cur = inFight ? new float[] { FightExposure, FightSun, FightAmbient, FightRim, FightSat, FightContrast, FightFog } : new float[] { DefaultExposure, DefaultSun, 1f, 1f, 1f, 1f, 0f };
 			try
 			{
 				string tf = System.IO.Path.Combine(Application.persistentDataPath, "tftf/tune.txt");
 				if (System.IO.File.Exists(tf))
-				{
-					string[] tp = System.IO.File.ReadAllText(tf).Trim().Split(new char[] { ' ', ',', ';' }, System.StringSplitOptions.RemoveEmptyEntries);
-					float te, ts;
-					int o = inFight ? 2 : 0;      // tune.txt: "exposure sun fightExposure fightSun"
-					if (tp.Length > o && float.TryParse(tp[o], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out te)) tune.x = te;
-					if (tp.Length > o + 1 && float.TryParse(tp[o + 1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out ts)) tune.y = ts;
-				}
+					foreach (string tl in System.IO.File.ReadAllLines(tf))
+					{
+						string[] kv = tl.Trim().Split(new char[] { ' ', '=', ':' }, System.StringSplitOptions.RemoveEmptyEntries);
+						float tv;
+						if (kv.Length != 2 || !float.TryParse(kv[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tv)) continue;
+						string kn = kv[0].ToLowerInvariant();
+						bool fightKey = kn.StartsWith("f");
+						if (fightKey != inFight) continue;
+						int ki = System.Array.IndexOf(TuneNames, fightKey ? kn.Substring(1) : kn);
+						if (ki >= 0) cur[ki] = tv;
+					}
 			}
 			catch (System.Exception) { }
-			Shader.SetGlobalVector("_TftfTune", tune);
+			Shader.SetGlobalVector("_TftfTune", new Vector4(cur[0], cur[1], cur[6], 0f));
+			Shader.SetGlobalVector("_TftfGrade", new Vector4(cur[2], cur[3], cur[4], cur[5]));
+			SampleSky();
+			Shader.SetGlobalVector("_TftfSky", _skyRgb.sqrMagnitude > 0f ? new Vector4(_skyRgb.x, _skyRgb.y, _skyRgb.z, inFight ? 1f : 0.2f) : Vector4.zero);
 			// dev: tftf/hide.txt lists renderer-name parts (one per line) to switch off; the matches are logged
 			try
 			{
@@ -361,7 +407,31 @@ public class TftfDiag : MonoBehaviour
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{
 					string rn = r.name;
-					if (rn.Contains("LightMerged") || rn.Contains("Arealight") || rn.Contains("Sky") || rn.Contains("LensFlare") || rn.Contains("Shadow") || m.name.StartsWith("skybox")) continue;
+					if (rn.Contains("LightMerged") || rn.Contains("Arealight") || rn.Contains("LensFlare") || rn.Contains("Shadow")) continue;
+					if (rn == "Sky" || m.name.StartsWith("skybox"))
+					{
+						// the sky dome's donor shader did not compile (magenta sky): its own texture on an unlit background shader
+						if (_skyShader == null) _skyShader = ShaderFallback.Find("TFTF/SkyLite");
+						Texture skyTex = m.HasProperty("_base_tex") ? m.GetTexture("_base_tex") : null;
+						if (skyTex == null)
+						{
+							// a material whose shader failed exposes no properties: find the dome's texture by name (skybox_0 day, _1 night, _2 sandstorm)
+							string want = m.name.Contains("skybox_1") ? "night" : m.name.Contains("skybox_2") ? "sandstorm" : "day";
+							foreach (Texture2D ct in Resources.FindObjectsOfTypeAll<Texture2D>())
+							{
+								string tn = ct.name.ToLowerInvariant();
+								if (tn.Contains("sky") && tn.Contains(want) && !tn.StartsWith("fx_")) { skyTex = ct; break; }
+							}
+							if (skyTex == null) foreach (Texture2D ct in Resources.FindObjectsOfTypeAll<Texture2D>()) { string tn = ct.name.ToLowerInvariant(); if (tn.Contains("sky") && !tn.StartsWith("fx_") && !tn.Contains("mist")) { skyTex = ct; break; } }
+						}
+						if (_skyShader == null || skyTex == null) { if (!_skyMissLogged) { _skyMissLogged = true; Debug.Log("[DIAG] sky swap skipped: shader=" + (_skyShader != null) + " tex=" + (skyTex != null) + " mat=" + m.name); } continue; }
+						Material sm = new Material(_skyShader);
+						sm.name = m.name + "_swap";
+						sm.mainTexture = skyTex;
+						mats[i] = sm; changed = true;
+						Debug.Log("[DIAG] swapped sky " + m.name + " tex=" + skyTex.name);
+						continue;
+					}
 				}
 				int id = m.GetInstanceID();
 				Texture tex = null;
@@ -414,8 +484,9 @@ public class TftfDiag : MonoBehaviour
 			{
 				r.sharedMaterials = mats;
 				// the game's renderers have Unity shadows switched off (it had its own shadow system): the TFTF sun needs them
-				r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-				r.receiveShadows = true;
+				bool isSky = r.name == "Sky";
+				r.shadowCastingMode = isSky ? UnityEngine.Rendering.ShadowCastingMode.Off : UnityEngine.Rendering.ShadowCastingMode.On;
+				r.receiveShadows = !isSky;
 				MeshFilter mf2 = r.GetComponent<MeshFilter>();
 				Mesh m2 = mf2 != null ? mf2.sharedMesh : null;
 				if (!(r is SkinnedMeshRenderer) && m2 != null && m2.isReadable && m2.colors32.Length == 0)
