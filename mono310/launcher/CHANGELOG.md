@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.4.4 (unreleased)](#044-unreleased)
 - [0.4.3](#043)
 - [0.4.2 (development snapshot)](#042-development-snapshot)
 - [0.4.1](#041)
@@ -9,6 +10,20 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.4.4 (unreleased)
+
+**Fixed**
+
+- The Karnak arena's sky was magenta: its donor sky shader does not compile on the phone's GPU. The sky dome now uses its own texture
+  on an unlit background shader (`TFTF/SkyLite`); when the broken material exposes no texture it is found by name.
+- Fight lighting is closer to the original: distance haze and ambient/reflection colour taken from each arena's sky texture, a warm
+  sun, stronger shadows (higher shadow resolution), slight saturation and contrast; the base and menus keep the calmer look.
+
+**Added**
+
+- Live lighting tuning on the phone through `tftf/tune.txt` ("name value" lines: exposure, sun, ambient, rim, sat, contrast, fog;
+  prefix `f` for fights, e.g. `fexposure 0.5`).
 
 ## 0.4.3
 
