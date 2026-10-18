@@ -340,7 +340,7 @@ public class TftfDiag : MonoBehaviour
 			Shader.SetGlobalFloat("_TftfDebug", dv);
 			bool inFight = InFight();
 			// lighting values, per screen type; tftf/tune.txt overrides them with "name value" lines (see TuneNames) without a rebuild
-			float[] cur = inFight ? new float[] { FightExposure, FightSun, FightAmbient, FightRim, FightSat, FightContrast, FightFog, FightWarm } : new float[] { DefaultExposure, DefaultSun, 1f, 1f, 1f, 1f, 0f };
+			float[] cur = inFight ? new float[] { FightExposure, FightSun, FightAmbient, FightRim, FightSat, FightContrast, FightFog, FightWarm } : new float[] { DefaultExposure, DefaultSun, 1f, 1f, 1f, 1f, 0f, 0f };
 			try
 			{
 				string tf = System.IO.Path.Combine(Application.persistentDataPath, "tftf/tune.txt");
@@ -858,6 +858,87 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                "\t\t\tif (asset == null) { string[] names = info.bundle.GetAllAssetNames(); UnityEngine.Debug.LogError(\"[ABM] asset null: path=\" + path + \" name=\" + name + \" type=\" + typeof(T).Name + \" bundleAssets=\" + names.Length + \" first=\" + (names.Length > 0 ? names[0] : \"-\")); }\n"
                "\t\t\telse { UnityEngine.Debug.Log(\"[ABM] loaded \" + path + \" -> \" + asset.GetType().Name); }\n",
                "P17 AssetBundleManager load diagnostics")
+    # Android's System.IO.DriveInfo may expose only '/' even when PathOnDrive
+    # lives on /data. Query StatFs for the requested path directly so ODR disk
+    # checks report user-data space rather than the small system partition.
+    replace_in(fp, "EB/DriveInfo.cs",
+               "\t\tpublic static decimal GetAvailableSpaceInBytes(string PathOnDrive)\n\t\t{\n"
+               "\t\t\tint num = 0;\n\t\t\tstring text = string.Empty;\n"
+               "\t\t\tSystem.IO.DriveInfo[] drives = System.IO.DriveInfo.GetDrives();\n"
+               "\t\t\tforeach (System.IO.DriveInfo driveInfo in drives)\n\t\t\t{\n"
+               "\t\t\t\tif (PathOnDrive.StartsWith(driveInfo.Name) && driveInfo.Name.Length >= num)\n\t\t\t\t{\n"
+               "\t\t\t\t\tnum = driveInfo.Name.Length;\n\t\t\t\t\ttext = driveInfo.Name;\n\t\t\t\t}\n\t\t\t}\n\t\t\tif (num > 0)\n\t\t\t{\n"
+               "\t\t\t\tAndroidJavaObject androidJavaObject = new AndroidJavaObject(\"android.os.StatFs\", text);\n"
+               "\t\t\t\tint num2 = androidJavaObject.Call<int>(\"getAvailableBlocks\", new object[0]);\n"
+               "\t\t\t\tint num3 = androidJavaObject.Call<int>(\"getBlockSize\", new object[0]);\n"
+               "\t\t\t\treturn (decimal)num2 * (decimal)num3;\n\t\t\t}\n\t\t\treturn 0m;\n\t\t}\n",
+               "\t\tpublic static decimal GetAvailableSpaceInBytes(string PathOnDrive)\n\t\t{\n"
+               "#if UNITY_ANDROID && !UNITY_EDITOR\n"
+               "\t\t\tusing (AndroidJavaObject statFs = new AndroidJavaObject(\"android.os.StatFs\", PathOnDrive))\n"
+               "\t\t\t{\n\t\t\t\treturn (decimal)statFs.Call<long>(\"getAvailableBytes\");\n\t\t\t}\n"
+               "#else\n"
+               "\t\t\tint num = 0;\n\t\t\tstring text = string.Empty;\n"
+               "\t\t\tSystem.IO.DriveInfo[] drives = System.IO.DriveInfo.GetDrives();\n"
+               "\t\t\tforeach (System.IO.DriveInfo driveInfo in drives)\n\t\t\t{\n"
+               "\t\t\t\tif (PathOnDrive.StartsWith(driveInfo.Name) && driveInfo.Name.Length >= num)\n\t\t\t\t{\n"
+               "\t\t\t\t\tnum = driveInfo.Name.Length;\n\t\t\t\t\ttext = driveInfo.Name;\n\t\t\t\t}\n\t\t\t}\n\t\t\tif (num > 0)\n\t\t\t{\n"
+               "\t\t\t\tAndroidJavaObject androidJavaObject = new AndroidJavaObject(\"android.os.StatFs\", text);\n"
+               "\t\t\t\tint num2 = androidJavaObject.Call<int>(\"getAvailableBlocks\", new object[0]);\n"
+               "\t\t\t\tint num3 = androidJavaObject.Call<int>(\"getBlockSize\", new object[0]);\n"
+               "\t\t\t\treturn (decimal)num2 * (decimal)num3;\n\t\t\t}\n\t\t\treturn 0m;\n"
+               "#endif\n\t\t}\n",
+               "P51 DriveInfo checks Android filesystem for requested path")
+    # P52: the decompiled tutorial resolver passes a null assembly name to
+    # Activator.CreateInstance, which resolves against mscorlib instead of the
+    # game assembly. Resolve against loaded assemblies and skip optional state
+    # definitions that are absent from this build.
+    replace_in(main, "TutorialBranch.cs",
+               "\t\tfor (int i = 0; i < StateData.Count; i++)\n\t\t{\n"
+               "\t\t\tState state = CreateStateInstance(StateData[i].type);\n"
+               "\t\t\tif (!string.IsNullOrEmpty(StateData[i].NextState))\n"
+               "\t\t\t{\n\t\t\t\t(state as TutorialState).NextState = StateData[i].NextState;\n\t\t\t}\n\t\t}\n"
+               "\t\tif (TriggerState != string.Empty)\n\t\t{\n\t\t\tCreateStateInstance(TriggerState);\n\t\t}\n",
+               "\t\tfor (int i = 0; i < StateData.Count; i++)\n\t\t{\n"
+               "\t\t\tif (StateData[i] == null) { continue; }\n"
+               "\t\t\tState state = CreateStateInstance(StateData[i].type);\n"
+               "\t\t\tTutorialState tutorialState = state as TutorialState;\n"
+               "\t\t\tif (tutorialState != null && !string.IsNullOrEmpty(StateData[i].NextState))\n"
+               "\t\t\t{\n\t\t\t\ttutorialState.NextState = StateData[i].NextState;\n\t\t\t}\n\t\t}\n"
+               "\t\tif (!string.IsNullOrEmpty(TriggerState))\n\t\t{\n\t\t\tCreateStateInstance(TriggerState);\n\t\t}\n",
+               "P52 tutorial states resolve from loaded game assemblies")
+    replace_in(main, "TutorialBranch.cs",
+               "\tprivate State CreateStateInstance(string StateName)\n\t{\n"
+               "\t\tObjectHandle objectHandle = Activator.CreateInstance(null, StateName);\n"
+               "\t\tState state = (State)objectHandle.Unwrap();\n"
+               "\t\tstate.StateName = StateName;\n\t\tAddState(state);\n\t\treturn state;\n\t}\n",
+               "\tprivate State CreateStateInstance(string StateName)\n\t{\n"
+               "\t\tType stateType = null;\n"
+               "\t\tforeach (System.Reflection.Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())\n"
+               "\t\t{\n\t\t\tstateType = assembly.GetType(StateName, false);\n"
+               "\t\t\tif (stateType != null) { break; }\n\t\t}\n"
+               "\t\tif (stateType == null)\n\t\t{\n"
+               "\t\t\tUnityEngine.Debug.LogWarning(\"[Tutorial] State type not found: \" + StateName);\n"
+               "\t\t\treturn null;\n\t\t}\n"
+               "\t\tState state = Activator.CreateInstance(stateType) as State;\n"
+               "\t\tif (state != null)\n\t\t{\n\t\t\tstate.StateName = StateName;\n\t\t\tAddState(state);\n\t\t}\n"
+               "\t\treturn state;\n\t}\n",
+               "P52 missing tutorial state definitions no longer resolve against mscorlib")
+    # The ARM64 IL2CPP crash resolves to Component.gameObject inside
+    # FuseUtil.SafeIsActive. Avoid that native Unity getter for shared components;
+    # readiness itself is a managed field and is enough to defer active instances.
+    replace_in(main, "GameUtil.cs",
+               "\t\tif (!sci.SafeIsActive() || sci.IsReady())\n",
+               "\t\tif (sci == null || sci.IsReady())\n",
+               "P53 shared-component initialization avoids the crashing Component.gameObject getter")
+    # A missing local device-benchmark record must not set the asset cache
+    # budget to zero. The decompiled manager's existing default is 256 MB.
+    replace_in(main, "EB/AssetManager.cs",
+               'Dot.Single("memory_large_class", deviceBenchmarks, 0f)',
+               'Dot.Single("memory_large_class", deviceBenchmarks, 256f)',
+               "P54 asset memory cap falls back to 256 MB without benchmark data")
+    replace_in(main, "EB/AssetManager.cs", "\t\t\t\tUpdateMemoryCap(0f);\n",
+               "\t\t\t\tUpdateMemoryCap(256f);\n",
+               "P54 missing benchmark data no longer disables the asset memory budget")
     # P18: ILSpy lost the body of the requested-bundle match in ODRManager.OpenWad (same flags as the else-if branch beside it)
     replace_in(fp, "EB/Sparx/ODRManager.cs",
                r"if \(!string\.Equals\(assetBundleName, requestedBundle, StringComparison\.OrdinalIgnoreCase\)\)\s*\{\s*\}",
