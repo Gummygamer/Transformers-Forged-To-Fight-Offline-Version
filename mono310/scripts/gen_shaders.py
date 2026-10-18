@@ -115,6 +115,9 @@ PBR = r"""Shader "TFTF/PbrLite"
         _Flags ("has normal, metal, rough, ao", Vector) = (0,0,0,0)
         _MetalAmt ("Metallic scale", Float) = 1
         _RoughAmt ("Roughness scale", Float) = 1
+        _IsSkinned ("Robot (skinned mesh)", Float) = 0
+        _CompTex ("RAOE composite (R roughness, G AO, B emissive)", 2D) = "black" {}
+        _CompOn ("composite present", Float) = 0
         _Base2Tex ("Terrain colour layer", 2D) = "white" {}
         _MaskTex ("Terrain blend mask", 2D) = "white" {}
         _Base2ST ("colour layer tiling", Vector) = (1,1,0,0)
@@ -137,8 +140,8 @@ PBR = r"""Shader "TFTF/PbrLite"
             #include "AutoLight.cginc"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; };
-            sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float4 _TftfSky;
+            sampler2D _CompTex; float _CompOn; sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float _IsSkinned; float4 _TftfRobot; float4 _TftfSky;
             v2f vert(appdata_t v)
             {
                 v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord;
@@ -184,8 +187,9 @@ PBR = r"""Shader "TFTF/PbrLite"
                 }
                 float3 alb = pow(albS * _Color.rgb, 2.2);
                 float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, uv).r * _MetalAmt) : saturate(_MetalAmt);
-                float rough = _Flags.z > 0.5 ? saturate(tex2D(_RoughTex, uv).r * _RoughAmt) : saturate(_RoughAmt);
-                float ao = _Flags.w > 0.5 ? tex2D(_AoTex, uv).r : 1;
+                float3 comp = _CompOn > 0.5 ? tex2D(_CompTex, uv).rgb : float3(-1, -1, 0);      // R roughness, G ambient occlusion, B emissive
+                float rough = _CompOn > 0.5 ? saturate(comp.r * 1.1) : (_Flags.z > 0.5 ? saturate(tex2D(_RoughTex, uv).r * _RoughAmt) : saturate(_RoughAmt));
+                float ao = _CompOn > 0.5 ? comp.g : (_Flags.w > 0.5 ? tex2D(_AoTex, uv).r : 1);
                 rough = clamp(rough, 0.12, 1);
                 float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - metal);
                 float ndl = dot(n, L), ndv = saturate(dot(n, V));
@@ -201,12 +205,13 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float hemi = saturate(n.y * 0.5 + 0.5);
                 float3 skyUp = _TftfSky.a > 0 ? lerp(float3(0.27, 0.30, 0.38), _TftfSky.rgb, _TftfSky.a) : float3(0.27, 0.30, 0.38);      // a = how much of the arena sky colour (1 in fights, less elsewhere)       // the arena's own sky colour (TftfDiag.SampleSky)
                 float3 ambient = lerp(skyUp * 0.19, skyUp, hemi) + nl2 * skyUp * 0.5;
+                ambient = _IsSkinned > 0.5 ? ambient * 1.9 + skyUp * 0.12 : ambient;      // fill light for the robots' dark side
                 float3 r = reflect(-V, n);
                 float3 sky = lerp(skyUp * 0.06, skyUp * 2.0, saturate(r.y * 0.5 + 0.5));
                 float3 Fenv = spec0 + (max(1 - rough, spec0) - spec0) * pow(1 - ndv, 5);
                 float3 env = sky * Fenv * (1 - rough * 0.7);
                 float rim = pow(1 - ndv, 4) * 0.35 * (1 - rough * 0.5);
-                float aoL = lerp(0.35, 1, ao);
+                float aoL = lerp(_IsSkinned > 0.5 ? 0.7 : 0.35, 1, ao);      // robots keep their shadowed parts readable
                 float back = pow(saturate(dot(n, L2)), 2) * (0.35 + 0.65 * pow(1 - ndv, 2));
                 if (_TftfDebug > 0.5)      // tftf/dbg.txt: 1 world normal, 2 key light lambert, 3 shadow atten, 4 albedo, 5 light dir, 6 n.v, 7 ambient+rim only
                 {
@@ -215,16 +220,34 @@ PBR = r"""Shader "TFTF/PbrLite"
                     return fixed4(o, 1);
                 }
                 float3 col = direct + (diff * ambient * G.x + env + rim * G.y * float3(0.20, 0.23, 0.30)) * aoL + back * G.y * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
-                col += pow(tex2D(_EmisTex, uv).rgb * _EmisColor.rgb, 2.2) * 4;
                 // atmospheric haze: far geometry fades into the arena's sky colour (the original arenas are hazy and moody)
                 float fd = distance(_WorldSpaceCameraPos, i.wp);
                 float fogK = saturate((fd - 30) / 260) * _TftfTune.z;
                 col = lerp(col, skyUp * 1.5 + float3(0.02, 0.015, 0.01), fogK);
-                col *= _TftfTune.x > 0 ? _TftfTune.x : 1.0;      // exposure (tftf/tune.txt: "exposure sun")
+                col *= float3(1 + _TftfTune.w, 1, 1 - _TftfTune.w);      // warm/cool grade (tftf/tune.txt: warm)
+                bool robot = _IsSkinned > 0.5 && _TftfRobot.x > 0;      // robots outside fights (selection screens) get their own exposure/saturation
+                col *= (_TftfTune.x > 0 ? _TftfTune.x : 1.0) * (robot ? _TftfRobot.x : 1.0);      // exposure (tftf/tune.txt: "exposure sun")
+                // emissive parts (eyes, lights, glowing panels) are added after the exposure, so a dark fight exposure does not dim them; the
+                // donor emissive colour is tiny (e.g. 0.06,0.04,0.01): only its hue is used, the map gives the pattern
+                float emax = max(_EmisColor.r, max(_EmisColor.g, _EmisColor.b));
+                float3 etint = emax > 0.001 ? _EmisColor.rgb / emax : float3(1, 1, 1);
+                // Packed B = emissive mask. Two kinds of lit spots: the helmet's LED strip (on a coloured surface: glows in its own hue) and the
+                // eyes (on a black surface: glow in the material's emissive colour, red). The eye points are 2-3 texels wide: widened a little.
+                float lumA = dot(albS, float3(0.299, 0.587, 0.114));
+                float dark = saturate(1 - lumA * 8);
+                float3 ealb = albS / max(max(albS.r, albS.g), max(albS.b, 0.05));
+                float eb = comp.b;
+                float2 ep = float2(1.6 / 256.0, 1.6 / 256.0);
+                eb = max(eb, tex2D(_CompTex, uv + float2(ep.x, 0)).b * 0.75);
+                eb = max(eb, tex2D(_CompTex, uv - float2(ep.x, 0)).b * 0.75);
+                eb = max(eb, tex2D(_CompTex, uv + float2(0, ep.y)).b * 0.75);
+                eb = max(eb, tex2D(_CompTex, uv - float2(0, ep.y)).b * 0.75);
+                float3 emap = _CompOn > 0.5 ? (eb * (dark * etint * 6.0 + (1 - dark) * pow(ealb, 1.5) * 1.6)) : pow(tex2D(_EmisTex, uv).rgb, 2.2);
+                col += emap * 2.2;
                 col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);      // ACES approximation
                 col = pow(saturate(col), 1 / 2.2);
                 float lum = dot(col, float3(0.299, 0.587, 0.114));
-                col = lerp(lum.xxx, col, G.z);                       // saturation
+                col = lerp(lum.xxx, col, G.z * (robot ? _TftfRobot.y : 1.0));                       // saturation
                 col = saturate((col - 0.5) * G.w + 0.5);             // contrast
                 return fixed4(col, 1);
             }

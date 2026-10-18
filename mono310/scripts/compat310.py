@@ -224,6 +224,8 @@ public class TftfDiag : MonoBehaviour
 
 	private float _next = 20f;
 	private float _nextGlobals = 0f;
+	private float _nextFast = 0f;
+	private static bool _fastSwap;
 
 	private static bool _lodLogged;
 	private static readonly System.Collections.Generic.HashSet<int> _swapped = new System.Collections.Generic.HashSet<int>();
@@ -272,8 +274,9 @@ public class TftfDiag : MonoBehaviour
 
 	// Every frame: the key light comes from the camera's upper left front (TFTF/PbrLite reads _TftfLightDir), and the shadow light matches it.
 	// fights are lit by a much brighter arena than the base and story map
-	private const float DefaultExposure = 1.35f, DefaultSun = 3f, FightExposure = 0.45f, FightSun = 1.5f, FightAmbient = 1f, FightRim = 1f, FightSat = 1.1f, FightContrast = 1.08f, FightFog = 0.55f;
-	private static readonly string[] TuneNames = { "exposure", "sun", "ambient", "rim", "sat", "contrast", "fog" };
+	private const float DefaultExposure = 1.35f, DefaultSun = 3f, FightExposure = 0.3f, FightSun = 1.5f, FightAmbient = 1f, FightRim = 1f, FightSat = 1.4f, FightContrast = 1.2f, FightFog = 0.45f, FightWarm = 0.05f;
+	private const float RobotMenuExposure = 0.72f, RobotMenuSat = 0.88f;      // robots on the squad / selection screens (not in a fight)
+	private static readonly string[] TuneNames = { "exposure", "sun", "ambient", "rim", "sat", "contrast", "fog", "warm" };
 	// BattleArbiter lives in the main assembly, which this first-pass script cannot reference: reach it by reflection.
 	private static System.Type _arbiterType;
 	private static bool InFight()
@@ -337,7 +340,7 @@ public class TftfDiag : MonoBehaviour
 			Shader.SetGlobalFloat("_TftfDebug", dv);
 			bool inFight = InFight();
 			// lighting values, per screen type; tftf/tune.txt overrides them with "name value" lines (see TuneNames) without a rebuild
-			float[] cur = inFight ? new float[] { FightExposure, FightSun, FightAmbient, FightRim, FightSat, FightContrast, FightFog } : new float[] { DefaultExposure, DefaultSun, 1f, 1f, 1f, 1f, 0f };
+			float[] cur = inFight ? new float[] { FightExposure, FightSun, FightAmbient, FightRim, FightSat, FightContrast, FightFog, FightWarm } : new float[] { DefaultExposure, DefaultSun, 1f, 1f, 1f, 1f, 0f };
 			try
 			{
 				string tf = System.IO.Path.Combine(Application.persistentDataPath, "tftf/tune.txt");
@@ -355,8 +358,9 @@ public class TftfDiag : MonoBehaviour
 					}
 			}
 			catch (System.Exception) { }
-			Shader.SetGlobalVector("_TftfTune", new Vector4(cur[0], cur[1], cur[6], 0f));
+			Shader.SetGlobalVector("_TftfTune", new Vector4(cur[0], cur[1], cur[6], cur[7]));
 			Shader.SetGlobalVector("_TftfGrade", new Vector4(cur[2], cur[3], cur[4], cur[5]));
+			Shader.SetGlobalVector("_TftfRobot", inFight ? new Vector4(1f, 1f, 0f, 0f) : new Vector4(RobotMenuExposure, RobotMenuSat, 0f, 0f));
 			SampleSky();
 			Shader.SetGlobalVector("_TftfSky", _skyRgb.sqrMagnitude > 0f ? new Vector4(_skyRgb.x, _skyRgb.y, _skyRgb.z, inFight ? 1f : 0.2f) : Vector4.zero);
 			// dev: tftf/hide.txt lists renderer-name parts (one per line) to switch off; the matches are logged
@@ -399,6 +403,7 @@ public class TftfDiag : MonoBehaviour
 			{
 				Material m = mats[i];
 				if (m == null || m.shader == null) continue;
+				if (m.name.EndsWith("_swap")) continue;      // already a stand-in
 				string n = m.shader.name;
 				// the blob "contact shadow" quads under the feet and hips use an opaque white-on-black mask that the stand-in shader draws as
 				// cards; the TFTF sun light casts real shadows now, so these are switched off
@@ -446,6 +451,7 @@ public class TftfDiag : MonoBehaviour
 				if (texProp != null) { nm.mainTextureScale = m.GetTextureScale(texProp); nm.mainTextureOffset = m.GetTextureOffset(texProp); }
 				nm.color = Color.white;
 				if (nm.HasProperty("_Blend") && n.StartsWith("Hidden/PBRTerrain")) nm.SetVector("_Blend", new Vector4(0f, 1f, 0f, 1f));      // world-projected terrain
+				if (nm.HasProperty("_IsSkinned")) nm.SetFloat("_IsSkinned", r is SkinnedMeshRenderer ? 1f : 0f);
 				if (nm.HasProperty("_Base2Tex") && m.HasProperty("_base2_tex") && m.HasProperty("_mask_tex") && m.GetTexture("_base2_tex") != null && m.GetTexture("_mask_tex") != null)
 				{
 					nm.SetTexture("_Base2Tex", m.GetTexture("_base2_tex"));
@@ -475,6 +481,8 @@ public class TftfDiag : MonoBehaviour
 					if (te != null) { nm.SetTexture("_EmisTex", te); if (m.HasProperty("_emissive_intensity_col")) nm.SetColor("_EmisColor", m.GetColor("_emissive_intensity_col") * 3f); }
 					nm.SetVector("_Flags", new Vector4(tn != null ? 1f : 0f, tm != null ? 1f : 0f, tr != null ? 1f : 0f, ta != null ? 1f : 0f));
 					nm.SetFloat("_MetalAmt", tm != null ? 1f : (m.HasProperty("_metallic_range") ? Mathf.Clamp01(m.GetFloat("_metallic_range")) : 0f));
+					Texture tc = m.HasProperty("_pbr_composite_tex") ? m.GetTexture("_pbr_composite_tex") : null;      // robots: R roughness, G AO, B emissive packed together
+					if (tc != null && tm == null && tr == null && ta == null) { nm.SetTexture("_CompTex", tc); nm.SetFloat("_CompOn", 1f); if (m.HasProperty("_emissive_intensity_col")) nm.SetColor("_EmisColor", m.GetColor("_emissive_intensity_col") * 3f); }
 					nm.SetFloat("_RoughAmt", tr != null ? 1f : (m.HasProperty("_roughness_range") ? Mathf.Clamp01(m.GetFloat("_roughness_range")) : 0.6f));
 				}
 				mats[i] = nm; changed = true;
@@ -532,9 +540,12 @@ public class TftfDiag : MonoBehaviour
 	private void Update()
 	{
 		if (QualitySettings.skinWeights != SkinWeights.FourBones) QualitySettings.skinWeights = SkinWeights.FourBones;
+		// attack and hit effects spawn mid-fight with donor shaders that did not load: swap them four times a second while a battle runs
+		if (_fastSwap && Time.realtimeSinceStartup >= _nextFast) { _nextFast = Time.realtimeSinceStartup + 0.25f; SwapPbr(); }
 		if (Time.realtimeSinceStartup >= _nextGlobals)
 		{
 			_nextGlobals = Time.realtimeSinceStartup + 1f;
+			_fastSwap = InFight();
 			if (!EB.Rendering.EBTimeOfDayManager.IsInitialized || EB.Rendering.EBTimeOfDayManager.Instance.GetActiveTimeOfDay() == null) ApplyGlobals();
 			SwapPbr();
 			EnsureSun();
@@ -752,6 +763,20 @@ public class TftfDiag : MonoBehaviour
                    "\tpublic void Refresh(BCGEntity entity, List<string> modes, BCGEntity secondEntity = null, bool isBossFinal = false, int possibleReplacements = 0, bool shouldScaleHeroRating = false)\n\t{\n",
                    "\tpublic void Refresh(BCGEntity entity, List<string> modes, BCGEntity secondEntity = null, bool isBossFinal = false, int possibleReplacements = 0, bool shouldScaleHeroRating = false)\n\t{\n\t\ttry\n\t\t{\n\t\t\tRefreshUnguarded(entity, modes, secondEntity, isBossFinal, possibleReplacements, shouldScaleHeroRating);\n\t\t}\n\t\tcatch (System.Exception ex)\n\t\t{\n\t\t\tUnityEngine.Debug.LogWarning(\"[TFTF] DefenderSlot.Refresh failed, slot left empty: \" + ex.Message);\n\t\t}\n\t}\n\n\tprivate void RefreshUnguarded(BCGEntity entity, List<string> modes, BCGEntity secondEntity, bool isBossFinal, int possibleReplacements, bool shouldScaleHeroRating)\n\t{\n",
                    "P48 DefenderSlot.Refresh guarded")
+    # P49 (shell only): the board plays a tile's post-fight dialogue on every return to the board and never asks who won, so the
+    # "after winning" messages also appeared after a loss. FightFlow records the result; the dialogue is skipped after a loss.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "FightFlow.cs", "activeQuest.ResolveMatch(_matchId, matchResult, enemyHealth,",
+                   "TftfFightState.LastWon = _fightResultData != null && _fightResultData.IsWin;\n\t\t\t\tactiveQuest.ResolveMatch(_matchId, matchResult, enemyHealth,",
+                   "P49a FightFlow records the quest fight result")
+        replace_in(main, "Quests/Presentation/Gameboard.cs", "\t\t\t\tif (postFight)\n\t\t\t\t{\n\t\t\t\t\tif (Profile.Instance.SeenPostFightDialogueNodes != null",
+                   "\t\t\t\tif (postFight && !TftfFightState.LastWon)\n\t\t\t\t{\n\t\t\t\t\treturn _displayingDialogue;\n\t\t\t\t}\n\t\t\t\tif (postFight)\n\t\t\t\t{\n\t\t\t\t\tif (Profile.Instance.SeenPostFightDialogueNodes != null",
+                   "P49b the post-fight dialogue is skipped after a lost fight")
+    # P50 (shell only, dev): tftf/fullmana.txt keeps player 0's special meter full (see TftfFightState.FullMana)
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "PlayerController.cs", "\tprotected override void Update()\n\t{\n",
+                   "\tprotected override void Update()\n\t{\n\t\tif (TftfFightState.FullMana && Id == 0 && Attributes != null)\n\t\t{\n\t\t\tAttributes.NormalizedMana = 1f;\n\t\t}\n",
+                   "P50 dev switch: full special meter")
     # P47 (shell only): the prefab loader adds a widget's components one by one, so UIStretch.Awake runs before the UITexture/UISprite
     # exists and never finds it; the stretch then scales the transform instead of sizing the widget (the loading screen's background
     # became 770 times too tall: coloured streaks). Look the widget up again in Start.
