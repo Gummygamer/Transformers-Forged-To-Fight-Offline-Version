@@ -77,7 +77,7 @@ IL2CPP player's `System.Diagnostics.Process.Start` cannot launch it.
 
 ## Limits
 
-- Version 0.4.3 is an ARM64 (`arm64-v8a`) release tested to launch on a Samsung Galaxy A52. The complete first-run
+- Version 0.5.0 is an ARM64 (`arm64-v8a`) release tested to launch on a Samsung Galaxy A52. The complete first-run
   flow has not yet been validated on a 64-bit-only phone.
 - Purchases, push notifications, analytics and Play Games sign-in are stubs.
 - The first-play content unpack is slow because the game extracts the package itself.

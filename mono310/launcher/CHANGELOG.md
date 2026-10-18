@@ -2,7 +2,7 @@
 
 ## Table of contents
 
-- [0.4.4 (unreleased)](#044-unreleased)
+- [0.5.0](#050)
 - [0.4.3](#043)
 - [0.4.2 (development snapshot)](#042-development-snapshot)
 - [0.4.1](#041)
@@ -11,7 +11,7 @@
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.4.4 (unreleased)
+## 0.5.0
 
 **Fixed**
 
@@ -24,6 +24,9 @@
 
 - Live lighting tuning on the phone through `tftf/tune.txt` ("name value" lines: exposure, sun, ambient, rim, sat, contrast, fog;
   prefix `f` for fights, e.g. `fexposure 0.5`).
+- Story-map landmass scenery is placed at the outer edge of the padded board so it does not cover story nodes.
+- Quest fights report wins and losses to the client; a final-boss win completes the quest and opens its result flow.
+- `tftf/fullmana.txt` enables a development switch that keeps the player's special meter full.
 
 ## 0.4.3
 

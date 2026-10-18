@@ -853,7 +853,7 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
     # P17: log what AssetBundleManager actually hands back (bundle null? asset null? names)
     replace_in(fp, "EB/AssetBundleManager.cs",
                "\t\t\tAssetBundleRequest asyncOp = info.bundle.LoadAssetAsync(name, typeof(T));\n\t\t\tyield return asyncOp;\n\t\t\tT asset = (T)asyncOp.asset;\n",
-               "\t\t\tif (info.bundle == null) { UnityEngine.Debug.LogError(\"[ABM] bundle null for \" + path + \" (info.isLoaded=\" + info.isLoaded + \")\"); cb(null, default(T)); yield break; }\n"
+               "\t\t\tif (info.bundle == null) { UnityEngine.Debug.LogError(\"[ABM] bundle null for \" + path + \" (info.isLoaded=\" + info.isLoaded + \")\"); cb(default(T)); yield break; }\n"
                "\t\t\tAssetBundleRequest asyncOp = info.bundle.LoadAssetAsync(name, typeof(T));\n\t\t\tyield return asyncOp;\n\t\t\tT asset = (T)asyncOp.asset;\n"
                "\t\t\tif (asset == null) { string[] names = info.bundle.GetAllAssetNames(); UnityEngine.Debug.LogError(\"[ABM] asset null: path=\" + path + \" name=\" + name + \" type=\" + typeof(T).Name + \" bundleAssets=\" + names.Length + \" first=\" + (names.Length > 0 ? names[0] : \"-\")); }\n"
                "\t\t\telse { UnityEngine.Debug.Log(\"[ABM] loaded \" + path + \" -> \" + asset.GetType().Name); }\n",
@@ -878,6 +878,12 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
          "\t\t\t\t\t\tyield return LoadFromResources(path, delegate(T resourceObj)\n\t\t\t\t\t\t{\n\t\t\t\t\t\t\tobj = resourceObj;\n"),
     ):
         replace_in(fp, F, old, new, "P19 Assets.DoLoadAsync closure captures restored")
+    replace_in(fp, F,
+               "\t\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(T val2)\n"
+               "\t\t\t\t\t{\n\t\t\t\t\t\tval = val2;\n",
+               "\t\t\t\t\tyield return AssetBundleManager.Instance.LoadAsync(path, delegate(T val2)\n"
+               "\t\t\t\t\t{\n\t\t\t\t\t\tobj = val2;\n",
+               "P19 Assets.DoLoadAsync one-argument asset callback restored")
     # P20: bound the wait on the asset cleanup task (a stuck Resources.UnloadUnusedAssets froze every load behind it)
     replace_in(fp, "EB/Assets.cs",
                "\t\t\tT obj = (T)null;\n\t\t\twhile (_cleanupTask != null && !_cleanupTask.isDone)\n\t\t\t{\n\t\t\t\tyield return null;\n\t\t\t}\n",
@@ -901,6 +907,12 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                "if (Hub.Instance.ResourcesManager.GetResource(typeName).Amount > 0 && !IsTutorialComplete(text)",
                "if (Hub.Instance.ResourcesManager.GetResource(typeName) != null && Hub.Instance.ResourcesManager.GetResource(typeName).Amount > 0 && !IsTutorialComplete(text)",
                "P25 GetPendingBuildingUnlockTutorial null-safe")
+    # ILSpy loses the synthetic string-switch value in this error callback. The
+    # default branch should not match a named error case; initialize its value
+    # to the non-matching default so the recovered source compiles.
+    replace_in(main, "AllianceMembersState.cs",
+               "int num;\n", "int num = 0;\n",
+               "S29 AllianceMembersState recovered string switch initialized")
     # P26: honouring hold=true pins preloaded libraries and stalls the preload manager here; keep the previous behaviour
     replace_in(fp, "EB/AssetManager.cs", "bool hold2 = hold;", "bool hold2 = false;", "P26 AssetManager hold pinning disabled")
     p = fp / "EB/FileSystem/ZipDriver.cs"   # P7 (same fix as 2.0.2): SharpZipLib asks for OEM code page 850/437

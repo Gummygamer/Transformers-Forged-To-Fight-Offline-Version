@@ -71,7 +71,7 @@ flow remains untested on a 64-bit-only phone.
 
 ## Known gaps
 
-- Version 0.4.3 is ARM64-only; 0.2–0.4.2 were ARMv7-only. First-run validation on a 64-bit-only phone remains outstanding
+- Version 0.5.0 is ARM64-only; 0.2–0.4.2 were ARMv7-only. First-run validation on a 64-bit-only phone remains outstanding
   ([`README.md#limits`](README.md#limits)).
 - Purchases, push, analytics and Play Games are stubs.
 - Visual issues shared with the non-launcher build: black terrain hexes, missing small portraits, one arena background.

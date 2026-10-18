@@ -16,7 +16,7 @@
 
 ## Scope and status
 
-**Status 2026-10-17: launcher 0.4.3 has an ARM64 build that starts on a Samsung Galaxy A52.** A shell APK
+**Status 2026-10-17: launcher 0.5.0 ARM64 update installed on a Samsung Galaxy A52.** A shell APK
 (recompiled scripts, no game assets) starts a first-run screen; the user picks their own 3.1.0 and 9.2.0
 APKs; the app converts and unpacks everything into its private storage in about 43 s and boots to the
 title screen, the home base, the quest board and a fight with hits and health bars. **[👁 live]**
@@ -26,7 +26,7 @@ What does **not** work or is not done (read before relying on this):
 
 - **The shell APK still carries game-derived code** (compiled recompiled scripts) and, until the build in
   `COMPLIANCE.md` ("Assetless launcher") is reviewed, **must not be published**.
-- The ARM64/IL2CPP 0.4.3 build starts on-device; first-run validation on a 64-bit-only phone remains outstanding
+- The ARM64/IL2CPP build starts on-device; first-run validation on a 64-bit-only phone remains outstanding
   (see [`launcher/README.md`](launcher/README.md#limits)).
 - Original-app Java code, loose assets and native libraries are no longer copied into the shell, and the
   three third-party managed libraries come from NuGet instead (see [`THIRD_PARTY.md`](THIRD_PARTY.md)).
