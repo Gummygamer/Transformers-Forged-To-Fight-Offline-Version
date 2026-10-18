@@ -38,7 +38,8 @@ public sealed class TftfLauncher : MonoBehaviour
         var req = UnityWebRequest.Get(Application.streamingAssetsPath + "/trees.bin");
         yield return req.SendWebRequest();
         if (req.result == UnityWebRequest.Result.Success) _trees = req.downloadHandler.data;
-        else _message = "Launcher data is missing from this build.";
+        else _trees = ResolveTrees();
+        if (_trees == null) _message = "Launcher data is missing from this build.";
         // Test hook: tftf/autopick.txt (two lines: the 3.1.0 and the 9.2.0 APK paths, readable by the app) pre-selects the
         // files, so automated tests do not have to drive the system file picker.
         try
@@ -61,6 +62,39 @@ public sealed class TftfLauncher : MonoBehaviour
         var logo = UnityWebRequestTexture.GetTexture(Application.streamingAssetsPath + "/revival-icon.png");
         yield return logo.SendWebRequest();
         if (logo.result == UnityWebRequest.Result.Success) _logo = DownloadHandlerTexture.GetContent(logo);
+    }
+
+    static byte[] ResolveTrees()
+    {
+        try
+        {
+            string apkPath = Application.dataPath;
+            if (File.Exists(apkPath))
+            {
+                using (var zip = new System.IO.Compression.ZipArchive(File.OpenRead(apkPath), System.IO.Compression.ZipArchiveMode.Read))
+                {
+                    var entry = zip.GetEntry("assets/trees.bin");
+                    if (entry != null)
+                    {
+                        using (var s = entry.Open())
+                        using (var ms = new MemoryStream())
+                        {
+                            s.CopyTo(ms);
+                            return ms.ToArray();
+                        }
+                    }
+                }
+            }
+        }
+        catch (System.Exception e) { Debug.LogWarning("[TFTF] ResolveTrees zip failed: " + e.Message); }
+
+        try
+        {
+            string fallbackPath = Path.Combine(Application.persistentDataPath, "trees.bin");
+            if (File.Exists(fallbackPath)) return File.ReadAllBytes(fallbackPath);
+        }
+        catch (System.Exception e) { Debug.LogWarning("[TFTF] ResolveTrees disk failed: " + e.Message); }
+        return null;
     }
 
     // The Java side keeps what the picker returned until it is fetched here (a message sent to Unity while the picker was open could
@@ -105,7 +139,11 @@ public sealed class TftfLauncher : MonoBehaviour
     void Accept(int slot, string path)
     {
         string problem = Validate(path, slot);
-        if (problem == null) { _paths[slot] = path; _message = ""; }
+        if (problem == null)
+        {
+            _paths[slot] = path;
+            if (_trees != null) _message = "";
+        }
         else { _names[slot] = ""; _paths[slot] = ""; _message = problem; }
     }
 
@@ -143,7 +181,7 @@ public sealed class TftfLauncher : MonoBehaviour
                 return "That file is not the " + (slot == 0 ? "3.1.0" : "9.2.0") + " game APK.";
             }
         }
-        catch (System.Exception) { return path.StartsWith("/proc/self/fd/") ? "unreadable" : "That file could not be read as an APK."; }
+        catch (System.Exception ex) { return path.StartsWith("/proc/self/fd/") ? "unreadable" : ("That file could not be read as an APK: " + ex.Message); }
     }
 
     void Pick(int slot)

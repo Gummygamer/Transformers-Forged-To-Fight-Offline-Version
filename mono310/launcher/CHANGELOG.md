@@ -25,6 +25,9 @@
   on an unlit background shader (`TFTF/SkyLite`); when the broken material exposes no texture it is found by name.
 - Fight lighting is closer to the original: distance haze and ambient/reflection colour taken from each arena's sky texture, a warm
   sun, stronger shadows (higher shadow resolution), slight saturation and contrast; the base and menus keep the calmer look.
+- Robust fallback loading of `trees.bin` directly from APK zip or app storage when streamingAssets `UnityWebRequest` fails on Android, preventing the "Install and play" button from remaining permanently disabled.
+- Guard `UIScreenBackground` screen capture against runtime capture exceptions, preventing transition hangs during home-screen loading.
+- Retain launcher warning messages when selecting files and append specific I/O exception messages to APK validation failures for clear diagnostics.
 
 **Added**
 
