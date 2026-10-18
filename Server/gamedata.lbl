@@ -2284,7 +2284,99 @@ function build_linear_quest_map(qid: text): Json
   jsonout.json_obj([pair_text("hash", "qm_" ++ qid), pair_int("v", 1), pair_text("mapHash", "qm_" ++ qid), pair_int("gridDimension", quest_dim()), jsonout.json_pair("grid", linear_quest_grid(qid)), pair_int("walkableCount", quest_dim()), pair_int("visibleWalkableCount", quest_dim()), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", linear_quest_path())])])), pair_int("overrideZoom", 0)])
 end
 
+-- Scenery: a tile may carry renderTemplate {id, rot}: the board builder instantiates that prefab of the theme library (a landmass island
+-- with its rocks and arches...) with its top-left corner on the tile. Without any, the board is the bare terrain material. The islands
+-- are big, so the story boards are padded with non-walkable filler tiles to the right of and beyond the path and the islands sit on those:
+-- the nodes keep their coordinates and are never covered.
+function scenery_pad(): integer
+  intent: how many filler rows and columns are added to a story board for its scenery
+  6
+end
+
+function filler_row(n: integer): Json
+  intent: a row of filler tiles
+  mutable tiles: a list of Json = []
+  mutable c: integer = 0
+  while c < n do
+    set tiles = append(tiles, filler_tile())
+    set c = c + 1
+  end
+  jsonout.json_list(tiles)
+end
+
+function padded_row(row: Json): Json
+  intent: a board row with filler tiles added on its right
+  mutable tiles: a list of Json = jsonout.list_items(row)
+  mutable c: integer = 0
+  while c < scenery_pad() do
+    set tiles = append(tiles, filler_tile())
+    set c = c + 1
+  end
+  jsonout.json_list(tiles)
+end
+
+function tile_with_scenery(tile: Json, id: text): Json
+  intent: add the render template to a tile
+  jsonout.obj_set(tile, "renderTemplate", jsonout.json_obj([pair_text("id", id), pair_int("rot", 0)]))
+end
+
+function scenery_at(x: integer, y: integer, dim: integer): text
+  intent: place landmass prefabs at the far edge of the padded board, away from story nodes
+  let side3: integer = dim + scenery_pad() - 3
+  let side4: integer = dim + scenery_pad() - 4
+  if x == 0 and y == side3 then
+    "qb_landmass_3x3_01"
+  else if x == side3 and y == 0 then
+    "qb_landmass_3x3_02"
+  else if x == side4 and y == side4 then
+    "qb_landmass_4x4_01"
+  else
+    ""
+  end
+end
+
+function scenery_row(base_row: Json, r: integer, dim: integer): Json
+  intent: add the landmass render templates of the padded board row r
+  mutable tiles: a list of Json = []
+  mutable c: integer = 0
+  for tile in jsonout.list_items(base_row) do
+    let id: text = scenery_at(r, c, dim)
+    set tiles = append(tiles, if id == "" then tile else tile_with_scenery(tile, id) end)
+    set c = c + 1
+  end
+  jsonout.json_list(tiles)
+end
+
+function padded_grid(map: Json, dim: integer): Json
+  intent: the grid of a story board padded with filler tiles and carrying its scenery
+  let n: integer = dim + scenery_pad()
+  let old_rows: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
+  mutable rows: a list of Json = []
+  mutable r: integer = 0
+  while r < n do
+    let base_row: Json = if r < dim then padded_row(unwrap_or(get(old_rows, r), jsonout.json_list([]))) else filler_row(n) end
+    set rows = append(rows, scenery_row(base_row, r, dim))
+    set r = r + 1
+  end
+  jsonout.json_list(rows)
+end
+
+function map_with_scenery(map: Json, qid: text): Json
+  intent: pad a story board and place landmass prefabs on the padded tiles
+  let dim: integer = quest_dim_for(qid)
+  if not is_custom_story_qid(qid) or dim > 5 then
+    map
+  else
+    jsonout.obj_set(jsonout.obj_set(map, "grid", padded_grid(map, dim)), "gridDimension", jsonout.json_int(dim + scenery_pad()))
+  end
+end
+
 public function build_quest_map(qid: text): Json
+  intent: build the quest map for a quest id, with its scenery
+  map_with_scenery(build_quest_map_base(qid), qid)
+end
+
+function build_quest_map_base(qid: text): Json
   intent: build the quest map for a quest id
   if qid == custom_story_act3_qid() then
     build_custom_story_act3_map()
