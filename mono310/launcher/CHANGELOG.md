@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.5.1](#051)
 - [0.5.0](#050)
 - [0.4.3](#043)
 - [0.4.2 (development snapshot)](#042-development-snapshot)
@@ -10,6 +11,13 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.5.1
+
+**Fixed**
+
+- The game stayed on the title screen after the splash screens: the bundled server's `auth/init` reply asked the client to start the Adjust SDK, which the launcher does not contain. The resulting exception ended the client's login start-up. The reply no longer carries an Adjust section.
+- Robust `trees.bin` fallback loading and a guarded boot-screen capture (merged from PR #30); ARM64 build of the latest `development` code.
 
 ## 0.5.0
 
