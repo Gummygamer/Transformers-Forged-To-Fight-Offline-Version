@@ -95,7 +95,9 @@ powershell -ExecutionPolicy Bypass -File mono310\winbuild.ps1 all   # or assembl
 Defaults: `TFTF_WORK=C:\tftf-310-win`, `TFTF_310_APK` in `%USERPROFILE%\Downloads`. Output:
 `%TFTF_WORK%\UnityProject\win\TFTF.exe`. `TFTF_ENDPOINT` is written into
 `Resources/endpointconfig.bytes`; the original APK's streaming assets become the player's
-`StreamingAssets`. The build runs the editor with a window (it quits by itself) because a Unity
+`StreamingAssets`. By default (`TFTF_SHELL=1`) it builds the assetless launcher instead (needs
+`TFTF_TREES_BIN` and a Windows `legible.exe`, `TFTF_LEGIBLE_WIN`); `winbuild.ps1 package` zips it as
+`tftf-launcher-windows-x64-<version>.zip` with a `.sha256` file (see `launcher/CHANGELOG.md`). The build runs the editor with a window (it quits by itself) because a Unity
 Hub Personal license is rejected in `-batchmode`; set `TFTF_UNITY_BATCH=1` with a seat or
 `.ulf` license that batch mode accepts. Open the project once interactively first to activate.
 

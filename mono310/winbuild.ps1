@@ -2,7 +2,7 @@
 # Unity 2020.3.31f1 editor (no Docker). See README.md, "Windows build".
 # Default is the assetless launcher shell (behaviour only; the player converts the user's own 3.1.0 and 9.2.0 APKs
 # on first run). TFTF_SHELL=0 builds the full recompile with the ripped assets baked in (local testing only).
-# Usage: powershell -File mono310\winbuild.ps1 [assemble|assets|build|all]   (default: all)
+# Usage: powershell -File mono310\winbuild.ps1 [assemble|assets|build|package|all]   (default: all; package zips the shell)
 # Reuses an existing rip and decompile (RIPPED, ILSPY_OUT; produced by run.sh rip/decompile).
 param([string]$Step = "all")
 $ErrorActionPreference = "Stop"
@@ -117,10 +117,34 @@ function Step-Build {
     "done: $out"
 }
 
+function Step-Package {  # shell release: TFTF-Revival\ (player + legible.exe) zipped with its SHA-256
+    if (-not $Shell) { throw "only the assetless shell is packaged; the full build carries game assets" }
+    if (-not (Test-Path "$P\win\TFTF.exe") -or -not (Test-Path "$P\win\legible.exe")) { throw "run the build step first" }
+    $version = (Select-String -Path "$Mono310\launcher\shell\Tftf\TftfLauncher.cs" -Pattern 'LauncherVersion = "([^"]+)"').Matches[0].Groups[1].Value
+    $stage = "$env:TFTF_WORK\win-stage"; $out = "$env:TFTF_WORK\tftf-launcher-windows-x64-$version.zip"
+    Remove-Item -Recurse -Force $stage, $out -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory "$stage\TFTF-Revival" | Out-Null
+    Get-ChildItem "$P\win" | Where-Object { $_.Name -notlike "*_DoNotShip" } | Copy-Item -Destination "$stage\TFTF-Revival" -Recurse
+    # Entries written one by one: Compress-Archive and ZipFile.CreateFromDirectory under Windows PowerShell 5.1 put '\'
+    # into entry names, which other unzip tools mishandle.
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::Open($out, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($f in Get-ChildItem $stage -Recurse -File) {
+            $name = $f.FullName.Substring($stage.Length + 1).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $f.FullName, $name, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    } finally { $zip.Dispose() }
+    $hash = (Get-FileHash $out -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -Encoding ascii "$out.sha256" "$hash  $(Split-Path $out -Leaf)"
+    "$out`nsha256 $hash"
+}
+
 switch ($Step) {
     "assemble" { Step-Assemble }
     "assets" { Step-Assets }
     "build" { Step-Build }
+    "package" { Step-Package }
     "all" { Step-Assemble; Step-Assets; Step-Build }
-    default { throw "usage: winbuild.ps1 [assemble|assets|build|all]" }
+    default { throw "usage: winbuild.ps1 [assemble|assets|build|package|all]" }
 }
