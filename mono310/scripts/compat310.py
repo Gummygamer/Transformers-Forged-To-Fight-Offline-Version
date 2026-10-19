@@ -928,12 +928,13 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                       "internal class PackDriver : Driver\n\t{\n"
                       "\t\tstatic string PackPath(string a, string b) => Path.Combine(a, b).Replace('\\\\', '/');\n\n", 1)
         wr(p, t); note("P51 PackDriver joins pack paths with '/' (Windows)")
-    # P52: the story map and base cameras only read touches (taps on nodes are raycast on touch Began/Ended), so a mouse
-    # cannot move on the map. Route them through the shell's TftfInput, which is a pass-through on phones and turns the
-    # left mouse button into one finger on a PC. Shell only: TftfInput ships with the launcher sources.
+    # P52: the story map and base cameras and the fight controls (ActionButton tap/hold zones, SwipeDetection) only read
+    # touches: their Simulate/LateUpdate never call the mouse variants, so a mouse cannot move on the map or attack.
+    # Route them through the shell's TftfInput, which is a pass-through on phones and turns the left mouse button into
+    # one finger on a PC. Shell only: TftfInput ships with the launcher sources.
     if os.environ.get("TFTF_SHELL") == "1":
         for rel in ("Quests/Presentation/QuestCameraController.cs", "Quests/Presentation/GameboardCameraController.cs",
-                    "Quests/Presentation/BaseCameraController.cs"):
+                    "Quests/Presentation/BaseCameraController.cs", "ActionButton.cs", "SwipeDetection.cs"):
             p = main / rel
             if not p.exists():
                 continue

@@ -1,6 +1,7 @@
-// Newly authored. Touch input for the story map and base cameras (compat310.py P52 routes their Input.touchCount and
-// Input.GetTouch through here). Phones pass straight through; on a PC the left mouse button is one finger, so a click
-// taps a map node and a drag pans the board. A click shorter than a frame still reports Began, then Ended next frame.
+// Newly authored. Touch input for the story map and base cameras and the fight controls (compat310.py P52 routes their
+// Input.touchCount and Input.GetTouch through here). Phones pass straight through; on a PC the left mouse button is one
+// finger: a click taps a map node or attacks, a drag pans the board or swipes, holding blocks. A click shorter than a
+// frame still reports Began, then Ended next frame.
 using UnityEngine;
 
 public static class TftfInput
