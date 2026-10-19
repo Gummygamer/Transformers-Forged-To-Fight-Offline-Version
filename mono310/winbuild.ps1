@@ -17,7 +17,9 @@ Default TFTF_WORK "C:\tftf-310-win"
 Default TFTF_310_APK "$env:USERPROFILE\Downloads\com.kabam.bigrobot_v3.1.0-822754_Android-4.4.apk"
 Default TFTF_92_APK "$Repo\transformers-forged-to-fight-9-2-0.apk"
 Default TFTF_TREES_BIN "$env:TFTF_WORK\treedb\trees.bin"      # run.sh treedb; shell only
-Default TFTF_LEGIBLE_WIN "$env:TFTF_WORK\legible-target\release\legible.exe"   # shell only
+# shell only: legible-lang's development branch (short-circuit and/or, which the server scripts rely on), built with
+# cargo build --release --no-default-features --bin legible
+Default TFTF_LEGIBLE_WIN "$env:TFTF_WORK\legible-target-dev\release\legible.exe"
 Default RIPPED "$env:TFTF_WORK\ripped"
 Default ILSPY_OUT "$env:TFTF_WORK\ilspy-out"
 Default PROJECT ("$env:TFTF_WORK\" + $(if ($Shell) { "ShellProject" } else { "UnityProject" }))

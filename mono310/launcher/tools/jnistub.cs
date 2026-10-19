@@ -16,6 +16,7 @@ string dir = args[0];
 bool listOnly = args.Contains("--list");
 
 // Return values that keep game start-up code on sane paths instead of null/0.
+const string GrantCallback = "<invoke callback (true, requestCode)>";
 var overrides = new Dictionary<string, object>
 {
     ["EB.Version::GetCountryCode"] = "US",
@@ -27,6 +28,8 @@ var overrides = new Dictionary<string, object>
     ["APKSignature::get_IsValid"] = true,       // anti-tamper checks pass on a PC build
     ["JarExtractor::get_IsValid"] = true,
     ["EB.DriveInfo::GetAvailableSpaceInBytes"] = 100L << 30,   // 0 makes the ODR download refuse to unpack the WAD
+    // A PC has no runtime permissions: answer every request as granted (the boot flow waits for this callback).
+    ["EB.Permissions::RequestPermissionsInternal"] = GrantCallback,
 };
 
 static bool IsJni(TypeReference t)
@@ -77,7 +80,17 @@ void Stub(MethodDefinition m, ModuleDefinition module)
         il.Emit(OpCodes.Ldarg, p);
         il.Emit(OpCodes.Initobj, et);
     }
-    if (ret.MetadataType == MetadataType.Void) { }
+    if (ReferenceEquals(v, GrantCallback))
+    {   // callback(true, requestCode) when a callback was passed: (string[] keys, OnPermissionResult callback, int code, ...)
+        var done = il.Create(OpCodes.Nop);
+        var invoke = m.Parameters[1].ParameterType.Resolve().Methods.First(x => x.Name == "Invoke");
+        il.Emit(OpCodes.Ldarg, m.Parameters[1]); il.Emit(OpCodes.Brfalse, done);
+        il.Emit(OpCodes.Ldarg, m.Parameters[1]); il.Emit(OpCodes.Ldc_I4_1); il.Emit(OpCodes.Ldarg, m.Parameters[2]);
+        il.Emit(OpCodes.Callvirt, module.ImportReference(invoke));
+        il.Append(done);
+    }
+    else if (ret.MetadataType == MetadataType.Void) { }
+    else if (ret.IsArray) { il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Newarr, ((ArrayType)ret).ElementType); }   // "none", not null
     else if (v is string s) il.Emit(OpCodes.Ldstr, s);
     else if (v is int n) il.Emit(OpCodes.Ldc_I4, n);
     else if (v is bool b) il.Emit(b ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
