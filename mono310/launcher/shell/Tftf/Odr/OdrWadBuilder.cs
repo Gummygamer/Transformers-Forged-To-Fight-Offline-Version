@@ -27,8 +27,10 @@ namespace Tftf.Odr
 
         sealed class Entry { public string Name; public long DataOffset; public uint Crc; public long Size; }
 
-        /// <summary>Builds toc.wad, toc.zip and manifest.json in outDir from the 9.2.0 APK.</summary>
-        public static void Build(string donorApk, string outDir, string cdn, string cl, Action<string> log, bool writeZip = true)
+        /// <summary>Builds toc.wad, toc.zip and manifest.json in outDir from the 9.2.0 APK. bundleTransform, when set,
+        /// rewrites every bundle before it is stored (the Windows player restamps the build target).</summary>
+        public static void Build(string donorApk, string outDir, string cdn, string cl, Action<string> log, bool writeZip = true,
+            Func<byte[], byte[]> bundleTransform = null)
         {
             var packs = new List<string>(BasePacks);
             packs.AddRange(CharacterPacks.Where(c => !packs.Contains(c)));
@@ -94,13 +96,26 @@ namespace Tftf.Odr
                 {
                     foreach (var pack in packs)
                     {
+                        var packBundles = (JObj)tocs[pack]["bundles"];
+                        var names = packBundles.Items.Select(k => k.Key).OrderBy(k => k, StringComparer.Ordinal).ToList();
+                        var transformed = new Dictionary<string, byte[]>();
+                        if (bundleTransform != null)
+                            foreach (var bname in names)      // before the toc is written: its size fields must match
+                            {
+                                var ms = new MemoryStream((int)bundleSrc[bname].Value.Length);
+                                using (var s = bundleSrc[bname].Value.Open()) s.CopyTo(ms);
+                                transformed[bname] = bundleTransform(ms.ToArray());
+                                ((JObj)packBundles[bname])["size"] = (long)transformed[bname].Length;
+                            }
                         string tname = pack + "/toc.txt";
                         var body = Encoding.UTF8.GetBytes(JsonLite.Write(tocs[pack], true) + "\n");
                         entries.Add(StoreBytes(wad, tname, body));
                         tocNames.Add(tname);
-                        foreach (var bname in ((JObj)tocs[pack]["bundles"]).Items.Select(k => k.Key).OrderBy(k => k, StringComparer.Ordinal))
+                        foreach (var bname in names)
                         {
-                            var e = StoreStream(wad, bundleFile[bname], bundleSrc[bname].Value);
+                            byte[] data;
+                            var e = transformed.TryGetValue(bname, out data) ? StoreBytes(wad, bundleFile[bname], data)
+                                : StoreStream(wad, bundleFile[bname], bundleSrc[bname].Value);
                             entries.Add(e);
                             bundleOffsets.Add(new KeyValuePair<string, long>(bname, e.DataOffset));
                         }
