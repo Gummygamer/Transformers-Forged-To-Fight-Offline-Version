@@ -53,6 +53,12 @@ namespace Tftf.Convert
                 if ((nf & 4) != 0) StampPlatform(node.Data, platform);
                 nodes.Add(node);
             }
+            if (TextureTranscode.EtcToBc1)
+            {
+                var byName = new Dictionary<string, byte[]>();
+                foreach (var n in nodes) byName[n.Name] = n.Data;
+                foreach (var n in nodes) if ((n.Flags & 4) != 0) TextureTranscode.TranscodeSerializedFile(n.Data, byName);
+            }
             return UnityFsWriter.Write(nodes, engine);
         }
 

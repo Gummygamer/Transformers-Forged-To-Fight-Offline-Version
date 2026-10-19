@@ -32,7 +32,7 @@ public sealed class ZipDataSource : IPlayerDataSource
 public static class TftfInstaller
 {
 #if UNITY_STANDALONE_WIN
-    public const int Version = 3;                                     // bump to force a reinstall
+    public const int Version = 4;                                     // bump to force a reinstall
     const int BundlePlatform = 19;     // StandaloneWindows64: the player refuses the APKs' bundles stamped for Android
 #else
     public const int Version = 2;                                     // bump to force a reinstall
@@ -81,6 +81,11 @@ public static class TftfInstaller
     {
         Directory.CreateDirectory(root);
         try { File.Delete(Path.Combine(root, "ready.txt")); } catch { }
+        if (BundlePlatform != 0)
+        {
+            SerializedFile.TargetPlatform = BundlePlatform;
+            TextureTranscode.EtcToBc1 = true;     // the PC player cannot sample ETC1; DXT1 has the same block size
+        }
 
         using (var z310 = new ZipArchive(File.OpenRead(apk310), ZipArchiveMode.Read))
         {
@@ -101,7 +106,6 @@ public static class TftfInstaller
             }
 
             Step("Converting game data", 0.2f);
-            if (BundlePlatform != 0) SerializedFile.TargetPlatform = BundlePlatform;
             var stats = new ConvertStats();
             var bundle = PlayerDataConverter.Convert(new ZipDataSource(z310), TreeDb.Load(treesBin), stats, s => { });
             File.WriteAllBytes(Path.Combine(root, "resources.bundle.tmp"), bundle);
