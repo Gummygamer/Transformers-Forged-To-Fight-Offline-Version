@@ -71,7 +71,16 @@ Shader "EBG/UI/BlendColored"
 
             fixed4 frag(v2f input) : SV_Target
             {
-                return tex2D(_MainTex, input.texcoord) * input.color;
+                fixed4 col = tex2D(_MainTex, input.texcoord);
+                // In Unity 2020, Alpha8 font textures sample as (0, 0, 0, A).
+                // If RGB is black but alpha is non-zero, treat as an alpha font glyph and use input.color.rgb:
+                if (col.r == 0.0 && col.g == 0.0 && col.b == 0.0 && col.a > 0.0)
+                {
+                    col.rgb = input.color.rgb;
+                    col.a *= input.color.a;
+                    return col;
+                }
+                return col * input.color;
             }
             ENDCG
         }
