@@ -42,7 +42,11 @@ namespace Tftf.Convert
     public sealed class SerializedFile
     {
         public string UnityVersion = "5.3.5p8";
-        public int Platform = 13;
+        public int Platform = 13;                  // platform read from a source file (informational only)
+        // Build target stamped into every bundle this converter writes. Unity refuses to load an
+        // AssetBundle whose target does not match the host player (Android = 13, StandaloneWindows64 = 19).
+        // The installer sets this to the running platform before conversion; it defaults to the phone build.
+        public static int TargetPlatform = 13;
         public bool HasTypeTree;
         public readonly List<SerType> Types = new List<SerType>();
         public readonly List<SerObject> Objects = new List<SerObject>();
@@ -152,7 +156,7 @@ namespace Tftf.Convert
         {
             var meta = new ByteWriter();
             meta.CStr(UnityVersion);
-            meta.I32(Platform);
+            meta.I32(TargetPlatform);
             meta.U8(HasTypeTree ? 1 : 0);
             meta.I32(Types.Count);
             foreach (var t in Types)

@@ -17,6 +17,15 @@ public class TftfBootstrap : MonoBehaviour
             return true;
         }
         catch (System.Exception e) { Debug.LogWarning("[TFTF] restart failed: " + e.Message); return false; }
+#elif UNITY_STANDALONE_WIN && !UNITY_EDITOR
+        try
+        {
+            string exe = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+            System.Diagnostics.Process.Start(exe);
+            Application.Quit();
+            return true;
+        }
+        catch (System.Exception e) { Debug.LogWarning("[TFTF] restart failed: " + e.Message); return false; }
 #else
         return false;
 #endif

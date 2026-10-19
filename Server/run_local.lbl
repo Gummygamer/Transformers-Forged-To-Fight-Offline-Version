@@ -23,6 +23,9 @@ end
 
 function non_loopback_ipv4_addresses(): text
   intent: get
+  -- Windows legible has no POSIX shell, so shell_exec aborts the process fatally; skip the
+  -- advisory LAN-IP listing there (local play binds 127.0.0.1 and never needs it).
+  if unwrap_or(env_get("OS"), "") == "Windows_NT" then return "" end
   let listed: a mapping from text to text = shell_exec("hostname -I 2>/dev/null")
   let raw: text = trim(unwrap_or(get(listed, "stdout"), ""))
   if raw == "" then "" else

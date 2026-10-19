@@ -8,6 +8,11 @@ using UnityEngine.Networking;
 public sealed class TftfLauncher : MonoBehaviour
 {
     public const string LauncherVersion = "0.5.2";      // the launcher's own version; the game inside stays 3.1.0
+#if UNITY_STANDALONE_WIN
+    const string DeviceName = "PC";
+#else
+    const string DeviceName = "phone";
+#endif
     public const bool RestartAfterInstall = true;
     string _root;
     string[] _names = { "", "" };
@@ -35,7 +40,7 @@ public sealed class TftfLauncher : MonoBehaviour
 
     IEnumerator Start()
     {
-        var req = UnityWebRequest.Get(Application.streamingAssetsPath + "/trees.bin");
+        var req = UnityWebRequest.Get(StreamUrl("trees.bin"));
         yield return req.SendWebRequest();
         if (req.result == UnityWebRequest.Result.Success) _trees = req.downloadHandler.data;
         else _trees = ResolveTrees();
@@ -59,9 +64,18 @@ public sealed class TftfLauncher : MonoBehaviour
             }
         }
         catch (System.Exception e) { Debug.LogWarning("[TFTF] autopick failed: " + e.Message); }
-        var logo = UnityWebRequestTexture.GetTexture(Application.streamingAssetsPath + "/revival-icon.png");
+        var logo = UnityWebRequestTexture.GetTexture(StreamUrl("revival-icon.png"));
         yield return logo.SendWebRequest();
         if (logo.result == UnityWebRequest.Result.Success) _logo = DownloadHandlerTexture.GetContent(logo);
+    }
+
+    public static string StreamUrl(string name)
+    {
+#if UNITY_STANDALONE_WIN
+        return "file:///" + Path.Combine(Application.streamingAssetsPath, name).Replace('\\', '/');
+#else
+        return Application.streamingAssetsPath + "/" + name;
+#endif
     }
 
     static byte[] ResolveTrees()
@@ -101,6 +115,9 @@ public sealed class TftfLauncher : MonoBehaviour
     // be lost when Android recreated the activity): name = display name, "" = cancelled.
     void Poll()
     {
+#if UNITY_STANDALONE_WIN
+        PollWindows();
+#endif
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
@@ -133,6 +150,48 @@ public sealed class TftfLauncher : MonoBehaviour
 #endif
     }
 
+#if UNITY_STANDALONE_WIN
+    // Windows: the standard file dialog, opened through PowerShell (Windows Forms); the result is read back by Poll().
+    string[] _pickedWin = { null, null };
+    bool[] _pickingWin = { false, false };
+
+    void PickWindows(int slot)
+    {
+        if (_pickingWin[slot]) return;
+        _pickingWin[slot] = true;
+        string title = slot == 0 ? "Select the 3.1.0 APK" : "Select the 9.2.0 APK";
+        var t = new System.Threading.Thread(() =>
+        {
+            string result = "";
+            try
+            {
+                string ps = "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = '" + title + "'; $d.Filter = 'Android packages (*.apk)|*.apk|All files (*.*)|*.*'; if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.FileName) }";
+                var psi = new System.Diagnostics.ProcessStartInfo("powershell.exe", "-NoProfile -STA -ExecutionPolicy Bypass -Command \"" + ps + "\"")
+                { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
+                using (var proc = System.Diagnostics.Process.Start(psi)) { result = proc.StandardOutput.ReadToEnd().Trim(); proc.WaitForExit(); }
+            }
+            catch (System.Exception) { }
+            _pickedWin[slot] = result;
+        });
+        t.IsBackground = true;
+        t.Start();
+    }
+
+    void PollWindows()
+    {
+        for (int slot = 0; slot < 2; slot++)
+        {
+            string r = _pickedWin[slot];
+            if (r == null) continue;
+            _pickedWin[slot] = null;
+            _pickingWin[slot] = false;
+            if (r.Length == 0) continue;
+            _names[slot] = Path.GetFileName(r);
+            Accept(slot, r);
+        }
+    }
+#endif
+
     bool[] _copying = { false, false };
     string[] _copyDest = { "", "" };
 
@@ -157,6 +216,9 @@ public sealed class TftfLauncher : MonoBehaviour
             using (var fs = new AndroidJavaObject("android.os.StatFs", Application.persistentDataPath))
                 return fs.Call<long>("getAvailableBytes");
         }
+        catch { return -1; }
+#elif UNITY_STANDALONE_WIN
+        try { return new DriveInfo(Path.GetPathRoot(Application.persistentDataPath)).AvailableFreeSpace; }
         catch { return -1; }
 #else
         return -1;
@@ -190,6 +252,8 @@ public sealed class TftfLauncher : MonoBehaviour
         using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
         using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
             activity.Call("tftfPickFile", slot);
+#elif UNITY_STANDALONE_WIN
+        PickWindows(slot);
 #endif
     }
 
@@ -218,7 +282,7 @@ public sealed class TftfLauncher : MonoBehaviour
         float tx = x;
         if (_logo != null) { GUI.DrawTexture(new Rect(x, 12, 84, 84), _logo); tx = x + 96; }
         GUI.Label(new Rect(tx, 16, 560 - (tx - x), 40), "Transformers: Forged to Fight - revival launcher", _label);
-        GUI.Label(new Rect(tx, 58, 560 - (tx - x), 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your phone.", _small);
+        GUI.Label(new Rect(tx, 58, 560 - (tx - x), 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your " + DeviceName + ".", _small);
         GUI.Label(new Rect(x, h - 30, 560, 24), "Launcher " + LauncherVersion + "  (game build 3.1.0-822754)", _small);
         if (_installing)
         {

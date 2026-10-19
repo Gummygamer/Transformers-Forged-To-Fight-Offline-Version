@@ -95,6 +95,9 @@ public static class TftfInstaller
             }
 
             Step("Converting game data", 0.2f);
+#if UNITY_STANDALONE_WIN
+            SerializedFile.TargetPlatform = 19;   // StandaloneWindows64: the player refuses bundles stamped for Android
+#endif
             var stats = new ConvertStats();
             var bundle = PlayerDataConverter.Convert(new ZipDataSource(z310), TreeDb.Load(treesBin), stats, s => { });
             File.WriteAllBytes(Path.Combine(root, "resources.bundle.tmp"), bundle);

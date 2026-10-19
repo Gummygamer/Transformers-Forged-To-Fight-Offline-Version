@@ -2282,6 +2282,9 @@ end
 
 function timestamp(): text
   intent: get
+  -- Windows legible has no POSIX shell; `date` via shell_exec aborts the process. Use the
+  -- portable millisecond clock there instead of the HH:MM:SS.mmm string.
+  if unwrap_or(env_get("OS"), "") == "Windows_NT" then return to_text(current_time_ms()) end
   trim(unwrap_or(get(shell_exec("date +%H:%M:%S.%3N"), "stdout"), ""))
 end
 

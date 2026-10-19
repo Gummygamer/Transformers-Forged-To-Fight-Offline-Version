@@ -25,7 +25,7 @@ public sealed class TftfSplash : MonoBehaviour
 
     IEnumerator Run()
     {
-        var req = UnityWebRequestTexture.GetTexture(Application.streamingAssetsPath + "/revival-splash.png");
+        var req = UnityWebRequestTexture.GetTexture(TftfLauncher.StreamUrl("revival-splash.png"));
         yield return req.SendWebRequest();
         if (req.result != UnityWebRequest.Result.Success) yield break;      // no splash is better than a broken one
         _logo = DownloadHandlerTexture.GetContent(req);
