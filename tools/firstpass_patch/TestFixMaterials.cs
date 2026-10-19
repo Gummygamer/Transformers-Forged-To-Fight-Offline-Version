@@ -16,7 +16,7 @@ public static class TestTftfFix
             Material mat = materials[i];
             if (mat == null) continue;
 
-            Texture mainTex = mat.mainTexture;
+            Texture mainTex = mat.HasProperty("_MainTex") ? mat.mainTexture : null;
             Texture2D ft = mainTex as Texture2D;
             bool isAlpha8Font = ft != null && ft.format == TextureFormat.Alpha8;
             string texName = (mainTex != null && mainTex.name != null) ? mainTex.name : string.Empty;

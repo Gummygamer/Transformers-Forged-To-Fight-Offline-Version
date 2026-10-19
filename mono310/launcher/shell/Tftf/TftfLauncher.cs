@@ -57,6 +57,18 @@ public sealed class TftfLauncher : MonoBehaviour
                     _paths[slot] = path; _names[slot] = Path.GetFileName(path);
                 }
             }
+            for (int slot = 0; slot < 2; slot++)
+            {
+                if (string.IsNullOrEmpty(_paths[slot]))
+                {
+                    string candidate = Path.Combine(_root, "picked_" + slot + ".apk");
+                    if (File.Exists(candidate) && Validate(candidate, slot) == null)
+                    {
+                        _paths[slot] = candidate;
+                        _names[slot] = Path.GetFileName(candidate);
+                    }
+                }
+            }
         }
         catch (System.Exception e) { Debug.LogWarning("[TFTF] autopick failed: " + e.Message); }
         var logo = UnityWebRequestTexture.GetTexture(Application.streamingAssetsPath + "/revival-icon.png");
