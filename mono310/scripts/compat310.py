@@ -919,6 +919,15 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                "S29 AllianceMembersState recovered string switch initialized")
     # P26: honouring hold=true pins preloaded libraries and stalls the preload manager here; keep the previous behaviour
     replace_in(fp, "EB/AssetManager.cs", "bool hold2 = hold;", "bool hold2 = false;", "P26 AssetManager hold pinning disabled")
+    # P51: Path.Combine joins pack paths with '\' on Windows, but WAD and pack entries are '/'-keyed ("Missing asset bundle
+    # file: x_odr\x.assetbundle"). Route PackDriver's joins through a '/' join (no-op on Android; Windows file APIs accept '/').
+    p = fp / "EB/FileSystem/PackDriver.cs"
+    if p.exists() and "PackPath(" not in rd(p):
+        t = rd(p).replace("Path.Combine(", "PackPath(")
+        t = t.replace("internal class PackDriver : Driver\n\t{\n",
+                      "internal class PackDriver : Driver\n\t{\n"
+                      "\t\tstatic string PackPath(string a, string b) => Path.Combine(a, b).Replace('\\\\', '/');\n\n", 1)
+        wr(p, t); note("P51 PackDriver joins pack paths with '/' (Windows)")
     p = fp / "EB/FileSystem/ZipDriver.cs"   # P7 (same fix as 2.0.2): SharpZipLib asks for OEM code page 850/437
     if p.exists():
         t = rd(p)

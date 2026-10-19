@@ -128,9 +128,10 @@ public static class TftfInstaller
             if (s.StartsWith("wad ", StringComparison.Ordinal) && ++packs <= 80) Progress = 0.45f + 0.5f * packs / 80f;
         }, writeZip: false, bundleTransform: BundlePlatform != 0 ? b => BundleRetarget.Retarget(b, BundlePlatform) : (Func<byte[], byte[]>)null);
         // The game would download the package from the content server and unpack it into its cache (minutes). Put the
-        // finished WAD where that unpacking would leave it: <cache>/<sha1 of "<url path>/<wad name>">.wad.
+        // finished WAD where that unpacking would leave it: <cache>/<sha1 of Path.Combine(url path, wad name)>.wad
+        // (DownloadExtractor joins them with Path.Combine, so the separator is '\' on Windows).
         Directory.CreateDirectory(odrCacheDir);
-        string cached = Path.Combine(odrCacheDir, Sha1Hex("/odr/wad/toc.zip/toc.wad") + ".wad");
+        string cached = Path.Combine(odrCacheDir, Sha1Hex(Path.Combine("/odr/wad/toc.zip", "toc.wad")) + ".wad");
         if (File.Exists(cached)) File.Delete(cached);
         File.Move(Path.Combine(odr, "toc.wad"), cached);
 

@@ -108,6 +108,9 @@ function Step-Build {
         Select-String -Path $log -Pattern "error CS" | Select-Object -First 20 | ForEach-Object { $_.Line }
         throw "Unity Windows build failed (exit $($u.ExitCode)); see $log"
     }
+    # The Android build's SDK glue (JNI, Android-only native libraries) throws on a PC player: stub it (needs the .NET 10 SDK).
+    & dotnet run --file "$Mono310\launcher\tools\jnistub.cs" -- "$P\win\TFTF_Data\Managed"
+    if ($LASTEXITCODE) { throw "jnistub failed ($LASTEXITCODE)" }
     if ($Shell) { Copy-Item $env:TFTF_LEGIBLE_WIN "$P\win\legible.exe" }   # TftfServer starts it from next to TFTF.exe
     "done: $out"
 }
