@@ -2288,7 +2288,7 @@ end
 -- with its rocks and arches...) with its top-left corner on the tile. Without any, the board is the bare terrain material. The islands
 -- are big, so the story boards are padded with non-walkable filler tiles to the right of and beyond the path and the islands sit on those:
 -- the nodes keep their coordinates and are never covered.
-function scenery_pad(): integer
+public function scenery_pad(): integer
   intent: how many filler rows and columns are added to a story board for its scenery
   6
 end

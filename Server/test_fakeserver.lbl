@@ -430,7 +430,7 @@ function test_nested_won_with_board_qid_advances(): boolean
   fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
   let reply: text = resolve("\{\"results\":\{\"result\":\"WON\"\},\"qid\":\"1.1.1-0\"\}")
   let moved: text = fakeserver.dynamic("/quests/quest-movedir/1.1.1-0/1/0", "")
-  reply == "" and pos_x(moved) == 2
+  contains_text(reply, "\"match-resolved\"") and contains_text(reply, "\"battlecomplete\"") and pos_x(moved) == 2
 end
 
 function test_completed_node_does_not_replay_on_zero_offset_or_rebegin(): boolean

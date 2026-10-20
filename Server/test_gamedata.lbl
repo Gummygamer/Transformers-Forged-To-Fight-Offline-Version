@@ -737,7 +737,7 @@ function test_standalone_map_tiles_and_dialogue_triggers(): boolean
   let tile2: Json = standalone_tile(grid, 2)
   let tile3: Json = standalone_tile(grid, 3)
   let tile4: Json = standalone_tile(grid, 4)
-  jsonout.as_int(jsonout.obj_get(map, "gridDimension")) == 5 and jsonout.as_bool(jsonout.obj_get(tile1, "walkable")) and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "barricade_cin_dotm" and jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_starscream_duststorm" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_starscream_device" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "tantrum_gs_kabam" and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and standalone_starscream_finale_ok(tile3, tile4)
+  gamedata.quest_dim_for(qid) == 5 and length(grid) == jsonout.as_int(jsonout.obj_get(map, "gridDimension")) and jsonout.as_bool(jsonout.obj_get(tile1, "walkable")) and jsonout.as_text(jsonout.obj_get(tile1, "boss")) == "barricade_cin_dotm" and jsonout.as_text(jsonout.obj_get(tile1, "dialogue")) == "custom_starscream_duststorm" and jsonout.as_text(jsonout.obj_get(tile1, "dialoguePE")) == "custom_starscream_device" and jsonout.as_text(jsonout.obj_get(tile2, "boss")) == "tantrum_gs_kabam" and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and standalone_starscream_finale_ok(tile3, tile4)
 end
 
 function test_standalone_dialogue_is_exact_and_ordered(): boolean
@@ -805,7 +805,7 @@ end
 
 function test_custom_story_has_independent_identity_and_compact_map_part2(qid: text, map: Json, grid: a list of Json): boolean
   intent: test
-  gamedata.quest_dim_for(qid) == 4 and length(grid) == 4 and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == 4 and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 4
+  gamedata.quest_dim_for(qid) == 4 and length(grid) == jsonout.as_int(jsonout.obj_get(map, "gridDimension")) and length(jsonout.list_items(unwrap_or(get(grid, 0), jsonout.json_list([])))) == length(grid) and jsonout.as_int(jsonout.obj_get(map, "walkableCount")) == 4
 end
 
 function test_custom_story_has_independent_identity_and_compact_map(): boolean
@@ -879,7 +879,7 @@ end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part1(act2_summary: Json, act2_map: Json, act2_grid: a list of Json, act2_tile1: Json, act2_entities1: Json): boolean
   intent: test
-  jsonout.as_int(jsonout.obj_get(act2_summary, "act")) == 2 and jsonout.as_int(jsonout.obj_get(act2_map, "gridDimension")) == 4 and length(act2_grid) == 4 and jsonout.as_text(jsonout.obj_get(act2_tile1, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile1, "boss")) == "bumblebee_gs_kabam" and jsonout.obj_has(act2_entities1, "bumblebee_gs_kabam")
+  jsonout.as_int(jsonout.obj_get(act2_summary, "act")) == 2 and gamedata.quest_dim_for(gamedata.custom_story_act2_qid()) == 4 and length(act2_grid) == jsonout.as_int(jsonout.obj_get(act2_map, "gridDimension")) and jsonout.as_text(jsonout.obj_get(act2_tile1, "dialogue")) == "custom_act2_intro" and jsonout.as_text(jsonout.obj_get(act2_tile1, "boss")) == "bumblebee_gs_kabam" and jsonout.obj_has(act2_entities1, "bumblebee_gs_kabam")
 end
 
 function test_custom_story_encounter_is_bludgeon_then_starscream_then_ironhide_then_act2_kickback_mirage_then_bumblebee_act2_part2(act2_tile1: Json, act2_image: Json, act2_moved1: Json, act2_battle1: Json): boolean
