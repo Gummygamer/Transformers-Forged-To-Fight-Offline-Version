@@ -394,6 +394,25 @@ function test_quest_list_slots_fit_client_summary_tables(): boolean
   ok
 end
 
+function test_every_custom_story_quest_is_unlocked_by_progression(): boolean
+  intent: test
+  -- QuestSummary._unlocked is only ever set from /quests/quest-progression.
+  -- A custom story quest listed without an unlocked entry stays locked behind
+  -- "Unlock by completing the preceding Mission" for good.
+  let story: Json = jsonout.obj_get(result(fakeserver.resolve_response("GET", "/quests/quest-progression").body), "Story")
+  let sets: a list of Json = jsonout.list_items(result(fakeserver.resolve_response("GET", "/quests/quest-list").body))
+  mutable ok: boolean = true
+  for quest_set in sets do
+    for quest in jsonout.list_items(jsonout.obj_get(quest_set, "availableQuests")) do
+      let qid: text = jsonout.as_text(jsonout.obj_get(quest, "id"))
+      if starts_with(qid, "2.") then
+        set ok = ok and jsonout.obj_has(story, qid) and jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(story, qid), "unlocked"))
+      end
+    end
+  end
+  ok
+end
+
 function test_movedir_walks_full_board_after_wins(): boolean
   intent: test
   fakeserver.reset_saved_team()
@@ -698,6 +717,7 @@ function main_group_4(): integer
   set failed = failed + report("test_login_survives_garbage_body", test_login_survives_garbage_body())
   set failed = failed + report("test_odr_manifest_served_from_dir", test_odr_manifest_served_from_dir())
   set failed = failed + report("test_odr_manifest_missing_dir_falls_back", test_odr_manifest_missing_dir_falls_back())
+  set failed = failed + report("test_every_custom_story_quest_is_unlocked_by_progression", test_every_custom_story_quest_is_unlocked_by_progression())
   failed
 end
 
