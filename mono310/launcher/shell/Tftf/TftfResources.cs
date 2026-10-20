@@ -231,10 +231,13 @@ public static class TftfResources
         int fixedCount = 0, missing = 0;
         foreach (var m in materials)
         {
-            // A dynamic font's material that ended up on a colour shader (Sprites/Default) draws its alpha-only font texture as black
-            // glyphs (an Alpha8 texture samples as rgb 0): give it the text shader, which takes the colour from the tint.
+            // A dynamic font's material that ended up on a colour shader draws its alpha-only font texture as black
+            // glyphs (an Alpha8 texture samples as rgb 0 in Unity 2020): give it the text shader, which takes the colour from the tint.
             var ft = m.HasProperty("_MainTex") ? m.mainTexture as Texture2D : null;     // mainTexture logs an error on a material without _MainTex
-            if (ft != null && ft.format == TextureFormat.Alpha8 && m.shader != null && m.shader.name == "Sprites/Default")
+            bool isAlpha8Font = ft != null && ft.format == TextureFormat.Alpha8;
+            bool isFontNamed = (ft != null && ft.name != null && (ft.name.IndexOf("font", StringComparison.OrdinalIgnoreCase) >= 0 || ft.name.IndexOf("arial", StringComparison.OrdinalIgnoreCase) >= 0))
+                            || (m.name != null && m.name.IndexOf("font", StringComparison.OrdinalIgnoreCase) >= 0);
+            if ((isAlpha8Font || isFontNamed) && m.shader != null && m.shader.name != "TFTF/Text" && !m.shader.name.StartsWith("GUI/Text"))
             {
                 var ts = ShaderFallback.Find("TFTF/Text");
                 if (ts != null) { m.shader = ts; fixedCount++; }

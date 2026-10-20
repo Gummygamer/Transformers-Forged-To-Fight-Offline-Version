@@ -35,7 +35,11 @@ public static class Recompile310Build
         var scene = UnityEditor.SceneManagement.EditorSceneManager.NewScene(
             UnityEditor.SceneManagement.NewSceneSetup.EmptyScene, UnityEditor.SceneManagement.NewSceneMode.Single);
         var go = new GameObject("TftfBootstrap");
-        go.AddComponent<TftfBootstrap>();
+        // By name: TftfBootstrap exists only in the shell project, and this file is also compiled into the full one.
+        var bootstrap = System.AppDomain.CurrentDomain.GetAssemblies()
+            .Select(a => a.GetType("TftfBootstrap")).FirstOrDefault(t => t != null);
+        if (bootstrap == null) throw new System.InvalidOperationException("TftfBootstrap not found (shell project only).");
+        go.AddComponent(bootstrap);
         UnityEditor.SceneManagement.EditorSceneManager.SaveScene(scene, path);
         return path;
     }
@@ -45,11 +49,13 @@ public static class Recompile310Build
         if (System.Environment.GetEnvironmentVariable("TFTF_310_NO_INCLUDE") != "1") IncludeShaders();
         // Batch builds run with an isolated HOME, so select this editor's
         // bundled Android toolchain instead of relying on user EditorPrefs.
+#if UNITY_ANDROID   // the Android module (and this API) is absent from editors without Android support
         string androidPlayer = System.IO.Path.Combine(
             EditorApplication.applicationContentsPath, "PlaybackEngines/AndroidPlayer");
         UnityEditor.Android.AndroidExternalToolsSettings.jdkRootPath = System.IO.Path.Combine(androidPlayer, "OpenJDK");
         UnityEditor.Android.AndroidExternalToolsSettings.sdkRootPath = System.IO.Path.Combine(androidPlayer, "SDK");
         UnityEditor.Android.AndroidExternalToolsSettings.ndkRootPath = System.IO.Path.Combine(androidPlayer, "NDK");
+#endif
 
         // NGUI raycasts physics colliders that layout code and tweens move every
         // frame; Unity 5 synced transforms automatically, Unity 2020 does not.
@@ -115,16 +121,19 @@ public static class Recompile310Build
         EditorApplication.Exit(0);
     }
 
-    // Windows 11 (x64) build of the assetless launcher shell. Output: a folder holding TFTF.exe and its data.
+    // Windows 11 (x64) Mono build of the assetless launcher shell (TFTF_SHELL=1) or of the full
+    // recompiled client (its enabled build scenes). Output: a folder holding TFTF.exe and its data.
     public static void BuildWindows()
     {
-        if (System.Environment.GetEnvironmentVariable("TFTF_SHELL") != "1")
-            throw new System.InvalidOperationException("The Windows build is only supported for the assetless launcher shell.");
+        bool shell = System.Environment.GetEnvironmentVariable("TFTF_SHELL") == "1";
         if (System.Environment.GetEnvironmentVariable("TFTF_310_NO_INCLUDE") != "1") IncludeShaders();
         Physics.autoSyncTransforms = true;
         PlayerSettings.bundleVersion = "3.1.0";
-        PlayerSettings.productName = "Transformers Forged to Fight Revival";
-        PlayerSettings.companyName = "Unicron's Lair";
+        if (shell)
+        {
+            PlayerSettings.productName = "Transformers Forged to Fight Revival";
+            PlayerSettings.companyName = "Unicron's Lair";
+        }
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
         PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
         PlayerSettings.stripEngineCode = false;
@@ -133,9 +142,13 @@ public static class Recompile310Build
         PlayerSettings.defaultScreenHeight = 720;
         PlayerSettings.resizableWindow = true;
         PlayerSettings.runInBackground = true;
+        string[] scenes = shell ? new[] { CreateBootstrapScene() }
+            : EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray();
+        if (scenes.Length == 0)
+            throw new System.InvalidOperationException("No enabled scenes are configured.");
         var options = new BuildPlayerOptions
         {
-            scenes = new[] { CreateBootstrapScene() },
+            scenes = scenes,
             locationPathName = System.Environment.GetEnvironmentVariable("TFTF_310_OUTPUT"),
             target = BuildTarget.StandaloneWindows64,
             options = BuildOptions.None

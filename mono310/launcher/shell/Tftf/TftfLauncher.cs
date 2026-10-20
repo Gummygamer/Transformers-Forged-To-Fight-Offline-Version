@@ -7,7 +7,7 @@ using UnityEngine.Networking;
 
 public sealed class TftfLauncher : MonoBehaviour
 {
-    public const string LauncherVersion = "0.5.2";      // the launcher's own version; the game inside stays 3.1.0
+    public const string LauncherVersion = "0.6.0";      // the launcher's own version; the game inside stays 3.1.0
 #if UNITY_STANDALONE_WIN
     const string DeviceName = "PC";
 #else
@@ -60,6 +60,18 @@ public sealed class TftfLauncher : MonoBehaviour
                     string problem = Validate(path, slot);
                     if (problem != null) { _message = problem; continue; }
                     _paths[slot] = path; _names[slot] = Path.GetFileName(path);
+                }
+            }
+            for (int slot = 0; slot < 2; slot++)
+            {
+                if (string.IsNullOrEmpty(_paths[slot]))
+                {
+                    string candidate = Path.Combine(_root, "picked_" + slot + ".apk");
+                    if (File.Exists(candidate) && Validate(candidate, slot) == null)
+                    {
+                        _paths[slot] = candidate;
+                        _names[slot] = Path.GetFileName(candidate);
+                    }
                 }
             }
         }

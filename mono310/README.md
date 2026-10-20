@@ -80,6 +80,27 @@ project settings, use `build` for those. `TFTF_ENDPOINT` sets the server URL bak
 APK (default `http://127.0.0.1:8080`); `TFTF_ODR_CDN` sets the WAD host (default
 `http://127.0.0.1:8090`).
 
+## Windows build (native, no Docker)
+
+`mono310/winbuild.ps1` builds a Windows x64 Mono player of the full client with the Windows
+Unity 2020.3.31f1 editor (its Windows Build Support (Mono) is part of the base install). It reuses
+an existing rip and decompile and needs Python 3 with UnityPy (no `rsync` or `aapt2`):
+
+```powershell
+$env:RIPPED='D:\tftf-310-cleanroom\ripped'; $env:ILSPY_OUT='D:\tftf-310-cleanroom\ilspy-out'
+$env:UNITY_2020_EXE='C:\Program Files\Unity\Hub\Editor\2020.3.31f1\Editor\Unity.exe'
+powershell -ExecutionPolicy Bypass -File mono310\winbuild.ps1 all   # or assemble | assets | build
+```
+
+Defaults: `TFTF_WORK=C:\tftf-310-win`, `TFTF_310_APK` in `%USERPROFILE%\Downloads`. Output:
+`%TFTF_WORK%\UnityProject\win\TFTF.exe`. `TFTF_ENDPOINT` is written into
+`Resources/endpointconfig.bytes`; the original APK's streaming assets become the player's
+`StreamingAssets`. By default (`TFTF_SHELL=1`) it builds the assetless launcher instead (needs
+`TFTF_TREES_BIN` and a Windows `legible.exe`, `TFTF_LEGIBLE_WIN`); `winbuild.ps1 package` zips it as
+`tftf-launcher-windows-x64-<version>.zip` with a `.sha256` file (see `launcher/CHANGELOG.md`). The build runs the editor with a window (it quits by itself) because a Unity
+Hub Personal license is rejected in `-batchmode`; set `TFTF_UNITY_BATCH=1` with a seat or
+`.ulf` license that batch mode accepts. Open the project once interactively first to activate.
+
 ## Running on a device
 
 ```bash

@@ -191,7 +191,14 @@ public static class ShaderFallback
 		Shader s = Shader.Find(name);
 		if (s != null) return s;
 		s = Resources.Load<Shader>("Shader310/" + Regex.Replace(name, "[^A-Za-z0-9]+", "_"));
-		if (s != null) return s;
+		if (name.IndexOf("Text", System.StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("Font", System.StringComparison.OrdinalIgnoreCase) >= 0)
+		{
+			foreach (string tfb in new string[] { "TFTF/Text", "GUI/Text Shader", "GUI/Text Shader (SoftClip)", "Unlit/Text" })
+			{
+				s = Shader.Find(tfb);
+				if (s != null) return s;
+			}
+		}
 		// Never hand back null: a Material(null) throws and the game turns that into a critical error.
 		foreach (string fb in new string[] { "Sprites/Default", "UI/Default", "Unlit/Transparent", "Hidden/Internal-Colored" })
 		{
@@ -919,6 +926,28 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                "S29 AllianceMembersState recovered string switch initialized")
     # P26: honouring hold=true pins preloaded libraries and stalls the preload manager here; keep the previous behaviour
     replace_in(fp, "EB/AssetManager.cs", "bool hold2 = hold;", "bool hold2 = false;", "P26 AssetManager hold pinning disabled")
+    # P51: Path.Combine joins pack paths with '\' on Windows, but WAD and pack entries are '/'-keyed ("Missing asset bundle
+    # file: x_odr\x.assetbundle"). Route PackDriver's joins through a '/' join (no-op on Android; Windows file APIs accept '/').
+    p = fp / "EB/FileSystem/PackDriver.cs"
+    if p.exists() and "PackPath(" not in rd(p):
+        t = rd(p).replace("Path.Combine(", "PackPath(")
+        t = t.replace("internal class PackDriver : Driver\n\t{\n",
+                      "internal class PackDriver : Driver\n\t{\n"
+                      "\t\tstatic string PackPath(string a, string b) => Path.Combine(a, b).Replace('\\\\', '/');\n\n", 1)
+        wr(p, t); note("P51 PackDriver joins pack paths with '/' (Windows)")
+    # P52: the story map and base cameras and the fight controls (ActionButton tap/hold zones, SwipeDetection) only read
+    # touches: their Simulate/LateUpdate never call the mouse variants, so a mouse cannot move on the map or attack.
+    # Route them through the shell's TftfInput, which is a pass-through on phones and turns the left mouse button into
+    # one finger on a PC. Shell only: TftfInput ships with the launcher sources.
+    if os.environ.get("TFTF_SHELL") == "1":
+        for rel in ("Quests/Presentation/QuestCameraController.cs", "Quests/Presentation/GameboardCameraController.cs",
+                    "Quests/Presentation/BaseCameraController.cs", "ActionButton.cs", "SwipeDetection.cs"):
+            p = main / rel
+            if not p.exists():
+                continue
+            t, n = re.subn(r"(?<![\w.])Input\.(touchCount|GetTouch)\b", r"TftfInput.\1", rd(p))
+            if n:
+                wr(p, t); note("P52 %s touches via TftfInput (mouse on PC)" % p.stem)
     p = fp / "EB/FileSystem/ZipDriver.cs"   # P7 (same fix as 2.0.2): SharpZipLib asks for OEM code page 850/437
     if p.exists():
         t = rd(p)

@@ -31,7 +31,13 @@ public sealed class ZipDataSource : IPlayerDataSource
 
 public static class TftfInstaller
 {
+#if UNITY_STANDALONE_WIN
+    public const int Version = 4;                                     // bump to force a reinstall
+    const int BundlePlatform = 19;     // StandaloneWindows64: the player refuses the APKs' bundles stamped for Android
+#else
     public const int Version = 2;                                     // bump to force a reinstall
+    const int BundlePlatform = 0;      // phone: the APKs' bundles already match the player
+#endif
     public static volatile string Status = "";
     public static volatile float Progress;
     public static volatile string Error;
@@ -75,6 +81,11 @@ public static class TftfInstaller
     {
         Directory.CreateDirectory(root);
         try { File.Delete(Path.Combine(root, "ready.txt")); } catch { }
+        if (BundlePlatform != 0)
+        {
+            SerializedFile.TargetPlatform = BundlePlatform;
+            TextureTranscode.EtcToBc1 = true;     // the PC player cannot sample ETC1; DXT1 has the same block size
+        }
 
         using (var z310 = new ZipArchive(File.OpenRead(apk310), ZipArchiveMode.Read))
         {
@@ -90,7 +101,7 @@ public static class TftfInstaller
                 if (!IsBaseAsset(e)) continue;
                 string target = Path.Combine(baseDir, e.FullName.Substring("assets/".Length));
                 Directory.CreateDirectory(Path.GetDirectoryName(target));
-                using (var src = e.Open()) using (var dst = File.Create(target)) src.CopyTo(dst);
+                CopyEntry(e, target, e.Name.EndsWith(".assetbundle", StringComparison.Ordinal));
                 if (++n % 20 == 0) Progress = 0.02f + 0.18f * n / Math.Max(1, total);
             }
 
@@ -108,7 +119,7 @@ public static class TftfInstaller
             var moves = z92.GetEntry("assets/assetpack/characters/moves.assetbundle");
             if (moves == null) throw new Exception("The second file is not the 9.2.0 game APK (no character move data found).");
             Step("Extracting fighter move data", 0.4f);
-            using (var src = moves.Open()) using (var dst = File.Create(Path.Combine(root, "moves92.bundle"))) src.CopyTo(dst);
+            CopyEntry(moves, Path.Combine(root, "moves92.bundle"), true);
         }
 
         Step("Building the content package (this takes a few minutes)", 0.45f);
@@ -119,11 +130,12 @@ public static class TftfInstaller
         {
             Status = "Building the content package";
             if (s.StartsWith("wad ", StringComparison.Ordinal) && ++packs <= 80) Progress = 0.45f + 0.5f * packs / 80f;
-        }, writeZip: false);
+        }, writeZip: false, bundleTransform: BundlePlatform != 0 ? b => BundleRetarget.Retarget(b, BundlePlatform) : (Func<byte[], byte[]>)null);
         // The game would download the package from the content server and unpack it into its cache (minutes). Put the
-        // finished WAD where that unpacking would leave it: <cache>/<sha1 of "<url path>/<wad name>">.wad.
+        // finished WAD where that unpacking would leave it: <cache>/<sha1 of Path.Combine(url path, wad name)>.wad
+        // (DownloadExtractor joins them with Path.Combine, so the separator is '\' on Windows).
         Directory.CreateDirectory(odrCacheDir);
-        string cached = Path.Combine(odrCacheDir, Sha1Hex("/odr/wad/toc.zip/toc.wad") + ".wad");
+        string cached = Path.Combine(odrCacheDir, Sha1Hex(Path.Combine("/odr/wad/toc.zip", "toc.wad")) + ".wad");
         if (File.Exists(cached)) File.Delete(cached);
         File.Move(Path.Combine(odr, "toc.wad"), cached);
 
@@ -140,6 +152,18 @@ public static class TftfInstaller
             foreach (var b in h) sb.Append(b.ToString("X2"));
             return sb.ToString();
         }
+    }
+
+    static void CopyEntry(ZipArchiveEntry e, string target, bool bundle)
+    {
+        if (!bundle || BundlePlatform == 0)
+        {
+            using (var src = e.Open()) using (var dst = File.Create(target)) src.CopyTo(dst);
+            return;
+        }
+        var ms = new MemoryStream((int)e.Length);
+        using (var src = e.Open()) src.CopyTo(ms);
+        File.WriteAllBytes(target, BundleRetarget.Retarget(ms.ToArray(), BundlePlatform));
     }
 
     static bool IsBaseAsset(ZipArchiveEntry e)

@@ -401,6 +401,7 @@ namespace Tftf.Convert
         static void FixTexture(SerObject o, TreeDb db, ByteWriter resBlob, string resPath, ConvertStats stats)
         {
             var tree = db.Engine[ClsTexture2D];
+            if (TextureTranscode.EtcToBc1) TextureTranscode.Transcode(tree, o.Data, 0, o.Data.Length, path => null);   // PC: ETC1 -> DXT1
             int s, e;
             if (!TypeWalker.FindRange(tree, o.Data, out s, out e, "image data")) return;
             var r = new ByteReader(o.Data, s);
