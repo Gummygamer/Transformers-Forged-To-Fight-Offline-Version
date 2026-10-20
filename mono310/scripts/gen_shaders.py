@@ -19,7 +19,7 @@ Hidden/EB/LensFlare|Hidden/EB/DepthBlur|Hidden/EB/CharacterDamage|Hidden/EB/Blur
 GUI/Text Shader (SoftClip)|TFTF/Text|Particles/Alpha Blended|Particles/Additive
 Hidden/EB/PostFX/Generated/ParticleLowResVignetteBloomWarpFXAA""".replace("\n", "|").split("|")
 names = list(dict.fromkeys(n.strip() for n in names if n.strip()))
-TEXT = {"GUI/Text Shader", "GUI/Text Shader (SoftClip)", "TFTF/Text"}
+TEXT = {"GUI/Text Shader", "GUI/Text Shader (SoftClip)", "TFTF/Text", "Unlit/Text", "Unlit - Text"}
 MULTIPASS = 8  # Hidden/EB/* effects index passes up to ~6 (Blur/DepthBlur/FXAA...)
 OPAQUE = {"EBG/UI/Opaque", "EBG/UI/OpaqueFlat", "Diffuse"}
 
@@ -33,7 +33,17 @@ PASS = '''        Pass
             struct v2f {{ float4 vertex : SV_POSITION; fixed4 color : COLOR; float2 texcoord : TEXCOORD0; }};
             sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST;
             v2f vert(appdata_t i) {{ v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.texcoord = i.texcoord; o.color = i.color * _Color; return o; }}
-            fixed4 frag(v2f i) : SV_Target {{ return tex2D(_MainTex, i.texcoord) * i.color; }}
+            fixed4 frag(v2f i) : SV_Target
+            {
+                fixed4 col = tex2D(_MainTex, i.texcoord);
+                if (col.r == 0.0 && col.g == 0.0 && col.b == 0.0 && col.a > 0.0)
+                {
+                    col.rgb = i.color.rgb;
+                    col.a *= i.color.a;
+                    return col;
+                }
+                return col * i.color;
+            }
             ENDCG
         }}
 '''
