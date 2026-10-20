@@ -115,6 +115,40 @@ public static class Recompile310Build
         EditorApplication.Exit(0);
     }
 
+    // Windows 11 (x64) build of the assetless launcher shell. Output: a folder holding TFTF.exe and its data.
+    public static void BuildWindows()
+    {
+        if (System.Environment.GetEnvironmentVariable("TFTF_SHELL") != "1")
+            throw new System.InvalidOperationException("The Windows build is only supported for the assetless launcher shell.");
+        if (System.Environment.GetEnvironmentVariable("TFTF_310_NO_INCLUDE") != "1") IncludeShaders();
+        Physics.autoSyncTransforms = true;
+        PlayerSettings.bundleVersion = "3.1.0";
+        PlayerSettings.productName = "Transformers Forged to Fight Revival";
+        PlayerSettings.companyName = "Unicron's Lair";
+        PlayerSettings.SetScriptingBackend(BuildTargetGroup.Standalone, ScriptingImplementation.Mono2x);
+        PlayerSettings.SetManagedStrippingLevel(BuildTargetGroup.Standalone, ManagedStrippingLevel.Disabled);
+        PlayerSettings.stripEngineCode = false;
+        PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+        PlayerSettings.defaultScreenWidth = 1280;
+        PlayerSettings.defaultScreenHeight = 720;
+        PlayerSettings.resizableWindow = true;
+        PlayerSettings.runInBackground = true;
+        var options = new BuildPlayerOptions
+        {
+            scenes = new[] { CreateBootstrapScene() },
+            locationPathName = System.Environment.GetEnvironmentVariable("TFTF_310_OUTPUT"),
+            target = BuildTarget.StandaloneWindows64,
+            options = BuildOptions.None
+        };
+        if (string.IsNullOrEmpty(options.locationPathName))
+            throw new System.InvalidOperationException("TFTF_310_OUTPUT is required.");
+        BuildReport report = BuildPipeline.BuildPlayer(options);
+        Debug.Log("3.1.0 Windows build: " + report.summary.result + " (" + report.summary.totalSize + " bytes)");
+        if (report.summary.result != BuildResult.Succeeded)
+            throw new System.InvalidOperationException("Windows build failed: " + report.summary.result);
+        EditorApplication.Exit(0);
+    }
+
     // Compile the player scripts only (seconds) so the managed DLLs can be
     // injected into an existing APK; see tools/fast_patch_managed.py.
     public static void CompileScriptsOnly()

@@ -24,7 +24,7 @@ public static class TftfServer
         string stamp = Application.version + "/" + Application.buildGUID;
         if (!File.Exists(marker) || File.ReadAllText(marker) != stamp)
         {
-            var req = UnityWebRequest.Get(Application.streamingAssetsPath + "/tftf_server.zip");
+            var req = UnityWebRequest.Get(TftfLauncher.StreamUrl("tftf_server.zip"));
             yield return req.SendWebRequest();
             if (req.result != UnityWebRequest.Result.Success)
             {
@@ -47,7 +47,7 @@ public static class TftfServer
         }
         Directory.CreateDirectory(Path.Combine(root, "odr"));
         TftfStaticServer.Start(Path.Combine(root, "odr"));
-        string exe = NativeLibraryDir() + "/liblegible.so";
+        string exe = ServerExecutable();
         if (!File.Exists(exe)) { UnityEngine.Debug.LogError("[TFTF] interpreter missing: " + exe); yield break; }
         string log = Path.Combine(root, "server.log");
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -64,6 +64,7 @@ public static class TftfServer
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            CreateNoWindow = true,
         };
         psi.EnvironmentVariables["HTTP_PORT"] = Port.ToString();
         psi.EnvironmentVariables["LEGIBLE_BIND"] = "127.0.0.1";     // only this phone may talk to the game server
@@ -105,6 +106,16 @@ public static class TftfServer
         catch { }
 #else
         try { if (process != null && !process.HasExited) process.Kill(); } catch { }
+#endif
+    }
+
+    // Windows: legible.exe sits next to the game executable (copied there by the packaging step).
+    static string ServerExecutable()
+    {
+#if UNITY_STANDALONE_WIN
+        return Path.GetFullPath(Path.Combine(Application.dataPath, "../legible.exe"));
+#else
+        return NativeLibraryDir() + "/liblegible.so";
 #endif
     }
 
