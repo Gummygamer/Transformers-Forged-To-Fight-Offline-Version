@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.6.1](#061)
 - [0.6.0](#060)
 - [0.5.2](#052)
 - [0.5.0](#050)
@@ -12,6 +13,16 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.6.1
+
+**Fixed**
+
+- Special Mode opens from level 0 (the `fightLanding_special` and `fightLanding_daily` level locks are tuned to 0), and the
+  Karma Six special mission is unlocked from the start.
+- Starscream's Device and Motormaster's Reckoning are unlocked in the story.
+- The base board no longer hangs on loading when a building model is missing, and the commander portrait shows in the top bar.
+- NGUI dynamic-font and soft-clipped text render correctly.
 
 ## 0.6.0
 
