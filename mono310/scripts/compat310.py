@@ -191,8 +191,9 @@ public static class ShaderFallback
 		Shader s = Shader.Find(name);
 		if (s != null) return s;
 		s = Resources.Load<Shader>("Shader310/" + Regex.Replace(name, "[^A-Za-z0-9]+", "_"));
-		// Text/font materials prefer the authored text shaders over a generated Shader310 stub.
-		if (name.IndexOf("Text", System.StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("Font", System.StringComparison.OrdinalIgnoreCase) >= 0)
+		// Text/font materials prefer the authored text shaders over a generated Shader310 stub. "Text" must not match "Texture"
+		// (NGUI's "(TextureClip)", "Unlit/Texture"): TFTF/Text paints black texels in the vertex colour, so images got white patches.
+		if (Regex.IsMatch(name, "Text(?!ure)|Font", RegexOptions.IgnoreCase))
 		{
 			foreach (string tfb in new string[] { "TFTF/Text", "GUI/Text Shader", "GUI/Text Shader (SoftClip)", "Unlit/Text" })
 			{
