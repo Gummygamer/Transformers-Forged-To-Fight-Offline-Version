@@ -191,14 +191,16 @@ public static class ShaderFallback
 		Shader s = Shader.Find(name);
 		if (s != null) return s;
 		s = Resources.Load<Shader>("Shader310/" + Regex.Replace(name, "[^A-Za-z0-9]+", "_"));
+		// Text/font materials prefer the authored text shaders over a generated Shader310 stub.
 		if (name.IndexOf("Text", System.StringComparison.OrdinalIgnoreCase) >= 0 || name.IndexOf("Font", System.StringComparison.OrdinalIgnoreCase) >= 0)
 		{
 			foreach (string tfb in new string[] { "TFTF/Text", "GUI/Text Shader", "GUI/Text Shader (SoftClip)", "Unlit/Text" })
 			{
-				s = Shader.Find(tfb);
-				if (s != null) return s;
+				Shader t = Shader.Find(tfb);
+				if (t != null) return t;
 			}
 		}
+		if (s != null) return s;
 		// Never hand back null: a Material(null) throws and the game turns that into a critical error.
 		foreach (string fb in new string[] { "Sprites/Default", "UI/Default", "Unlit/Transparent", "Hidden/Internal-Colored" })
 		{
