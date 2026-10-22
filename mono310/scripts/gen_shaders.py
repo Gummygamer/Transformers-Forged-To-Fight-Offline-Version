@@ -34,17 +34,7 @@ PASS = '''        Pass
             struct v2f {{ float4 vertex : SV_POSITION; fixed4 color : COLOR; float2 texcoord : TEXCOORD0; }};
             sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST;
             v2f vert(appdata_t i) {{ v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.texcoord = i.texcoord; o.color = i.color * _Color; return o; }}
-            fixed4 frag(v2f i) : SV_Target
-            {
-                fixed4 col = tex2D(_MainTex, i.texcoord);
-                if (col.r == 0.0 && col.g == 0.0 && col.b == 0.0 && col.a > 0.0)
-                {
-                    col.rgb = i.color.rgb;
-                    col.a *= i.color.a;
-                    return col;
-                }
-                return col * i.color;
-            }
+            fixed4 frag(v2f i) : SV_Target { return tex2D(_MainTex, i.texcoord) * i.color; }
             ENDCG
         }}
 '''
@@ -64,7 +54,11 @@ TPL = '''Shader "{name}"
     Fallback Off
 }}
 '''
-TEXT_FRAG = "return fixed4(i.color.rgb, i.color.a * tex2D(_MainTex, i.texcoord).a);"
+# Text only: Alpha8 font textures sample as (0, 0, 0, a) in Unity 2020, so a black texel takes the tint. Image shaders must
+# not do this: it painted every black pixel of opaque images white (Kabam logo, loading screen).
+TEXT_FRAG = """fixed4 col = tex2D(_MainTex, i.texcoord);
+                if (col.r == 0.0 && col.g == 0.0 && col.b == 0.0 && col.a > 0.0) return fixed4(i.color.rgb, col.a * i.color.a);
+                return col * i.color;"""
 out = Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
 for n in names:
     op = n in OPAQUE
