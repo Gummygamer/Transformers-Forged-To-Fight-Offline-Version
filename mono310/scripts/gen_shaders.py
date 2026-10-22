@@ -324,6 +324,31 @@ SKY = r"""Shader "TFTF/SkyLite"
 """
 (out / "TFTF_SkyLite.shader").write_text(SKY)
 
+SKYMASK = r"""Shader "TFTF/SkyGlowMask"
+{
+    // Second material on sky domes that keep their donor shader: that shader writes alpha 1, which TftfBloom reads as "glow" and
+    // blew the whole sky out to white. Rewrites only the alpha to SkyLite's low mask value, right after the dome draws.
+    SubShader
+    {
+        Tags { "Queue"="Background+1" "RenderType"="Background" "IgnoreProjector"="True" }
+        Cull Off ZWrite Off Lighting Off ColorMask A
+        Pass
+        {
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #include "UnityCG.cginc"
+            float _TftfGlowOn;
+            float4 vert(float4 v : POSITION) : SV_POSITION { return UnityObjectToClipPos(v); }
+            fixed4 frag() : SV_Target { return fixed4(0, 0, 0, _TftfGlowOn > 0.5 ? 0.12 : 1); }
+            ENDCG
+        }
+    }
+    Fallback Off
+}
+"""
+(out / "TFTF_SkyGlowMask.shader").write_text(SKYMASK)
+
 FX = r"""Shader "TFTF/AddFx"
 {
     // Stand-in for the donor PBR materials that were authored as transparent (glow cards, trails): additive, so black is nothing.

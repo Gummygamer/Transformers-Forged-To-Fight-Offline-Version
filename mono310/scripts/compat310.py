@@ -312,7 +312,7 @@ public class TftfDiag : MonoBehaviour
 		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
 		{
 			if (r.name != "Sky" || r.sharedMaterial == null) continue;
-			Texture t = r.sharedMaterial.mainTexture;
+			Texture t = r.sharedMaterial.HasProperty("_MainTex") ? r.sharedMaterial.mainTexture : null;      // the donor sky has no _MainTex: asking logged an error every second
 			if (t == null && r.sharedMaterial.HasProperty("_base_tex")) t = r.sharedMaterial.GetTexture("_base_tex");
 			if (t == null || t == _skySampled) return;
 			_skySampled = t;
@@ -434,6 +434,29 @@ public class TftfDiag : MonoBehaviour
 		if (_sun != null && _sun.enabled) _sun.transform.rotation = Quaternion.LookRotation(-L);
 	}
 
+	// The donor sky shader writes alpha 1, which TftfBloom takes as full glow (white sky): a second material rewrites the alpha.
+	private static Material _skyMask;
+	private static void AddSkyGlowMask(Renderer r)
+	{
+		Material[] ms = r.sharedMaterials;
+		int q = 0;
+		foreach (Material x in ms) { if (x == null) continue; if (x.name == "tftf_skymask") return; q = Mathf.Max(q, x.renderQueue); }
+		if (_skyMask == null)
+		{
+			Shader s = ShaderFallback.Find("TFTF/SkyGlowMask");
+			if (s == null || s.name != "TFTF/SkyGlowMask") return;
+			_skyMask = new Material(s) { name = "tftf_skymask" };
+		}
+		// the donor dome may draw after the opaque scene (queue > 2000): the mask has to come right after it, not at Background+1
+		Material mk = new Material(_skyMask) { name = "tftf_skymask" };
+		mk.renderQueue = q + 1;
+		Material[] nms = new Material[ms.Length + 1];
+		ms.CopyTo(nms, 0);
+		nms[ms.Length] = mk;
+		r.sharedMaterials = nms;
+		Debug.Log("[DIAG] sky glow mask on " + r.name + " (" + (ms.Length > 0 && ms[0] != null ? ms[0].name + " shader=" + ms[0].shader.name : "?") + ") queue=" + q);
+	}
+
 	// The donor PBR shaders draw nothing in this pipeline: give those renderers a plain textured material.
 	private static void SwapPbr()
 	{
@@ -443,6 +466,7 @@ public class TftfDiag : MonoBehaviour
 		string[] prefs = new string[] { "_base_tex", "_BaseTex", "_MainTex", "_BaseMap", "_AlbedoTex", "_Albedo", "_DiffuseTex", "_Diffuse" };
 		foreach (Renderer r in Object.FindObjectsOfType<Renderer>())
 		{
+			if (r.name == "Sky") AddSkyGlowMask(r);
 			Material[] mats = r.sharedMaterials;
 			bool changed = false;
 			for (int i = 0; i < mats.Length; i++)
