@@ -30,6 +30,13 @@ public sealed class TftfVr : MonoBehaviour
 
     static TftfVr _instance;
     readonly HashSet<Camera> _own = new HashSet<Camera>();
+    // Arena mode: game cameras that cleared the screen opaque (a UI backdrop, the letterbox clear) and their own clear,
+    // put back when arena mode ends.
+    readonly Dictionary<Camera, CameraClearFlags> _cleared = new Dictionary<Camera, CameraClearFlags>();
+    // Arena mode: game cameras that drew the arena's layers into the screen and their own culling mask. The cutscene
+    // camera (StageCamera) stays enabled through the fight and would draw the arena from its last cutscene pose over the
+    // stereo arena; the fight camera covers it on a phone.
+    readonly Dictionary<Camera, int> _masked = new Dictionary<Camera, int>();
     Camera[] _cams = new Camera[32];
     Transform _head, _screen, _floor, _anchor, _arenaHead;
     Camera _eye, _clear, _arenaEye;
@@ -204,7 +211,36 @@ public sealed class TftfVr : MonoBehaviour
         if (c == null || _own.Contains(c)) return;
         c.cullingMask &= ~(1 << Layer);
         c.stereoTargetEye = StereoTargetEyeMask.None;
+        // In arena mode the fight camera draws nothing, but its image effect (TftfBloom) still blits a full opaque frame:
+        // it goes to the scratch target every frame, as the game sets its target back to none.
+        if (_arena && c == _source)
+        {
+            if (!OwnBuffers(c) && c.targetTexture != _scratch) c.targetTexture = _scratch;
+            return;
+        }
         if (c.targetTexture == null && !OwnBuffers(c)) c.targetTexture = Screen2D;
+        // In arena mode the screen is the HUD over the stereo arena: an opaque clear on it would hide the arena. Only
+        // _clear clears it, to transparent.
+        if (_arena && c.targetTexture == Screen2D && (c.clearFlags == CameraClearFlags.SolidColor || c.clearFlags == CameraClearFlags.Skybox))
+        {
+            if (!_cleared.ContainsKey(c)) _cleared[c] = c.clearFlags;
+            c.clearFlags = CameraClearFlags.Depth;
+        }
+        if (_arena && c.targetTexture == Screen2D && (c.cullingMask & _sourceMask) != 0)
+        {
+            if (!_masked.ContainsKey(c)) _masked[c] = c.cullingMask;
+            c.cullingMask &= ~_sourceMask;
+        }
+    }
+
+    void RestoreClears()
+    {
+        foreach (var kv in _cleared)
+            if (kv.Key != null && kv.Key.clearFlags == CameraClearFlags.Depth) kv.Key.clearFlags = kv.Value;
+        _cleared.Clear();
+        foreach (var kv in _masked)
+            if (kv.Key != null && (kv.Key.cullingMask & kv.Value) == kv.Key.cullingMask) kv.Key.cullingMask = kv.Value;
+        _masked.Clear();
     }
 
     static bool OwnBuffers(Camera c)
@@ -388,8 +424,63 @@ public sealed class TftfVr : MonoBehaviour
         _arenaEye.backgroundColor = _source.backgroundColor;
         _arenaEye.nearClipPlane = _source.nearClipPlane;
         _arenaEye.farClipPlane = _source.farClipPlane;
+        // The fight camera's rendering path: the player settings resolve a new camera's to VertexLit, which skips every
+        // ForwardBase pass of the game's shaders (a Quest 2 saw black but for the sun flare and a few effects).
+        _arenaEye.renderingPath = _source.renderingPath;
+        _arenaEye.allowHDR = _source.allowHDR;
+        _arenaEye.useOcclusionCulling = _source.useOcclusionCulling;
+        _arenaEye.layerCullDistances = _source.layerCullDistances;
+        _arenaEye.layerCullSpherical = _source.layerCullSpherical;
+        MaybeShoot();
     }
 
+    // Dev: the headset's view cannot be captured over adb. While tftf/vrshot.txt exists (checked every second in arena
+    // mode, deleted after use), PNGs in tftf/: the arena eye's view without stereo (vrshot-seat.png) and the screen
+    // texture, the HUD (vrshot-screen.png).
+    float _shotCheck;
+    void MaybeShoot()
+    {
+        if (Time.unscaledTime < _shotCheck) return;
+        _shotCheck = Time.unscaledTime + 1f;
+        string dir = System.IO.Path.Combine(Application.persistentDataPath, "tftf");
+        string flag = System.IO.Path.Combine(dir, "vrshot.txt");
+        try { if (!System.IO.File.Exists(flag)) return; System.IO.File.Delete(flag); } catch (System.Exception) { return; }
+        var go = new GameObject("TftfVrShot");
+        var cam = go.AddComponent<Camera>();
+        _own.Add(cam);
+        var rt = new RenderTexture(1024, 576, 24, RenderTextureFormat.ARGB32);
+        try
+        {
+            cam.enabled = false;
+            cam.CopyFrom(_arenaEye);
+            cam.stereoTargetEye = StereoTargetEyeMask.None;
+            cam.targetTexture = rt;
+            cam.aspect = 16f / 9f;
+            go.transform.SetPositionAndRotation(_arenaHead.position, _arenaHead.rotation);
+            cam.fieldOfView = 2f * ArenaHalfFov;
+            cam.Render();
+            Save(rt, System.IO.Path.Combine(dir, "vrshot-seat.png"));
+            Save(Screen2D, System.IO.Path.Combine(dir, "vrshot-screen.png"));
+            Debug.Log("[TFTF] VR shots saved");
+        }
+        catch (System.Exception e) { Debug.Log("[TFTF] VR shots failed: " + e); }
+        _own.Remove(cam);
+        cam.targetTexture = null;
+        Destroy(go);
+        rt.Release();
+    }
+
+    static void Save(RenderTexture rt, string path)
+    {
+        var prev = RenderTexture.active;
+        RenderTexture.active = rt;
+        var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+        tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+        tex.Apply();
+        RenderTexture.active = prev;
+        System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+        Destroy(tex);
+    }
     void SetArena(Camera source)
     {
         if (source == null)
@@ -401,13 +492,14 @@ public sealed class TftfVr : MonoBehaviour
             }
             _source = null;
             _arena = false;
+            RestoreClears();
         }
         else
         {
             _source = source;
             _sourceMask = source.cullingMask & ~(1 << Layer);
             source.cullingMask = 0;
-            if (source.targetTexture == Screen2D) source.targetTexture = _scratch;   // its clear would hide the HUD's transparency
+            if (source.targetTexture == Screen2D) source.targetTexture = _scratch;   // and in Retarget: it would hide the HUD's transparency
             _arena = true;
             _snap = true;
         }
@@ -416,7 +508,7 @@ public sealed class TftfVr : MonoBehaviour
         _floor.gameObject.SetActive(!_arena);
         _screen.GetComponent<MeshRenderer>().sharedMaterial = _arena ? _screenHud : _screenOpaque;
         _clear.backgroundColor = _arena ? Color.clear : Color.black;                      // the HUD on a transparent screen
-        Debug.Log("[TFTF] VR arena mode " + (_arena ? "on (" + source.name + ")" : "off"));
+        Debug.Log("[TFTF] VR arena mode " + (_arena ? "on (" + source.name + ")" : "off (" + (_arenaWanted ? "fight camera gone" : "X") + ")"));
     }
 
     // The seat: on the fight camera's line of sight, nearer to the framed point by the ratio of the fight camera's narrow

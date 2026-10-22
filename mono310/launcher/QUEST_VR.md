@@ -11,7 +11,8 @@
 
 ## Status
 
-**Built, not yet run on a headset.** The `TFTF_VR=1` build compiles, links and signs; its manifest carries the Quest
+**Run on a Quest 2 (2026-10-22):** the stereo arena renders in fights (see [Open risks](#open-risks), item 2). The
+rest of this section predates that run. **Built.** The `TFTF_VR=1` build compiles, links and signs; its manifest carries the Quest
 entries (`com.oculus.intent.category.VR`, `android.hardware.vr.headtracking`, `com.oculus.supportedDevices=quest2`,
 `focusaware`, API 29) and it packs `libOVRPlugin.so` and `libOculusXRPlugin.so` **[📄 binary]** (`aapt2 dump` of
 `tftf-launcher-quest.apk`, 2026-10-22). Nothing below has been seen working in a headset; every runtime statement is
@@ -76,8 +77,15 @@ headset's arena camera and its composite goes to a scratch texture, so the scree
 All **[⚠ inferred]**, in the order to check them on a headset:
 
 1. Head tracking: the rig poses both headset cameras from `XRNode.Head` with automatic camera tracking turned off.
-2. The HUD's transparency in arena mode depends on no UI camera clearing the screen texture opaque. If the HUD shows
-   a black backdrop, the arena is hidden behind it; X turns arena mode off.
+2. The HUD's transparency in arena mode depends on no game camera painting the screen texture. In arena mode every
+   game camera drawing into it clears depth only and loses the arena's layers (the cutscene camera stays enabled
+   through fights); both are restored when arena mode ends. X turns arena mode off.
+
+**Fixed on a Quest 2 (2026-10-22):** fights were black but for the HUD, the sun flare and a few effects. A new camera's
+rendering path resolves to VertexLit from the player settings, which skips every ForwardBase pass of the game's
+shaders; the arena eye now takes the fight camera's rendering path (Forward). The headset's view cannot be captured
+over adb: pushing an empty `tftf/vrshot.txt` during a fight writes `tftf/vrshot-seat.png` (the arena eye without
+stereo) and `tftf/vrshot-screen.png` (the HUD).
 3. Arena look: the arena camera is a plain forward camera, so the game's post-FX grade and anything its shaders take
    from the deferred pipeline's buffers are missing. The world scale (game units taken as metres) sets the stereo
    depth and may feel miniature or huge.
