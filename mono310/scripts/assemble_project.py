@@ -9,7 +9,7 @@ Authored inputs in this repository: unity/Recompile310Build.cs, unity/Packages/m
 unity/shaders/*.shader, tools/unity/android-plugin/*, repairs in scripts/compat310.py.
 Usage: assemble_project.py
 """
-import os, re, shutil, subprocess, sys, zipfile
+import json, os, re, shutil, subprocess, sys, zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -149,6 +149,17 @@ def main():
     rsync(RIP / "ProjectSettings", OUT / "ProjectSettings")
     (OUT / "Packages").mkdir(parents=True, exist_ok=True)
     shutil.copy(REPO / "mono310/unity/Packages/manifest.json", OUT / "Packages/manifest.json")
+    (A / "csc.rsp").unlink(missing_ok=True)
+    (A / "Editor/TftfVrBuildSetup.cs").unlink(missing_ok=True)
+    if os.environ.get("TFTF_VR") == "1":
+        # Meta Quest: the Oculus XR plugin and XR management, both bundled with the Unity 2020.3 editor (no download).
+        pm = OUT / "Packages/manifest.json"
+        m = json.loads(pm.read_text())
+        m["dependencies"].update({"com.unity.xr.management": "4.2.0", "com.unity.xr.oculus": "1.11.2"})
+        pm.write_text(json.dumps(m, indent=2) + "\n")
+        (A / "csc.rsp").write_text("-define:TFTF_VR\n")      # every predefined assembly, editor and player alike
+        (A / "Editor").mkdir(exist_ok=True)
+        shutil.copy(REPO / "mono310/unity/TftfVrBuildSetup.cs", A / "Editor/TftfVrBuildSetup.cs")
     ps = OUT / "ProjectSettings/ProjectSettings.asset"
     t = ps.read_text()
     for k, v in (("bundleVersion", "3.1.0"), ("AndroidBundleVersionCode", "822754"),

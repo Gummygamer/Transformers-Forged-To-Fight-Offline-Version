@@ -1168,6 +1168,36 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                                   f"{m[1]}public void Authenticate(Action<bool> callback)"), t, count=1)
             wr(p, t); note("S7 Authenticate(Action<bool,string>) overload (local user)")
 
+def vr(fp, main):
+    """P53 (TFTF_VR=1 shell only): the game draws into the launcher's virtual screen (TftfVr), not the headset's
+    display. Its screen size reads, touch reads and blits to the backbuffer go through TftfScreen and TftfInput,
+    which pass through unchanged outside VR."""
+    for root in (fp, main):
+        for p in root.rglob("*.cs"):
+            t0 = t = rd(p)
+            t = re.sub(r"(?<![\w.])(?:UnityEngine\.)?Screen\.(width|height)\b", r"TftfScreen.\1", t)
+            t = re.sub(r"(?<![\w.])(?:UnityEngine\.)?Input\.(touchCount|GetTouch|touches)\b", r"TftfInput.\1", t)
+            if t != t0:
+                wr(p, t); note("P53 screen size / touches via TftfScreen / TftfInput (VR)")
+    # The deferred camera's final composite (EBPostFXManager.PostRender -> EBImage) targets the backbuffer.
+    p = fp / "EB/Rendering/EBImage.cs"
+    if p.exists():
+        t = rd(p)
+        t2 = t.replace("\t\t\tRenderTexture.active = null;", "\t\t\tRenderTexture.active = TftfScreen.Target;")
+        t2 = t2.replace("Graphics.Blit(src, dst, material, pass);", "Graphics.Blit(src, dst ?? TftfScreen.Target, material, pass);")
+        if t2 != t:
+            wr(p, t2); note("P53 EBImage backbuffer blits into the VR screen")
+    # The stereo arena follows the fight camera and the point it frames; the controller buttons press the HUD zones.
+    replace_in(main, "CameraController.cs",
+               "\t\t\tbase.transform.rotation = rotation;\n\t\t}\n\t\tif (_shakePivot != null)",
+               "\t\t\tbase.transform.rotation = rotation;\n\t\t}\n\t\tTftfFightState.ReportCamera(Camera, _target);\n\t\tif (_shakePivot != null)",
+               "P53 CameraController reports the fight camera (VR)")
+    replace_in(main, "ActionButton.cs",
+               "\t\tbool pressed = _pressed;\n\t\tbool flag = false;\n\t\tint num = 0;\n",
+               "\t\tbool pressed = _pressed;\n\t\tbool flag = false;\n\t\tint num = 0;\n"
+               "\t\tTftfFightState.ReportButton(base.gameObject.name, UICamera.mainCamera.WorldToScreenPoint(_bounds.center));\n",
+               "P53 ActionButton reports its zone (VR)")
+
 REPAIRS = Path(__file__).resolve().parent / "repairs.json"  # accumulated compiler-log-driven repairs
 
 def collect(log: Path):
@@ -1256,6 +1286,8 @@ def apply(assets: Path):
     generic(fp); generic(main)
     third_party(assets)
     specific(fp, main)
+    if os.environ.get("TFTF_VR") == "1":
+        vr(fp, main)
     log_driven(assets.parent)
     for k, v in LOG.items():
         print(f"  {v:5d}  {k}")

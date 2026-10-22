@@ -73,13 +73,15 @@ step_assets() {  # non-script assets, audio, replacement shaders (the shell keep
   cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/Shader310/Hud_Health.shader"   # found by ShaderFallback under the original shader name
   cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/Shader310/EBG_UI_HudHealth.shader"   # the HealthBar material declares EBG/UI/HudHealth
   if [ "${TFTF_SHELL:-}" != 1 ]; then cp "$MONO310_DIR/unity/shaders/HudHealth.shader" "$N/Resources/ui/shaders/Hud_Health.shader"; fi   # keeps the ripped .meta guid the HealthBar material points at
+  rm -rf "$N/Resources/TftfVr"
+  if [ "$TFTF_VR" = 1 ]; then mkdir -p "$N/Resources/TftfVr"; cp "$MONO310_DIR"/unity/shaders/vr/*.shader "$N/Resources/TftfVr/"; fi   # the VR room (TftfVr)
 }
 
 step_assemble() { python3 "$S/assemble_project.py"; }
 
 step_compile() {  # scripts only (seconds); returns non-zero on compiler errors
   local log="${1:-unity-scripts.log}"; mkdir -p "$PROJECT/scripts-out"
-  unity_run -e TFTF_310_SCRIPTS_OUT=/workspace/project/scripts-out -e TFTF_SHELL="${TFTF_SHELL:-}" -- \
+  unity_run -e TFTF_310_SCRIPTS_OUT=/workspace/project/scripts-out -e TFTF_SHELL="${TFTF_SHELL:-}" -e TFTF_VR="$TFTF_VR" -- \
     -batchmode -nographics -quit -projectPath /workspace/project \
     -executeMethod Recompile310Build.CompileScriptsOnly -logFile "/workspace/project/$log" || true
   if grep -q "error CS" "$PROJECT/$log"; then grep "error CS" "$PROJECT/$log" | sort -u | head -20; return 1; fi
@@ -90,7 +92,7 @@ step_build() {  # full licensed player build (minutes)
   local unity_apk="3.1.0-recompiled-armv7-unity.apk"
   [ "${TFTF_SHELL:-}" != 1 ] || unity_apk="tftf-launcher-${TFTF_ANDROID_ARCH}-unity.apk"
   unity_run -e TFTF_310_OUTPUT="/workspace/project/$unity_apk" -e TFTF_SHELL="${TFTF_SHELL:-}" \
-    -e TFTF_ANDROID_ABI="$TFTF_ANDROID_ABI" -- \
+    -e TFTF_ANDROID_ABI="$TFTF_ANDROID_ABI" -e TFTF_VR="$TFTF_VR" -- \
     -batchmode -nographics -projectPath /workspace/project \
     -executeMethod Recompile310Build.BuildAndroid -logFile "/workspace/project/$log" || true
   grep -n "Android build:" "$PROJECT/$log" | tail -1

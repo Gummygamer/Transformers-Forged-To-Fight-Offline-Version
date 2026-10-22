@@ -33,6 +33,9 @@ public class TftfBootstrap : MonoBehaviour
 
     IEnumerator Start()
     {
+#if TFTF_VR
+        TftfVr.Init();          // before any game code reads the screen size (TftfScreen)
+#endif
         string dir = Path.Combine(Application.persistentDataPath, "tftf");
         Directory.CreateDirectory(dir);
         if (!TftfInstaller.IsInstalled(dir))

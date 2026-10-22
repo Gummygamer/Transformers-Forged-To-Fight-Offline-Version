@@ -3,6 +3,8 @@
 MONO310_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$MONO310_DIR/.." && pwd)"
 
+TFTF_VR="${TFTF_VR:-}"
+
 # Inputs the operator supplies (entitled copies of the game).
 : "${TFTF_310_APK:=$REPO_DIR/com.kabam.bigrobot_v3.1.0-822754_Android-4.4.apk}"
 : "${TFTF_92_APK:=$REPO_DIR/transformers-forged-to-fight-9-2-0.apk}"   # optional: story map/arena/character bundles
@@ -18,6 +20,11 @@ case "$TFTF_ANDROID_ABI" in
   *) echo "error: TFTF_ANDROID_ABI must be armeabi-v7a or arm64-v8a" >&2; exit 2 ;;
 esac
 if [ "${TFTF_SHELL:-}" = 1 ]; then SHELL_NAME=ShellProject; SHELL_APK="tftf-launcher-$TFTF_ANDROID_ARCH.apk"; else SHELL_NAME=UnityProject; SHELL_APK=3.1.0-recompiled-armv7.apk; fi
+# TFTF_VR=1 (with TFTF_SHELL=1 and arm64-v8a) selects the Meta Quest VR shell: its own project and APK beside the phone shell.
+if [ "${TFTF_VR:-}" = 1 ]; then
+  [ "${TFTF_SHELL:-}" = 1 ] && [ "$TFTF_ANDROID_ABI" = arm64-v8a ] || { echo "error: TFTF_VR=1 needs TFTF_SHELL=1 and TFTF_ANDROID_ABI=arm64-v8a" >&2; exit 2; }
+  SHELL_NAME=ShellProjectVR; SHELL_APK=tftf-launcher-quest.apk
+fi
 RIPPED="$TFTF_WORK/ripped"            # AssetRipper export of the 3.1.0 APK
 ILSPY_OUT="$TFTF_WORK/ilspy-out"      # decompiled C# (never committed)
 PROJECT="$TFTF_WORK/$SHELL_NAME"     # assembled Unity project
@@ -34,4 +41,4 @@ OUT_APK="$TFTF_WORK/$SHELL_APK"
 : "${ADB:=adb}"
 : "${ADB_DEVICE:=}"
 
-export TFTF_WORK TFTF_310_APK TFTF_92_APK RIPPED ILSPY_OUT PROJECT ODR_DIR OUT_APK TFTF_ANDROID_ABI TFTF_ANDROID_ARCH
+export TFTF_VR TFTF_WORK TFTF_310_APK TFTF_92_APK RIPPED ILSPY_OUT PROJECT ODR_DIR OUT_APK TFTF_ANDROID_ABI TFTF_ANDROID_ARCH

@@ -73,6 +73,15 @@ public static class Recompile310Build
         PlayerSettings.Android.minSdkVersion = arm64Shell ? AndroidSdkVersions.AndroidApiLevel21 : AndroidSdkVersions.AndroidApiLevel19;
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android,
             arm64Shell ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
+        if (System.Environment.GetEnvironmentVariable("TFTF_VR") == "1")
+        {
+            if (!arm64Shell) throw new System.InvalidOperationException("TFTF_VR=1 needs the ARM64 launcher shell.");
+            // By name: TftfVrBuildSetup and the XR packages exist only in the VR shell project.
+            var vr = System.AppDomain.CurrentDomain.GetAssemblies()
+                .Select(a => a.GetType("TftfVrBuildSetup")).FirstOrDefault(t => t != null);
+            if (vr == null) throw new System.InvalidOperationException("TftfVrBuildSetup not found (VR shell project only).");
+            vr.GetMethod("Configure").Invoke(null, null);
+        }
         Debug.Log("3.1.0 Android target architectures: " + PlayerSettings.Android.targetArchitectures);
         Debug.Log("3.1.0 Android toolchain: Unity embedded SDK and JDK");
 

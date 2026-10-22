@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.7.0](#070)
 - [0.6.1](#061)
 - [0.6.0](#060)
 - [0.5.2](#052)
@@ -13,6 +14,20 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.7.0
+
+**Added**
+
+- Meta Quest VR build (`TFTF_VR=1`, [`QUEST_VR.md`](QUEST_VR.md)): the game on a large screen in a VR room with a
+  controller laser as the finger, and fights drawn in stereo with the HUD in front. Built, not yet tested on a headset.
+
+**Fixed**
+
+- Fight arena rendering: baked arena lightmap and fight colour grade, bloom no longer blows the sky out to white,
+  magenta FX materials fixed.
+- Text shaders: authored text shaders are preferred over the stub, `ShaderFallback` no longer catches "Texture"
+  shaders, and the Alpha8 glyph trick is kept out of the image shaders.
 
 ## 0.6.1
 

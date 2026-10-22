@@ -20,6 +20,9 @@ public sealed class TftfSplash : MonoBehaviour
         var splash = go.AddComponent<TftfSplash>();
         yield return splash.Run();
         if (splash._logo != null) Destroy(splash._logo);
+#if TFTF_VR
+        if (splash._panel != null) Destroy(splash._panel.gameObject);
+#endif
         Destroy(go);
     }
 
@@ -32,7 +35,7 @@ public sealed class TftfSplash : MonoBehaviour
         for (float t = 0; t < Fade; t += Time.unscaledDeltaTime) { _alpha = t / Fade; yield return null; }
         _alpha = 1;
         float held = 0;
-        while (held < Hold && !(held > 0.6f && Input.touchCount > 0))      // a tap skips it after a moment
+        while (held < Hold && !(held > 0.6f && TftfInput.touchCount > 0))      // a tap skips it after a moment
         {
             held += Time.unscaledDeltaTime; yield return null;
         }
@@ -40,6 +43,24 @@ public sealed class TftfSplash : MonoBehaviour
         _alpha = 0;
     }
 
+#if TFTF_VR
+    TftfVrPanel _panel;
+
+    // The headset does not show IMGUI: the same picture on the VR screen.
+    void LateUpdate()
+    {
+        if (_panel == null) _panel = TftfVrPanel.Create("TftfSplashPanel");
+        _panel.Begin();
+        if (_logo != null && _alpha > 0)
+        {
+            float w = TftfVr.Width, h = TftfVr.Height, size = h * 0.74f;
+            _panel.Image(new Rect(0, 0, w, h), null, new Color(0, 0, 0, _alpha));
+            _panel.Image(new Rect((w - size) * 0.5f, h * 0.03f, size, size), _logo, new Color(1, 1, 1, _alpha));
+            _panel.Label(new Rect(0, h * 0.78f, w, h * 0.18f), Title, Mathf.RoundToInt(h * 0.075f), new Color(1f, 0.55f, 0.12f, _alpha), TextAnchor.MiddleCenter, true);
+        }
+        _panel.End();
+    }
+#else
     void OnGUI()
     {
         if (_logo == null || _alpha <= 0) return;
@@ -54,4 +75,5 @@ public sealed class TftfSplash : MonoBehaviour
         _style.normal.textColor = new Color(1f, 0.55f, 0.12f, _alpha);
         GUI.Label(new Rect(0, h * 0.78f, w, h * 0.18f), Title, _style);
     }
+#endif
 }

@@ -64,6 +64,9 @@ a full player build when changing the ABI. For managed-code-only edits, `run.sh 
 managed DLLs into the existing APK. Android starts the Legible server through `TftfProcess.java` because the
 IL2CPP player's `System.Diagnostics.Process.Start` cannot launch it.
 
+A Meta Quest VR variant (`TFTF_VR=1`: the game on a big screen in a VR room, fights in stereo) is described in
+[`QUEST_VR.md`](QUEST_VR.md). It is built but not yet run on a headset.
+
 ## Layout
 
 | path | content |

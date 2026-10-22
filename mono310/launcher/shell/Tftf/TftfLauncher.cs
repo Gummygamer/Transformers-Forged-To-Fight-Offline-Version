@@ -7,7 +7,7 @@ using UnityEngine.Networking;
 
 public sealed class TftfLauncher : MonoBehaviour
 {
-    public const string LauncherVersion = "0.6.1";      // the launcher's own version; the game inside stays 3.1.0
+    public const string LauncherVersion = "0.7.0";      // the launcher's own version; the game inside stays 3.1.0
 #if UNITY_STANDALONE_WIN
     const string DeviceName = "PC";
 #else
@@ -276,39 +276,59 @@ public sealed class TftfLauncher : MonoBehaviour
         if (_installing && TftfInstaller.Error != null) { _installing = false; _message = "Installation failed: " + TftfInstaller.Error; }
     }
 
+#if TFTF_VR
+    TftfVrPanel _panel;
+
+    void LateUpdate()
+    {
+        if (_panel == null) _panel = TftfVrPanel.Create("TftfLauncherPanel");
+        _panel.Begin();
+        if (!_finished) Layout(TftfVr.Width, TftfVr.Height);
+        _panel.End();
+    }
+
+    void OnDestroy() { if (_panel != null) Destroy(_panel.gameObject); }
+#else
     void OnGUI()
     {
         if (_finished) return;
-        float s = Screen.height / 540f;
         if (_label == null)
         {
             _label = new GUIStyle(GUI.skin.label) { fontSize = 22, wordWrap = true, alignment = TextAnchor.MiddleCenter };
             _small = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true, alignment = TextAnchor.MiddleCenter };
             _button = new GUIStyle(GUI.skin.button) { fontSize = 22 };
         }
+        float s = Screen.height / 540f;
         GUI.matrix = Matrix4x4.Scale(new Vector3(s, s, 1));
-        float w = Screen.width / s, h = Screen.height / s;
         GUI.color = Color.white;
-        GUI.DrawTexture(new Rect(0, 0, w, h), Texture2D.blackTexture);
+        Layout(Screen.width, Screen.height);
+    }
+#endif
+
+    // The first-run screen in a 540-unit-high layout, drawn by IMGUI or, in VR, by the panel (scaled to pixels there).
+    float _s;
+
+    void Layout(float screenW, float screenH)
+    {
+        _s = screenH / 540f;
+        float w = screenW / _s, h = screenH / _s;
+        UiTexture(new Rect(0, 0, w, h), Texture2D.blackTexture);
         float x = w * 0.5f - 280;
         float tx = x;
-        if (_logo != null) { GUI.DrawTexture(new Rect(x, 12, 84, 84), _logo); tx = x + 96; }
-        GUI.Label(new Rect(tx, 16, 560 - (tx - x), 40), "Transformers: Forged to Fight - revival launcher", _label);
-        GUI.Label(new Rect(tx, 58, 560 - (tx - x), 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your " + DeviceName + ".", _small);
-        GUI.Label(new Rect(x, h - 30, 560, 24), "Launcher " + LauncherVersion + "  (game build 3.1.0-822754)", _small);
+        if (_logo != null) { UiTexture(new Rect(x, 12, 84, 84), _logo); tx = x + 96; }
+        UiLabel(new Rect(tx, 16, 560 - (tx - x), 40), "Transformers: Forged to Fight - revival launcher", false);
+        UiLabel(new Rect(tx, 58, 560 - (tx - x), 56), "Pick your own copies of the 3.1.0 and 9.2.0 game APKs. Nothing leaves your " + DeviceName + ".", true);
+        UiLabel(new Rect(x, h - 30, 560, 24), "Launcher " + LauncherVersion + "  (game build 3.1.0-822754)", true);
         if (_installing)
         {
-            GUI.Label(new Rect(x, 170, 560, 40), TftfInstaller.Status, _label);
-            GUI.Box(new Rect(x, 230, 560, 24), "");
-            GUI.DrawTexture(new Rect(x + 2, 232, 556 * TftfInstaller.Progress, 20), Texture2D.whiteTexture);
+            UiLabel(new Rect(x, 170, 560, 40), TftfInstaller.Status, false);
+            UiBar(new Rect(x, 230, 560, 24), TftfInstaller.Progress);
             return;
         }
-        GUI.enabled = true;
-        if (GUI.Button(new Rect(x, 130, 560, 54), _names[0].Length == 0 ? "Select the 3.1.0 APK" : "3.1.0: " + _names[0], _button)) Pick(0);
-        if (GUI.Button(new Rect(x, 196, 560, 54), _names[1].Length == 0 ? "Select the 9.2.0 APK" : "9.2.0: " + _names[1], _button)) Pick(1);
+        if (UiButton(new Rect(x, 130, 560, 54), _names[0].Length == 0 ? "Select the 3.1.0 APK" : "3.1.0: " + _names[0], true)) Pick(0);
+        if (UiButton(new Rect(x, 196, 560, 54), _names[1].Length == 0 ? "Select the 9.2.0 APK" : "9.2.0: " + _names[1], true)) Pick(1);
         bool ready = _paths[0].Length > 0 && _paths[1].Length > 0 && _trees != null;
-        GUI.enabled = ready;
-        if (GUI.Button(new Rect(x, 276, 560, 60), "Install and play", _button))
+        if (UiButton(new Rect(x, 276, 560, 60), "Install and play", ready))
         {
             long free = FreeBytes();
             if (free >= 0 && free < RequiredBytes)
@@ -318,10 +338,42 @@ public sealed class TftfLauncher : MonoBehaviour
             }
             _installing = true; _message = "";
             TftfInstaller.Start(_root, _paths[0], _paths[1], _trees, Path.Combine(Application.persistentDataPath, "asset_cache/odr"));
-            GUI.enabled = true;
             return;
         }
-        GUI.enabled = true;
-        if (_message.Length > 0) GUI.Label(new Rect(x, 356, 560, 80), _message, _small);
+        if (_message.Length > 0) UiLabel(new Rect(x, 356, 560, 80), _message, true);
     }
+
+#if TFTF_VR
+    Rect Px(Rect r) { return new Rect(r.x * _s, r.y * _s, r.width * _s, r.height * _s); }
+
+    void UiTexture(Rect r, Texture tex) { _panel.Image(Px(r), tex, Color.white); }
+
+    void UiLabel(Rect r, string text, bool small) { _panel.Label(Px(r), text, Mathf.RoundToInt((small ? 16 : 22) * _s), Color.white); }
+
+    bool UiButton(Rect r, string text, bool enabled) { return _panel.Button(Px(r), text, Mathf.RoundToInt(22 * _s), enabled); }
+
+    void UiBar(Rect r, float progress)
+    {
+        _panel.Image(Px(r), null, new Color(0.25f, 0.27f, 0.32f));
+        _panel.Image(Px(new Rect(r.x + 2, r.y + 2, (r.width - 4) * progress, r.height - 4)), null, Color.white);
+    }
+#else
+    void UiTexture(Rect r, Texture tex) { GUI.DrawTexture(r, tex); }
+
+    void UiLabel(Rect r, string text, bool small) { GUI.Label(r, text, small ? _small : _label); }
+
+    bool UiButton(Rect r, string text, bool enabled)
+    {
+        GUI.enabled = enabled;
+        bool clicked = GUI.Button(r, text, _button);
+        GUI.enabled = true;
+        return clicked;
+    }
+
+    void UiBar(Rect r, float progress)
+    {
+        GUI.Box(r, "");
+        GUI.DrawTexture(new Rect(r.x + 2, r.y + 2, (r.width - 4) * progress, r.height - 4), Texture2D.whiteTexture);
+    }
+#endif
 }
