@@ -22,6 +22,7 @@ names = list(dict.fromkeys(n.strip() for n in names if n.strip()))
 TEXT = {"GUI/Text Shader", "GUI/Text Shader (SoftClip)", "TFTF/Text", "Unlit/Text", "Unlit - Text"}
 MULTIPASS = 8  # Hidden/EB/* effects index passes up to ~6 (Blur/DepthBlur/FXAA...)
 OPAQUE = {"EBG/UI/Opaque", "EBG/UI/OpaqueFlat", "Diffuse"}
+ADDITIVE = {"Hidden/Light/Flare", "Hidden/EB/LensFlare"}  # sun glows: alpha-blended, their dark texels drew a black ring over the sky
 
 PASS = '''        Pass
         {{
@@ -72,7 +73,7 @@ for n in names:
     f = out / (re.sub(r"[^A-Za-z0-9]+", "_", n) + ".shader")
     f.write_text(TPL.format(name=n, queue="Geometry" if op else "Transparent", rt="Opaque" if op else "Transparent",
                             passes=one * count, zw="On" if op else "Off",
-                            blend="Off" if op else "SrcAlpha OneMinusSrcAlpha"))
+                            blend="Off" if op else "One One" if n in ADDITIVE else "SrcAlpha OneMinusSrcAlpha"))
 LIT = '''Shader "TFTF/LitTex"
 {
     Properties { _MainTex ("Texture", 2D) = "white" {} _Color ("Tint", Color) = (1,1,1,1) }
@@ -139,6 +140,7 @@ PBR = r"""Shader "TFTF/PbrLite"
         _Base2ST ("colour layer tiling", Vector) = (1,1,0,0)
         _MaskST ("mask tiling", Vector) = (1,1,0,0)
         _Blend ("mask offset, remap, colour layer on, world uv", Vector) = (0,1,0,0)
+        _LmOn ("baked arena lightmap on uv2 (donor LIGHTMAP_ON)", Float) = 0
     }
     SubShader
     {
@@ -154,13 +156,14 @@ PBR = r"""Shader "TFTF/PbrLite"
             #pragma multi_compile_fwdbase
             #include "UnityCG.cginc"
             #include "AutoLight.cginc"
-            struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
-            struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; };
+            struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; float2 texcoord1 : TEXCOORD1; };
+            struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; float2 uvLm : TEXCOORD5; };
+            sampler2D _TftfLm; float _TftfLmOn, _LmOn;
             sampler2D _CompTex; float _CompOn; sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend, _CompST, _NormalST; float _NmMetal;
             fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float _IsSkinned; float4 _TftfRobot; float4 _TftfSky; float _EmisOver, _EmisRamp, _TftfGlowOn; float4 _EmisPulse; float _TftfEmis;
             v2f vert(appdata_t v)
             {
-                v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord;
+                v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord; o.uvLm = v.texcoord1;
                 o.n = UnityObjectToWorldNormal(v.normal); o.wp = mul(unity_ObjectToWorld, v.vertex).xyz;
                 TRANSFER_SHADOW(o)
                 return o;
@@ -216,7 +219,11 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - metal);
                 float ndl = dot(n, L), ndv = saturate(dot(n, V));
                 UNITY_LIGHT_ATTENUATION(atten, i, i.wp);      // the TFTF sun light's shadow (1 without one)
-                float nl = saturate(ndl) * atten, nl2 = saturate(dot(n, L2));
+                // static arena geometry: the donor's forward lightmap (global _lm of the time of day) holds the baked sun shadow and AO in
+                // alpha and the baked local lights in rgb (x4); without it the arenas were lit flat
+                float4 lm = _TftfLmOn > 0.5 && _LmOn > 0.5 ? tex2D(_TftfLm, i.uvLm) : float4(0, 0, 0, 1);
+                lm.rgb *= _TftfLmOn > 1.5 ? 1 : 0;      // 1: deferred map (only its alpha applies here), 2: forward map
+                float nl = saturate(ndl) * atten * lm.a, nl2 = saturate(dot(n, L2)) * lm.a;
                 float3 H = normalize(L + V);
                 float a2 = rough * rough * rough * rough, nh = saturate(dot(n, H));
                 float dd = nh * nh * (a2 - 1) + 1, D = a2 / (3.14159 * dd * dd + 1e-5);
@@ -235,13 +242,14 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float rim = pow(1 - ndv, 4) * 0.35 * (1 - rough * 0.5);
                 float aoL = lerp(_IsSkinned > 0.5 ? 0.7 : 0.35, 1, ao);      // robots keep their shadowed parts readable
                 float back = pow(saturate(dot(n, L2)), 2) * (0.35 + 0.65 * pow(1 - ndv, 2));
-                if (_TftfDebug > 0.5)      // tftf/dbg.txt: 1 world normal, 2 key light lambert, 3 shadow atten, 4 albedo, 5 light dir, 6 n.v, 7 ambient+rim only
+                back *= lm.a; aoL *= lerp(0.25, 1, lm.a); rim *= lm.a;
+                if (_TftfDebug > 0.5)      // tftf/dbg.txt: 1 world normal, 2 key light lambert, 3 shadow atten, 4 albedo, 5 light dir, 6 n.v, 7 ambient+rim only, 8 baked lightmap occlusion
                 {
                     float dbg = _TftfDebug;
-                    float3 o = dbg < 1.5 ? n * 0.5 + 0.5 : dbg < 2.5 ? nl.xxx : dbg < 3.5 ? atten.xxx : dbg < 4.5 ? albS : dbg < 5.5 ? L * 0.5 + 0.5 : dbg < 6.5 ? ndv.xxx : ambient;
+                    float3 o = dbg < 1.5 ? n * 0.5 + 0.5 : dbg < 2.5 ? nl.xxx : dbg < 3.5 ? atten.xxx : dbg < 4.5 ? albS : dbg < 5.5 ? L * 0.5 + 0.5 : dbg < 6.5 ? ndv.xxx : dbg < 7.5 ? ambient : lm.aaa;
                     return fixed4(o, 1);
                 }
-                float3 col = direct + (diff * ambient * G.x + env + rim * G.y * float3(0.20, 0.23, 0.30)) * aoL + back * G.y * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
+                float3 col = direct + diff * lm.rgb * 4 * sun * 0.5 + (diff * ambient * G.x + env + rim * G.y * float3(0.20, 0.23, 0.30)) * aoL + back * G.y * float3(0.55, 0.62, 0.80) * (diff + spec0) * 1.6;
                 // atmospheric haze: far geometry fades into the arena's sky colour (the original arenas are hazy and moody)
                 float fd = distance(_WorldSpaceCameraPos, i.wp);
                 float fogK = saturate((fd - 30) / 260) * _TftfTune.z;
