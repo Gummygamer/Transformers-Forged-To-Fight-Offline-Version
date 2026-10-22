@@ -56,3 +56,8 @@
 __pycache__/
 /tools/port202/bin/
 /tools/port202/obj/
+
+# Local Android Gradle project (keystores, build output)
+/android/
+# Local build tool output
+/tools/stubs92/
