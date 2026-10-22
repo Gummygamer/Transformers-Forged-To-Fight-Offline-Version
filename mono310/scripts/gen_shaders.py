@@ -122,12 +122,18 @@ PBR = r"""Shader "TFTF/PbrLite"
         _AoTex ("AO", 2D) = "white" {}
         _EmisTex ("Emissive", 2D) = "black" {}
         _EmisColor ("Emissive colour", Color) = (0,0,0,0)
+        _EmisOver ("donor _emissive_overbright_range", Float) = 120
+        _EmisRamp ("donor _emissive_ramp_range", Float) = 1
+        _EmisPulse ("donor pulse intensity, time", Vector) = (0,1,0,0)
         _Flags ("has normal, metal, rough, ao", Vector) = (0,0,0,0)
         _MetalAmt ("Metallic scale", Float) = 1
         _RoughAmt ("Roughness scale", Float) = 1
         _IsSkinned ("Robot (skinned mesh)", Float) = 0
         _CompTex ("RAOE composite (R roughness, G AO, B emissive)", 2D) = "black" {}
         _CompOn ("composite present", Float) = 0
+        _CompST ("donor _pbr_composite_tex_ST (merged atlas)", Vector) = (1,1,0,0)
+        _NormalST ("donor _normal_tex_ST", Vector) = (1,1,0,0)
+        _NmMetal ("metallic in the normal map's blue (EB_COMPOSITE_NM)", Float) = 0
         _Base2Tex ("Terrain colour layer", 2D) = "white" {}
         _MaskTex ("Terrain blend mask", 2D) = "white" {}
         _Base2ST ("colour layer tiling", Vector) = (1,1,0,0)
@@ -150,8 +156,8 @@ PBR = r"""Shader "TFTF/PbrLite"
             #include "AutoLight.cginc"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; };
-            sampler2D _CompTex; float _CompOn; sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float _IsSkinned; float4 _TftfRobot; float4 _TftfSky;
+            sampler2D _CompTex; float _CompOn; sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend, _CompST, _NormalST; float _NmMetal;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float _IsSkinned; float4 _TftfRobot; float4 _TftfSky; float _EmisOver, _EmisRamp, _TftfGlowOn; float4 _EmisPulse; float _TftfEmis;
             v2f vert(appdata_t v)
             {
                 v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord;
@@ -174,10 +180,15 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float2 uv = _Blend.w > 0.5 ? i.wp.xz * _MainTex_ST.xy + _MainTex_ST.zw : i.uv;
                 float2 uvR = _Blend.w > 0.5 ? i.wp.xz : i.uvRaw;
                 float3 n = normalize(i.n);
+                // robots (donor EB_COMPOSITE_*): normal map and RAOE composite are merged atlases addressed through their own ST
+                bool world = _Blend.w > 0.5;
+                float2 uvN = world ? uv : i.uvRaw * _NormalST.xy + _NormalST.zw;
+                float2 uvC = world ? uv : i.uvRaw * _CompST.xy + _CompST.zw;
+                float3 nmS = tex2D(_NormalTex, uvN).xyz;
                 if (_Flags.x > 0.5)
                 {
-                    float3 tn = tex2D(_NormalTex, uv).xyz * 2 - 1; tn.xy *= 0.8; tn.z = sqrt(saturate(1 - dot(tn.xy, tn.xy)));
-                    n = perturb(n, i.wp, uv, tn);
+                    float3 tn = nmS * 2 - 1; tn.xy *= 0.8; tn.z = sqrt(saturate(1 - dot(tn.xy, tn.xy)));
+                    n = perturb(n, i.wp, uvN, tn);
                 }
                 float3 V = normalize(_WorldSpaceCameraPos - i.wp);
                 float4 G = _TftfGrade.w > 0 ? _TftfGrade : float4(1, 1, 1, 1);      // all zero until the game's first lighting update
@@ -196,10 +207,11 @@ PBR = r"""Shader "TFTF/PbrLite"
                     albS = lerp(albS, tex2D(_Base2Tex, uvR * _Base2ST.xy + _Base2ST.zw).rgb, k);
                 }
                 float3 alb = pow(albS * _Color.rgb, 2.2);
-                float metal = _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, uv).r * _MetalAmt) : saturate(_MetalAmt);
-                float3 comp = _CompOn > 0.5 ? tex2D(_CompTex, uv).rgb : float3(-1, -1, 0);      // R roughness, G ambient occlusion, B emissive
-                float rough = _CompOn > 0.5 ? saturate(comp.r * 1.1) : (_Flags.z > 0.5 ? saturate(tex2D(_RoughTex, uv).r * _RoughAmt) : saturate(_RoughAmt));
-                float ao = _CompOn > 0.5 ? comp.g : (_Flags.w > 0.5 ? tex2D(_AoTex, uv).r : 1);
+                float metal = _NmMetal > 0.5 ? nmS.z : _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, uv).r * _MetalAmt) : saturate(_MetalAmt);
+                // donor decode: channels squared; R^2 is the GGX alpha^2 (= our rough^4), G^2 AO, B^2 emissive mask
+                float3 comp = _CompOn > 0.5 ? tex2D(_CompTex, uvC).rgb : float3(-1, -1, 0);
+                float rough = _CompOn > 0.5 ? sqrt(saturate(comp.r)) : (_Flags.z > 0.5 ? saturate(tex2D(_RoughTex, uv).r * _RoughAmt) : saturate(_RoughAmt));
+                float ao = _CompOn > 0.5 ? comp.g * comp.g : (_Flags.w > 0.5 ? tex2D(_AoTex, uv).r : 1);
                 rough = clamp(rough, 0.12, 1);
                 float3 spec0 = lerp(0.04, alb, metal), diff = alb * (1 - metal);
                 float ndl = dot(n, L), ndv = saturate(dot(n, V));
@@ -237,29 +249,22 @@ PBR = r"""Shader "TFTF/PbrLite"
                 col *= float3(1 + _TftfTune.w, 1, 1 - _TftfTune.w);      // warm/cool grade (tftf/tune.txt: warm)
                 bool robot = _IsSkinned > 0.5 && _TftfRobot.x > 0;      // robots outside fights (selection screens) get their own exposure/saturation
                 col *= (_TftfTune.x > 0 ? _TftfTune.x : 1.0) * (robot ? _TftfRobot.x : 1.0);      // exposure (tftf/tune.txt: "exposure sun")
-                // emissive parts (eyes, lights, glowing panels) are added after the exposure, so a dark fight exposure does not dim them; the
-                // donor emissive colour is tiny (e.g. 0.06,0.04,0.01): only its hue is used, the map gives the pattern
-                float emax = max(_EmisColor.r, max(_EmisColor.g, _EmisColor.b));
-                float3 etint = emax > 0.001 ? _EmisColor.rgb / emax : float3(1, 1, 1);
-                // Packed B = emissive mask. Two kinds of lit spots: the helmet's LED strip (on a coloured surface: glows in its own hue) and the
-                // eyes (on a black surface: glow in the material's emissive colour, red). The eye points are 2-3 texels wide: widened a little.
-                float lumA = dot(albS, float3(0.299, 0.587, 0.114));
-                float dark = saturate(1 - lumA * 8);
-                float3 ealb = albS / max(max(albS.r, albS.g), max(albS.b, 0.05));
-                float eb = comp.b;
-                float2 ep = float2(1.6 / 256.0, 1.6 / 256.0);
-                eb = max(eb, tex2D(_CompTex, uv + float2(ep.x, 0)).b * 0.75);
-                eb = max(eb, tex2D(_CompTex, uv - float2(ep.x, 0)).b * 0.75);
-                eb = max(eb, tex2D(_CompTex, uv + float2(0, ep.y)).b * 0.75);
-                eb = max(eb, tex2D(_CompTex, uv - float2(0, ep.y)).b * 0.75);
-                float3 emap = _CompOn > 0.5 ? (eb * (dark * etint * 6.0 + (1 - dark) * pow(ealb, 1.5) * 1.6)) : pow(tex2D(_EmisTex, uv).rgb, 2.2);
-                col += emap * 2.2;
+                // emissive parts (eyes, lights, glowing panels) are added after the exposure, so a dark fight exposure does not dim them
+                // donor (Hidden/PBR ... EB_COMPOSITE_RAOE): pow(B^2 * col^2, ramp) * (1 + sin(t * pulseTime) * pulseAmp) * overbright, in the
+                // material's own emissive colour (Primal's eyes red, head lights orange)
+                float3 ecol = _EmisColor.rgb / 3;      // TftfDiag stores it * 3
+                float pulse = 1 + sin(_Time.z * _EmisPulse.y) * _EmisPulse.x;
+                float3 emap = _CompOn > 0.5 ? pow(max(comp.b * comp.b * ecol * ecol, 1e-8), _EmisRamp > 0 ? _EmisRamp : 1) * pulse * _EmisOver * (_TftfEmis > 0 ? _TftfEmis : 1)
+                                            : pow(tex2D(_EmisTex, uv).rgb, 2.2) * 2.2 * clamp(log2(max(_EmisOver, 1)) / 6.9, 0.25, 1.4);
+                col += emap;
+                // alpha = glow mask for TFTF/Bloom on the fight camera (TftfBloom sets _TftfGlowOn only while it renders)
+                float glow = saturate(dot(emap, float3(0.3, 0.5, 0.2)) * 0.9 + saturate(dot(col, float3(0.3, 0.5, 0.2)) - 1.6) * 0.25);
                 col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);      // ACES approximation
                 col = pow(saturate(col), 1 / 2.2);
                 float lum = dot(col, float3(0.299, 0.587, 0.114));
                 col = lerp(lum.xxx, col, G.z * (robot ? _TftfRobot.y : 1.0));                       // saturation
                 col = saturate((col - 0.5) * G.w + 0.5);             // contrast
-                return fixed4(col, 1);
+                return fixed4(col, _TftfGlowOn > 0.5 ? glow : 1);
             }
             ENDCG
         }
@@ -300,9 +305,9 @@ SKY = r"""Shader "TFTF/SkyLite"
             #include "UnityCG.cginc"
             struct appdata_t { float4 vertex : POSITION; float2 texcoord : TEXCOORD0; };
             struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
-            sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST;
+            sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST; float _TftfGlowOn;
             v2f vert(appdata_t v) { v2f o; o.vertex = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); return o; }
-            fixed4 frag(v2f i) : SV_Target { return fixed4(tex2D(_MainTex, i.uv).rgb * _Color.rgb, 1); }
+            fixed4 frag(v2f i) : SV_Target { return fixed4(tex2D(_MainTex, i.uv).rgb * _Color.rgb, _TftfGlowOn > 0.5 ? 0.12 : 1); }
             ENDCG
         }
     }
@@ -314,7 +319,14 @@ SKY = r"""Shader "TFTF/SkyLite"
 FX = r"""Shader "TFTF/AddFx"
 {
     // Stand-in for the donor PBR materials that were authored as transparent (glow cards, trails): additive, so black is nothing.
-    Properties { _MainTex ("Texture", 2D) = "white" {} _Color ("Tint", Color) = (1,1,1,1) }
+    Properties
+    {
+        _MainTex ("Texture", 2D) = "white" {}
+        _Color ("Tint", Color) = (1,1,1,1)
+        _EmisOver ("donor _emissive_overbright_range", Float) = 8
+        _EmisRamp ("donor _emissive_ramp_range", Float) = 1
+        _UseVC ("particle vertex colour", Float) = 0
+    }
     SubShader
     {
         Tags { "Queue"="Transparent" "IgnoreProjector"="True" "RenderType"="Transparent" }
@@ -325,11 +337,18 @@ FX = r"""Shader "TFTF/AddFx"
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
-            struct appdata_t { float4 vertex : POSITION; float2 texcoord : TEXCOORD0; };
-            struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
-            sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST;
-            v2f vert(appdata_t i) { v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.uv = TRANSFORM_TEX(i.texcoord, _MainTex); return o; }
-            fixed4 frag(v2f i) : SV_Target { fixed4 c = tex2D(_MainTex, i.uv); return fixed4(c.rgb * _Color.rgb * c.a * 0.6, 1); }
+            struct appdata_t { float4 vertex : POSITION; float2 texcoord : TEXCOORD0; float4 color : COLOR; };
+            struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; float4 vc : COLOR; };
+            sampler2D _MainTex; fixed4 _Color; float4 _MainTex_ST; float _EmisOver, _EmisRamp, _UseVC;
+            v2f vert(appdata_t i) { v2f o; o.vertex = UnityObjectToClipPos(i.vertex); o.uv = TRANSFORM_TEX(i.texcoord, _MainTex); o.vc = _UseVC > 0.5 ? i.color : float4(1, 1, 1, 1); return o; }
+            fixed4 frag(v2f i) : SV_Target
+            {
+                fixed4 c = tex2D(_MainTex, i.uv);
+                // donor particles: pow(emissive, ramp) * tint * overbright; overbright 1..235 mapped to about 0.5..2.1 (LDR target, TFTF/Bloom spreads the rest)
+                float k = 0.6 * (0.8 + 0.35 * log2(max(_EmisOver, 1)));
+                float3 e = pow(max(c.rgb, 0), _EmisRamp > 0 ? _EmisRamp : 1) * _Color.rgb * c.a * k * i.vc.rgb * i.vc.a;
+                return fixed4(e, saturate(dot(e, float3(0.3, 0.5, 0.2)) * 0.8));      // alpha adds up: glow mask for TFTF/Bloom
+            }
             ENDCG
         }
     }
@@ -337,6 +356,63 @@ FX = r"""Shader "TFTF/AddFx"
 }
 """
 (out / "TFTF_AddFx.shader").write_text(FX)
+
+BLOOM = r"""Shader "TFTF/Bloom"
+{
+    // Stand-in for the game's bloom post-FX (EBPostFXBloom runs on stub shaders). TftfBloom on the fight camera: 0 prefilter (rgb * glow mask in
+    // alpha, plus a soft threshold on very bright pixels), 1 separable 9-tap gaussian along _BlurDir, 2 composite onto the frame.
+    Properties { _MainTex ("Source", 2D) = "black" {} _BloomTex ("Bloom", 2D) = "black" {} _Bloom2Tex ("Bloom wide", 2D) = "black" {} }
+    CGINCLUDE
+    #include "UnityCG.cginc"
+    sampler2D _MainTex, _BloomTex, _Bloom2Tex; float4 _MainTex_TexelSize, _BlurDir, _BloomParams;      // params: threshold, threshold gain, amount
+    struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+    v2f vert(appdata_img v) { v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = v.texcoord; return o; }
+    float3 pre(float2 uv)
+    {
+        float4 c = tex2D(_MainTex, uv);
+        float l = dot(c.rgb, float3(0.3, 0.5, 0.2));
+        return c.rgb * (c.a + saturate((l - _BloomParams.x) / (1.0001 - _BloomParams.x)) * _BloomParams.y);
+    }
+    float4 fragPre(v2f i) : SV_Target
+    {
+        float2 d = _MainTex_TexelSize.xy;
+        return float4((pre(i.uv + d * float2(-1, -1)) + pre(i.uv + d * float2(1, -1)) + pre(i.uv + d * float2(-1, 1)) + pre(i.uv + d * float2(1, 1))) * 0.25, 1);
+    }
+    float4 fragBlur(v2f i) : SV_Target
+    {
+        float2 d = _BlurDir.xy;
+        float3 c = tex2D(_MainTex, i.uv).rgb * 0.2270270;
+        c += (tex2D(_MainTex, i.uv + d * 1.3846154).rgb + tex2D(_MainTex, i.uv - d * 1.3846154).rgb) * 0.3162162;
+        c += (tex2D(_MainTex, i.uv + d * 3.2307692).rgb + tex2D(_MainTex, i.uv - d * 3.2307692).rgb) * 0.0702703;
+        return float4(c, 1);
+    }
+    float4 fragComp(v2f i) : SV_Target
+    {
+        float3 c = tex2D(_MainTex, i.uv).rgb;
+        float3 b = (tex2D(_BloomTex, i.uv).rgb * 0.6 + tex2D(_Bloom2Tex, i.uv).rgb * 0.8) * _BloomParams.z;
+        return float4(c + b * (1 - c * 0.35), 1);
+    }
+    ENDCG
+    SubShader
+    {
+        Cull Off ZWrite Off ZTest Always
+        Pass { CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragPre
+            ENDCG }
+        Pass { CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragBlur
+            ENDCG }
+        Pass { CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment fragComp
+            ENDCG }
+    }
+    Fallback Off
+}
+"""
+(out / "TFTF_Bloom.shader").write_text(BLOOM)
 print(len(names), "shaders ->", out)
 
 # --- also rewrite AssetRipper dummy shaders (white-output placeholders) in place, keeping GUIDs ---

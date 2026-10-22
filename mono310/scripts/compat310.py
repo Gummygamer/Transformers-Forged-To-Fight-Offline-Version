@@ -358,6 +358,10 @@ public class TftfDiag : MonoBehaviour
 						float tv;
 						if (kv.Length != 2 || !float.TryParse(kv[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out tv)) continue;
 						string kn = kv[0].ToLowerInvariant();
+						if (kn == "bloom") { TftfBloom.Amount = tv; continue; }
+						if (kn == "emis") { Shader.SetGlobalFloat("_TftfEmis", tv); continue; }
+						if (kn == "bloomthr") { TftfBloom.Threshold = tv; continue; }
+						if (kn == "bloomgain") { TftfBloom.ThresholdGain = tv; continue; }
 						bool fightKey = kn.StartsWith("f");
 						if (fightKey != inFight) continue;
 						int ki = System.Array.IndexOf(TuneNames, fightKey ? kn.Substring(1) : kn);
@@ -476,6 +480,9 @@ public class TftfDiag : MonoBehaviour
 					if (fxTex != null) nm.mainTexture = fxTex;
 					Color fxCol = m.HasProperty("_emissive_intensity_col") ? m.GetColor("_emissive_intensity_col") : Color.white;
 					nm.color = fxTex != null ? fxCol : Color.black;
+					if (m.HasProperty("_emissive_overbright_range")) nm.SetFloat("_EmisOver", m.GetFloat("_emissive_overbright_range"));
+					if (m.HasProperty("_emissive_ramp_range")) nm.SetFloat("_EmisRamp", m.GetFloat("_emissive_ramp_range"));
+					nm.SetFloat("_UseVC", r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer ? 1f : 0f);
 				}
 				if (nm.HasProperty("_NormalTex"))
 				{
@@ -489,8 +496,19 @@ public class TftfDiag : MonoBehaviour
 					nm.SetVector("_Flags", new Vector4(tn != null ? 1f : 0f, tm != null ? 1f : 0f, tr != null ? 1f : 0f, ta != null ? 1f : 0f));
 					nm.SetFloat("_MetalAmt", tm != null ? 1f : (m.HasProperty("_metallic_range") ? Mathf.Clamp01(m.GetFloat("_metallic_range")) : 0f));
 					Texture tc = m.HasProperty("_pbr_composite_tex") ? m.GetTexture("_pbr_composite_tex") : null;      // robots: R roughness, G AO, B emissive packed together
-					if (tc != null && tm == null && tr == null && ta == null) { nm.SetTexture("_CompTex", tc); nm.SetFloat("_CompOn", 1f); if (m.HasProperty("_emissive_intensity_col")) nm.SetColor("_EmisColor", m.GetColor("_emissive_intensity_col") * 3f); }
+					if (tc != null && tm == null && tr == null && ta == null)
+					{
+						nm.SetTexture("_CompTex", tc); nm.SetFloat("_CompOn", 1f); if (m.HasProperty("_emissive_intensity_col")) nm.SetColor("_EmisColor", m.GetColor("_emissive_intensity_col") * 3f);
+						// the composite and normal maps are atlases shared by several materials: each material addresses its part through its own ST
+						Vector2 cs = m.GetTextureScale("_pbr_composite_tex"), co = m.GetTextureOffset("_pbr_composite_tex");
+						nm.SetVector("_CompST", new Vector4(cs.x, cs.y, co.x, co.y));
+						if (tn != null) { Vector2 ns = m.GetTextureScale("_normal_tex"), no = m.GetTextureOffset("_normal_tex"); nm.SetVector("_NormalST", new Vector4(ns.x, ns.y, no.x, no.y)); nm.SetFloat("_NmMetal", 1f); }
+						if (m.HasProperty("_emissive_pulse_intensity_range") && m.HasProperty("_emissive_pulse_time_range"))
+							nm.SetVector("_EmisPulse", new Vector4(m.GetFloat("_emissive_pulse_intensity_range"), m.GetFloat("_emissive_pulse_time_range"), 0f, 0f));
+					}
 					nm.SetFloat("_RoughAmt", tr != null ? 1f : (m.HasProperty("_roughness_range") ? Mathf.Clamp01(m.GetFloat("_roughness_range")) : 0.6f));
+					if (m.HasProperty("_emissive_overbright_range")) nm.SetFloat("_EmisOver", m.GetFloat("_emissive_overbright_range"));
+					if (m.HasProperty("_emissive_ramp_range")) nm.SetFloat("_EmisRamp", m.GetFloat("_emissive_ramp_range"));
 				}
 				mats[i] = nm; changed = true;
 				if (_swapped.Add(id)) Debug.Log("[DIAG] swapped " + r.name + " shader=" + n.Substring(0, Mathf.Min(48, n.Length)) + " tex=" + (tex != null ? tex.name : "none") + " props=" + string.Join(",", m.GetTexturePropertyNames()));
@@ -556,6 +574,7 @@ public class TftfDiag : MonoBehaviour
 			if (!EB.Rendering.EBTimeOfDayManager.IsInitialized || EB.Rendering.EBTimeOfDayManager.Instance.GetActiveTimeOfDay() == null) ApplyGlobals();
 			SwapPbr();
 			EnsureSun();
+			foreach (Camera bc in Camera.allCameras) if (bc.name == "RigCamera" && bc.GetComponent<TftfBloom>() == null) bc.gameObject.AddComponent<TftfBloom>();
 			// The 16:9 UI viewport leaves bars on wider phones: clear them to black instead of Unity's default skybox.
 			RenderSettings.skybox = null;
 			foreach (Camera sc in Camera.allCameras) if (sc.clearFlags == CameraClearFlags.Skybox && sc.targetTexture == null) { sc.clearFlags = CameraClearFlags.SolidColor; sc.backgroundColor = Color.black; }
@@ -678,6 +697,51 @@ public class TftfDiag : MonoBehaviour
 		GameObject b = GameObject.Find("BaseRoot(Clone)");
 		if (b == null) b = GameObject.Find("BaseRoot");
 		Debug.Log("[DIAG] BaseRoot=" + (b != null) + (b != null ? " active=" + b.activeInHierarchy + " pos=" + b.transform.position + " childCount=" + b.transform.childCount : ""));
+	}
+}
+
+// The game's bloom (EBPostFXBloom) runs on stub shaders and draws nothing, so eyes, lights and attack effects never glowed. TFTF/PbrLite,
+// TFTF/AddFx and TFTF/SkyLite write a glow mask into alpha while this camera renders (_TftfGlowOn); the mask is blurred at 1/4 and 1/8
+// resolution and added back. tftf/tune.txt: "bloom 0" switches it off; "bloomthr"/"bloomgain" control the bright-pixel term.
+public class TftfBloom : MonoBehaviour
+{
+	public static float Amount = 1.1f, Threshold = 0.88f, ThresholdGain = 0.35f;
+	private static Material _mat;
+	private static bool _logged;
+
+	private void OnPreRender() { Shader.SetGlobalFloat("_TftfGlowOn", Amount > 0f ? 1f : 0f); }
+	private void OnPostRender() { Shader.SetGlobalFloat("_TftfGlowOn", 0f); }
+
+	private static void Blur(RenderTexture a, RenderTexture b)
+	{
+		_mat.SetVector("_BlurDir", new Vector4(1f / a.width, 0f, 0f, 0f));
+		Graphics.Blit(a, b, _mat, 1);
+		_mat.SetVector("_BlurDir", new Vector4(0f, 1f / a.height, 0f, 0f));
+		Graphics.Blit(b, a, _mat, 1);
+	}
+
+	private void OnRenderImage(RenderTexture src, RenderTexture dst)
+	{
+		if (_mat == null)
+		{
+			Shader s = ShaderFallback.Find("TFTF/Bloom");
+			if (s != null && s.name == "TFTF/Bloom" && s.isSupported) _mat = new Material(s);
+			if (!_logged) { _logged = true; Debug.Log("[DIAG] TFTF bloom shader=" + (s != null ? s.name : "null") + " ok=" + (_mat != null) + " src=" + src.width + "x" + src.height + " " + src.format); }
+		}
+		if (_mat == null || Amount <= 0f) { Graphics.Blit(src, dst); return; }
+		int w = Mathf.Max(16, src.width / 4), h = Mathf.Max(16, src.height / 4);
+		RenderTexture a = RenderTexture.GetTemporary(w, h, 0, src.format), b = RenderTexture.GetTemporary(w, h, 0, src.format);
+		RenderTexture c = RenderTexture.GetTemporary(w / 2, h / 2, 0, src.format), d = RenderTexture.GetTemporary(w / 2, h / 2, 0, src.format);
+		_mat.SetVector("_BloomParams", new Vector4(Threshold, ThresholdGain, Amount, 0f));
+		Graphics.Blit(src, a, _mat, 0);
+		Blur(a, b);
+		Graphics.Blit(a, c);
+		Blur(c, d);
+		Blur(c, d);
+		_mat.SetTexture("_BloomTex", a);
+		_mat.SetTexture("_Bloom2Tex", c);
+		Graphics.Blit(src, dst, _mat, 2);
+		RenderTexture.ReleaseTemporary(a); RenderTexture.ReleaseTemporary(b); RenderTexture.ReleaseTemporary(c); RenderTexture.ReleaseTemporary(d);
 	}
 }
 """)
