@@ -402,11 +402,18 @@ public function final_boss_stats(): Stats
   Stats { hp: 10500, atk: 800 }
 end
 
+-- Health and attack gained per level above 1. At the old 1% a level-61 3-star still lost to a level-1
+-- 5-star (stars are worth ~2.2x); 2.5% makes high-level enemies outclass a fresh squad.
+public function level_growth(): decimal
+  intent: return
+  0.025
+end
+
 public function base_stats(bid: text, rank: integer, level: integer): Stats
   intent: build
   let entry: RosterEntry = roster_entry(bid)
   let rank_mult: decimal = 1 + 0.35 * to_decimal(max(1, rank) - 1)
-  let level_add: decimal = to_decimal(max(1, level) - 1) / 100
+  let level_add: decimal = to_decimal(max(1, level) - 1) * level_growth()
   let level_factor: decimal = 1 + level_add
   let factor: decimal = rank_mult * level_factor
   if bid == final_boss_bid() then
@@ -1258,9 +1265,11 @@ end
 end
 
 -- These exact names must match the AIProfile and AIPersonality assets shipped in the client. Live testing proved valid names alone do not make the offline opponent select the ranged branch.
-public function enemy_ai_profile(): text
+-- Shipped profiles by Difficulty tuneable (Resources/gameplay/aiprofiles): Default 0.5, Hardish 0.65,
+-- Hard 0.8, Harder 0.867, Hardest 0.933. "Default" made every opponent too passive.
+public function enemy_ai_profile(is_final_boss: boolean): text
   intent: name
-  "Default"
+  if is_final_boss then "Hard" else "Hardish" end
 end
 
 public function enemy_ai_personality(): text
@@ -1270,7 +1279,7 @@ end
 
 -- Quest enemies used to spawn at level 1, the same as the player's squad, which made fights too easy.
 -- The client fetches each boss's stats from /bcg/getBaseHeroData by (bid, rank, level) and base_stats
--- adds 1% per level above 1, so these levels give regular enemies +35% and final bosses +60% health
+-- adds level_growth() per level above 1, so these levels give regular enemies +88% and final bosses +150% health
 -- and attack. Rank stays 1 because the login data only carries rank-1 hero bases.
 public function enemy_level(is_final_boss: boolean): integer
   intent: return
@@ -2414,7 +2423,7 @@ end
 else
   tod_index
 end
-  jsonout.json_obj([pair_text("key", key), pair_text("entityType", "boss"), pair_text("parentEntityType", "boss"), pair_bool("isFinalBoss", is_final_boss), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(key)])), pair_int("rank", 1), pair_int("level", enemy_level(is_final_boss)), pair_int("sig_lvl", 0), pair_int("flvl", 0), pair_int("aiType", 0), pair_text("aiString", enemy_ai_profile()), pair_text("aiPer", enemy_ai_personality()), pair_text("mapOverride", selected_map), pair_int("todIndex", selected_tod)])
+  jsonout.json_obj([pair_text("key", key), pair_text("entityType", "boss"), pair_text("parentEntityType", "boss"), pair_bool("isFinalBoss", is_final_boss), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(key)])), pair_int("rank", 1), pair_int("level", enemy_level(is_final_boss)), pair_int("sig_lvl", 0), pair_int("flvl", 0), pair_int("aiType", 0), pair_text("aiString", enemy_ai_profile(is_final_boss)), pair_text("aiPer", enemy_ai_personality()), pair_text("mapOverride", selected_map), pair_int("todIndex", selected_tod)])
 end
 
 public function build_quest_enemy(map_override: text, tod_index: integer): Json
@@ -2919,7 +2928,7 @@ public function payload_base_stats(bid: text, rank: integer, level: integer): St
 else
   let entry: RosterEntry = roster_entry(bid)
   let rank_mult: decimal = 1 + 0.35 * to_decimal(max(1, rank) - 1)
-  let level_factor: decimal = 1 + to_decimal(max(1, level) - 1) / 100
+  let level_factor: decimal = 1 + to_decimal(max(1, level) - 1) * level_growth()
   let hp_classed: decimal = to_decimal(star_hp(entry.star)) * class_hp_mult(entry.klass)
   let hp_ranked: decimal = hp_classed * rank_mult
   let atk_classed: decimal = to_decimal(star_atk(entry.star)) * class_atk_mult(entry.klass)

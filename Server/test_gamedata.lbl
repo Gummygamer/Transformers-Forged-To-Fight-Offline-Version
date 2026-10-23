@@ -1334,7 +1334,7 @@ function test_quest_enemy_names_a_shipped_ai_profile_and_personality(): boolean
   let enemy: Json = gamedata.build_quest_enemy("", -1)
   let profile: text = jsonout.as_text(jsonout.obj_get(enemy, "aiString"))
   let personality: text = jsonout.as_text(jsonout.obj_get(enemy, "aiPer"))
-  profile == gamedata.enemy_ai_profile() and profile == "Default" and profile != "default" and personality == gamedata.enemy_ai_personality() and personality == "Ranged" and personality != "default"
+  profile == gamedata.enemy_ai_profile(true) and profile == "Hard" and gamedata.enemy_ai_profile(false) == "Hardish" and personality == gamedata.enemy_ai_personality() and personality == "Ranged" and personality != "default"
 end
 
 function test_default_arena_is_not_the_black_karnak_fallback(): boolean

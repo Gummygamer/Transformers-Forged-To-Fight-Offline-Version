@@ -282,7 +282,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "karnak",
               "todIndex": 2
@@ -372,7 +372,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "rust",
               "todIndex": 2
@@ -461,7 +461,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "hongkong",
               "todIndex": 0
@@ -550,7 +550,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "mine",
               "todIndex": 0
@@ -639,7 +639,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "chicago",
               "todIndex": 1
@@ -729,7 +729,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "karnak",
               "todIndex": 1
@@ -818,7 +818,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "rust",
               "todIndex": 1
@@ -907,7 +907,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "hongkong",
               "todIndex": 2
@@ -996,7 +996,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "mine",
               "todIndex": 2
@@ -1077,7 +1077,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hard",
               "aiPer": "Ranged",
               "mapOverride": "chicago",
               "todIndex": 0
@@ -1403,7 +1403,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "karnak",
                     "todIndex": 2
@@ -1493,7 +1493,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "rust",
                     "todIndex": 2
@@ -1582,7 +1582,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "hongkong",
                     "todIndex": 0
@@ -1671,7 +1671,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "mine",
                     "todIndex": 0
@@ -1760,7 +1760,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "chicago",
                     "todIndex": 1
@@ -1850,7 +1850,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "karnak",
                     "todIndex": 1
@@ -1939,7 +1939,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "rust",
                     "todIndex": 1
@@ -2028,7 +2028,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "hongkong",
                     "todIndex": 2
@@ -2117,7 +2117,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hardish",
                     "aiPer": "Ranged",
                     "mapOverride": "mine",
                     "todIndex": 2
@@ -2198,7 +2198,7 @@
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
-                    "aiString": "Default",
+                    "aiString": "Hard",
                     "aiPer": "Ranged",
                     "mapOverride": "chicago",
                     "todIndex": 0
@@ -2523,7 +2523,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "karnak",
                         "todIndex": 2
@@ -2613,7 +2613,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "rust",
                         "todIndex": 2
@@ -2702,7 +2702,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "hongkong",
                         "todIndex": 0
@@ -2791,7 +2791,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "mine",
                         "todIndex": 0
@@ -2880,7 +2880,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "chicago",
                         "todIndex": 1
@@ -2970,7 +2970,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "karnak",
                         "todIndex": 1
@@ -3059,7 +3059,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "rust",
                         "todIndex": 1
@@ -3148,7 +3148,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "hongkong",
                         "todIndex": 2
@@ -3237,7 +3237,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hardish",
                         "aiPer": "Ranged",
                         "mapOverride": "mine",
                         "todIndex": 2
@@ -3318,7 +3318,7 @@
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
-                        "aiString": "Default",
+                        "aiString": "Hard",
                         "aiPer": "Ranged",
                         "mapOverride": "chicago",
                         "todIndex": 0
@@ -3655,7 +3655,7 @@
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
-              "aiString": "Default",
+              "aiString": "Hardish",
               "aiPer": "Ranged",
               "mapOverride": "karnak",
               "todIndex": 2
