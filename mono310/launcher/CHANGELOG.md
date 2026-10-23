@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.7.2](#072)
 - [0.7.0](#070)
 - [0.6.1](#061)
 - [0.6.0](#060)
@@ -14,6 +15,14 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.7.2
+
+**Fixed**
+
+- Quest VR: magenta upside-down silhouettes over fights in arenas with floor reflections (Karnak). The VR build pointed the
+  game's planar reflection camera, which draws into its own buffers, at the VR screen; disabled cameras and the game's light
+  cameras are now left alone.
 
 ## 0.7.0
 

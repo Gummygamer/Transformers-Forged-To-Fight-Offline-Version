@@ -245,6 +245,10 @@ public sealed class TftfVr : MonoBehaviour
 
     static bool OwnBuffers(Camera c)
     {
+        // A disabled camera is rendered by hand into buffers of its own (SetTargetBuffers leaves targetTexture null): the
+        // planar reflection camera and its light camera. Pointed at Screen2D, the mirrored scene drew over the frame (magenta
+        // upside-down silhouettes in Karnak). The light cameras composite through EBImage, like the deferred camera.
+        if (!c.enabled || c.GetComponent<EB.Rendering.EBLightCamera>() != null) return true;
         if (c.GetComponent<EB.Rendering.EBDeferredCamera>() == null) return false;
         var path = EB.Rendering.EBGBuffer.GetCurrentRenderPath(EB.Rendering.EBGBuffer.eMRT_BUFFER.kMain);
         return path == EB.Rendering.EBGBuffer.eRENDER_PATH.Deferred || path == EB.Rendering.EBGBuffer.eRENDER_PATH.ForwardWithRT;

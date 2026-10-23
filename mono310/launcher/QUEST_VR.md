@@ -86,6 +86,10 @@ rendering path resolves to VertexLit from the player settings, which skips every
 shaders; the arena eye now takes the fight camera's rendering path (Forward). The headset's view cannot be captured
 over adb: pushing an empty `tftf/vrshot.txt` during a fight writes `tftf/vrshot-seat.png` (the arena eye without
 stereo) and `tftf/vrshot-screen.png` (the HUD).
+**Fixed (2026-10-22):** magenta upside-down silhouettes over Karnak fights (both modes). Every camera without a target was
+pointed at the screen texture, including the game's planar reflection camera, which is disabled, rendered by hand and
+targets its own buffers through `SetTargetBuffers` (so `targetTexture` reads null). Disabled cameras and the game's light
+cameras are now left alone.
 3. Arena look: the arena camera is a plain forward camera, so the game's post-FX grade and anything its shaders take
    from the deferred pipeline's buffers are missing. The world scale (game units taken as metres) sets the stereo
    depth and may feel miniature or huge.
