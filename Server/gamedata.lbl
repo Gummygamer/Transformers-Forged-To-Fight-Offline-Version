@@ -1268,6 +1268,15 @@ public function enemy_ai_personality(): text
   "Ranged"
 end
 
+-- Quest enemies used to spawn at level 1, the same as the player's squad, which made fights too easy.
+-- The client fetches each boss's stats from /bcg/getBaseHeroData by (bid, rank, level) and base_stats
+-- adds 1% per level above 1, so these levels give regular enemies +35% and final bosses +60% health
+-- and attack. Rank stays 1 because the login data only carries rank-1 hero bases.
+public function enemy_level(is_final_boss: boolean): integer
+  intent: return
+  if is_final_boss then 61 else 36 end
+end
+
 public function arena_tod_index(): integer
   intent: get
   let level: text = arena_level()
@@ -2405,7 +2414,7 @@ end
 else
   tod_index
 end
-  jsonout.json_obj([pair_text("key", key), pair_text("entityType", "boss"), pair_text("parentEntityType", "boss"), pair_bool("isFinalBoss", is_final_boss), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(key)])), pair_int("rank", 1), pair_int("level", 1), pair_int("sig_lvl", 0), pair_int("flvl", 0), pair_int("aiType", 0), pair_text("aiString", enemy_ai_profile()), pair_text("aiPer", enemy_ai_personality()), pair_text("mapOverride", selected_map), pair_int("todIndex", selected_tod)])
+  jsonout.json_obj([pair_text("key", key), pair_text("entityType", "boss"), pair_text("parentEntityType", "boss"), pair_bool("isFinalBoss", is_final_boss), jsonout.json_pair("characters", jsonout.json_list([jsonout.json_text(key)])), pair_int("rank", 1), pair_int("level", enemy_level(is_final_boss)), pair_int("sig_lvl", 0), pair_int("flvl", 0), pair_int("aiType", 0), pair_text("aiString", enemy_ai_profile()), pair_text("aiPer", enemy_ai_personality()), pair_text("mapOverride", selected_map), pair_int("todIndex", selected_tod)])
 end
 
 public function build_quest_enemy(map_override: text, tod_index: integer): Json

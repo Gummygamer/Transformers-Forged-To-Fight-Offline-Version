@@ -278,7 +278,7 @@
                 "sharkticon_gs_warrior"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -368,7 +368,7 @@
                 "kickback_gs_kabam"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -457,7 +457,7 @@
                 "waspinator_gs_deluxe"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -546,7 +546,7 @@
                 "sharkticon_gs_demolition"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -635,7 +635,7 @@
                 "soundwave_gs"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -725,7 +725,7 @@
                 "cyclonus_gs_uw06"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -814,7 +814,7 @@
                 "motormaster_gs_voyager2015"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -903,7 +903,7 @@
                 "bludgeon_gs_rd20"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -992,7 +992,7 @@
                 "necrotronus_gs_kabam"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -1073,7 +1073,7 @@
                 "nemesisprime_gs_voyager2015"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 61,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
@@ -1399,7 +1399,7 @@
                       "sharkticon_gs_warrior"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -1489,7 +1489,7 @@
                       "kickback_gs_kabam"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -1578,7 +1578,7 @@
                       "waspinator_gs_deluxe"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -1667,7 +1667,7 @@
                       "sharkticon_gs_demolition"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -1756,7 +1756,7 @@
                       "soundwave_gs"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -1846,7 +1846,7 @@
                       "cyclonus_gs_uw06"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -1935,7 +1935,7 @@
                       "motormaster_gs_voyager2015"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -2024,7 +2024,7 @@
                       "bludgeon_gs_rd20"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -2113,7 +2113,7 @@
                       "necrotronus_gs_kabam"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 36,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -2194,7 +2194,7 @@
                       "nemesisprime_gs_voyager2015"
                     ],
                     "rank": 1,
-                    "level": 1,
+                    "level": 61,
                     "sig_lvl": 0,
                     "flvl": 0,
                     "aiType": 0,
@@ -2519,7 +2519,7 @@
                           "sharkticon_gs_warrior"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -2609,7 +2609,7 @@
                           "kickback_gs_kabam"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -2698,7 +2698,7 @@
                           "waspinator_gs_deluxe"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -2787,7 +2787,7 @@
                           "sharkticon_gs_demolition"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -2876,7 +2876,7 @@
                           "soundwave_gs"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -2966,7 +2966,7 @@
                           "cyclonus_gs_uw06"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -3055,7 +3055,7 @@
                           "motormaster_gs_voyager2015"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -3144,7 +3144,7 @@
                           "bludgeon_gs_rd20"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -3233,7 +3233,7 @@
                           "necrotronus_gs_kabam"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 36,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -3314,7 +3314,7 @@
                           "nemesisprime_gs_voyager2015"
                         ],
                         "rank": 1,
-                        "level": 1,
+                        "level": 61,
                         "sig_lvl": 0,
                         "flvl": 0,
                         "aiType": 0,
@@ -3651,7 +3651,7 @@
                 "sharkticon_gs_warrior"
               ],
               "rank": 1,
-              "level": 1,
+              "level": 36,
               "sig_lvl": 0,
               "flvl": 0,
               "aiType": 0,
