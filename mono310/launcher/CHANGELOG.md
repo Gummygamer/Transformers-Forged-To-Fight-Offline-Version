@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.7.3](#073)
 - [0.7.2](#072)
 - [0.7.0](#070)
 - [0.6.1](#061)
@@ -15,6 +16,17 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.7.3
+
+**Changed**
+
+- Quest enemies spawn at level 36 (final bosses at 61) instead of 1, stats grow 2.5% per level, and enemy AI profiles are
+  harder.
+
+**Fixed**
+
+- The red "prod" server tag no longer shows in the top-left corner of the screen.
 
 ## 0.7.2
 

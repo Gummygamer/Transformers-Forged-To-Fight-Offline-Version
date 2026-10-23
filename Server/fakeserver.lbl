@@ -1328,7 +1328,7 @@ else
 end
   let name: text = if device_name != "" then device_name else if device_model != "" then device_model else "Commander" end
   let session: Session = ensure_session(fingerprint, name)
-  compact_envelope(jsonout.json_obj([pair_text("stoken", session.stoken), pair_text("server_tag", "prod"), pair_text("userToken", ""), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([pair_int("uid", unwrap_or(to_integer(session.uid), 1000000000001)), pair_text("name", session.name), pair_int("level", account_level()), pair_text("email", ""), pair_text("fbid", ""), pair_text("geo", "US"), pair_text("naid", ""), pair_int("cohort", 0), pair_int("revenue", 0)]))]))
+  compact_envelope(jsonout.json_obj([pair_text("stoken", session.stoken), pair_text("server_tag", ""), pair_text("userToken", ""), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([pair_int("uid", unwrap_or(to_integer(session.uid), 1000000000001)), pair_text("name", session.name), pair_int("level", account_level()), pair_text("email", ""), pair_text("fbid", ""), pair_text("geo", "US"), pair_text("naid", ""), pair_int("cohort", 0), pair_int("revenue", 0)]))]))
 end
 
 function tutorial_response(path: text, p: text, btxt: text): text
