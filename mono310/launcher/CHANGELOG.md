@@ -27,6 +27,12 @@
 **Fixed**
 
 - The red "prod" server tag no longer shows in the top-left corner of the screen.
+- Android shell (`libandroid-signal.so`): fix SP3 character model transformation in cutscenes (e.g. Megatron tank mode,
+  weapon parts, and redeco models). Native Matinee tracks expect PascalCase entity paths (e.g.
+  `Megatron_GS_Leader2015|Actor0_locator`), but spawned bot root GameObjects use lowercase names
+  (`megatron_gs_leader2015`), causing Unity's case-sensitive `Transform.Find` to fail during
+  `MatineeActorTrack.FixupEntity`. `libandroid-signal.so` now dynamically intercepts `FixupEntity`, captures the actor
+  GameObject from the bound locator hierarchy, and synchronizes the actor name (`MATINEE_ALIAS`).
 
 ## 0.7.2
 
