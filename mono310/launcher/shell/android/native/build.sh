@@ -12,5 +12,5 @@ esac
 HERE=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$OUT"
 for pair in "android-signal:LIB_ANDROID_SIGNAL" "apkprotect:LIB_APKPROTECT" "enetlib:LIB_ENETLIB"; do
-  "$CC" -shared -fPIC -O2 -D"${pair#*:}" -o "$OUT/lib${pair%%:*}.so" "$HERE/stubs.c"
+  "$CC" -shared -fPIC -O2 -D"${pair#*:}" -o "$OUT/lib${pair%%:*}.so" "$HERE/stubs.c" -llog
 done
