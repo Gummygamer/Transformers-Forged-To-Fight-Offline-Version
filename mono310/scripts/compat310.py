@@ -370,6 +370,7 @@ public class TftfDiag : MonoBehaviour
 	}
 
 	private static float _dbgNext;
+	private static string _globalsLogged;
 	private static void AimSun()
 	{
 		if (Time.realtimeSinceStartup >= _dbgNext)
@@ -379,6 +380,8 @@ public class TftfDiag : MonoBehaviour
 			try { string f = System.IO.Path.Combine(Application.persistentDataPath, "tftf/dbg.txt"); if (System.IO.File.Exists(f)) float.TryParse(System.IO.File.ReadAllText(f).Trim(), out dv); } catch (System.Exception) { }
 			Shader.SetGlobalFloat("_TftfDebug", dv);
 			bool inFight = InFight();
+			string gl = "fight=" + inFight + " exp=" + Shader.GetGlobalFloat("_EBExposure") + " emisExp=" + Shader.GetGlobalFloat("_EBEmissiveExposure") + " tm=" + Shader.GetGlobalVector("_EBToneMapResponse") + " pmrem=" + Shader.GetGlobalVector("_PMREMScale") + " sunLum=" + Shader.GetGlobalVector("_EBDirectionalLightLuminanceIntensityValueShift");
+			if (gl != _globalsLogged) { _globalsLogged = gl; Debug.Log("[DIAG] EB globals " + gl); }
 			// lighting values, per screen type; tftf/tune.txt overrides them with "name value" lines (see TuneNames) without a rebuild
 			float[] cur = inFight ? new float[] { FightExposure, FightSun, FightAmbient, FightRim, FightSat, FightContrast, FightFog, FightWarm } : new float[] { DefaultExposure, DefaultSun, 1f, 1f, 1f, 1f, 0f, 0f };
 			try
@@ -395,6 +398,9 @@ public class TftfDiag : MonoBehaviour
 						if (kn == "emis") { Shader.SetGlobalFloat("_TftfEmis", tv); continue; }
 						if (kn == "bloomthr") { TftfBloom.Threshold = tv; continue; }
 						if (kn == "bloomgain") { TftfBloom.ThresholdGain = tv; continue; }
+						// "_Name value" sets a shader global float, "v_Name value" a global vector (all four components)
+						if (kv[0].StartsWith("_")) { Shader.SetGlobalFloat(kv[0], tv); continue; }
+						if (kv[0].StartsWith("v_")) { Shader.SetGlobalVector(kv[0].Substring(1), new Vector4(tv, tv, tv, tv)); continue; }
 						bool fightKey = kn.StartsWith("f");
 						if (fightKey != inFight) continue;
 						int ki = System.Array.IndexOf(TuneNames, fightKey ? kn.Substring(1) : kn);
@@ -479,8 +485,9 @@ public class TftfDiag : MonoBehaviour
 				// the blob "contact shadow" quads under the feet and hips use an opaque white-on-black mask that the stand-in shader draws as
 				// cards; the TFTF sun light casts real shadows now, so these are switched off
 				if (n == "EB/Misc/ContactShadow") { if (r.enabled) r.enabled = false; continue; }
-				// donor PBR draws with this pipeline's lighting but without the game's exposure and tone map: far too shiny; TFTF/PbrLite ports its contract
-				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
+				// 9.2.0 donor PBR shaders render in this pipeline (metallic, roughness, normal maps): keep them
+				if (n.StartsWith("Hidden/PBR")) continue;
+				if (!(n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{
 					string rn = r.name;
@@ -644,18 +651,23 @@ public class TftfDiag : MonoBehaviour
 	{
 		if (!_lodLogged) { _lodLogged = true; Debug.Log("[DIAG] globalMaximumLOD(before)=" + Shader.globalMaximumLOD + " rtCount=" + SystemInfo.supportedRenderTargetCount + " gles=" + SystemInfo.graphicsDeviceVersion); }
 		Shader.globalMaximumLOD = 100000;
-		Shader.SetGlobalFloat("_EBExposure", 1f);
-		Shader.SetGlobalFloat("_EBOneOverExposure", 1f);
-		Shader.SetGlobalFloat("_EBSkyLuminanceScale", 1f / 32f);
-		Shader.SetGlobalFloat("_EBEmissiveExposure", 1f);
-		Shader.SetGlobalFloat("_AODirectInfluence", 1f);
-		Shader.SetGlobalVector("_EBLightmapAdjust", new Vector4(1f, 1f, 1f, 1f));
-		Shader.SetGlobalVector("_EBDirectionalLightDirection", new Vector4(0.3f, 0.8f, -0.5f, 0f));
-		Shader.SetGlobalVector("_EBDirectionalLightLuminanceIntensity", new Vector4(1f, 1f, 1f, 1f));
-		Shader.SetGlobalVector("_PMREMScale", new Vector4(1f, 1f, 1f, 1f));
+		// fallbacks only: a scene's EBRenderSettings sets these once when it activates, and the donor PBR shaders need its exposure
+		// and tone map (overwriting them every second blew the story squad screen out to white)
+		DefaultFloat("_EBExposure", 1f);
+		DefaultFloat("_EBOneOverExposure", 1f);
+		DefaultFloat("_EBSkyLuminanceScale", 1f / 32f);
+		DefaultFloat("_EBEmissiveExposure", 1f);
+		DefaultFloat("_AODirectInfluence", 1f);
+		DefaultVector("_EBToneMapResponse", new Vector4(1f, 1f, 1f, 0f));      // x / (x + response): zero turns every lit pixel white
+		DefaultVector("_EBLightmapAdjust", new Vector4(1f, 1f, 1f, 1f));
+		DefaultVector("_EBDirectionalLightDirection", new Vector4(0.3f, 0.8f, -0.5f, 0f));
+		DefaultVector("_EBDirectionalLightLuminanceIntensity", new Vector4(1f, 1f, 1f, 1f));
+		DefaultVector("_PMREMScale", new Vector4(1f, 1f, 1f, 1f));
 		Shader.SetGlobalVector("_FogParams", Vector4.zero);
 		Shader.SetGlobalTexture("_lm", Texture2D.whiteTexture);
 	}
+	private static void DefaultFloat(string name, float v) { if (Shader.GetGlobalFloat(name) == 0f) Shader.SetGlobalFloat(name, v); }
+	private static void DefaultVector(string name, Vector4 v) { if (Shader.GetGlobalVector(name).sqrMagnitude == 0f) Shader.SetGlobalVector(name, v); }
 
 	private Camera _rig;
 
@@ -813,7 +825,8 @@ public class TftfDiag : MonoBehaviour
 // resolution and added back. tftf/tune.txt: "bloom 0" switches it off; "bloomthr"/"bloomgain" control the bright-pixel term.
 public class TftfBloom : MonoBehaviour
 {
-	public static float Amount = 1.1f, Threshold = 0.88f, ThresholdGain = 0.35f;
+	// off by default: tuned for TFTF/PbrLite; the donor PBR shaders' brighter tone-mapped output bloomed fights and menus to white (tune.txt "bloom 1.1" turns it on)
+	public static float Amount = 0f, Threshold = 0.88f, ThresholdGain = 0.35f;
 	private static Material _mat;
 	private static bool _logged;
 
@@ -963,6 +976,11 @@ public class TftfBloom : MonoBehaviour
         replace_in(fp, "UIStretch.cs", "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n",
                    "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n\t\tmWidget = GetComponent<UIWidget>();\n\t\tmSprite = GetComponent<UISprite>();\n\t\tmVectorArt = GetComponent<UIVectorArt>();\n\t\tmPanel = GetComponent<UIPanel>();\n",
                    "P47 UIStretch finds its widget again in Start")
+        # P55: the hip contact shadow draws as an opaque dark card between the legs; it is still created (LateUpdate uses it), never shown
+        replace_in(main, "ContactShadow.cs", "_HipShadowRenderer.enabled = enable;", "_HipShadowRenderer.enabled = false;",
+                   "P55 hip contact shadow hidden")
+        replace_in(main, "ContactShadow.cs", "_HipShadowRenderer.material = _HipShadowMaterial;\n",
+                   "_HipShadowRenderer.material = _HipShadowMaterial;\n\t\t_HipShadowRenderer.enabled = false;\n", "P55 hip contact shadow hidden")
         # P56: never show the server tag label (top left); a stale server copy on the phone can still send "prod"
         replace_in(main, "ServerTag.cs", "SafeSetActive(Tuning.Instance != null && Tuning.Instance.DisplayServerTag);",
                    "SafeSetActive(false);", "P56 server tag hidden")
