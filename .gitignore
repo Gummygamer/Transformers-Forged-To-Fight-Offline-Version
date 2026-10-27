@@ -61,3 +61,5 @@ __pycache__/
 /android/
 # Local build tool output
 /tools/stubs92/
+
+/unity_build_project/

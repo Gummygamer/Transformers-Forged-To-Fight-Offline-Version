@@ -1,1 +1,114 @@
-{"error":null,"result":{"stoken":"mock_stoken_310","server_tag":"","user":{"uid":10001,"name":"Commander","level":50},"missionsconfig":{"check":"hash_missionsconfig_310","refresh":3600,"cache":false,"missionsconfig":{"configsHash":"hash_missionsconfig_310","configs":{"user-base":{"minClaimInterval":60,"minClaimPercentage":0.1,"characterExclusivityTeamTypes":[]},"alliance-base":{"minClaimInterval":60,"minClaimPercentage":0.1,"characterExclusivityTeamTypes":[]},"pve":{"characterExclusivityTeamTypes":[]},"pvp":{"characterExclusivityTeamTypes":[]},"ava":{"characterExclusivityTeamTypes":[]},"ave":{"characterExclusivityTeamTypes":[]},"away":{"characterExclusivityTeamTypes":[]},"bcg-combat":{}}}},"tut":{"FTE":{"s":"completed","current_bid":"","branches":{}},"BotPlacementTutorial":{"s":"completed","current_bid":"","branches":{}},"NavToQuestTutorial":{"s":"completed","current_bid":"","branches":{}},"RaidsTutorial":{"s":"completed","current_bid":"","branches":{}},"SparksTutorial":{"s":"completed","current_bid":"","branches":{}},"BattleCenterUnlock":{"s":"completed","current_bid":"","branches":{}},"BattleCenterVisited":{"s":"completed","current_bid":"","branches":{}},"AllianceHelpUnlock":{"s":"completed","current_bid":"","branches":{}},"AllianceHelpVisited":{"s":"completed","current_bid":"","branches":{}},"AwayTeamUnlock":{"s":"completed","current_bid":"","branches":{}},"AwayTeamVisited":{"s":"completed","current_bid":"","branches":{}}},"privacySettings":{},"invites":[],"sentInvites":[],"invitesDB":{}}}
+{
+  "error": null,
+  "result": {
+    "stoken": "mock_stoken_310",
+    "server_tag": "",
+    "user": {
+      "uid": 10001,
+      "name": "Commander",
+      "level": 50
+    },
+    "missionsconfig": {
+      "check": "hash_missionsconfig_310",
+      "refresh": 3600,
+      "cache": false,
+      "missionsconfig": {
+        "configsHash": "hash_missionsconfig_310",
+        "configs": {
+          "user-base": {
+            "minClaimInterval": 60,
+            "minClaimPercentage": 0.1,
+            "characterExclusivityTeamTypes": []
+          },
+          "alliance-base": {
+            "minClaimInterval": 60,
+            "minClaimPercentage": 0.1,
+            "characterExclusivityTeamTypes": []
+          },
+          "pve": {
+            "characterExclusivityTeamTypes": []
+          },
+          "pvp": {
+            "characterExclusivityTeamTypes": []
+          },
+          "ava": {
+            "characterExclusivityTeamTypes": []
+          },
+          "ave": {
+            "characterExclusivityTeamTypes": []
+          },
+          "away": {
+            "characterExclusivityTeamTypes": []
+          },
+          "bcg-combat": {}
+        }
+      }
+    },
+    "tut": {
+      "FTE": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "BotPlacementTutorial": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "NavToQuestTutorial": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "RaidsTutorial": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "SparksTutorial": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "BattleCenterUnlock": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "BattleCenterVisited": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "AllianceHelpUnlock": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "AllianceHelpVisited": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "AwayTeamUnlock": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "AwayTeamVisited": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      },
+      "ShieldTutorial": {
+        "s": "completed",
+        "current_bid": "",
+        "branches": {}
+      }
+    },
+    "privacySettings": {},
+    "invites": [],
+    "sentInvites": [],
+    "invitesDB": {}
+  }
+}

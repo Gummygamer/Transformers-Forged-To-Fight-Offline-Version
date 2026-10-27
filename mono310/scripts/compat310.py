@@ -479,7 +479,8 @@ public class TftfDiag : MonoBehaviour
 				// the blob "contact shadow" quads under the feet and hips use an opaque white-on-black mask that the stand-in shader draws as
 				// cards; the TFTF sun light casts real shadows now, so these are switched off
 				if (n == "EB/Misc/ContactShadow") { if (r.enabled) r.enabled = false; continue; }
-				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
+				// 9.2.0 donor PBR shaders are fully supported and render realistic metallic/specular/normal materials; do not swap them to LitTex
+				if (!(n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{
 					string rn = r.name;
@@ -962,6 +963,11 @@ public class TftfBloom : MonoBehaviour
         replace_in(fp, "UIStretch.cs", "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n",
                    "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n\t\tmWidget = GetComponent<UIWidget>();\n\t\tmSprite = GetComponent<UISprite>();\n\t\tmVectorArt = GetComponent<UIVectorArt>();\n\t\tmPanel = GetComponent<UIPanel>();\n",
                    "P47 UIStretch finds its widget again in Start")
+        replace_in(fp, "UIStretch.cs", "\t\t\tmTrans.localScale = val3;\n",
+                   "\t\t\tif (mRoot == null) mTrans.localScale = val3;\n",
+                   "P47b UIStretch do not scale transform under UIRoot")
+        replace_in(main, "ContactShadow.cs", "SetupHipShadow();", "// SetupHipShadow();",
+                   "P51 disable hip contact shadow")
     # P44 (shell only): the revival splash (big logo, "Unicron's Lair") between the Kabam screen and the title screen
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "BootFlow.cs", "\t\tyield return Coroutines.Run(ReInitializeLoadingScreen());\n",
