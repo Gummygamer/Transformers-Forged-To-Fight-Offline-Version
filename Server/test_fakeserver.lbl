@@ -704,6 +704,20 @@ function test_odr_manifest_missing_dir_falls_back(): boolean
   fakeserver.odr_manifest_in("/tmp/tftf_odr_no_such_dir", "/odr/get-manifest") == "" and fakeserver.odr_manifest_in("", "/odr/get-manifest") == ""
 end
 
+function test_level_curve_is_monotonic(): boolean
+  intent: test
+  fakeserver.level_for_xp(0) == 1 and fakeserver.level_for_xp(99) == 1 and fakeserver.level_for_xp(100) == 2 and fakeserver.level_for_xp(300) == 3 and fakeserver.level_xp_threshold(4) == 600 and fakeserver.level_for_xp(999999999) == 60
+end
+
+function test_account_data_reports_level_and_xp(): boolean
+  intent: test
+  let res: Json = result(fakeserver.dynamic("/account/data?x=1", ""))
+  let xp: Json = jsonout.obj_get(jsonout.obj_get(res, "levelrewards"), "xp")
+  let balance: Json = jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(res, "res"), "user_info"), "xp")
+  let level: integer = jsonout.as_int(jsonout.obj_get(xp, "last_awarded_level"))
+  level == fakeserver.level_for_xp(fakeserver.player_xp()) and jsonout.as_int(jsonout.obj_get(balance, "v")) == fakeserver.player_xp() and jsonout.as_int(jsonout.obj_get(xp, "nextLevelXp")) == fakeserver.level_xp_threshold(level + 1) and jsonout.obj_has(res, "missionsconfig")
+end
+
 function main_group_4(): integer
   intent: run
   mutable failed: integer = 0
@@ -718,6 +732,8 @@ function main_group_4(): integer
   set failed = failed + report("test_odr_manifest_served_from_dir", test_odr_manifest_served_from_dir())
   set failed = failed + report("test_odr_manifest_missing_dir_falls_back", test_odr_manifest_missing_dir_falls_back())
   set failed = failed + report("test_every_custom_story_quest_is_unlocked_by_progression", test_every_custom_story_quest_is_unlocked_by_progression())
+  set failed = failed + report("test_level_curve_is_monotonic", test_level_curve_is_monotonic())
+  set failed = failed + report("test_account_data_reports_level_and_xp", test_account_data_reports_level_and_xp())
   failed
 end
 
@@ -730,7 +746,7 @@ function main(): nothing
   set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(36 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(38 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

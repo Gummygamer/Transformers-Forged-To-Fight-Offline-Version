@@ -21,7 +21,22 @@
 
 ## Unreleased
 
+**Added**
+
+- Player levels: every finished fight earns experience (120 for a win, 40 for a loss, story and Arena), and the level
+  shown in the top bar follows it (level 2 at 100 XP, 3 at 300, 4 at 600, up to 60). Saved by the in-app server.
+- The Arena (online PVP) is unlocked from level 0.
+
+**Changed**
+
+- Bots, the board and fights keep the 9.2.0 donor PBR shaders (metallic reflections, roughness, normal maps) instead of
+  the flat stand-in. Scenes keep their own exposure and tone map, and the launcher's bloom is off by default
+  (`tftf/tune.txt` with `bloom 1.1` turns it back on), so the story squad screen and fights are no longer washed out.
+
 **Fixed**
+
+- BOTS roster portraits show again (a loading-screen `UIStretch` patch from the same change was dropped).
+- The hip contact shadow (a dark card between the legs) is hidden without errors every frame.
 
 - Tutorial and mode locks: `ShieldTutorial` is marked completed in the login responses, and `fightLanding_story`,
   `story` and `raids` unlock at player level 0 alongside daily and special missions.

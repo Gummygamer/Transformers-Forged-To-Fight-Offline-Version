@@ -153,6 +153,81 @@ function inventory_count(name: text): integer
   end
 end
 
+function xp_file(): text
+  intent: keep player experience separate from quest position state
+  path_join(log_dir(), ".fakeserver-xp")
+end
+
+public function player_xp(): integer
+  intent: read the saved experience points or zero for a new player
+  if not file_exists(xp_file()) then 0 else unwrap_or(to_integer(trim(read_file(xp_file()))), 0) end
+end
+
+function add_player_xp(delta: integer): nothing
+  intent: persist experience earned in fights
+  create_dir(log_dir())
+  write_file(xp_file(), to_text(player_xp() + delta))
+end
+
+public function level_xp_threshold(level: integer): integer
+  intent: experience needed to reach a level (level 1 is free and each next step costs 100 more)
+  50 * level * (level - 1)
+end
+
+public function level_for_xp(xp: integer): integer
+  intent: the highest level whose threshold the experience has reached, capped at 60
+  mutable level: integer = 1
+  while level < 60 and level_xp_threshold(level + 1) <= xp do
+    set level = level + 1
+  end
+  level
+end
+
+public function level_rewards_json(xp: integer): Json
+  intent: encode the levelrewards status that LevelRewardsManager reads (xp category)
+  let level: integer = level_for_xp(xp)
+  jsonout.json_obj([jsonout.json_pair("xp", jsonout.json_obj([pair_int("last_awarded_level", level), pair_int("prevLevelXp", level_xp_threshold(level)), pair_int("nextLevelXp", level_xp_threshold(level + 1))]))])
+end
+
+function xp_award(won: boolean): integer
+  intent: experience for one finished fight
+  if won then 120 else 40 end
+end
+
+function xp_async_items(before: integer, after: integer): a list of Json
+  intent: tell the client its new experience balance and, on a level change, its new level
+  let balance: Json = jsonout.json_obj([pair_text("resource", "xp"), jsonout.json_pair("balance", jsonout.json_int(after)), jsonout.json_pair("max", jsonout.json_int(999999999))])
+  mutable items: a list of Json = [jsonout.json_obj([pair_text("component", "ResourcesManager"), pair_text("channel", ""), pair_text("message", "update"), jsonout.json_pair("payload", jsonout.json_list([balance]))])]
+  if level_for_xp(after) > level_for_xp(before) then
+    set items = append(items, jsonout.json_obj([pair_text("component", "LevelRewardsManager"), pair_text("channel", ""), pair_text("message", "level-up"), jsonout.json_pair("payload", jsonout.json_obj([jsonout.json_pair("levelrewards", level_rewards_json(after))]))]))
+  end
+  items
+end
+
+function award_fight_xp(outcome: text): a list of Json
+  intent: add the experience a finished fight earns and return the async messages announcing it
+  let won: boolean = uppercase(outcome) == "WON"
+  if not won and uppercase(outcome) != "LOST" then return [] end
+  let before: integer = player_xp()
+  add_player_xp(xp_award(won))
+  xp_async_items(before, player_xp())
+end
+
+function account_data_response(path: text): text
+  intent: the canned account data with player level and experience filled in
+  let canned: ResponseChoice = resolve_response("GET", path)
+  if not jsonout.is_valid_json(canned.body) then return "" end
+  let doc: Json = jsonout.parse_json(canned.body)
+  let result: Json = jsonout.obj_get(doc, "result")
+  if jsonout.type_name(result) != "object" then return "" end
+  let xp: integer = player_xp()
+  let res: Json = if jsonout.type_name(jsonout.obj_get(result, "res")) == "object" then jsonout.obj_get(result, "res") else jsonout.json_obj([]) end
+  let info: Json = if jsonout.type_name(jsonout.obj_get(res, "user_info")) == "object" then jsonout.obj_get(res, "user_info") else jsonout.json_obj([]) end
+  let info2: Json = jsonout.obj_set(info, "xp", jsonout.json_obj([pair_int("v", xp), pair_int("max", 999999999)]))
+  let result2: Json = jsonout.obj_set(jsonout.obj_set(result, "res", jsonout.obj_set(res, "user_info", info2)), "levelrewards", level_rewards_json(xp))
+  compact_envelope(result2)
+end
+
 function update_inventory_count(name: text, delta: integer): nothing
   intent: persist consumable use while keeping repair kits renewable
   create_dir(log_dir())
@@ -2058,12 +2133,14 @@ function resolve_match_response(path: text, btxt: text): text
   let wire_qid: text = if json_text_or(req, "qid", "") != "" then json_text_or(req, "qid", "") else effective_qid ++ "-0" end
   let async_items: a list of Json = if effective_qid != "" and (won or uppercase(outcome) == "LOST") then match_resolved_async(effective_qid, wire_qid, json_text_or(req, "id", ""), won) else [] end
   if won then record_win(json_text_or(req, "qid", "")) end
+  let xp_items: a list of Json = award_fight_xp(outcome)
   let peer: text = peer_key(path)
   let m: Match = match_for_peer(peer)
   if m.match_id != "" and outcome != "" then
     report_result_at(m.match_id, peer, normalize_outcome(outcome), current_time_ms())
   end
-  if length(async_items) > 0 and contains_text(path, "/quests_fight") then spaced_envelope_async(jsonout.json_obj([]), async_items) else "" end
+  let quest_items: a list of Json = if contains_text(path, "/quests_fight") then async_items else [] end
+  if length(quest_items) + length(xp_items) > 0 then spaced_envelope_async(jsonout.json_obj([]), concat(quest_items, xp_items)) else "" end
 end
 
 function saved_team_envelope(team_id: text, heroes: a list of text): text
@@ -2141,7 +2218,9 @@ end
 
 function profile_dynamic(path: text, p: text, btxt: text): text
   intent: encode
-  if ends_with("/" ++ trim_path(p), "/userprofile") then user_profile_response(path, btxt) else "" end
+  if ends_with("/" ++ trim_path(p), "/userprofile") then user_profile_response(path, btxt)
+  else if ends_with(p, "/account/data") then account_data_response(path)
+  else "" end
 end
 
 function alliance_dynamic(path: text, p: text): text

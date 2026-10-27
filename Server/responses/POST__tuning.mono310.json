@@ -1,1 +1,1 @@
-{"error": null, "result": [{"level_lock_tuning": {"fightLanding_special": {"ml": 0}, "fightLanding_daily": {"ml": 0}, "fightLanding_story": {"ml": 0}, "story": {"ml": 0}, "raids": {"ml": 0}}}]}
+{"error":null,"result":[{"level_lock_tuning":{"fightLanding_special":{"ml":0},"fightLanding_daily":{"ml":0},"fightLanding_story":{"ml":0},"story":{"ml":0},"raids":{"ml":0},"fightLanding_pvp":{"ml":0}}}]}
