@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.8](#08)
 - [0.7.3](#073)
 - [0.7.2](#072)
 - [0.7.0](#070)
@@ -16,6 +17,20 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.8
+
+**Added**
+
+- Online Arena fights against another player: an "Online PVP" button on the Arena screen chooses a relay server
+  (`Server/pvp_relay.py`) and room code and finds an opponent; fights run in input lockstep with the host deciding
+  health and knock-outs. Not yet tested between two phones. See [`ONLINE_PVP.md`](ONLINE_PVP.md).
+- "Host on this phone" in the online panel runs the relay inside the app, so other phones can connect to this one
+  without a computer.
+
+**Changed**
+
+- Version bump; includes the latest server and SP3 cutscene fixes.
 
 ## 0.7.3
 

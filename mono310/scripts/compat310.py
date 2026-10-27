@@ -1119,6 +1119,8 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
             t, n = re.subn(r"(?<![\w.])Input\.(touchCount|GetTouch)\b", r"TftfInput.\1", rd(p))
             if n:
                 wr(p, t); note("P52 %s touches via TftfInput (mouse on PC)" % p.stem)
+    if os.environ.get("TFTF_SHELL") == "1":
+        online_pvp(main)
     p = fp / "EB/FileSystem/ZipDriver.cs"   # P7 (same fix as 2.0.2): SharpZipLib asks for OEM code page 850/437
     if p.exists():
         t = rd(p)
@@ -1167,6 +1169,77 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                                   f"{m[1]}\tmPlatform.Authenticate(callback);\n{m[1]}}}\n\n"
                                   f"{m[1]}public void Authenticate(Action<bool> callback)"), t, count=1)
             wr(p, t); note("S7 Authenticate(Action<bool,string>) overload (local user)")
+
+
+def online_pvp(main):
+    """P54 (shell only): online Arena fights (mono310/launcher/ONLINE_PVP.md). Inserts calls into TftfNetGlue (copied into
+    Assembly-CSharp from launcher/shell/TftfMain by assemble_project.py) and TftfNet (shell, first pass). Every insertion is
+    anchored on one line (a signature or a single statement)."""
+    guard = lambda call: "\t\tif (%s)\n\t\t{\n\t\t\treturn;\n\t\t}\n" % call
+
+    def after(rel, line, add, cls, first_only=False):
+        p = main / rel
+        if not p.exists():
+            return
+        t = rd(p)
+        n = t.count(line)
+        if n == 0 or (n > 1 and not first_only):
+            print("  P54 anchor not found once in %s: %r" % (rel, line.strip()))
+            return
+        i = t.index(line) + len(line)
+        wr(p, t[:i] + add + t[i:]); note(cls)
+
+    def method_start(rel, signature, add, cls):
+        after(rel, "\t" + signature + "\n\t{\n", add, cls)
+
+    # Simulation: tick gate and inputs, the fight's clock, input handling every tick, end-of-tick authority, pacing
+    sim = "Simulation.cs"
+    method_start(sim, "private void FixedUpdate()", guard("!TftfNetGlue.BeginTick(_playerInput)"), "P54 Simulation tick gate")
+    after(sim, "\t\tDeltaTime = UnityEngine.Time.fixedDeltaTime;\n",
+          "\t\tif (TftfNet.LockstepActive)\n\t\t{\n\t\t\tTime = TftfNet.SimTime;\n\t\t}\n", "P54 Simulation fight clock")
+    p = main / sim
+    if p.exists():
+        t = rd(p)
+        start = t.find("\tprivate void FixedUpdate()")
+        upd = t.find("\tprivate void Update()")
+        cond = "\t\tif (frameCount != _currentFrame)\n"
+        call = "\t\t\tUpdateUserInput();\n"
+        i = t.find(cond, start)
+        j = t.find(call, i)
+        if 0 <= start < i < j < upd:
+            # online: the inputs are simulated every tick, not once per rendered frame (frame rates differ between phones)
+            t = t[:i] + "\t\tif (frameCount != _currentFrame || TftfNet.LockstepActive)\n" + t[i + len(cond):]
+            j = t.find(call, i)
+            t = t[:j] + "\t\t\tif (frameCount != _currentFrame)\n\t\t\t{\n\t\t\t\tUpdateUserInput();\n\t\t\t}\n" + t[j + len(call):]
+            upd = t.find("\tprivate void Update()")
+            k = t.rfind("\t}\n", 0, upd)
+            t = t[:k] + "\t\tTftfNetGlue.EndTick(_playerController);\n" + t[k:]
+            wr(p, t); note("P54 Simulation inputs every tick, end-of-tick authority")
+        else:
+            print("  P54 Simulation.FixedUpdate input block not found")
+    method_start(sim, "private void Update()", "\t\tTftfNetGlue.Gate(_paused, _timeScale);\n", "P54 Simulation pacing")
+    method_start(sim, "private void OnDestroy()", "\t\tTftfNetGlue.FightEnded();\n", "P54 Simulation fight end")
+    after(sim, "\t\t_swipeDetection = swipeDetection;\n", "\t\tTftfNetGlue.FightStarted();\n", "P54 Simulation fight start")
+    # PlayerInput: the local player's inputs go into the lockstep
+    for sig, code in (("OnReceiveAttackInput()", "'a'"), ("OnReleaseAttackInput()", "'A'"), ("OnReceiveBlockInput()", "'b'"),
+                      ("OnReleaseBlockInput()", "'B'"), ("OnReceiveSpecialInput()", "'s'"),
+                      ("OnDetectSwipe(SwipeDirection direction)", "(char)(48 + (int)direction)")):
+        method_start("PlayerInput.cs", "public void " + sig, guard("TftfNetGlue.Capture(this, %s)" % code), "P54 PlayerInput capture")
+    # no AI on either fighter of an online fight; the opponent's fighter takes inputs
+    method_start("BattleArbiter.cs", "public void EnableAI(int id, bool enable)", "\t\tenable = TftfNetGlue.FilterAI(enable);\n", "P54 no AI online")
+    replace_in(main, "BattleArbiterInitState.cs", "enemyInput.SafeEnabled(GameplayDebugUtils.DisableAI);",
+               "enemyInput.SafeEnabled(GameplayDebugUtils.DisableAI || TftfNetGlue.OnlineFightPending);", "P54 opponent input online")
+    # only the host knocks out
+    replace_in(main, "PlayerController.cs", "\t\t\tif (Attributes.NormalizedHealth <= 0f && knockoutIfDead)\n",
+               "\t\t\tif (Attributes.NormalizedHealth <= 0f && knockoutIfDead && !TftfNetGlue.HoldKnockout(this))\n", "P54 guest waits for the host's knock-out")
+    # both players' bots are exchanged before the fight
+    method_start("PVPUtil.cs", "public static void GenerateFightData(string scene, EB.Action<FightData, string> resultHandler)",
+                 guard("TftfNetGlue.InterceptFightData(scene, resultHandler)"), "P54 online fight data")
+    after("PVPScreen.cs", "\tprotected override void CacheReferences()\n\t{\n", "\t\tTftfNetGlue.MarkArena(this);\n", "P54 Arena screen marked")
+    # the fight's random rolls come from streams seeded alike on both phones
+    replace_in(main, "PlayerAttributes.cs", "Random.value", "TftfNet.RandomValue((Owner != null) ? Owner.Id : 0)", "P54 fighter rolls")
+    for rel in ("StatModifierController.cs", "GetRandom_BuffValue.cs", "CreateArea_BuffEffect.cs"):
+        replace_in(main, rel, "Random.value", "TftfNet.RandomValue(-1)", "P54 buff rolls")
 
 def vr(fp, main):
     """P53 (TFTF_VR=1 shell only): the game draws into the launcher's virtual screen (TftfVr), not the headset's
