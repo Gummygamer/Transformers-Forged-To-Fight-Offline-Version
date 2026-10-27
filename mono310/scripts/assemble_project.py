@@ -198,6 +198,9 @@ def main():
         shell_dst = fp / "Tftf"            # first-pass assembly: the game's first-pass code calls TftfResources
         shutil.rmtree(shell_dst, ignore_errors=True)
         shutil.copytree(shell_src, shell_dst)
+        glue_dst = A / "Scripts/Assembly-CSharp/TftfMain"   # shell code that uses the game's types (online Arena glue)
+        shutil.rmtree(glue_dst, ignore_errors=True)
+        shutil.copytree(REPO / "mono310/launcher/shell/TftfMain", glue_dst)
         package_server(A)
 
 

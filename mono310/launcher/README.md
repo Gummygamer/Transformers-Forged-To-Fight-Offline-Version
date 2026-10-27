@@ -64,6 +64,9 @@ a full player build when changing the ABI. For managed-code-only edits, `run.sh 
 managed DLLs into the existing APK. Android starts the Legible server through `TftfProcess.java` because the
 IL2CPP player's `System.Diagnostics.Process.Start` cannot launch it.
 
+Online Arena fights between two players (relay server, lockstep netcode, the in-game panel) are described in
+[`ONLINE_PVP.md`](ONLINE_PVP.md).
+
 A Meta Quest VR variant (`TFTF_VR=1`: the game on a big screen in a VR room, fights in stereo) is described in
 [`QUEST_VR.md`](QUEST_VR.md). It is built but not yet run on a headset.
 
@@ -71,7 +74,8 @@ A Meta Quest VR variant (`TFTF_VR=1`: the game on a big screen in a VR room, fig
 
 | path | content |
 |---|---|
-| `shell/Tftf/` | the code that runs on the phone: first-run screen, installer, converter, ODR builder, servers |
+| `shell/Tftf/` | the code that runs on the phone: first-run screen, installer, converter, ODR builder, servers, online Arena connection |
+| `shell/TftfMain/` | phone code that uses the game's types (compiled into Assembly-CSharp): the online Arena glue |
 | `shell/android/` | authored manifest, Java and native stand-ins for the original app's plugin classes, and the launcher icon |
 | `shell/android/icon/` | `revival-icon.svg` (the logo: a simplified, smiling orange Unicron head with sunglasses, newly drawn) and `make_icon.py`, which renders it with `cairosvg` (`pip install cairosvg`) into the committed `icon-512.png`; the build script sets it as the app icon through the player settings, so building the APK does not need the renderer |
 | `shell/ConvertTool/` | PC harness for the converter and the ODR builder |

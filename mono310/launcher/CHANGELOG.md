@@ -2,7 +2,8 @@
 
 ## Table of contents
 
-- [0.7.4](#074)
+- [Unreleased](#unreleased)
+- [0.8](#08)
 - [0.7.3](#073)
 - [0.7.2](#072)
 - [0.7.0](#070)
@@ -18,18 +19,34 @@
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## 0.7.4
+## Unreleased
 
 **Fixed**
 
-- Bot PBR rendering: `Hidden/PBR` shaders from the 9.2.0 bundle render correctly in Unity 2020 and are no longer swapped to flat `TFTF/LitTex`. Bots now preserve their metallic reflections, roughness, and normal maps in the team showcase, bot view, and fights.
-- Loading screen vertical streaks: `UIStretch` no longer blows up `mTrans.localScale` by 770x when `mWidget` is not immediately bound under an NGUI `UIRoot`.
-- Contact shadow quad: disabled `SetupHipShadow()` in `ContactShadow.cs` which previously spawned an opaque dark quad / card between character legs.
-- Tutorial & Mode locks: added `"ShieldTutorial"` completed state in login responses to avoid fight/base tutorial softlocks, and unlocked `fightLanding_story`, `story`, and `raids` alongside daily and special missions at player level 0.
+- Contact shadow quad: `SetupHipShadow()` in `ContactShadow.cs` is disabled; it spawned an opaque dark card between the
+  character's legs.
+- Tutorial and mode locks: `ShieldTutorial` is marked completed in the login responses, and `fightLanding_story`,
+  `story` and `raids` unlock at player level 0 alongside daily and special missions.
+- The server tag in the top-left corner is hidden by the client, so a stale or older server copy on the phone can no
+  longer bring back the red "prod" label.
 
-**Known issues / Regression note**
+**Changed**
 
-- Bot roster portraits in `HeroesScreen` fail to render when `ui/shaders/blend_colored_mask` is mapped to `EBG/UI/BlendColoredMask`. The donor shader expects `_MaskTex` on UV2 (`texcoord1`) which standard bot portrait textures do not provide, evaluating to 0 alpha (fully transparent). Soft-clipping fallback in `TestFixMaterials.cs` replaces missing variants with `TFTF/LitTex` (3D lit shader), rendering black. Recommended fix: remap `blend_colored_mask` to `EBG/UI/BlendColored` or strip `_MaskTex` dependency in the UI shader.
+- Donor `Hidden/PBR` materials are no longer swapped to the TFTF stand-in shader.
+
+## 0.8
+
+**Added**
+
+- Online Arena fights against another player: an "Online PVP" button on the Arena screen chooses a relay server
+  (`Server/pvp_relay.py`) and room code and finds an opponent; fights run in input lockstep with the host deciding
+  health and knock-outs. Not yet tested between two phones. See [`ONLINE_PVP.md`](ONLINE_PVP.md).
+- "Host on this phone" in the online panel runs the relay inside the app, so other phones can connect to this one
+  without a computer.
+
+**Changed**
+
+- Version bump; includes the latest server and SP3 cutscene fixes.
 
 ## 0.7.3
 
