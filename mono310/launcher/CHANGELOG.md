@@ -23,16 +23,10 @@
 
 **Fixed**
 
-- Contact shadow quad: `SetupHipShadow()` in `ContactShadow.cs` is disabled; it spawned an opaque dark card between the
-  character's legs.
 - Tutorial and mode locks: `ShieldTutorial` is marked completed in the login responses, and `fightLanding_story`,
   `story` and `raids` unlock at player level 0 alongside daily and special missions.
 - The server tag in the top-left corner is hidden by the client, so a stale or older server copy on the phone can no
   longer bring back the red "prod" label.
-
-**Changed**
-
-- Donor `Hidden/PBR` materials are no longer swapped to the TFTF stand-in shader.
 
 ## 0.8
 

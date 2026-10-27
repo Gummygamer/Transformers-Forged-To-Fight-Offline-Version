@@ -479,9 +479,8 @@ public class TftfDiag : MonoBehaviour
 				// the blob "contact shadow" quads under the feet and hips use an opaque white-on-black mask that the stand-in shader draws as
 				// cards; the TFTF sun light casts real shadows now, so these are switched off
 				if (n == "EB/Misc/ContactShadow") { if (r.enabled) r.enabled = false; continue; }
-				// 9.2.0 donor PBR shaders are fully supported and render realistic metallic/specular/normal materials; do not swap them to LitTex
-				if (n.StartsWith("Hidden/PBR")) continue;
-				if (!(n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
+				// donor PBR draws with this pipeline's lighting but without the game's exposure and tone map: far too shiny; TFTF/PbrLite ports its contract
+				if (!(n.StartsWith("Hidden/PBR") || n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{
 					string rn = r.name;
@@ -964,9 +963,6 @@ public class TftfBloom : MonoBehaviour
         replace_in(fp, "UIStretch.cs", "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n",
                    "\t\tmRoot = NGUITools.FindInParents<UIRoot>(base.gameObject);\n\t\tmWidget = GetComponent<UIWidget>();\n\t\tmSprite = GetComponent<UISprite>();\n\t\tmVectorArt = GetComponent<UIVectorArt>();\n\t\tmPanel = GetComponent<UIPanel>();\n",
                    "P47 UIStretch finds its widget again in Start")
-        # P55: the hip contact shadow is an opaque quad between the legs that draws as a dark card
-        replace_in(main, "ContactShadow.cs", "SetupHipShadow();", "// SetupHipShadow();",
-                   "P55 disable hip contact shadow")
         # P56: never show the server tag label (top left); a stale server copy on the phone can still send "prod"
         replace_in(main, "ServerTag.cs", "SafeSetActive(Tuning.Instance != null && Tuning.Instance.DisplayServerTag);",
                    "SafeSetActive(false);", "P56 server tag hidden")
