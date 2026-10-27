@@ -480,6 +480,7 @@ public class TftfDiag : MonoBehaviour
 				// cards; the TFTF sun light casts real shadows now, so these are switched off
 				if (n == "EB/Misc/ContactShadow") { if (r.enabled) r.enabled = false; continue; }
 				// 9.2.0 donor PBR shaders are fully supported and render realistic metallic/specular/normal materials; do not swap them to LitTex
+				if (n.StartsWith("Hidden/PBR")) continue;
 				if (!(n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{
