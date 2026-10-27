@@ -45,7 +45,7 @@ for the opponent (see [Running a relay](#running-a-relay)).
    within two minutes, or their game stops, the AI takes over their fighter and the screen says so.
 
 The address, room code and the last four relay addresses are remembered. **Leave online play** in the
-panel disconnects. The panel is not shown in the VR build.
+panel disconnects. In the VR build the panel is shown too and says "headset" instead of "phone".
 
 ## Running a relay
 

@@ -1292,6 +1292,11 @@ def vr(fp, main):
                "\t\tbool pressed = _pressed;\n\t\tbool flag = false;\n\t\tint num = 0;\n"
                "\t\tTftfFightState.ReportButton(base.gameObject.name, UICamera.mainCamera.WorldToScreenPoint(_bounds.center));\n",
                "P53 ActionButton reports its zone (VR)")
+    # The stereo base follows the home base's camera and the point it looks at.
+    replace_in(main, "Quests/Presentation/BaseCameraController.cs",
+               "\t\t\t\t_TransitionTimer += UnityEngine.Time.deltaTime;\n",
+               "\t\t\t\tTftfFightState.ReportBase(_currentCamera, _LookAtTarget);\n\t\t\t\t_TransitionTimer += UnityEngine.Time.deltaTime;\n",
+               "P53 BaseCameraController reports the base camera (VR)")
 
 REPAIRS = Path(__file__).resolve().parent / "repairs.json"  # accumulated compiler-log-driven repairs
 

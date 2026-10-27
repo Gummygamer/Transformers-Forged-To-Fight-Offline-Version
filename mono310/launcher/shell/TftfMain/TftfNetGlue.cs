@@ -22,9 +22,7 @@ public static class TftfNetGlue
     // PVPScreen: the online button and panel live on the Arena screen.
     public static void MarkArena(MonoBehaviour screen)
     {
-#if !TFTF_VR
         if (screen.GetComponent<TftfPvpArenaUi>() == null) screen.gameObject.AddComponent<TftfPvpArenaUi>();
-#endif
     }
 
     // ---- before the fight: both players' bots ----

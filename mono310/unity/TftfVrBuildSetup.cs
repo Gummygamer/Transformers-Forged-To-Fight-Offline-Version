@@ -1,9 +1,12 @@
 // Newly authored. VR shell build only (TFTF_VR=1; assemble_project.py copies this file into the VR project, which also
 // has the Oculus XR plugin). Called by Recompile310Build.BuildAndroid before the player build: XR management starts the
 // Oculus loader on Android, multi-pass stereo (the game's shaders have no single-pass stereo support), Quest 2 and later.
-// The plugin's own build step then writes the Quest entries of the Android manifest.
+// The plugin's own build step then writes the Quest entries of the Android manifest; TftfVrHandTrackingManifest adds hand
+// tracking to it (TftfVrHands reads tracked hands through OVRPlugin, which the plugin does not declare).
 using System.Linq;
+using System.Xml;
 using UnityEditor;
+using UnityEditor.Android;
 using UnityEditor.XR.Management;
 using UnityEngine;
 using UnityEngine.XR.Management;
@@ -70,5 +73,38 @@ public static class TftfVrBuildSetup
         PlayerSettings.SetGraphicsAPIs(BuildTarget.Android, new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3 });
         PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
         Debug.Log("[TFTF] VR build: Oculus loader " + general.Manager.activeLoaders.Count + ", multi-pass, Quest 2, API 29, GLES3");
+    }
+}
+
+// After the Oculus plugin's manifest step (its callbackOrder is 10000): hand tracking, optional, so controllers still work.
+public class TftfVrHandTrackingManifest : IPostGenerateGradleAndroidProject
+{
+    const string Android = "http://schemas.android.com/apk/res/android";
+
+    public int callbackOrder { get { return 10001; } }
+
+    public void OnPostGenerateGradleAndroidProject(string path)
+    {
+        string file = path + "/src/main/AndroidManifest.xml";
+        var doc = new XmlDocument();
+        doc.Load(file);
+        var manifest = (XmlElement)doc.SelectSingleNode("/manifest");
+        var application = (XmlElement)doc.SelectSingleNode("/manifest/application");
+        Add(doc, manifest, "uses-permission", "name", "com.oculus.permission.HAND_TRACKING", null, null);
+        Add(doc, manifest, "uses-feature", "name", "oculus.software.handtracking", "required", "false");
+        Add(doc, application, "meta-data", "name", "com.oculus.handtracking.frequency", "value", "HIGH");
+        Add(doc, application, "meta-data", "name", "com.oculus.handtracking.version", "value", "V2.0");
+        doc.Save(file);
+        Debug.Log("[TFTF] VR build: hand tracking declared in the manifest");
+    }
+
+    static void Add(XmlDocument doc, XmlElement parent, string tag, string key, string name, string key2, string value2)
+    {
+        foreach (XmlElement e in parent.SelectNodes(tag))
+            if (e.GetAttribute(key, Android) == name) return;
+        var el = doc.CreateElement(tag);
+        el.SetAttribute(key, Android, name);
+        if (key2 != null) el.SetAttribute(key2, Android, value2);
+        parent.AppendChild(el);
     }
 }

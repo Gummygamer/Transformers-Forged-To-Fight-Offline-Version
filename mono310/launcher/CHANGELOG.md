@@ -3,6 +3,8 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [0.10](#010)
+- [0.9](#09)
 - [0.8](#08)
 - [0.7.3](#073)
 - [0.7.2](#072)
@@ -20,6 +22,29 @@
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
 ## Unreleased
+
+**Added**
+
+- Quest VR build: first-person fights with motion controls and hand tracking. The view sits in your fighter's head,
+  facing the opponent; the fighter's body stays in view and its arms follow your controllers or tracked hands (two-bone
+  IK). Punch for a light attack, punch with both hands or step in to dash, raise both hands and bring them down for a
+  heavy, hold a guard in front of your face to block, lean back to dodge, lean sideways to sidestep, hold both fists
+  together (or B) for a special. Controllers buzz on hits. X now cycles first-person, arena and flat; Y turns motion
+  controls off and on. Hand tracking reads OVRPlugin directly; the manifest declares it as optional. Not yet tested on a
+  headset.
+
+## 0.10
+
+**Added**
+
+- Quest VR build: the home base is shown in full VR (base mode), like fights: the base camera's view in stereo from a
+  seat on its line of sight, horizon level, at a tenth of its size so it reads as a model town with depth, the HUD on the
+  transparent screen in front. Pointing the laser at the base (off the screen) taps and drags that spot. X switches
+  both base and arena mode back to the theater screen. Not yet tested on a headset.
+- Quest VR build: the online PVP button and panel are on the Arena screen too, and say "headset" instead of "phone"
+  ("HOST ON THIS HEADSET").
+
+## 0.9
 
 **Added**
 

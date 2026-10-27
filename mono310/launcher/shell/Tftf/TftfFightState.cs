@@ -1,4 +1,4 @@
-// Newly authored. Fight helpers of the shell build (patches P49, P50 and, in the VR build, P53 in scripts/compat310.py).
+// Newly authored. Fight (and, in VR, home base) helpers of the shell build (patches P49, P50 and, in the VR build, P53 in scripts/compat310.py).
 using System.IO;
 using UnityEngine;
 
@@ -40,6 +40,38 @@ public static class TftfFightState
         FightCamera = camera;
         FightFocus = focus;
         _cameraFrame = Time.frameCount;
+    }
+
+    // P53 (VR): the home base's camera and the point it looks at (BaseCameraController reports both every frame it is the
+    // active camera), for the stereo base of TftfVr.
+    public static Camera BaseCamera;
+    public static Vector3 BaseFocus;
+    static int _baseFrame = -10;
+
+    public static bool AtBase { get { return BaseCamera != null && BaseCamera.enabled && Time.frameCount - _baseFrame <= 2; } }
+
+    public static void ReportBase(Camera camera, Vector3 focus)
+    {
+        BaseCamera = camera;
+        BaseFocus = focus;
+        _baseFrame = Time.frameCount;
+    }
+
+    // VR: the local fighter and its opponent (TftfVrCombat reports them every frame of a fight's main phase, not during
+    // cinematics), for the first-person view of TftfVr: its root, eye height above the root and the opponent's centre.
+    public static Transform Self;
+    public static float SelfEyeHeight;
+    public static Vector3 OpponentCenter;
+    static int _fightersFrame = -10;
+
+    public static bool FirstPersonReady { get { return Self != null && InFight && Time.frameCount - _fightersFrame <= 2; } }
+
+    public static void ReportFighters(Transform self, float eyeHeight, Vector3 opponentCenter)
+    {
+        Self = self;
+        SelfEyeHeight = eyeHeight;
+        OpponentCenter = opponentCenter;
+        _fightersFrame = Time.frameCount;
     }
 
     public static void ReportButton(string name, Vector3 screenPoint)

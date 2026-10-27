@@ -8,6 +8,17 @@
 // screen did; the head moves freely around that seat. The game's own fight camera then draws nothing, and the screen
 // shows only the HUD, transparent, in front of the arena. X on the left controller switches arena mode off and on, the
 // left stick moves the seat nearer or farther.
+//
+// The home base is shown the same way (base mode): the base camera's view in stereo from a seat on its line of sight, the
+// horizon kept level, the base at a tenth of its size (head moves and eye separation scaled by BaseScale) so that it reads
+// as a model town below the screen, with depth. Pointed at the base itself (off the screen), the laser taps and drags the
+// spot it touches, as a finger on that spot of the phone screen would.
+//
+// First-person (the default view in fights): the arena eye sits in the local fighter's head, facing the opponent, the
+// world scaled so that the fighter's eye height is the player's. The fighter's body stays in view and its arms follow the
+// player's tracked controllers or hands (TftfVrBody, TftfVrHands); the gestures of those hands play the fight
+// (TftfVrCombat). Cinematics and the fight's intro and outro fall back to the arena seat. X cycles first-person, arena
+// and flat.
 #if TFTF_VR
 using System.Collections.Generic;
 using UnityEngine;
@@ -21,6 +32,9 @@ public sealed class TftfVr : MonoBehaviour
     const float ScreenWidth = 3.0f, Distance = 2.5f; // metres: about 60 degrees of view, like a near cinema seat
     const float TriggerOn = 0.55f, TriggerOff = 0.35f;
     const float ArenaHalfFov = 30f;                  // degrees: the fight framed as wide as the screen was
+    const float BaseScale = 10f;                     // base mode: game units per real metre of head movement and eye separation
+    const float PlayerEyeHeight = 1.6f;              // first-person: metres the fighter's eye height stands for
+    const int ViewFirstPerson = 0, ViewArena = 1, ViewFlat = 2;
 
     public static RenderTexture Screen2D;
     // The finger: pixel position on Screen2D (origin bottom left, like Touch.position), whether it is down, and
@@ -50,10 +64,27 @@ public sealed class TftfVr : MonoBehaviour
     RenderTexture _scratch;
     Camera _source;
     int _sourceMask;
-    bool _arenaWanted = true, _arena, _snap;
+    int _view = ViewFirstPerson;
+    bool _arena, _base, _snap, _fp;
+    bool ArenaWanted { get { return _view != ViewFlat; } }
+    float _scale = 1f;
+    Vector3 _seat;            // room: where the head sits when it looks at the screen; maps the room onto the arena seat
+    Quaternion _seatRot = Quaternion.identity;
+    bool _pressedWorld;       // base mode: the press started on the base, not on the screen
     float _zoom = 1f;
     bool _xWas, _aWas;
     int _stickWas;
+
+    // First-person: the local fighter's body, its arms driven by the player's hands.
+    readonly TftfVrBody _body = new TftfVrBody();
+    float _armWeight;
+    Vector3 _eyeSmooth;
+
+    // Motion controls: a marker per hand (0 left, 1 right) in fights, coloured by TftfVrCombat.
+    Transform[] _markers = new Transform[2];
+    Material[] _markerMats = new Material[2];
+    public static bool ShowHands;
+    public static readonly Color[] HandColors = { new Color(0.3f, 0.7f, 1f, 0.8f), new Color(0.3f, 0.7f, 1f, 0.8f) };
 
     public static Transform ScreenTransform { get { return _instance != null ? _instance._screen : null; } }
     public static Material UiMaterial { get { return _instance._uiMat; } }
@@ -190,6 +221,19 @@ public sealed class TftfVr : MonoBehaviour
         _laser.sharedMaterial = Mat("TftfVrUi", Texture2D.whiteTexture, new Color(1f, 0.55f, 0.12f, 0.7f));
         _cursor = Quad("TftfVrCursor", Mat("TftfVrUi", DotTexture(), new Color(1f, 0.6f, 0.15f, 1f))).transform;
         _cursor.localScale = Vector3.one * 0.03f;
+        for (int h = 0; h < 2; h++)
+        {
+            var m = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Destroy(m.GetComponent<Collider>());
+            m.name = h == 0 ? "TftfVrHandL" : "TftfVrHandR";
+            m.layer = Layer;
+            m.transform.SetParent(transform, false);
+            m.transform.localScale = Vector3.one * 0.08f;
+            _markerMats[h] = Mat("TftfVrUi", DotTexture(), HandColors[h]);
+            m.GetComponent<MeshRenderer>().sharedMaterial = _markerMats[h];
+            m.SetActive(false);
+            _markers[h] = m.transform;
+        }
 
         Camera.onPreCull += Retarget;
         Application.onBeforeRender += BeforeRender;
@@ -254,8 +298,15 @@ public sealed class TftfVr : MonoBehaviour
         return path == EB.Rendering.EBGBuffer.eRENDER_PATH.Deferred || path == EB.Rendering.EBGBuffer.eRENDER_PATH.ForwardWithRT;
     }
 
-    static bool Pose(XRNode node, out Vector3 pos, out Quaternion rot)
+    static int HandIndex(XRNode node) { return node == XRNode.LeftHand ? 0 : 1; }
+
+    static bool IsHand(XRNode node) { return node == XRNode.LeftHand || node == XRNode.RightHand; }
+
+    // A tracked hand (controllers put down) is posed by TftfVrHands: its root for the grip pose, its pointer pose for the laser.
+    static bool Pose(XRNode node, out Vector3 pos, out Quaternion rot, bool pointer = false)
     {
+        if (IsHand(node) && TftfVrHands.IsTracked(HandIndex(node)))
+            return pointer ? TftfVrHands.PointerPoseOf(HandIndex(node), out pos, out rot) : TftfVrHands.RootPoseOf(HandIndex(node), out pos, out rot);
         var d = InputDevices.GetDeviceAtXRNode(node);
         pos = Vector3.zero; rot = Quaternion.identity;
         if (!d.isValid) return false;
@@ -278,6 +329,7 @@ public sealed class TftfVr : MonoBehaviour
     {
         TrackHead();
         if (_arena) PoseArena();
+        DriveBody();
     }
 
     // In front of the head at eye height, turned to face it (yaw only); again after every recentre or a stick click.
@@ -305,6 +357,7 @@ public sealed class TftfVr : MonoBehaviour
 
     static float Trigger(XRNode node)
     {
+        if (TftfVrHands.IsTracked(HandIndex(node))) return TftfVrHands.Pinch(HandIndex(node));   // a pinch is the trigger
         float v;
         return Hand(node).TryGetFeatureValue(CommonUsages.trigger, out v) ? v : 0f;
     }
@@ -331,6 +384,33 @@ public sealed class TftfVr : MonoBehaviour
         return g;
     }
 
+    // Motion controls (TftfVrCombat), all in tracking space: the head, and a hand (controller grip or tracked hand) with
+    // how closed it is (a tracked hand's fist, a controller's grip), whether it is a tracked hand.
+    public static bool HeadPose(out Vector3 pos, out Quaternion rot) { return Pose(XRNode.Head, out pos, out rot); }
+
+    public static bool HandPose(int hand, out Vector3 pos, out Quaternion rot, out float closed, out bool tracked)
+    {
+        XRNode node = hand == 0 ? XRNode.LeftHand : XRNode.RightHand;
+        tracked = TftfVrHands.IsTracked(hand);
+        float g = 0f;
+        closed = tracked ? TftfVrHands.Fist(hand) : Hand(node).TryGetFeatureValue(CommonUsages.grip, out g) ? g : 0f;
+        return Pose(node, out pos, out rot);
+    }
+
+    // A controller's buttons (false for a tracked hand): 0 = A / X, 1 = B / Y.
+    public static bool HandButton(int hand, int button)
+    {
+        XRNode node = hand == 0 ? XRNode.LeftHand : XRNode.RightHand;
+        return Button(node, button == 0 ? CommonUsages.primaryButton : CommonUsages.secondaryButton);
+    }
+
+    // Controller haptics (nothing on a tracked hand).
+    public static void Buzz(int hand, float amplitude, float seconds)
+    {
+        if (TftfVrHands.IsTracked(hand)) return;
+        Hand(hand == 0 ? XRNode.LeftHand : XRNode.RightHand).SendHapticImpulse(0, Mathf.Clamp01(amplitude), seconds);
+    }
+
     // Block: either grip held.
     public static bool BlockHeld
     {
@@ -343,11 +423,26 @@ public sealed class TftfVr : MonoBehaviour
         if (!_placed && InputDevices.GetDeviceAtXRNode(XRNode.Head).isValid) Place();
         if (Button(XRNode.RightHand, CommonUsages.primary2DAxisClick) || Button(XRNode.LeftHand, CommonUsages.primary2DAxisClick)) Place();
         bool x = Button(XRNode.LeftHand, CommonUsages.primaryButton);
-        if (x && !_xWas) _arenaWanted = !_arenaWanted;
+        if (x && !_xWas) { _view = (_view + 1) % 3; Debug.Log("[TFTF] VR view " + (_view == ViewFirstPerson ? "first-person" : _view == ViewArena ? "arena" : "flat")); }
         _xWas = x;
         float y = Stick(XRNode.LeftHand).y;
         if (Mathf.Abs(y) > 0.2f) _zoom = Mathf.Clamp(_zoom * Mathf.Exp(-y * Time.unscaledDeltaTime), 0.4f, 2.5f);
         UpdatePointer();
+        UpdateMarkers();
+    }
+
+    void UpdateMarkers()
+    {
+        for (int h = 0; h < 2; h++)
+        {
+            Vector3 p = Vector3.zero; Quaternion r = Quaternion.identity; float c; bool tr;
+            bool on = ShowHands && !(_fp && _body.HasArm(h)) && HandPose(h, out p, out r, out c, out tr);
+            _markers[h].gameObject.SetActive(on);
+            if (!on) continue;
+            _markers[h].position = transform.TransformPoint(p);
+            _markers[h].rotation = transform.rotation * r;
+            _markerMats[h].color = HandColors[h];
+        }
     }
 
     void UpdatePointer()
@@ -360,7 +455,7 @@ public sealed class TftfVr : MonoBehaviour
 
         Vector3 pos; Quaternion rot;
         PointerUp = false;
-        if (!Pose(_hand, out pos, out rot))
+        if (!Pose(_hand, out pos, out rot, true))
         {
             _laser.enabled = false; _cursor.gameObject.SetActive(false);
             if (_pressed) { _pressed = false; PointerDown = false; PointerUp = true; }
@@ -385,24 +480,64 @@ public sealed class TftfVr : MonoBehaviour
                 hit = uv.x >= 0 && uv.x <= 1 && uv.y >= 0 && uv.y <= 1;
             }
         }
+        // Base mode: off the screen (or in a press that started off it) the laser points at the base itself.
+        Vector2 basePixel = Vector2.zero;
+        float baseDist = 0f;
+        bool onBase = _arena && _base && (!hit || (_pressed && _pressedWorld)) && BasePoint(pos, rot, out basePixel, out baseDist);
+        if (onBase)
+        {
+            PointerPixel = basePixel;
+            hitPoint = origin + dir * Mathf.Min(baseDist / _scale, 20f);
+        }
         // A drag that leaves the screen keeps going along its edge, so a swipe is not cut short.
-        if (hit || (_pressed && denom > 1e-4f))
+        else if (hit || (_pressed && !_pressedWorld && denom > 1e-4f))
             PointerPixel = new Vector2(Mathf.Clamp01(uv.x) * Width, Mathf.Clamp01(uv.y) * Height);
         PointerOnScreen = hit;
-        if (down && !_pressed && hit) _pressed = true;
+        if (down && !_pressed && (hit || onBase)) { _pressed = true; _pressedWorld = !hit; }
         else if (!down && _pressed) { _pressed = false; PointerUp = true; }
         PointerDown = _pressed;
 
-        _laser.enabled = true;
+        // In a fight with motion controls the laser shows only on the screen (a punch must not wave it around the arena).
+        _laser.enabled = !ShowHands || hit || _pressed;
         _laser.SetPosition(0, origin);
         _laser.SetPosition(1, hitPoint);
-        _cursor.gameObject.SetActive(hit);
-        if (hit)
+        _cursor.gameObject.SetActive(hit && !onBase);
+        if (hit && !onBase)
         {
             _cursor.position = hitPoint - fwd * 0.005f;   // just in front of the screen
             _cursor.rotation = _screen.rotation;
             _cursor.localScale = Vector3.one * (_pressed ? 0.022f : 0.03f);
         }
+    }
+
+    // Base mode: the pixel of the base camera's image at the spot the laser touches on the base (a collider of the camera's
+    // layers, else the ground plane at the focus height), and how far along the laser that spot is, in game units.
+    bool BasePoint(Vector3 trackingPos, Quaternion trackingRot, out Vector2 pixel, out float dist)
+    {
+        pixel = Vector2.zero; dist = 0f;
+        if (_source == null) return false;
+        Vector3 o = ArenaPoint(trackingPos);
+        Vector3 d = _anchor.rotation * (_seatRot * (transform.rotation * trackingRot * Vector3.forward));
+        Vector3 p;
+        RaycastHit h;
+        if (Physics.Raycast(o, d, out h, _source.farClipPlane, _sourceMask)) { p = h.point; dist = h.distance; }
+        else
+        {
+            float y = TftfFightState.BaseFocus.y;
+            if (d.y > -1e-3f || o.y <= y) return false;
+            dist = (o.y - y) / -d.y;
+            p = o + d * dist;
+        }
+        Vector3 v = _source.WorldToViewportPoint(p);
+        if (v.z <= 0f || v.x < 0f || v.x > 1f || v.y < 0f || v.y > 1f) return false;
+        pixel = new Vector2(v.x * Width, v.y * Height);
+        return true;
+    }
+
+    // A tracking-space point (head, eye, hand) placed in the arena: its offset from the room seat, scaled, from the arena seat.
+    Vector3 ArenaPoint(Vector3 tracking)
+    {
+        return _anchor.TransformPoint(_seatRot * (transform.TransformPoint(tracking) - _seat) * _scale);
     }
 
     void LateUpdate()
@@ -416,9 +551,12 @@ public sealed class TftfVr : MonoBehaviour
 
     void UpdateArena()
     {
-        Camera fight = _arenaWanted && TftfFightState.InFight ? TftfFightState.FightCamera : null;
-        if (_arena && fight != _source) SetArena(null);
-        if (!_arena && fight != null) SetArena(fight);
+        Camera fight = ArenaWanted && TftfFightState.InFight ? TftfFightState.FightCamera : null;
+        Camera home = fight == null && ArenaWanted && TftfFightState.AtBase ? TftfFightState.BaseCamera : null;
+        Camera want = fight != null ? fight : home;
+        bool wantBase = fight == null && home != null;
+        if (_arena && (want != _source || wantBase != _base)) SetArena(null);
+        if (!_arena && want != null) { _base = wantBase; SetArena(want); }
         if (!_arena) return;
         // The fight camera's layers go to the arena eye; the game camera itself draws nothing (its setup may set them again).
         if (_source.cullingMask != 0) { _sourceMask = _source.cullingMask & ~(1 << Layer); _source.cullingMask = 0; }
@@ -428,6 +566,7 @@ public sealed class TftfVr : MonoBehaviour
         _arenaEye.backgroundColor = _source.backgroundColor;
         _arenaEye.nearClipPlane = _source.nearClipPlane;
         _arenaEye.farClipPlane = _source.farClipPlane;
+        if (_fp) _arenaEye.nearClipPlane = Mathf.Min(_source.nearClipPlane, 0.05f * _scale);   // the fighter's own arms
         // The fight camera's rendering path: the player settings resolve a new camera's to VertexLit, which skips every
         // ForwardBase pass of the game's shaders (a Quest 2 saw black but for the sun flare and a few effects).
         _arenaEye.renderingPath = _source.renderingPath;
@@ -496,6 +635,8 @@ public sealed class TftfVr : MonoBehaviour
             }
             _source = null;
             _arena = false;
+            _base = false;
+            _arenaEye.ResetStereoViewMatrices();
             RestoreClears();
         }
         else
@@ -507,12 +648,16 @@ public sealed class TftfVr : MonoBehaviour
             _arena = true;
             _snap = true;
         }
+        _scale = _base ? BaseScale : 1f;
+        _fp = false;
+        _body.Release();
+        _pressedWorld = false;
         _arenaEye.enabled = _arena;
         _eye.clearFlags = _arena ? CameraClearFlags.Depth : CameraClearFlags.SolidColor;   // the room eye adds only the HUD
         _floor.gameObject.SetActive(!_arena);
         _screen.GetComponent<MeshRenderer>().sharedMaterial = _arena ? _screenHud : _screenOpaque;
         _clear.backgroundColor = _arena ? Color.clear : Color.black;                      // the HUD on a transparent screen
-        Debug.Log("[TFTF] VR arena mode " + (_arena ? "on (" + source.name + ")" : "off (" + (_arenaWanted ? "fight camera gone" : "X") + ")"));
+        Debug.Log("[TFTF] VR stereo mode " + (_arena ? "on (" + (_base ? "base, " : "arena, ") + source.name + ")" : "off (" + (ArenaWanted ? "camera gone" : "X") + ")"));
     }
 
     // The seat: on the fight camera's line of sight, nearer to the framed point by the ratio of the fight camera's narrow
@@ -520,14 +665,66 @@ public sealed class TftfVr : MonoBehaviour
     void PoseArena()
     {
         if (_source == null) return;
+        bool fp = !_base && _view == ViewFirstPerson && TftfFightState.FirstPersonReady;
+        if (fp != _fp)
+        {
+            _fp = fp;
+            _snap = true;
+            if (!fp) _body.Shrink(false);
+            Debug.Log("[TFTF] VR first-person " + (fp ? "on" : "off"));
+        }
+        if (fp) PoseFirstPerson();
+        else PoseSeat();
+        // The head's offset from the seat in the room (the seat looks at the screen) becomes its offset from the arena seat.
+        _seat = _screen.position - _screen.forward * Distance;
+        _seatRot = Quaternion.Inverse(_screen.rotation);
+        _arenaHead.localPosition = _seatRot * (_head.position - _seat) * _scale;
+        _arenaHead.localRotation = _seatRot * _head.rotation;
+        StereoEyes();
+    }
+
+    // First-person: the eye in the fighter's head (eased, so the animation's bob is damped; on the root at its eye height if
+    // the rig has no head bone), facing the opponent (yaw only, so a hit reaction never tilts the world), scaled so that
+    // the fighter's eye height is a standing player's.
+    void PoseFirstPerson()
+    {
+        Transform self = TftfFightState.Self;
+        _body.Bind(self);
+        Vector3 pos = self.position + Vector3.up * TftfFightState.SelfEyeHeight;
+        if (_body.Head != null)
+        {
+            Vector3 eye = _body.Head.position + Vector3.up * TftfFightState.SelfEyeHeight * 0.04f;
+            _eyeSmooth = _snap ? eye : Vector3.Lerp(_eyeSmooth, eye, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
+            pos = _eyeSmooth;
+        }
+        Vector3 look = Vector3.ProjectOnPlane(TftfFightState.OpponentCenter - self.position, Vector3.up);
+        if (look.sqrMagnitude < 1e-4f) look = Vector3.ProjectOnPlane(self.forward, Vector3.up);
+        if (look.sqrMagnitude < 1e-4f) look = Vector3.forward;
+        Quaternion rot = Quaternion.LookRotation(look, Vector3.up);
+        _scale = Mathf.Clamp((pos.y - self.position.y) / PlayerEyeHeight, 1f, 8f);
+        float dt = Time.unscaledDeltaTime;
+        if (_snap || (_anchor.position - pos).magnitude > 3f * _scale || Quaternion.Angle(_anchor.rotation, rot) > 60f)
+        {
+            _anchor.SetPositionAndRotation(pos, rot);
+            _snap = false;
+        }
+        else
+            _anchor.SetPositionAndRotation(Vector3.Lerp(_anchor.position, pos, 1f - Mathf.Exp(-20f * dt)),
+                                           Quaternion.Slerp(_anchor.rotation, rot, 1f - Mathf.Exp(-8f * dt)));
+    }
+
+    void PoseSeat()
+    {
+        _scale = _base ? BaseScale : 1f;
         Transform g = _source.transform;
         Vector3 fwd = g.forward;
-        Vector3 toFocus = TftfFightState.FightFocus - g.position;
+        Vector3 toFocus = (_base ? TftfFightState.BaseFocus : TftfFightState.FightFocus) - g.position;
         float d = Vector3.Dot(toFocus, fwd);
         if (d < 1f) d = Mathf.Max(1f, toFocus.magnitude);
         float k = Mathf.Clamp(Mathf.Tan(_source.fieldOfView * 0.5f * Mathf.Deg2Rad) / Mathf.Tan(ArenaHalfFov * Mathf.Deg2Rad) * _zoom, 0.1f, 1f);
         Vector3 pos = g.position + fwd * d * (1f - k);
         Vector3 flat = fwd;
+        if (_base) flat = Vector3.ProjectOnPlane(fwd.y > -0.99f ? fwd : g.up, Vector3.up);   // the base looks down: level horizon
         Quaternion rot = Quaternion.LookRotation(flat, Vector3.up);
         float dt = Time.unscaledDeltaTime;
         if (_snap || Quaternion.Angle(_anchor.rotation, rot) > 35f || (_anchor.position - pos).magnitude > d * 0.6f)
@@ -538,11 +735,43 @@ public sealed class TftfVr : MonoBehaviour
         else
             _anchor.SetPositionAndRotation(Vector3.Lerp(_anchor.position, pos, 1f - Mathf.Exp(-8f * dt)),
                                            Quaternion.Slerp(_anchor.rotation, rot, 1f - Mathf.Exp(-6f * dt)));
-        // The head's offset from the seat in the room (the seat looks at the screen) becomes its offset from the arena seat.
-        Vector3 seat = _screen.position - _screen.forward * Distance;
-        Quaternion seatRot = Quaternion.Inverse(_screen.rotation);
-        _arenaHead.localPosition = seatRot * (_head.position - seat);
-        _arenaHead.localRotation = seatRot * _head.rotation;
+    }
+
+    // First-person, after the game's animation and the eye's pose: the head shrunk (the eye is inside it) and each arm
+    // bent so that the fighter's hand is where the player's hand is in the arena, eased in over a fifth of a second.
+    void DriveBody()
+    {
+        if (!_fp || _body.Root == null) { _armWeight = 0f; return; }    // off the seat the arms are the animation's
+        _armWeight = Mathf.MoveTowards(_armWeight, ShowHands ? 1f : 0f, Time.unscaledDeltaTime * 5f);
+        _body.Shrink(true);
+        Vector3 right = _anchor.right, up = _anchor.up, fwd = _anchor.forward;
+        for (int h = 0; h < 2; h++)
+        {
+            Vector3 p; Quaternion r; float c; bool tr;
+            if (!_body.HasArm(h) || !HandPose(h, out p, out r, out c, out tr)) continue;
+            float reach = _body.Reach(h);
+            Vector3 pole = _body.Shoulder(h) + (-up + (h == 0 ? -right : right) * 0.6f - fwd * 0.3f) * reach;
+            _body.Solve(h, ArenaPoint(p), pole, _armWeight);
+        }
+    }
+
+    // Scaled world (base mode): the eyes as far apart as the scaled head moves, set by hand; at scale 1 the headset's own.
+    void StereoEyes()
+    {
+        Vector3 l, r;
+        var d = InputDevices.GetDeviceAtXRNode(XRNode.Head);
+        if (_scale == 1f || !d.TryGetFeatureValue(CommonUsages.leftEyePosition, out l) || !d.TryGetFeatureValue(CommonUsages.rightEyePosition, out r))
+        {
+            _arenaEye.ResetStereoViewMatrices();
+            return;
+        }
+        _arenaEye.SetStereoViewMatrix(Camera.StereoscopicEye.Left, View(ArenaPoint(l)));
+        _arenaEye.SetStereoViewMatrix(Camera.StereoscopicEye.Right, View(ArenaPoint(r)));
+    }
+
+    Matrix4x4 View(Vector3 eye)
+    {
+        return Matrix4x4.Scale(new Vector3(1, 1, -1)) * Matrix4x4.TRS(eye, _arenaHead.rotation, Vector3.one).inverse;
     }
 }
 #endif

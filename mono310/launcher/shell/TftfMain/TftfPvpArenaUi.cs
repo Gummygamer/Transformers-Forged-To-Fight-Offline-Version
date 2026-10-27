@@ -1,12 +1,17 @@
 // Newly authored. The online Arena button and panel (see ../../ONLINE_PVP.md), built from the game's own NGUI pieces: the
 // Arena card's button sprites (btnMain, btn2nd, Common_box) and fonts (Vox_Bold titles, Tecnica_Bold text). TftfNetGlue.MarkArena
 // adds it to the Arena screen; the button sits bottom right, clear of the arena card's ENTER / VIEW DETAILS. In-fight banners stay
-// in TftfPvpPanel (first pass). Compiled into Assembly-CSharp. Not added in the VR build.
+// in TftfPvpPanel (first pass). Compiled into Assembly-CSharp. In the VR build the texts say headset instead of phone.
 using UnityEngine;
 
 public class TftfPvpArenaUi : MonoBehaviour
 {
     const int PanelW = 760, PanelH = 560, Pad = 24;
+#if TFTF_VR
+    const string Device = "headset";
+#else
+    const string Device = "phone";
+#endif
 
     UIAtlas _atlas;
     Font _textFont, _titleFont;
@@ -185,7 +190,7 @@ public class TftfPvpArenaUi : MonoBehaviour
         _address.GetComponent<Collider>().enabled = idle;
         _room.GetComponent<Collider>().enabled = idle;
         _host.SetActive(idle || TftfRelay.Running);
-        _hostLabel.text = TftfRelay.Running ? "STOP HOSTING" : "HOST ON THIS PHONE";
+        _hostLabel.text = TftfRelay.Running ? "STOP HOSTING" : "HOST ON THIS " + Device.ToUpperInvariant();
         _findLabel.text = idle ? "FIND OPPONENT" : TftfNet.Connected ? "LEAVE" : "CANCEL";
 
         string info = TftfNet.Message.Length > 0 ? TftfNet.Message
@@ -193,9 +198,9 @@ public class TftfPvpArenaUi : MonoBehaviour
         if (TftfRelay.Running)
         {
             string ip = HostAddress();
-            info = "This phone is the relay: others enter " + (ip.Length > 0 ? ip : "this phone's Wi-Fi address")
+            info = "This " + Device + " is the relay: others enter " + (ip.Length > 0 ? ip : "this " + Device + "'s Wi-Fi address")
                    + (TftfRelay.Port == TftfNet.DefaultPort ? "" : ":" + TftfRelay.Port) + " (same Wi-Fi, or port " + TftfRelay.Port
-                   + " forwarded to this phone). " + (TftfRelay.Pairs > 0 ? TftfRelay.Pairs + " match(es) running. " : "") + "\n" + info;
+                   + " forwarded to this " + Device + "). " + (TftfRelay.Pairs > 0 ? TftfRelay.Pairs + " match(es) running. " : "") + "\n" + info;
         }
         else if (TftfRelay.Error.Length > 0) info = TftfRelay.Error + "\n" + info;
         _info.text = info;
