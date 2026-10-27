@@ -595,12 +595,3 @@ public static class TftfNet
     // Guest: a knock-out the host decided (canonical id of the fighter that lost), or -1.
     public static int TakeKnockout() { return _knockouts.Count > 0 ? _knockouts.Dequeue() : -1; }
 }
-
-// Marks a screen on which the online panel offers its button (TftfNetGlue adds it to the Arena screen).
-public sealed class TftfArenaMarker : MonoBehaviour
-{
-    static int _count;
-    public static bool Visible { get { return _count > 0; } }
-    void OnEnable() { _count++; }
-    void OnDisable() { _count--; }
-}

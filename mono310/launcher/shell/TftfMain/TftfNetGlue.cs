@@ -19,10 +19,12 @@ public static class TftfNetGlue
 
     public static bool OnlineFightPending { get { return TftfNet.Armed || TftfNet.LockstepActive; } }
 
-    // PVPScreen: the online panel offers its button while the Arena screen is shown.
+    // PVPScreen: the online button and panel live on the Arena screen.
     public static void MarkArena(MonoBehaviour screen)
     {
-        if (screen.GetComponent<TftfArenaMarker>() == null) screen.gameObject.AddComponent<TftfArenaMarker>();
+#if !TFTF_VR
+        if (screen.GetComponent<TftfPvpArenaUi>() == null) screen.gameObject.AddComponent<TftfPvpArenaUi>();
+#endif
     }
 
     // ---- before the fight: both players' bots ----

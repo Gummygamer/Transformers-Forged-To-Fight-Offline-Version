@@ -32,6 +32,8 @@
 - Bots, the board and fights keep the 9.2.0 donor PBR shaders (metallic reflections, roughness, normal maps) instead of
   the flat stand-in. Scenes keep their own exposure and tone map, and the launcher's bloom is off by default
   (`tftf/tune.txt` with `bloom 1.1` turns it back on), so the story squad screen and fights are no longer washed out.
+- The online PVP button and panel on the Arena screen use the game's own buttons and fonts; the button moved to the
+  bottom right, so it no longer covers the arena's ENTER and VIEW DETAILS buttons.
 
 **Fixed**
 

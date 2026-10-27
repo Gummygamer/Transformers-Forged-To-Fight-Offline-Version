@@ -30,7 +30,7 @@ for the opponent (see [Running a relay](#running-a-relay)).
 1. Someone runs a relay that both phones can reach: either one phone (**Host on this phone**, below) or a
    computer (see [Running a relay](#running-a-relay)).
 2. Both players open **FIGHT → ARENAS** and pick the same Arena.
-3. Tap **Online PVP** at the bottom of the Arena screen.
+3. Tap **ONLINE PVP** at the bottom right of the Arena screen.
    - **Hosting:** tap **Host on this phone**. The panel shows this phone's address (for example
      `192.168.1.23`); tell it to the other player. This phone then waits for an opponent on its own relay.
    - **Joining:** enter the relay's address (`host` or `host:port`; the default port is 7777) and tap
@@ -146,7 +146,8 @@ Input events are one character each: `a`/`A` attack press/release, `b`/`B` block
 | Stand-in opponent for one-phone tests | `Server/pvp_fake_peer.py` |
 | Lockstep test without Unity | `tools/net_lockstep_test/` |
 | Connection, lockstep, snapshots (no game types; first-pass assembly) | `shell/Tftf/TftfNet.cs` |
-| The panel and in-fight banners (IMGUI) | `shell/Tftf/TftfPvpPanel.cs` |
+| The Arena button and panel (NGUI, the game's sprites and fonts) | `shell/TftfMain/TftfPvpArenaUi.cs` |
+| Connection pump and in-fight banners (IMGUI) | `shell/Tftf/TftfPvpPanel.cs` |
 | Glue to the game's fight (Assembly-CSharp) | `shell/TftfMain/TftfNetGlue.cs` |
 | Calls into the glue, one-line anchors | `scripts/compat310.py` `online_pvp` (P54) |
 
