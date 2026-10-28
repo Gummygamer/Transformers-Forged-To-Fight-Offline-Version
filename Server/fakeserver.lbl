@@ -41,6 +41,12 @@ record Presence
   seen_ms: integer
 end
 
+record Series
+  peer: text
+  outcomes: a list of text
+  active: boolean
+end
+
 record Match
   match_id: text
   arena: text
@@ -984,6 +990,50 @@ public function reset_rosters(): nothing
   write_file(roster_file(), "")
 end
 
+function series_file(): text
+  intent: get
+  path_join(log_dir(), ".fakeserver-pvp-series")
+end
+
+public function load_series(peer: text): Series
+  intent: get the Arena series progress of the caller or a fresh series
+  -- outcomes: the result of every resolved fight, in matchup order; active: the next matchup's fight was activated and
+  -- not resolved yet. The client fights PVPOpponent.GetNextMatchup() (the first matchup not "resolved") and only resolves
+  -- a fight whose matchup is "inprogress", so without this every fight of a series was the first matchup again.
+  let key: text = roster_safe(peer)
+  mutable found: Series = Series { peer: key, outcomes: [], active: false }
+  if file_exists(series_file()) then
+    for line in split(read_file(series_file()), "\n") do
+      let fields: a list of text = split(line, "|")
+      if unwrap_or(get(fields, 0), "") == "Z" and unwrap_or(get(fields, 1), "") == key then
+        let joined: text = unwrap_or(get(fields, 2), "")
+        let outcomes: a list of text = if joined == "" then [] else split(joined, ",") end
+        set found = Series { peer: key, outcomes: outcomes, active: unwrap_or(get(fields, 3), "") == "1" }
+      end
+    end
+  end
+  found
+end
+
+public function save_series(series: Series): nothing
+  intent: save
+  create_dir(log_dir())
+  mutable lines: a list of text = []
+  if file_exists(series_file()) then
+    for line in split(read_file(series_file()), "\n") do
+      if line != "" and unwrap_or(get(split(line, "|"), 1), "") != series.peer then set lines = append(lines, line) end
+    end
+  end
+  let active: text = if series.active then "1" else "0" end
+  set lines = append(lines, "Z|" ++ series.peer ++ "|" ++ join(series.outcomes, ",") ++ "|" ++ active)
+  write_file(series_file(), join(lines, "\n"))
+end
+
+public function reset_series(peer: text): nothing
+  intent: reset
+  save_series(Series { peer: roster_safe(peer), outcomes: [], active: false })
+end
+
 public function opponent_roster(peer: text): Roster
   intent: get
   let key: text = roster_safe(peer)
@@ -1611,6 +1661,7 @@ end
 function pvp_lock_accepted(path: text, btxt: text, caller: Presence, arena: text, heroes: a list of text): text
   intent: store the roster, pair the peers and answer a lock in
   store_roster(caller.peer, caller.name, heroes)
+  reset_series(caller.peer)
   let m: Match = pair_peers(caller.peer, arena)
   let result: Json = pvp_match_result(path, btxt, "active")
   let with_locked: Json = jsonout.obj_set(result, "locked", jsonout.json_bool(true))
@@ -1651,6 +1702,7 @@ function pvp_quit_arena_response(path: text, btxt: text): text
   intent: encode
   let caller: Presence = touch_presence(peer_key(path), pvp_caller_name(path, btxt))
   let m: Match = match_for_peer(caller.peer)
+  reset_series(caller.peer)
   if m.match_id != "" then
   end_match(m.match_id)
   purge_fight_events(m.match_id)
@@ -1658,13 +1710,17 @@ end
   spaced_envelope(jsonout.json_obj([pair_bool("quit", true), pair_text("matchID", m.match_id)]))
 end
 
-function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of text): a list of Json
-  intent: build
+function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of text, series: Series): a list of Json
+  intent: build every matchup with its state in the series of the caller
   mutable matchups: a list of Json = []
   mutable index: integer = 0
+  let resolved: integer = length(series.outcomes)
   for opponent_hero in opponent_heroes do
     let user_hero: text = unwrap_or(get(user_heroes, index), unwrap_or(get(user_heroes, 0), opponent_hero))
-    set matchups = append(matchups, jsonout.json_obj([pair_text("userHero", user_hero), pair_text("opponentHero", opponent_hero), pair_text("aip", "normal"), pair_text("state", "none"), pair_text("outcome", "NONE"), jsonout.json_pair("basePoints", jsonout.json_dec(0.0)), jsonout.json_pair("actualPoints", jsonout.json_dec(0.0)), pair_text("fightId", "")]))
+    let state: text = if index < resolved then "resolved" else if index == resolved and series.active then "inprogress" else "none" end
+    let outcome: text = if index < resolved then unwrap_or(get(series.outcomes, index), "NONE") else "NONE" end
+    let fight_id: text = if state != "none" then "pvp-fight-" ++ to_text(index) else "" end
+    set matchups = append(matchups, jsonout.json_obj([pair_text("userHero", user_hero), pair_text("opponentHero", opponent_hero), pair_text("aip", "normal"), pair_text("state", state), pair_text("outcome", outcome), jsonout.json_pair("basePoints", jsonout.json_dec(0.0)), jsonout.json_pair("actualPoints", jsonout.json_dec(0.0)), pair_text("fightId", fight_id)]))
     set index = index + 1
   end
   matchups
@@ -1733,9 +1789,12 @@ function pvp_match_json(m: Match, arena: text, state: text, caller_roster: Roste
   intent: build the match and user data returned for a match
   let stats: Json = pvp_arena_stats(arena)
   let heroes: a list of text = gamedata.resolve_team(opponent.heroes)
-  let matchups: a list of Json = pvp_matchups(gamedata.resolve_team(caller_roster.heroes), heroes)
+  let series: Series = load_series(caller_roster.peer)
+  let matchups: a list of Json = pvp_matchups(gamedata.resolve_team(caller_roster.heroes), heroes, series)
   let node: Json = pvp_opponent_node(opponent, heroes, matchups, stats)
-  jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([pvp_match_data(arena, m, state, node)])), jsonout.json_pair("pvpUserData", jsonout.json_list([stats]))])
+  -- every fight fought: the series is over and the client shows its result instead of the next fight
+  let series_state: text = if length(heroes) > 0 and length(series.outcomes) >= length(heroes) then "claimed" else state end
+  jsonout.json_obj([jsonout.json_pair("pvpMatchData", jsonout.json_list([pvp_match_data(arena, m, series_state, node)])), jsonout.json_pair("pvpUserData", jsonout.json_list([stats]))])
 end
 
 function pvp_match_result(path: text, btxt: text, state: text): Json
@@ -1751,6 +1810,12 @@ end
 
 function pvp_opponent_response(path: text, btxt: text): text
   intent: encode
+  -- find-arena-opponent also runs when the client comes back to an Arena mid-series; only a finished series starts over
+  let series: Series = load_series(peer_key(path))
+  let team: a list of text = gamedata.resolve_team(opponent_roster(peer_key(path)).heroes)
+  if contains_text(path, "/pvp/get-new-") or (length(series.outcomes) > 0 and length(series.outcomes) >= length(team)) then
+    reset_series(peer_key(path))
+  end
   spaced_envelope(pvp_match_result(path, btxt, "selecting"))
 end
 
@@ -1771,11 +1836,14 @@ function activation_teams(path: text, req: Json): a list of text
   let user_team: a list of text = gamedata.resolve_team(if length(posted) > 0 then posted else get_saved_team() end)
   let stored_opponent: Roster = opponent_roster(peer_key(path))
   let opponent_team: a list of text = gamedata.resolve_team(if length(stored_opponent.heroes) > 0 then stored_opponent.heroes else gamedata.default_team() end)
-  [unwrap_or(get(user_team, 0), unwrap_or(get(gamedata.default_team(), 0), "")), unwrap_or(get(opponent_team, 0), unwrap_or(get(gamedata.default_team(), 0), ""))]
+  -- the fight of the series' next matchup; heroes is posted in matchup order (PVPMatchData.UserTeamHeroIds)
+  let index: integer = length(load_series(peer_key(path)).outcomes)
+  let fallback: text = unwrap_or(get(gamedata.default_team(), 0), "")
+  [unwrap_or(get(user_team, index), unwrap_or(get(user_team, 0), fallback)), unwrap_or(get(opponent_team, index), unwrap_or(get(opponent_team, 0), fallback))]
 end
 
 function activation_match_attributes(path: text, req: Json): Json
-  intent: build the matchAttributes node from the first hero of each squad
+  intent: build the matchAttributes node from both heroes of the next matchup in the series
   let bids: a list of text = activation_teams(path, req)
   let details: a list of Json = jsonout.list_items(gamedata.build_base_hero_details([jsonout.json_obj([pair_text("bid", unwrap_or(get(bids, 0), ""))]), jsonout.json_obj([pair_text("bid", unwrap_or(get(bids, 1), ""))])]))
   jsonout.json_obj([jsonout.json_pair("userHero", unwrap_or(get(details, 0), jsonout.json_obj([]))), jsonout.json_pair("opponentHero", unwrap_or(get(details, 1), jsonout.json_obj([])))])
@@ -1799,6 +1867,8 @@ function pvp_activate_match_response(path: text, btxt: text): text
   -- PVPUtil.GenerateFightData @0xb34cd8 NREs on it. So the async payload node itself must
   -- be the flat data dict: { pvpMatchData, pvpUserData, matchAttributes } at the top level.
   let match_attributes: Json = activation_match_attributes(path, req)
+  let series: Series = load_series(peer_key(path))
+  save_series(Series { peer: series.peer, outcomes: series.outcomes, active: true })
   let match_state: Json = pvp_match_result(path, btxt, "active")
   let data: Json = jsonout.obj_set(match_state, "matchAttributes", match_attributes)
   let async_msg: Json = jsonout.json_obj([pair_text("component", "PVPManager"), pair_text("channel", ""), pair_text("message", "match-activated"), jsonout.json_pair("payload", data)])
@@ -2121,6 +2191,25 @@ function match_resolved_async(qid: text, wire_qid: text, battle_id: text, won: b
   [jsonout.json_obj([pair_text("component", "QuestsManager"), pair_text("channel", ""), pair_text("message", "match-resolved"), jsonout.json_pair("payload", payload)])]
 end
 
+function pvp_resolved_async(path: text, btxt: text, outcome: text): a list of Json
+  intent: resolve the in-progress matchup of the caller series and push the updated match data
+  -- PVPManager.Async "match-resolved" passes the payload itself to UpdatePVPData, like "match-activated"
+  let series: Series = load_series(peer_key(path))
+  let normalized: text = normalize_outcome(outcome)
+  let result: text = if normalized == "WON" or normalized == "LOST" then normalized else "LOST" end
+  if series.active then
+    save_series(Series { peer: series.peer, outcomes: append(series.outcomes, result), active: false })
+  end
+  [jsonout.json_obj([pair_text("component", "PVPManager"), pair_text("channel", ""), pair_text("message", "match-resolved"), jsonout.json_pair("payload", pvp_match_result(path, btxt, "active"))])]
+end
+
+function resolved_envelope(path: text, btxt: text, outcome: text, quest_items: a list of Json, xp_items: a list of Json): text
+  intent: encode the async messages of a resolved quest or Arena fight
+  let pvp_items: a list of Json = if contains_text(path, "/pvp_fight") then pvp_resolved_async(path, btxt, outcome) else [] end
+  let items: a list of Json = concat(concat(quest_items, pvp_items), xp_items)
+  if length(items) > 0 then spaced_envelope_async(jsonout.json_obj([]), items) else "" end
+end
+
 function resolve_match_response(path: text, btxt: text): text
   intent: record a won quest match and report the outcome to the pvp reconciliation
   let req: Json = request_object(btxt)
@@ -2139,8 +2228,7 @@ function resolve_match_response(path: text, btxt: text): text
   if m.match_id != "" and outcome != "" then
     report_result_at(m.match_id, peer, normalize_outcome(outcome), current_time_ms())
   end
-  let quest_items: a list of Json = if contains_text(path, "/quests_fight") then async_items else [] end
-  if length(quest_items) + length(xp_items) > 0 then spaced_envelope_async(jsonout.json_obj([]), concat(quest_items, xp_items)) else "" end
+  resolved_envelope(path, btxt, outcome, if contains_text(path, "/quests_fight") then async_items else [] end, xp_items)
 end
 
 function saved_team_envelope(team_id: text, heroes: a list of text): text

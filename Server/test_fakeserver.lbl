@@ -718,6 +718,42 @@ function test_account_data_reports_level_and_xp(): boolean
   level == fakeserver.level_for_xp(fakeserver.player_xp()) and jsonout.as_int(jsonout.obj_get(balance, "v")) == fakeserver.player_xp() and jsonout.as_int(jsonout.obj_get(xp, "nextLevelXp")) == fakeserver.level_xp_threshold(level + 1) and jsonout.obj_has(res, "missionsconfig")
 end
 
+function pvp_async_payload(body: text): Json
+  intent: get the payload of the PVPManager async message of a response
+  mutable found: Json = jsonout.json_obj([])
+  for item in jsonout.list_items(jsonout.obj_get(response(body), "async")) do
+    if jsonout.as_text(jsonout.obj_get(item, "component")) == "PVPManager" then set found = jsonout.obj_get(item, "payload") end
+  end
+  found
+end
+
+function activated_user_bid(team: text): text
+  intent: activate the next Arena fight and return the bid of the player hero it is fought with
+  let payload: Json = pvp_async_payload(fakeserver.dynamic("/matches/activate-match/pvp_fight?stoken=seriestest", "\{\"pid\":\"arena_versus\",\"heroes\":" ++ team ++ "\}"))
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(payload, "matchAttributes"), "userHero"), "bid"))
+end
+
+function resolved_series_state(outcome: text): text
+  intent: resolve the current Arena fight and return the series state pushed to the client
+  let payload: Json = pvp_async_payload(fakeserver.dynamic("/matches/resolve-match/pvp_fight?stoken=seriestest", "\{\"results\":\{\"result\":\"" ++ outcome ++ "\"\}\}"))
+  jsonout.as_text(jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(payload, "pvpMatchData")), 0), jsonout.json_obj([])), "state"))
+end
+
+function test_arena_series_fights_every_matchup_in_order(): boolean
+  intent: test
+  let team: text = "[\"optimusprime_cin_tf\",\"optimusprimal_bw_mp32\",\"megatron_gs_leader2015\"]"
+  -- the opponent is another stored roster; with none it is the three-bot default team
+  fakeserver.reset_rosters()
+  fakeserver.dynamic("/pvp/lockin?stoken=seriestest", "\{\"pid\":\"arena_versus\",\"heroes\":" ++ team ++ "\}")
+  let first: text = activated_user_bid(team)
+  let after_first: text = resolved_series_state("WON")
+  let second: text = activated_user_bid(team)
+  let after_second: text = resolved_series_state("LOST")
+  let third: text = activated_user_bid(team)
+  let after_third: text = resolved_series_state("WON")
+  first == "optimusprime_cin_tf" and second == "optimusprimal_bw_mp32" and third == "megatron_gs_leader2015" and after_first == "active" and after_second == "active" and after_third == "claimed"
+end
+
 function main_group_4(): integer
   intent: run
   mutable failed: integer = 0
@@ -734,6 +770,7 @@ function main_group_4(): integer
   set failed = failed + report("test_every_custom_story_quest_is_unlocked_by_progression", test_every_custom_story_quest_is_unlocked_by_progression())
   set failed = failed + report("test_level_curve_is_monotonic", test_level_curve_is_monotonic())
   set failed = failed + report("test_account_data_reports_level_and_xp", test_account_data_reports_level_and_xp())
+  set failed = failed + report("test_arena_series_fights_every_matchup_in_order", test_arena_series_fights_every_matchup_in_order())
   failed
 end
 
@@ -746,7 +783,7 @@ function main(): nothing
   set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(38 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(39 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

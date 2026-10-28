@@ -24,6 +24,12 @@
 
 ## Unreleased
 
+**Fixed**
+
+- Arena (also online PvP): every fight of a series was the first matchup again. The local server now remembers which
+  matchups are fought, so the series goes through all of them in the assigned order and then shows its result. Fixed in
+  the server scripts, so the APK must be rebuilt.
+
 ## 0.11
 
 **Added**
