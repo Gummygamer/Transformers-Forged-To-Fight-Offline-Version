@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [0.11](#011)
 - [0.10](#010)
 - [0.9](#09)
 - [0.8](#08)
@@ -22,6 +23,8 @@
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
 ## Unreleased
+
+## 0.11
 
 **Added**
 
