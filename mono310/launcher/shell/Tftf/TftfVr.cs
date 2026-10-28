@@ -78,7 +78,12 @@ public sealed class TftfVr : MonoBehaviour
     // First-person: the local fighter's body, its arms driven by the player's hands.
     readonly TftfVrBody _body = new TftfVrBody();
     float _armWeight;
+    readonly float[] _handMiss = new float[2];   // real metres between a driven hand and the player's (dev: vrshot)
     Vector3 _eyeSmooth;
+    // Tuned by TftfVrCombat (tftf/vrcombat.txt): the eye in front of and above the head bone (fractions of the eye
+    // height), the near clip in real metres (hides the collar and shoulders around the eye, not the hands), how much the
+    // wrists follow the controllers and the grip's pitch from the controller's pointing axis (degrees).
+    public static float FpEyeForward = 0.06f, FpEyeUp = 0.04f, FpNear = 0.15f, FpWrist = 1f, FpWristPitch;
 
     // Motion controls: a marker per hand (0 left, 1 right) in fights, coloured by TftfVrCombat.
     Transform[] _markers = new Transform[2];
@@ -330,6 +335,7 @@ public sealed class TftfVr : MonoBehaviour
         TrackHead();
         if (_arena) PoseArena();
         DriveBody();
+        if (_arena) MaybeShoot();   // after the arms are driven
     }
 
     // In front of the head at eye height, turned to face it (yaw only); again after every recentre or a stick click.
@@ -566,7 +572,7 @@ public sealed class TftfVr : MonoBehaviour
         _arenaEye.backgroundColor = _source.backgroundColor;
         _arenaEye.nearClipPlane = _source.nearClipPlane;
         _arenaEye.farClipPlane = _source.farClipPlane;
-        if (_fp) _arenaEye.nearClipPlane = Mathf.Min(_source.nearClipPlane, 0.05f * _scale);   // the fighter's own arms
+        if (_fp) _arenaEye.nearClipPlane = FpNear * _scale;   // the fighter's own collar and shoulders clipped, its hands kept
         // The fight camera's rendering path: the player settings resolve a new camera's to VertexLit, which skips every
         // ForwardBase pass of the game's shaders (a Quest 2 saw black but for the sun flare and a few effects).
         _arenaEye.renderingPath = _source.renderingPath;
@@ -574,12 +580,12 @@ public sealed class TftfVr : MonoBehaviour
         _arenaEye.useOcclusionCulling = _source.useOcclusionCulling;
         _arenaEye.layerCullDistances = _source.layerCullDistances;
         _arenaEye.layerCullSpherical = _source.layerCullSpherical;
-        MaybeShoot();
     }
 
     // Dev: the headset's view cannot be captured over adb. While tftf/vrshot.txt exists (checked every second in arena
     // mode, deleted after use), PNGs in tftf/: the arena eye's view without stereo (vrshot-seat.png) and the screen
-    // texture, the HUD (vrshot-screen.png).
+    // texture, the HUD (vrshot-screen.png). In first-person also the fighter seen from in front and to its right
+    // (vrshot-body.png), and the log gives how far each driven hand is from where the player's hand is.
     float _shotCheck;
     void MaybeShoot()
     {
@@ -604,6 +610,16 @@ public sealed class TftfVr : MonoBehaviour
             cam.Render();
             Save(rt, System.IO.Path.Combine(dir, "vrshot-seat.png"));
             Save(Screen2D, System.IO.Path.Combine(dir, "vrshot-screen.png"));
+            if (_fp && _body.Root != null)
+            {
+                Vector3 at = _anchor.position - _anchor.up * 0.5f * _scale;
+                go.transform.position = at + (_anchor.forward * 1.6f + _anchor.right * 1.2f + _anchor.up * 0.3f) * _scale;
+                go.transform.LookAt(at);
+                cam.nearClipPlane = 0.05f * _scale;
+                cam.Render();
+                Save(rt, System.IO.Path.Combine(dir, "vrshot-body.png"));
+                Debug.Log("[TFTF] VR body: scale " + _scale.ToString("0.00") + ", hand misses (m) " + _handMiss[0].ToString("0.000") + "/" + _handMiss[1].ToString("0.000"));
+            }
             Debug.Log("[TFTF] VR shots saved");
         }
         catch (System.Exception e) { Debug.Log("[TFTF] VR shots failed: " + e); }
@@ -690,17 +706,19 @@ public sealed class TftfVr : MonoBehaviour
     {
         Transform self = TftfFightState.Self;
         _body.Bind(self);
-        Vector3 pos = self.position + Vector3.up * TftfFightState.SelfEyeHeight;
-        if (_body.Head != null)
-        {
-            Vector3 eye = _body.Head.position + Vector3.up * TftfFightState.SelfEyeHeight * 0.04f;
-            _eyeSmooth = _snap ? eye : Vector3.Lerp(_eyeSmooth, eye, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
-            pos = _eyeSmooth;
-        }
         Vector3 look = Vector3.ProjectOnPlane(TftfFightState.OpponentCenter - self.position, Vector3.up);
         if (look.sqrMagnitude < 1e-4f) look = Vector3.ProjectOnPlane(self.forward, Vector3.up);
         if (look.sqrMagnitude < 1e-4f) look = Vector3.forward;
         Quaternion rot = Quaternion.LookRotation(look, Vector3.up);
+        float h = TftfFightState.SelfEyeHeight;
+        Vector3 pos = self.position + Vector3.up * h;
+        if (_body.Head != null)
+        {
+            // The head bone is at the skull's base, behind the face: the eye goes to the front of the face.
+            Vector3 eye = _body.Head.position + Vector3.up * h * FpEyeUp + look.normalized * h * FpEyeForward;
+            _eyeSmooth = _snap ? eye : Vector3.Lerp(_eyeSmooth, eye, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
+            pos = _eyeSmooth;
+        }
         _scale = Mathf.Clamp((pos.y - self.position.y) / PlayerEyeHeight, 1f, 8f);
         float dt = Time.unscaledDeltaTime;
         if (_snap || (_anchor.position - pos).magnitude > 3f * _scale || Quaternion.Angle(_anchor.rotation, rot) > 60f)
@@ -738,7 +756,8 @@ public sealed class TftfVr : MonoBehaviour
     }
 
     // First-person, after the game's animation and the eye's pose: the head shrunk (the eye is inside it) and each arm
-    // bent so that the fighter's hand is where the player's hand is in the arena, eased in over a fifth of a second.
+    // bent so that the fighter's hand is where the player's hand is in the arena, eased in over a fifth of a second. With a
+    // controller the wrist also takes the controller's turn and the fighter's fist, not its wrist, goes to the grip.
     void DriveBody()
     {
         if (!_fp || _body.Root == null) { _armWeight = 0f; return; }    // off the seat the arms are the animation's
@@ -751,7 +770,13 @@ public sealed class TftfVr : MonoBehaviour
             if (!_body.HasArm(h) || !HandPose(h, out p, out r, out c, out tr)) continue;
             float reach = _body.Reach(h);
             Vector3 pole = _body.Shoulder(h) + (-up + (h == 0 ? -right : right) * 0.6f - fwd * 0.3f) * reach;
-            _body.Solve(h, ArenaPoint(p), pole, _armWeight);
+            Vector3 target = ArenaPoint(p);
+            bool wrist = !tr && FpWrist > 0f;   // a tracked hand's root pose has other axes: its wrist stays the forearm's
+            Quaternion grip = _anchor.rotation * _seatRot * transform.rotation * r * Quaternion.Euler(-FpWristPitch, 0f, 0f);
+            if (wrist) target -= grip * Vector3.forward * _body.FistOffset(h);
+            _body.Solve(h, target, pole, _armWeight);
+            if (wrist) _body.Aim(h, grip, _armWeight * FpWrist);
+            _handMiss[h] = (_body.Hand(h).position - target).magnitude / _scale;
         }
     }
 

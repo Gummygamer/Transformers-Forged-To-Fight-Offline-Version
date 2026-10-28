@@ -44,7 +44,6 @@ the Oculus XR plugin (1.11.2, bundled with Unity 2020.3.31f1, so no download is 
 | Right stick flicked right / left | swipe forward / back across the attack zone (medium attack / dash back) |
 | Either grip, held | block (holds the HUD block zone) |
 | X | fights: first-person → arena → flat (flat also turns base mode off) |
-| Y | motion controls off / on |
 | B | special attack (the highest the meter allows) |
 | Left stick up / down | arena / base seat nearer / farther |
 | Either stick click | put the screen back in front of you (holding the Oculus button recentres too) |
@@ -70,7 +69,10 @@ fights capture them too). Directions are relative to where your head faces.
 Hand markers show where the arms are not driven (arena view): blue idle, green guard, yellow raised, orange on a landed
 hit, red when hit. Thresholds are tunable without a rebuild: `tftf/vrcombat.txt`, lines `<name> <value>` (`eye`,
 `jab`, `jabreach`, `both`, `fist`, `lean`, `leandist`, `guardy`, `guardz`, `guardgap`, `raise`; defaults in
-`TftfVrCombat.Tune`), read at the start of each fight.
+`TftfVrCombat.Tune`), read at the start of each fight. The first-person view has its own: `eyefwd` / `eyeup` (the eye in
+front of and above the head bone, fractions of the eye height), `near` (real metres: nothing nearer the eye is drawn,
+which hides the fighter's collar and shoulders but keeps its hands, chest and feet), `wrist` (0..1, how much the wrists
+follow the controllers) and `wristpitch` (degrees, the grip's tilt from the controller's pointing axis).
 
 ## Building
 
@@ -118,7 +120,9 @@ All **[⚠ inferred]**, in the order to check them on a headset:
 rendering path resolves to VertexLit from the player settings, which skips every ForwardBase pass of the game's
 shaders; the arena eye now takes the fight camera's rendering path (Forward). The headset's view cannot be captured
 over adb: pushing an empty `tftf/vrshot.txt` during a fight writes `tftf/vrshot-seat.png` (the arena eye without
-stereo) and `tftf/vrshot-screen.png` (the HUD).
+stereo) and `tftf/vrshot-screen.png` (the HUD); in first-person also `tftf/vrshot-body.png` (the fighter from in front
+and to its right, arms as driven) and a log line `[TFTF] VR body: … hand misses` (real metres from each driven wrist to
+its target; large means out of the fighter's reach).
 **Fixed (2026-10-22):** magenta upside-down silhouettes over Karnak fights (both modes). Every camera without a target was
 pointed at the screen texture, including the game's planar reflection camera, which is disabled, rendered by hand and
 targets its own buffers through `SetTargetBuffers` (so `targetTexture` reads null). Disabled cameras and the game's light
@@ -142,4 +146,7 @@ cameras are now left alone.
    positions for hits before the next animation step, the moved arms could change what hits. The eye height comes
    from the head bone (or the collider height); `eye` in `tftf/vrcombat.txt` scales the fallback. The hand-state layout
    is OVRPlugin's `HandStateInternal` as of 2020-21; tracked-hand poses are assumed to share the controllers'
-   tracking space. The wrist does not follow the controller's rotation, and fingers are not driven.
+   tracking space. With a controller the wrist takes its turn (knuckles along the controller's pointing axis, thumb
+   along its top) and the fist, not the wrist, goes to the grip; a tracked hand's wrist stays the forearm's, and
+   fingers are not driven. 2026-10-27, first headset report: parts of the fighter blocked the view; the eye was at the
+   head bone (the skull's base, inside the collar). Now it sits at the front of the face and the near clip is raised.

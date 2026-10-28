@@ -4,7 +4,9 @@
 // its parent and grandparent, twist bones skipped). Every frame, after the game's animation and before rendering, each arm
 // is bent with a two-bone IK so that its hand reaches the player's hand placed in the arena, the elbow down and out; the
 // head is shrunk to nothing so the eye inside it sees out (only the arena eye draws the fighter in first-person).
-// The hand keeps the turn the forearm gives it; the wrist does not follow the controller's rotation.
+// With a controller, the wrist then takes the controller's turn (Aim): the hand's knuckle axis (wrist to middle finger, or
+// the forearm's line) along the controller's pointing axis and its thumb (the thumb bone, or the rig's up) along the
+// controller's top, measured once per hand in the pose found at Bind.
 #if TFTF_VR
 using UnityEngine;
 
@@ -12,12 +14,15 @@ public sealed class TftfVrBody
 {
     Transform _root, _head;
     readonly Transform[] _upper = new Transform[2], _fore = new Transform[2], _hand = new Transform[2];
+    readonly Quaternion[] _gripInv = new Quaternion[2];   // hand bone's rotation in its grip frame (z knuckles, y thumb), inverted
+    readonly float[] _fist = new float[2];                // wrist to the palm, where a controller is held
     Vector3 _headScale;
     bool _shrunk;
 
     public Transform Root { get { return _root; } }
     public Transform Head { get { return _head; } }
     public bool HasArm(int side) { return _hand[side] != null; }
+    public Transform Hand(int side) { return _hand[side]; }
 
     public void Bind(Transform root)
     {
@@ -29,22 +34,34 @@ public sealed class TftfVrBody
         if (an != null && an.isHuman)
         {
             _head = an.GetBoneTransform(HumanBodyBones.Head);
-            Arm(0, an.GetBoneTransform(HumanBodyBones.LeftHand), an.GetBoneTransform(HumanBodyBones.LeftLowerArm), an.GetBoneTransform(HumanBodyBones.LeftUpperArm));
-            Arm(1, an.GetBoneTransform(HumanBodyBones.RightHand), an.GetBoneTransform(HumanBodyBones.RightLowerArm), an.GetBoneTransform(HumanBodyBones.RightUpperArm));
+            Arm(0, an.GetBoneTransform(HumanBodyBones.LeftHand), an.GetBoneTransform(HumanBodyBones.LeftLowerArm), an.GetBoneTransform(HumanBodyBones.LeftUpperArm),
+                an.GetBoneTransform(HumanBodyBones.LeftMiddleProximal), an.GetBoneTransform(HumanBodyBones.LeftThumbProximal));
+            Arm(1, an.GetBoneTransform(HumanBodyBones.RightHand), an.GetBoneTransform(HumanBodyBones.RightLowerArm), an.GetBoneTransform(HumanBodyBones.RightUpperArm),
+                an.GetBoneTransform(HumanBodyBones.RightMiddleProximal), an.GetBoneTransform(HumanBodyBones.RightThumbProximal));
         }
         else
             FindByName(root);
         Debug.Log("[TFTF] VR body of " + root.name + ": head " + Name(_head) + ", left " + Name(_upper[0]) + "/" + Name(_fore[0]) + "/" + Name(_hand[0])
-            + ", right " + Name(_upper[1]) + "/" + Name(_fore[1]) + "/" + Name(_hand[1]) + (an != null && an.isHuman ? " (humanoid)" : " (by name)"));
+            + ", right " + Name(_upper[1]) + "/" + Name(_fore[1]) + "/" + Name(_hand[1]) + (an != null && an.isHuman ? " (humanoid)" : " (by name)")
+            + ", reach " + Reach(0).ToString("0.00") + "/" + Reach(1).ToString("0.00") + ", fist " + _fist[0].ToString("0.00") + "/" + _fist[1].ToString("0.00"));
     }
 
     static string Name(Transform t) { return t != null ? t.name : "-"; }
 
-    void Arm(int side, Transform hand, Transform fore, Transform upper)
+    void Arm(int side, Transform hand, Transform fore, Transform upper, Transform middle = null, Transform thumb = null)
     {
         if (hand == null || fore == null || upper == null) return;
         if ((hand.position - fore.position).sqrMagnitude < 1e-6f || (fore.position - upper.position).sqrMagnitude < 1e-6f) return;
         _hand[side] = hand; _fore[side] = fore; _upper[side] = upper;
+
+        Vector3 knuckles = middle != null && (middle.position - hand.position).sqrMagnitude > 1e-6f
+            ? middle.position - hand.position : (hand.position - fore.position) * 0.5f;
+        _fist[side] = knuckles.magnitude * 0.6f;   // the grip sits in the palm, short of the knuckles
+        Vector3 up = thumb != null ? thumb.position - hand.position : _root.up;
+        up = Vector3.ProjectOnPlane(up, knuckles);
+        if (up.sqrMagnitude < 1e-8f) up = Vector3.ProjectOnPlane(_root.up, knuckles);
+        if (up.sqrMagnitude < 1e-8f) up = Vector3.ProjectOnPlane(_root.forward, knuckles);
+        _gripInv[side] = Quaternion.Inverse(Quaternion.LookRotation(knuckles, up)) * hand.rotation;
     }
 
     static readonly string[] NotABone = { "finger", "thumb", "index", "middle", "ring", "pinky", "nub", "end", "attach", "prop",
@@ -144,6 +161,17 @@ public sealed class TftfVrBody
         if (e.sqrMagnitude > 1e-6f && p.sqrMagnitude > 1e-6f)
             a.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(e, p, line) * weight, line) * a.rotation;
     }
+
+    // The hand of `side` turned so that its grip frame is `grip` (weight 0..1).
+    public void Aim(int side, Quaternion grip, float weight)
+    {
+        Transform c = _hand[side];
+        if (c == null || weight <= 0f) return;
+        c.rotation = Quaternion.Slerp(c.rotation, grip * _gripInv[side], Mathf.Clamp01(weight));
+    }
+
+    // Wrist to the palm (a controller is held there).
+    public float FistOffset(int side) { return _fist[side]; }
 
     // Shoulder to hand at full stretch (for the pole's distance).
     public float Reach(int side)

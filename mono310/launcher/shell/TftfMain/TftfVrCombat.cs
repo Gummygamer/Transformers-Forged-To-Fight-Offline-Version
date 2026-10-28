@@ -8,7 +8,7 @@
 // - a quick lean back: dodge back; a quick lean to a side: sidestep;
 // - both fists held together in front of the chest, or B: the highest special the meter allows.
 // It also reports the fighters for the first-person view (TftfFightState.ReportFighters), colours the hand markers and
-// buzzes the controllers on hits. Y on the left controller turns motion controls off and on.
+// buzzes the controllers on hits.
 //
 // Thresholds can be tuned without a rebuild: tftf/vrcombat.txt, lines "<name> <value>" (names as in Tune below), read at
 // the start of every fight. Compiled into Assembly-CSharp (it uses the game's fight types).
@@ -35,9 +35,15 @@ public class TftfVrCombat : MonoBehaviour
         { "guardz", 0.4f },        // ... within this far in front
         { "guardgap", 0.32f },     // ... and this close to each other
         { "raise", 0.1f },         // heavy: both hands this far above the eyes
+        // First-person view (TftfVr): fractions of the fighter's eye height, metres, degrees, 0..1.
+        { "eyefwd", 0.06f },       // the eye this far in front of the head bone (the face, not the neck)
+        { "eyeup", 0.04f },        // ... and this far above it
+        { "near", 0.15f },         // nothing nearer the eye than this is drawn: the fighter's collar and shoulders
+        { "wrist", 1f },           // how much the fighter's wrists follow the controllers' turn
+        { "wristpitch", 0f },      // the controller's grip turned this far up from its pointing axis
     };
 
-    bool _on = true, _yWas, _bWas;
+    bool _bWas;
     PlayerController _me;
     PlayerInput _input;
     float _myHp, _opHp;
@@ -72,10 +78,6 @@ public class TftfVrCombat : MonoBehaviour
 
     void Update()
     {
-        bool y = TftfVr.HandButton(0, 1);
-        if (y && !_yWas) { _on = !_on; Debug.Log("[TFTF] VR motion controls " + (_on ? "on" : "off")); }
-        _yWas = y;
-
         BattleArbiter arbiter = BattleArbiter.Instance;
         PlayerController me = arbiter != null && arbiter.IsCurrentState("Main") ? arbiter.GetFighter(0) : null;
         PlayerInput input = me != null ? me.GetComponent<PlayerInput>() : null;
@@ -87,8 +89,8 @@ public class TftfVrCombat : MonoBehaviour
         float now = Time.realtimeSinceStartup;
         Track();
         if (_releaseAttackAt >= 0f && now >= _releaseAttackAt) { _releaseAttackAt = -1f; _input.OnReleaseAttackInput(); }
-        TftfVr.ShowHands = _on && _valid;
-        if (_on && !cinematic && _valid) Recognise(now);
+        TftfVr.ShowHands = _valid;   // the arms follow the hands with gestures off too
+        if (!cinematic && _valid) Recognise(now);
         else EndHolds();
         Feedback(now);
     }
@@ -102,7 +104,9 @@ public class TftfVrCombat : MonoBehaviour
         _opHp = me.Opponent.Attributes.NormalizedHealth;
         _neutralSet = false;
         ReadTune();
-        Debug.Log("[TFTF] VR motion controls " + (_on ? "ready" : "off (Y)") + ", eye height " + EyeHeight(me).ToString("0.00"));
+        TftfVr.FpEyeForward = Tune["eyefwd"]; TftfVr.FpEyeUp = Tune["eyeup"]; TftfVr.FpNear = Tune["near"];
+        TftfVr.FpWrist = Tune["wrist"]; TftfVr.FpWristPitch = Tune["wristpitch"];
+        Debug.Log("[TFTF] VR motion controls ready, eye height " + EyeHeight(me).ToString("0.00"));
     }
 
     void Stop()

@@ -29,9 +29,18 @@
   facing the opponent; the fighter's body stays in view and its arms follow your controllers or tracked hands (two-bone
   IK). Punch for a light attack, punch with both hands or step in to dash, raise both hands and bring them down for a
   heavy, hold a guard in front of your face to block, lean back to dodge, lean sideways to sidestep, hold both fists
-  together (or B) for a special. Controllers buzz on hits. X now cycles first-person, arena and flat; Y turns motion
-  controls off and on. Hand tracking reads OVRPlugin directly; the manifest declares it as optional. Not yet tested on a
-  headset.
+  together (or B) for a special. Controllers buzz on hits. X now cycles first-person, arena and flat. Hand tracking
+  reads OVRPlugin directly; the manifest declares it as optional. Not yet tested on a headset.
+
+**Fixed**
+
+- Quest VR first-person: the fighter's own collar and shoulders no longer block the view. The eye sat at the head bone,
+  inside the neck; it is now at the front of the face, and geometry within 15 cm of the eye is clipped (hands, chest
+  and feet stay visible). With controllers, the fighter's wrists now turn with them and its fists, not its wrists, sit
+  where you hold the controllers. All tunable in `tftf/vrcombat.txt` (`eyefwd`, `eyeup`, `near`, `wrist`,
+  `wristpitch`).
+- Quest VR: Y no longer turns motion controls off. Pressed in the menus it switched gestures and the first-person arms
+  off, unseen, for every fight after.
 
 ## 0.10
 
