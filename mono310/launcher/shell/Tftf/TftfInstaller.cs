@@ -32,10 +32,10 @@ public sealed class ZipDataSource : IPlayerDataSource
 public static class TftfInstaller
 {
 #if UNITY_STANDALONE_WIN
-    public const int Version = 4;                                     // bump to force a reinstall
+    public const int Version = 5;                                     // bump to force a reinstall
     const int BundlePlatform = 19;     // StandaloneWindows64: the player refuses the APKs' bundles stamped for Android
 #else
-    public const int Version = 2;                                     // bump to force a reinstall
+    public const int Version = 3;                                     // bump to force a reinstall
     const int BundlePlatform = 0;      // phone: the APKs' bundles already match the player
 #endif
     public static volatile string Status = "";
@@ -120,6 +120,8 @@ public static class TftfInstaller
             if (moves == null) throw new Exception("The second file is not the 9.2.0 game APK (no character move data found).");
             Step("Extracting fighter move data", 0.4f);
             CopyEntry(moves, Path.Combine(root, "moves92.bundle"), true);
+            Step("Replacing the G1 fighter models", 0.42f);
+            ReplaceCharactersBundle(z92, Path.Combine(root, "base/assets"));
         }
 
         Step("Building the content package (this takes a few minutes)", 0.45f);
@@ -164,6 +166,24 @@ public static class TftfInstaller
         var ms = new MemoryStream((int)e.Length);
         using (var src = e.Open()) src.CopyTo(ms);
         File.WriteAllBytes(target, BundleRetarget.Retarget(ms.ToArray(), BundlePlatform));
+    }
+
+    // The 3.1.0 characters bundle (the G1 Starscream_GS and OptimusPrime_GS_V models) carries 3.1.0 shaders that this player
+    // only draws with the flat stand-in. The 9.2.0 bundle holds the same four prefabs under the same CAB name, built against
+    // the donor PBR shaders the other fighters use, so it replaces the 3.1.0 file and its toc record.
+    static void ReplaceCharactersBundle(ZipArchive z92, string baseDir)
+    {
+        var bundle = z92.GetEntry("assets/assetpack/characters/characters.assetbundle");
+        var toc92 = z92.GetEntry("assets/characters/toc.txt");
+        string tocPath = Path.Combine(baseDir, "characters/toc.txt");
+        if (bundle == null || toc92 == null || !File.Exists(tocPath)) { Note("characters bundle not replaced: missing input"); return; }
+        JObj rec92;
+        using (var r = new StreamReader(toc92.Open(), System.Text.Encoding.UTF8)) rec92 = (JObj)((JObj)((JObj)JsonLite.Parse(r.ReadToEnd()))["bundles"])["characters"];
+        var toc = (JObj)JsonLite.Parse(File.ReadAllText(tocPath));
+        var rec = (JObj)((JObj)toc["bundles"])["characters"];
+        foreach (var k in new[] { "crc", "size", "hash", "ts" }) rec[k] = rec92[k];
+        CopyEntry(bundle, Path.Combine(baseDir, "characters/characters.assetbundle"), true);
+        File.WriteAllText(tocPath, JsonLite.Write(toc, true) + "\n", new System.Text.UTF8Encoding(false));
     }
 
     static bool IsBaseAsset(ZipArchiveEntry e)

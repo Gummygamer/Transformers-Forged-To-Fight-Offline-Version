@@ -25,6 +25,13 @@
 
 ## Unreleased
 
+**Fixed**
+
+- G1 Starscream and G1 Optimus Prime looked glitched next to every other bot. Their models came from the 3.1.0 APK,
+  whose shaders this player can only draw with the flat stand-in. The installer now takes them from the 9.2.0 APK
+  instead (same models, the donor PBR shaders the other bots use). The install version is bumped, so the launcher
+  reinstalls once.
+
 ## 0.11.1
 
 **Fixed**
