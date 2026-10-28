@@ -7,7 +7,7 @@ using UnityEngine.Networking;
 
 public sealed class TftfLauncher : MonoBehaviour
 {
-    public const string LauncherVersion = "0.11";     // the launcher's own version; the game inside stays 3.1.0
+    public const string LauncherVersion = "0.11.1";   // the launcher's own version; the game inside stays 3.1.0
 #if UNITY_STANDALONE_WIN
     const string DeviceName = "PC";
 #else
