@@ -949,6 +949,41 @@ public function ensure_session(fingerprint: text, name: text): Session
   created
 end
 
+public function random_nickname(): text
+  intent: pick a random player nickname, never the device name
+  let first: a list of text = ["Steel", "Iron", "Chrome", "Turbo", "Rust", "Nova", "Volt", "Blaze", "Storm", "Titan", "Rogue", "Neon", "Cobalt", "Quantum", "Shadow", "Solar"]
+  let second: a list of text = ["Gear", "Spark", "Bolt", "Piston", "Circuit", "Wing", "Fang", "Hammer", "Comet", "Ranger", "Striker", "Drifter", "Sentinel", "Racer", "Forge", "Rotor"]
+  unwrap_or(get(first, random_int(length(first))), "Steel") ++ unwrap_or(get(second, random_int(length(second))), "Gear") ++ to_text(10 + random_int(90))
+end
+
+public function clean_nickname(value: text): text
+  intent: clean a chosen nickname to letters, digits, - and _ or return empty when it is not 3 to 16 characters
+  mutable result: text = ""
+  mutable index: integer = 0
+  while index < text_length(value) do
+    let character: text = substring(value, index, 1)
+    if contains_text("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", character) then
+  set result = result ++ character
+end
+    set index = index + 1
+  end
+  if text_length(result) >= 3 and text_length(result) <= 16 and text_length(result) == text_length(value) then result else "" end
+end
+
+public function set_session_name(stoken: text, name: text): Session
+  intent: rename the session with this token and save every session
+  mutable lines: a list of text = []
+  mutable renamed: Session = Session { fingerprint: "", stoken: "", uid: "", name: "" }
+  for session in load_sessions() do
+    let current: Session = if session.stoken == stoken then Session { fingerprint: session.fingerprint, stoken: session.stoken, uid: session.uid, name: roster_safe(name) } else session end
+    if session.stoken == stoken then set renamed = current end
+    set lines = append(lines, "S|" ++ current.fingerprint ++ "|" ++ current.stoken ++ "|" ++ current.uid ++ "|" ++ current.name)
+  end
+  create_dir(log_dir())
+  write_file(session_file(), join(lines, "\n"))
+  renamed
+end
+
 public function load_rosters(): a list of Roster
   intent: load
   if not file_exists(roster_file()) then
@@ -1451,9 +1486,35 @@ else if device_model != "" then
 else
   "local"
 end
-  let name: text = if device_name != "" then device_name else if device_model != "" then device_model else "Commander" end
-  let session: Session = ensure_session(fingerprint, name)
-  compact_envelope(jsonout.json_obj([pair_text("stoken", session.stoken), pair_text("server_tag", ""), pair_text("userToken", ""), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", jsonout.json_obj([pair_int("uid", unwrap_or(to_integer(session.uid), 1000000000001)), pair_text("name", session.name), pair_int("level", account_level()), pair_text("email", ""), pair_text("fbid", ""), pair_text("geo", "US"), pair_text("naid", ""), pair_int("cohort", 0), pair_int("revenue", 0)]))]))
+  let found: Session = ensure_session(fingerprint, random_nickname())
+  -- sessions made before nicknames carry the device name ("A52 de ..."): give those a nickname too
+  let session: Session = if found.name == "" or found.name == "Commander" or found.name == roster_safe(device_name) or found.name == roster_safe(device_model) then set_session_name(found.stoken, random_nickname()) else found end
+  compact_envelope(jsonout.json_obj([pair_text("stoken", session.stoken), pair_text("server_tag", ""), pair_text("userToken", ""), jsonout.json_pair("auth_data", jsonout.json_obj([])), jsonout.json_pair("user", login_user(session))]))
+end
+
+function login_user(session: Session): Json
+  intent: build the user object of the login and rename responses
+  jsonout.json_obj([pair_int("uid", unwrap_or(to_integer(session.uid), 1000000000001)), pair_text("name", session.name), pair_int("level", account_level()), pair_text("email", ""), pair_text("fbid", ""), pair_text("geo", "US"), pair_text("naid", ""), pair_int("cohort", 0), pair_int("revenue", 0)])
+end
+
+function name_error(): text
+  intent: encode the refusal of a nickname the game name popup shows
+  jsonout.encode_spaced(jsonout.json_obj([pair_text("err", "Use 3 to 16 letters, digits, - or _."), pair_text("error", "Use 3 to 16 letters, digits, - or _."), pair_bool("retry", false), pair_bool("fatal", false), jsonout.json_pair("result", jsonout.json_obj([]))]))
+end
+
+function account_name_response(path: text, btxt: text, save: boolean): text
+  intent: check (/account/check-name) or save (/account/name) a nickname chosen in the game name popup
+  let name: text = clean_nickname(json_text_or(request_object(btxt), "name", ""))
+  let session: Session = session_for_token(query_value(path, "stoken"))
+  if name == "" then
+  name_error()
+else if not save then
+  compact_envelope(jsonout.json_obj([]))
+else if session.stoken == "" then
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("user", login_user(Session { fingerprint: "", stoken: "", uid: "1000000000001", name: name }))]))
+else
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("user", login_user(set_session_name(session.stoken, name)))]))
+end
 end
 
 function tutorial_response(path: text, p: text, btxt: text): text
@@ -2308,6 +2369,8 @@ function profile_dynamic(path: text, p: text, btxt: text): text
   intent: encode
   if ends_with("/" ++ trim_path(p), "/userprofile") then user_profile_response(path, btxt)
   else if ends_with(p, "/account/data") then account_data_response(path)
+  else if ends_with(p, "/account/check-name") then account_name_response(path, btxt, false)
+  else if ends_with(p, "/account/name") then account_name_response(path, btxt, true)
   else "" end
 end
 

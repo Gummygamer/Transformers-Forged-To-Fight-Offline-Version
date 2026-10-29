@@ -754,10 +754,34 @@ function test_arena_series_fights_every_matchup_in_order(): boolean
   first == "optimusprime_cin_tf" and second == "optimusprimal_bw_mp32" and third == "megatron_gs_leader2015" and after_first == "active" and after_second == "active" and after_third == "claimed"
 end
 
+function test_login_names_player_with_nickname_not_device(): boolean
+  intent: test
+  let body: text = "\{\"credentials\":\{\"udid\":\"nick-test\",\"deviceName\":\"A52 de Someone\",\"deviceModel\":\"SM-A525M\"\}\}"
+  let first: text = jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", body)), "user"), "name"))
+  let again: text = jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", body)), "user"), "name"))
+  let legacy: Session = fakeserver.ensure_session("nick-legacy", "A52 de Other")
+  let migrated_body: text = "\{\"credentials\":\{\"udid\":\"nick-legacy\",\"deviceName\":\"A52 de Other\"\}\}"
+  let migrated: text = jsonout.as_text(jsonout.obj_get(jsonout.obj_get(result(fakeserver.dynamic("/auth/login", migrated_body)), "user"), "name"))
+  first != "" and first == again and not contains_text(first, "A52") and fakeserver.clean_nickname(first) == first and migrated != "A52 de Other" and fakeserver.session_for_token(legacy.stoken).name == migrated
+end
+
+function test_account_name_renames_the_session(): boolean
+  intent: test
+  let session: Session = fakeserver.ensure_session("rename-test", "SteelGear42")
+  let q: text = "?stoken=" ++ session.stoken
+  let checked: text = fakeserver.dynamic("/account/check-name" ++ q, "\{\"name\":\"Prime_One\"\}")
+  let refused: text = fakeserver.dynamic("/account/name" ++ q, "\{\"name\":\"no spaces\"\}")
+  let saved: Json = result(fakeserver.dynamic("/account/name" ++ q, "\{\"name\":\"Prime_One\",\"assignUnique\":false\}"))
+  let user_name: text = jsonout.as_text(jsonout.obj_get(jsonout.obj_get(saved, "user"), "name"))
+  jsonout.type_name(jsonout.obj_get(response(checked), "error")) == "null" and contains_text(refused, "\"err\"") and user_name == "Prime_One" and fakeserver.session_for_token(session.stoken).name == "Prime_One" and fakeserver.clean_nickname("ab") == "" and fakeserver.clean_nickname("A52 de X") == ""
+end
+
 function main_group_4(): integer
   intent: run
   mutable failed: integer = 0
   set failed = failed + report("test_login_reports_arena_capable_account_level", test_login_reports_arena_capable_account_level())
+  set failed = failed + report("test_login_names_player_with_nickname_not_device", test_login_names_player_with_nickname_not_device())
+  set failed = failed + report("test_account_name_renames_the_session", test_account_name_renames_the_session())
   set failed = failed + report("test_ave_event_and_difficulty_sets_are_served", test_ave_event_and_difficulty_sets_are_served())
   set failed = failed + report("test_ave_profile_and_alliance_refresh_are_consistent", test_ave_profile_and_alliance_refresh_are_consistent())
   set failed = failed + report("test_auth_login_data_populates_alliance_manager_contract", test_auth_login_data_populates_alliance_manager_contract())
@@ -783,7 +807,7 @@ function main(): nothing
   set failed = failed + main_group_4()
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
-  print(to_text(39 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(41 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end

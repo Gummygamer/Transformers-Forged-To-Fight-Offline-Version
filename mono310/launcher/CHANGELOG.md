@@ -40,6 +40,10 @@
   after a return-address cookie check, so forged joins cannot fill it with fake games or use it to amplify traffic. One IP
   address gets at most 64 games in the list the node introduces newcomers to, without refusing any join or evicting
   anyone (players behind one carrier NAT keep playing), and games only pass on private local addresses. See [`ONLINE_PVP.md`](ONLINE_PVP.md).
+- The player name is no longer the phone's name (such as "A52 de ..."), which Arena opponents saw. Each player gets a
+  random nickname (such as SteelRanger42), and existing players who still have the phone's name get one at their next
+  login. The game's own name popup, opened from the button on your profile, changes it at any time (3 to 16 letters,
+  digits, - or _).
 
 ## 0.11.2
 

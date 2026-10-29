@@ -984,6 +984,20 @@ public class TftfBloom : MonoBehaviour
         # P56: never show the server tag label (top left); a stale server copy on the phone can still send "prod"
         replace_in(main, "ServerTag.cs", "SafeSetActive(Tuning.Instance != null && Tuning.Instance.DisplayServerTag);",
                    "SafeSetActive(false);", "P56 server tag hidden")
+        # P57: the server gives every player a random nickname; the game's own name popup only opened while the name was empty,
+        # so the profile's name button opens it to rename. Only that button: the Arena, raid and alliance screens call
+        # NamePopup.Show as a "has a name" gate and must keep passing straight through.
+        replace_in(main, "NamePopup.cs", "\tpublic static bool HasSetName()\n",
+                   "\tpublic static bool Renaming;\n\n\tpublic static bool HasSetName()\n", "P57 name popup rename flag")
+        replace_in(main, "NamePopup.cs", "\t\tif (!HasSetName())\n", "\t\tif (!HasSetName() || Renaming)\n", "P57 name popup renames a set name")
+        replace_in(main, "NamePopup.cs", "\tpublic void CloseNamePopup(bool nameSuccessfullySet)\n\t{\n",
+                   "\tpublic void CloseNamePopup(bool nameSuccessfullySet)\n\t{\n\t\tRenaming = false;\n", "P57 name popup clears the rename flag")
+        replace_in(main, "PlayerProfilePopup.cs", "\t\tNamePopup.Show(SafeAction.Wrap(this, delegate(bool nameSet)\n",
+                   "\t\tNamePopup.Renaming = true;\n\t\tNamePopup.Show(SafeAction.Wrap(this, delegate(bool nameSet)\n",
+                   "P57 profile name button renames")
+        replace_in(main, "PlayerProfilePopupPresentation.cs", "_selectNameButton.SafeSetActive(!_model.HasNameBeenSet());",
+                   "_selectNameButton.SafeSetActive(NamePopup.HasSetName() && Hub.Instance.LoginManager.LocalUser.Id == _model.GetId());",
+                   "P57 profile shows the rename button for the local player")
     # P44 (shell only): the revival splash (big logo, "Unicron's Lair") between the Kabam screen and the title screen
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "BootFlow.cs", "\t\tyield return Coroutines.Run(ReInitializeLoadingScreen());\n",
