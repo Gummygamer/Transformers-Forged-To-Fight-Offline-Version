@@ -25,5 +25,6 @@ namespace UnityEngine
         public static void Log(object o) { System.Console.Error.WriteLine(o); }
         public static void LogWarning(object o) { System.Console.Error.WriteLine("W " + o); }
     }
+    public static class Application { public static string persistentDataPath { get { return System.IO.Path.GetTempPath(); } } }
     public static class Random { public static float value { get { return 0.5f; } } }
 }

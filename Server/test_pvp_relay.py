@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Tests for pvp_relay.py: pairing by room, forwarding, BYE on hang-up, version check. Run: python3 Server/test_pvp_relay.py
-With PVP_RELAY_PORT set, the same tests run against a relay already listening on that port of 127.0.0.1 (the phone's own
-relay, TftfRelay, in mono310/launcher/tools/net_lockstep_test/run.sh)."""
+With PVP_RELAY_PORT set, the same tests run against a relay already listening on that port of 127.0.0.1."""
 import asyncio
 import os
 import sys

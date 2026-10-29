@@ -1,6 +1,7 @@
-// Newly authored. Online Arena fights (see ../../ONLINE_PVP.md): the connection to the matchmaking relay
-// (Server/pvp_relay.py), the lockstep of both players' fight inputs and the host's authoritative health snapshots.
-// It knows no game types; TftfNetGlue (Assembly-CSharp, compat310.py P54) connects it to the fight, TftfPvpPanel is its UI.
+// Newly authored. Online Arena fights (see ../../ONLINE_PVP.md): the connection to the opponent, through the P2P network
+// (TftfMesh, what the Arena uses) or a matchmaking relay (Server/pvp_relay.py, tests only), the lockstep of both players'
+// fight inputs and the host's authoritative health snapshots. It knows no game types; TftfNetGlue (Assembly-CSharp,
+// compat310.py P54) connects it to the fight; TftfArenaOnline and TftfPvpPanel show its state.
 //
 // Lockstep: the fight simulation runs at a fixed 30 ticks per second on both phones. An input pressed during tick t is sent
 // to the opponent and takes effect at tick t + InputDelay on both phones; a phone only simulates tick t once it holds the
@@ -55,35 +56,8 @@ public static class TftfNet
     public static int FightFrame = -10;         // last frame a fight simulation ran (set by TftfNetGlue; hides the panel's button)
     public static float LostAt = -100f;
 
-    public static string Address
-    {
-        get { return PlayerPrefs.GetString("tftf_pvp_address", ""); }
-        set { PlayerPrefs.SetString("tftf_pvp_address", value ?? ""); }
-    }
-
-    public static string Room
-    {
-        get { return PlayerPrefs.GetString("tftf_pvp_room", ""); }
-        set { PlayerPrefs.SetString("tftf_pvp_room", value ?? ""); }
-    }
-
-    public static string[] RecentAddresses
-    {
-        get
-        {
-            string s = PlayerPrefs.GetString("tftf_pvp_recent", "");
-            return s.Length == 0 ? new string[0] : s.Split('\n');
-        }
-    }
-
-    static void Remember(string address)
-    {
-        var list = new List<string> { address };
-        foreach (var a in RecentAddresses)
-            if (a != address && list.Count < 4) list.Add(a);
-        PlayerPrefs.SetString("tftf_pvp_recent", string.Join("\n", list.ToArray()));
-        PlayerPrefs.Save();
-    }
+    public static string Address = "";          // relay for Connect() without an address (tests); the Arena uses JoinOnline
+    public static string Room = "";             // players with the same room code are matched; empty: anyone (the Arena)
 
     // ---- connection ----
 
@@ -92,17 +66,52 @@ public static class TftfNet
     static readonly object _sendLock = new object();
     static TcpClient _tcp;
     static NetworkStream _stream;
+    static bool _mesh;                          // connected through the P2P network instead of a relay
     static int _generation;
     static float _lastHeard, _lastPing;
 
     public static bool Connected { get { return Status == State.Matched; } }
 
-    // Connects to the saved relay address, or to `address` (this phone's own relay) without saving it.
+    // The bootstrap node of the P2P network (host:port), from the environment variable TFTF_P2P_BOOTSTRAP: at run time where
+    // the platform passes one (desktop builds, tests), else as it was when the build was assembled (TftfBuildConfig). Empty:
+    // this build has no online network.
+    public static string Bootstrap
+    {
+        get
+        {
+            string b = null;
+            try { b = Environment.GetEnvironmentVariable("TFTF_P2P_BOOTSTRAP"); } catch (Exception) { }
+            b = (b ?? "").Trim();
+            return b.Length > 0 ? b : TftfBuildConfig.P2PBootstrap;
+        }
+    }
+
+    // The Arena: joins the P2P network and looks for anyone else in an Arena (TftfArenaOnline). The usual way to play online.
+    public static void JoinOnline()
+    {
+        string bootstrap = Bootstrap;
+        if (TftfMesh.CachePath == null)
+            try { TftfMesh.CachePath = Path.Combine(Application.persistentDataPath, "tftf_p2p_peers.txt"); } catch (Exception) { }
+        if (bootstrap.Length > 0) { Connect("p2p:" + bootstrap); return; }
+        Disconnect();
+        Fail("No online network is set for this build (TFTF_P2P_BOOTSTRAP).");
+    }
+
+    // Connects to `address`: "p2p:host:port" is the P2P network through that bootstrap node, anything else a relay (host or
+    // host:port; tests only). Without an address, TftfNet.Address.
     public static void Connect(string address = null)
     {
         Disconnect();
-        bool own = address != null;
         address = (address ?? Address).Trim();
+        if (address.StartsWith("p2p:", StringComparison.OrdinalIgnoreCase))
+        {
+            int g = ++_generation;
+            _mesh = true;
+            Status = State.Connecting;
+            Message = "Joining the online network...";
+            TftfMesh.Seek(address.Substring(4), RoomCode(), Clean(NameProvider != null ? SafeName() : "Player"), line => Post(g, line));
+            return;
+        }
         string host = address;
         int port = DefaultPort;
         int colon = address.LastIndexOf(':');
@@ -116,9 +125,7 @@ public static class TftfNet
             }
         }
         if (host.Length == 0) { Fail("Enter the relay server's address."); return; }
-        if (!own) Remember(address);
-        string room = Clean(Room.Trim());
-        if (room.Length == 0) room = "-";
+        string room = RoomCode();
         string name = Clean(NameProvider != null ? SafeName() : "Player");
         int gen = ++_generation;
         Status = State.Connecting;
@@ -141,6 +148,12 @@ public static class TftfNet
         if (_active) { _active = false; LostInFight = true; LostAt = Time.realtimeSinceStartup; }
     }
 
+    static string RoomCode()
+    {
+        string room = Clean(Room.Trim());
+        return room.Length == 0 ? "-" : room;
+    }
+
     static string SafeName()
     {
         try { return NameProvider() ?? "Player"; } catch (Exception) { return "Player"; }
@@ -156,6 +169,8 @@ public static class TftfNet
 
     static void Close()
     {
+        if (_mesh) TftfMesh.Leave();
+        _mesh = false;
         try { if (_stream != null) _stream.Close(); } catch (Exception) { }
         try { if (_tcp != null) _tcp.Close(); } catch (Exception) { }
         _stream = null;
@@ -221,6 +236,7 @@ public static class TftfNet
 
     static void Send(string line)
     {
+        if (_mesh) { TftfMesh.Send(line); return; }
         lock (_sendLock)
         {
             if (_stream == null) return;
@@ -281,7 +297,7 @@ public static class TftfNet
         {
             case "WAIT":
                 Status = State.Waiting;
-                Message = "Waiting for an opponent...";
+                Message = _mesh ? "Online. Waiting for an opponent..." : "Waiting for an opponent...";
                 break;
             case "MATCH":
                 if (p.Length < 3) break;
@@ -289,7 +305,7 @@ public static class TftfNet
                 int.TryParse(p[2], out Seed);
                 PeerName = p.Length > 3 ? string.Join(" ", p, 3, p.Length - 3) : "Opponent";
                 Status = State.Matched;
-                Message = "Matched with " + PeerName + ". Start a match in this Arena; the fight begins when you both have picked.";
+                Message = "Matched with " + PeerName + (_mesh ? " (P2P)" : "") + ". Start a match in this Arena; the fight begins when you both have picked.";
                 _lastPing = 0f;
                 _round = 0;
                 _remoteHeroes.Clear();

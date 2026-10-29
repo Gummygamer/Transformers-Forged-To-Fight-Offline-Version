@@ -4,6 +4,7 @@ MONO310_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$MONO310_DIR/.." && pwd)"
 
 TFTF_VR="${TFTF_VR:-}"
+TFTF_P2P_BOOTSTRAP="${TFTF_P2P_BOOTSTRAP:-}"   # shell: host:port of the online Arena's bootstrap node, baked into the build
 
 # Inputs the operator supplies (entitled copies of the game).
 : "${TFTF_310_APK:=$REPO_DIR/com.kabam.bigrobot_v3.1.0-822754_Android-4.4.apk}"
@@ -41,4 +42,4 @@ OUT_APK="$TFTF_WORK/$SHELL_APK"
 : "${ADB:=adb}"
 : "${ADB_DEVICE:=}"
 
-export TFTF_VR TFTF_WORK TFTF_310_APK TFTF_92_APK RIPPED ILSPY_OUT PROJECT ODR_DIR OUT_APK TFTF_ANDROID_ABI TFTF_ANDROID_ARCH
+export TFTF_VR TFTF_P2P_BOOTSTRAP TFTF_WORK TFTF_310_APK TFTF_92_APK RIPPED ILSPY_OUT PROJECT ODR_DIR OUT_APK TFTF_ANDROID_ABI TFTF_ANDROID_ARCH

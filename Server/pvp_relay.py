@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Matchmaking relay for online Arena fights (launcher 0.8+, see mono310/launcher/ONLINE_PVP.md).
+"""Matchmaking relay of launcher 0.8-0.11 (see mono310/launcher/ONLINE_PVP.md). The game now uses the P2P network; this
+relay is kept for the lockstep test (mono310/launcher/tools/net_lockstep_test/run.sh).
 
 Two game clients that send HELLO with the same room code are paired; from then on every line one of them sends is
 forwarded unchanged to the other. The relay never looks at fight traffic, so it needs no game data.

@@ -26,6 +26,7 @@ step_doctor() {
   local ok=0
   for t in python3 rsync unzip docker "$DOTNET"; do command -v "$t" >/dev/null || { echo "missing tool: $t"; ok=1; }; done
   [ -f "$TFTF_310_APK" ] || { echo "missing 3.1.0 APK: $TFTF_310_APK (set TFTF_310_APK)"; ok=1; }
+  [ "${TFTF_SHELL:-}" != 1 ] || [ -n "$TFTF_P2P_BOOTSTRAP" ] || echo "note: TFTF_P2P_BOOTSTRAP is not set (host:port of the P2P bootstrap node) - the Arena of this build cannot go online"
   [ -f "$TFTF_92_APK" ] || echo "note: no 9.2.0 APK at $TFTF_92_APK (set TFTF_92_APK) - needed only for the story map/arena WAD"
   [ -n "$ASSETRIPPER_BIN" ] && [ -x "$ASSETRIPPER_BIN" ] || { echo "set ASSETRIPPER_BIN to AssetRipper.GUI.Free"; ok=1; }
   [ -n "$ILSPYCMD" ] && [ -f "$ILSPYCMD" ] || { echo "set ILSPYCMD to ilspycmd.dll (9.1.x)"; ok=1; }

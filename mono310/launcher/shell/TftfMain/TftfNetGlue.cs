@@ -15,14 +15,26 @@ public static class TftfNetGlue
     static void Init()
     {
         TftfNet.NameProvider = SocialUtils.GetLocalUserName;
+        Runner();
+    }
+
+    static TftfNetRunner Runner()
+    {
+        if (_runner == null)
+        {
+            var go = new GameObject("TftfNetGlue");
+            Object.DontDestroyOnLoad(go);
+            _runner = go.AddComponent<TftfNetRunner>();
+        }
+        return _runner;
     }
 
     public static bool OnlineFightPending { get { return TftfNet.Armed || TftfNet.LockstepActive; } }
 
-    // PVPScreen: the online button and panel live on the Arena screen.
+    // PVPScreen: the Arena screen searches for an opponent while it is open.
     public static void MarkArena(MonoBehaviour screen)
     {
-        if (screen.GetComponent<TftfPvpArenaUi>() == null) screen.gameObject.AddComponent<TftfPvpArenaUi>();
+        if (screen.GetComponent<TftfArenaOnline>() == null) screen.gameObject.AddComponent<TftfArenaOnline>();
     }
 
     // ---- before the fight: both players' bots ----
@@ -31,16 +43,21 @@ public static class TftfNetGlue
     // against it. True: handled here (the result handler is called later).
     public static bool InterceptFightData(string scene, EB.Action<FightData, string> resultHandler)
     {
-        if (_inner || !TftfNet.Connected || PVPManager.Instance == null) return false;
+        if (_inner) return false;
+        if (!TftfNet.Connected)
+        {
+            // a match started before an opponent was found is against the AI; pairing now would start mid-match
+            if (TftfNet.Status == TftfNet.State.Connecting || TftfNet.Status == TftfNet.State.Waiting)
+            {
+                TftfNet.Disconnect();
+                TftfArenaOnline.Hold = true;
+            }
+            return false;
+        }
+        if (PVPManager.Instance == null) return false;
         BCGMatchAttributes attributes = PVPManager.Instance.CurrentMatchAttributes;
         if (attributes == null || attributes.userHero == null) return false;
-        if (_runner == null)
-        {
-            var go = new GameObject("TftfNetGlue");
-            Object.DontDestroyOnLoad(go);
-            _runner = go.AddComponent<TftfNetRunner>();
-        }
-        _runner.StartCoroutine(Exchange(scene, resultHandler, attributes.userHero));
+        Runner().StartCoroutine(Exchange(scene, resultHandler, attributes.userHero));
         return true;
     }
 
@@ -275,6 +292,23 @@ public static class TftfNetGlue
     }
 }
 
+// Runs the glue's coroutines and keeps the connection pumped on every screen (also in the VR build, which has no TftfPvpPanel).
+// A player who has been away from the Arena (no Arena screen, no online fight) for AwayFor seconds leaves the opponent.
 public sealed class TftfNetRunner : MonoBehaviour
 {
+    const float AwayFor = 180f;
+    float _lastOnline;
+
+    void Update()
+    {
+        TftfNet.Pump();
+        float now = Time.realtimeSinceStartup;
+        if (!TftfNet.Connected || TftfNet.Picking || TftfNet.Armed || TftfNet.LockstepActive || Time.frameCount - TftfNet.FightFrame < 5
+            || now - TftfArenaOnline.LastOpen < 1f)
+        {
+            _lastOnline = now;
+            return;
+        }
+        if (now - _lastOnline > AwayFor) TftfNet.Disconnect();
+    }
 }

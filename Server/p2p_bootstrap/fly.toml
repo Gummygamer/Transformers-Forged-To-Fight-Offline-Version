@@ -1,0 +1,37 @@
+# Bootstrap node of the online Arena P2P network (bootstrap.py). The app name is not in the repository (it is the node's
+# address, <app>.fly.dev): flyctl reads it from FLY_APP. Deploy from this directory, with FLY_APP=<app> set:
+#   fly apps create "$FLY_APP"                           (first time; builds then need TFTF_P2P_BOOTSTRAP=<app>.fly.dev:7777)
+#   fly ips allocate-v4                                  (UDP needs a dedicated IPv4 on fly.io)
+#   fly volumes create bootstrap_data --size 1           (keeps the month's traffic count across restarts)
+#   fly deploy --ha=false                                (one machine; without --ha=false fly starts two)
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "7777"
+  MONTHLY_BUDGET_USD = "50"
+  STATE_PATH = "/data/budget.json"
+
+# The month's traffic count (bootstrap.py's spending guard) survives restarts and deploys here.
+[mounts]
+  source = "bootstrap_data"
+  destination = "/data"
+
+# One small machine that always runs: UDP traffic does not wake a stopped machine. Never scale this app up: bootstrap.py's
+# spending guard (MONTHLY_BUDGET_USD, $50) assumes exactly one machine (~$2/month), one dedicated IPv4 ($2/month) and
+# one 1 GB volume (~$0.15/month).
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[[services]]
+  internal_port = 7777
+  protocol = "udp"
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 7777

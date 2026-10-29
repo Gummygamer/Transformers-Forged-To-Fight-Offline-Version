@@ -1,6 +1,7 @@
-// Newly authored. Online Arena (see ../../ONLINE_PVP.md): pumps the connection every frame and shows the in-fight banners
-// (connection state, waiting for the opponent's pick, AI takeover). IMGUI in the game's Tecnica font, 540 units high. The Arena
-// button and panel are NGUI, in TftfMain/TftfPvpArenaUi.cs. Not shown in the VR build (it draws the game into a virtual screen).
+// Newly authored. Online Arena (see ../../ONLINE_PVP.md): the in-fight banners (connection state, waiting for the
+// opponent's pick, AI takeover). IMGUI in the game's Tecnica font, 540 units high. The Arena screen's online status is NGUI,
+// in TftfMain/TftfArenaOnline.cs; TftfNetRunner pumps the connection. Not shown in the VR build (it draws the game into a
+// virtual screen).
 using UnityEngine;
 
 public sealed class TftfPvpPanel : MonoBehaviour
@@ -18,8 +19,6 @@ public sealed class TftfPvpPanel : MonoBehaviour
         go.AddComponent<TftfPvpPanel>();
 #endif
     }
-
-    void Update() { TftfNet.Pump(); }
 
     // The game's text font, once its UI has loaded it.
     void FindFont()

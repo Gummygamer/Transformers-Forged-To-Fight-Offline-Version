@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [0.11.2](#0112)
 - [0.11.1](#0111)
 - [0.11](#011)
 - [0.10](#010)
@@ -24,6 +25,23 @@
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
 ## Unreleased
+
+**Changed**
+
+- The Arena is an online mode: while its screen is open the game looks for another player in an Arena, over a P2P
+  network of the games themselves, and the next match both start is played against each other. The ONLINE PVP button
+  and panel (relay address, room code, Host on this phone) are gone; a status line on the Arena screen says whether an
+  opponent was found. A small bootstrap node (`Server/p2p_bootstrap`, on fly.io, capped at $50 a month) only introduces
+  a joining game to a few others; matchmaking and fight traffic go between the games, directly or through other
+  players' games when two NATs do not let each other through. The bootstrap node's address comes from the
+  environment variable `TFTF_P2P_BOOTSTRAP` when the build is assembled. A game remembers the games it played
+  with and its port, and tries those first when it rejoins, so the network keeps working while the bootstrap node is
+  flooded or down; the bootstrap node is only asked when none of them answers. The bootstrap node only lists a game
+  after a return-address cookie check, so forged joins cannot fill it with fake games or use it to amplify traffic. One IP
+  address gets at most 64 games in the list the node introduces newcomers to, without refusing any join or evicting
+  anyone (players behind one carrier NAT keep playing), and games only pass on private local addresses. See [`ONLINE_PVP.md`](ONLINE_PVP.md).
+
+## 0.11.2
 
 **Fixed**
 

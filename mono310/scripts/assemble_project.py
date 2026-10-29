@@ -198,10 +198,23 @@ def main():
         shell_dst = fp / "Tftf"            # first-pass assembly: the game's first-pass code calls TftfResources
         shutil.rmtree(shell_dst, ignore_errors=True)
         shutil.copytree(shell_src, shell_dst)
+        write_build_config(shell_dst / "TftfBuildConfig.cs")
         glue_dst = A / "Scripts/Assembly-CSharp/TftfMain"   # shell code that uses the game's types (online Arena glue)
         shutil.rmtree(glue_dst, ignore_errors=True)
         shutil.copytree(REPO / "mono310/launcher/shell/TftfMain", glue_dst)
         package_server(A)
+
+
+def write_build_config(path):
+    """Shell only: the build's TftfBuildConfig from environment variables (the checked-in copy is empty)."""
+    bootstrap = os.environ.get("TFTF_P2P_BOOTSTRAP", "").strip()
+    if bootstrap and not re.fullmatch(r"[A-Za-z0-9.-]+:[0-9]{1,5}", bootstrap):
+        sys.exit(f"error: TFTF_P2P_BOOTSTRAP must be host:port, not {bootstrap!r}")
+    if not bootstrap:
+        print("warning: TFTF_P2P_BOOTSTRAP is not set; the Arena of this build cannot go online", file=sys.stderr)
+    text = path.read_text()
+    text = text.replace('P2PBootstrap = "";', f'P2PBootstrap = "{bootstrap}";')
+    path.write_text(text)
 
 
 SERVER_FILES = ["run_local.lbl", "server_paths.lbl", "fakeserver.lbl", "gamedata.lbl", "jsonout.lbl",
