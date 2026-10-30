@@ -1037,8 +1037,13 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
     # P32: the ripped QualitySettings carry skinWeights=0 (invalid) which breaks skinned meshes (flat 'poster' fighters)
     replace_in(main, "PerformanceManager.cs",
                "Application.targetFrameRate = 30;\n\t\tQualitySettings.vSyncCount = 2;",
-               "Application.targetFrameRate = 30;\n\t\tQualitySettings.vSyncCount = 2;\n\t\tQualitySettings.skinWeights = SkinWeights.FourBones;\n\t\tQualitySettings.lodBias = 1f;",
-               "P32 PerformanceManager forces four-bone skinning and a sane lodBias")
+               "Application.targetFrameRate = 60;\n\t\tQualitySettings.vSyncCount = 0;\n\t\tQualitySettings.skinWeights = SkinWeights.FourBones;\n\t\tQualitySettings.lodBias = 1f;",
+               "P32 PerformanceManager forces four-bone skinning, a sane lodBias and 60 FPS")
+    # P58: 60 FPS by default; a 'Capped' performance profile no longer drops gameplay back to 30 (cinematics still run at 30)
+    replace_in(main, "PerformanceManager.cs",
+               "\t\t\t\tQualitySettings.vSyncCount = 2;\n\t\t\t\tApplication.targetFrameRate = 30;\n\t\t\t\tbreak;",
+               "\t\t\t\tQualitySettings.vSyncCount = 0;\n\t\t\t\tApplication.targetFrameRate = 60;\n\t\t\t\tbreak;",
+               "P58 PerformanceManager Capped profile runs at 60 FPS")
     # P12: forward camera path (the deferred G-buffer/light pipeline cannot work with stub shaders)
     replace_in(fp, "EB/Rendering/EBDeferredCamera.cs",
                "_renderPath = EBGBuffer.GetRenderPath(EBGBuffer.eMRT_BUFFER.kMain, nativeResolution, HasPostFX());",

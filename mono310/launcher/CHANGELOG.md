@@ -3,6 +3,8 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [0.12.1](#0121)
+- [0.12](#012)
 - [0.11.2](#0112)
 - [0.11.1](#0111)
 - [0.11](#011)
@@ -25,6 +27,14 @@
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
 ## Unreleased
+
+## 0.12.1
+
+**Changed**
+
+- The game runs at 60 FPS by default (it was capped at 30). Cinematics still play at 30, as authored.
+
+## 0.12
 
 **Changed**
 
