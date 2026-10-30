@@ -28,6 +28,11 @@
 
 ## Unreleased
 
+**Fixed**
+
+- 3-bar specials: the opponent no longer drifts out of the shot during the cinematic. It now plays the attacker's hit
+  reaction instead of its own clip.
+
 ## 0.12.1
 
 **Changed**

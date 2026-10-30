@@ -1044,6 +1044,17 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                "\t\t\t\tQualitySettings.vSyncCount = 2;\n\t\t\t\tApplication.targetFrameRate = 30;\n\t\t\t\tbreak;",
                "\t\t\t\tQualitySettings.vSyncCount = 0;\n\t\t\t\tApplication.targetFrameRate = 60;\n\t\t\t\tbreak;",
                "P58 PerformanceManager Capped profile runs at 60 FPS")
+    # P59: Unity 2020 refuses to nest an AnimatorOverrideController in another one, so an SP3 target never got the attacker's
+    # hit reaction clip and drifted out of the shot on its own clip's root motion. Build on the base controller and keep the
+    # fighter's existing overrides.
+    replace_in(fp, "EB/Animation/Matinee/PlayMecanimAnimationEvent.cs",
+               "animatorOverrideController.runtimeAnimatorController = MatineeGampeplayUtils.GetRuntimeAnimatorController(animator);",
+               "AnimatorOverrideController currentOverride = animator.runtimeAnimatorController as AnimatorOverrideController;\n\t\tanimatorOverrideController.runtimeAnimatorController = (currentOverride != null) ? currentOverride.runtimeAnimatorController : MatineeGampeplayUtils.GetRuntimeAnimatorController(animator);",
+               "P59a matinee clip swap uses the base controller")
+    replace_in(fp, "EB/Animation/Matinee/PlayMecanimAnimationEvent.cs",
+               "AnimationClipPair[] clips = animatorOverrideController.clips;",
+               "AnimationClipPair[] clips = (currentOverride != null) ? currentOverride.clips : animatorOverrideController.clips;",
+               "P59b matinee clip swap keeps the fighter's overrides")
     # P12: forward camera path (the deferred G-buffer/light pipeline cannot work with stub shaders)
     replace_in(fp, "EB/Rendering/EBDeferredCamera.cs",
                "_renderPath = EBGBuffer.GetRenderPath(EBGBuffer.eMRT_BUFFER.kMain, nativeResolution, HasPostFX());",
