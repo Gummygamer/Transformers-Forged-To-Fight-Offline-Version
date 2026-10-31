@@ -998,6 +998,21 @@ public class TftfBloom : MonoBehaviour
         replace_in(main, "PlayerProfilePopupPresentation.cs", "_selectNameButton.SafeSetActive(!_model.HasNameBeenSet());",
                    "_selectNameButton.SafeSetActive(NamePopup.HasSetName() && Hub.Instance.LoginManager.LocalUser.Id == _model.GetId());",
                    "P57 profile shows the rename button for the local player")
+    # P60 (shell only): complete the string tables from the 9.2.0 APK and translate the project's story text (TftfLanguages)
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "EB/Localizer.cs", "TextAsset[] array2 = Assets.LoadAll<TextAsset>(\"Languages/\" + sparxLanguageCode);",
+                   "TftfLanguages.LoadFallbacks(sparxLanguageCode);\n\t\t\tTextAsset[] array2 = Assets.LoadAll<TextAsset>(\"Languages/\" + sparxLanguageCode);", "P60a language fallbacks")
+        replace_in(fp, "EB/Dot.cs", "return localization2;", "return TftfLanguages.Story(localization2);", "P60b story titles")
+        replace_in(main, "DialoguePresentation.cs", "string text = entry.line;", "string text = TftfLanguages.Story(entry.line);", "P60c story dialogue")
+        replace_in(main, "DialoguePresentation.cs", "text = _textFormatter(entry.line);", "text = _textFormatter(text);", "P60d formatted story dialogue")
+    # P61 (shell only): the player can wake before Fabric, leaving its cached event manager null: UI sounds were dropped silently
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "FabricAudioPlayer.cs", "if ((bool)EventManagerInstance && !string.IsNullOrEmpty(clipName))",
+                   "if (EventManagerInstance == null) { FabricManagerInstance = FabricManager.Instance; EventManagerInstance = EventManager.Instance; }\n\t\tif ((bool)EventManagerInstance && !string.IsNullOrEmpty(clipName))", "P61 UI sound event manager")
+    # P62 (shell only): language detection runs before the language list exists, so every device fell back to English
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "GameLocalizationUtils.cs", "if (!selectionDisplayOrder.IsNullOrEmpty())",
+                   "if (selectionDisplayOrder == null) return lang != Language.Unknown;\n\t\tif (!selectionDisplayOrder.IsNullOrEmpty())", "P62 language detection")
     # P44 (shell only): the revival splash (big logo, "Unicron's Lair") between the Kabam screen and the title screen
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "BootFlow.cs", "\t\tyield return Coroutines.Run(ReInitializeLoadingScreen());\n",

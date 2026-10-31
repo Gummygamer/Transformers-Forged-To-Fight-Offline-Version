@@ -1768,7 +1768,9 @@ function pvp_quit_arena_response(path: text, btxt: text): text
   end_match(m.match_id)
   purge_fight_events(m.match_id)
 end
-  spaced_envelope(jsonout.json_obj([pair_bool("quit", true), pair_text("matchID", m.match_id)]))
+  -- without match data the client keeps the finished series as its current match, and entering the Arena again does nothing
+  let no_match: Json = jsonout.json_obj([pair_text("pid", ""), pair_text("matchID", ""), pair_text("state", "none")])
+  spaced_envelope(jsonout.json_obj([pair_bool("quit", true), pair_text("matchID", m.match_id), jsonout.json_pair("pvpMatchData", jsonout.json_list([no_match]))]))
 end
 
 function pvp_matchups(user_heroes: a list of text, opponent_heroes: a list of text, series: Series): a list of Json
@@ -1999,7 +2001,9 @@ end
 
 function generic_group_update(name: text): Json
   intent: encode an empty but valid update for a refresh group the revival server has no data for
-  jsonout.json_obj([pair_text("name", name), pair_text("err", ""), pair_text("check", "offline-1"), pair_int("refresh", current_time_ms() / 1000 + 3600), pair_bool("cache", false), jsonout.json_pair(name, jsonout.json_obj([]))])
+  -- events keeps the hash of the login data, so the client treats the update as unchanged and keeps its event list
+  let check: text = if name == "events" then "offline-ave-v999" else "offline-1" end
+  jsonout.json_obj([pair_text("name", name), pair_text("err", ""), pair_text("check", check), pair_int("refresh", current_time_ms() / 1000 + 3600), pair_bool("cache", false), jsonout.json_pair(name, jsonout.json_obj([]))])
 end
 
 function grouprefresh_response(path: text): text
@@ -2076,6 +2080,9 @@ function static_dynamic(path: text, p: text, btxt: text): text
     compact_envelope(gamedata.build_user_data(get_saved_team()))
   else if ends_with(p, "/autorefresh/gamestore/refresh") then
     compact_envelope(jsonout.json_obj([pair_text("check", "offline-1"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("gamestore", gamestore_data())]))
+  else if ends_with(p, "/autorefresh/events/refresh") then
+    -- the generic refresh reply carries no events: the client replaced its list with nothing and could not open the Arena again
+    read_file(path_join(gamedata.resp_dir(), "GET__events_refresh.json"))
   else if ends_with(p, "/autorefresh/grouprefresh") then
     grouprefresh_response(path)
   else if ends_with(p, "/inventory") then

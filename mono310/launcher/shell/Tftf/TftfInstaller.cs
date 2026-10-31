@@ -3,6 +3,7 @@
 //   base/assets/        the 3.1.0 APK's loose assets (bundles, manifests)
 //   resources.bundle    the 3.1.0 player data converted for the Unity 2020 runtime
 //   moves92.bundle      the 9.2.0 move files the donor fighters need
+//   lang92/             the 9.2.0 string tables of every language
 //   odr/                manifest.json + wad/toc.zip built from the 9.2.0 on-demand bundles
 using System;
 using System.IO;
@@ -32,10 +33,10 @@ public sealed class ZipDataSource : IPlayerDataSource
 public static class TftfInstaller
 {
 #if UNITY_STANDALONE_WIN
-    public const int Version = 5;                                     // bump to force a reinstall
+    public const int Version = 6;                                     // bump to force a reinstall
     const int BundlePlatform = 19;     // StandaloneWindows64: the player refuses the APKs' bundles stamped for Android
 #else
-    public const int Version = 3;                                     // bump to force a reinstall
+    public const int Version = 4;                                     // bump to force a reinstall
     const int BundlePlatform = 0;      // phone: the APKs' bundles already match the player
 #endif
     public static volatile string Status = "";
@@ -122,6 +123,8 @@ public static class TftfInstaller
             CopyEntry(moves, Path.Combine(root, "moves92.bundle"), true);
             Step("Replacing the G1 fighter models", 0.42f);
             ReplaceCharactersBundle(z92, Path.Combine(root, "base/assets"));
+            Step("Extracting translations", 0.43f);
+            UnityEngine.Debug.Log("[TFTF] string tables: " + TftfLanguages.Extract(z92, root));
         }
 
         Step("Building the content package (this takes a few minutes)", 0.45f);

@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [0.13](#013)
 - [0.12.1](#0121)
 - [0.12](#012)
 - [0.11.2](#0112)
@@ -28,10 +29,23 @@
 
 ## Unreleased
 
+## 0.13
+
 **Fixed**
 
 - 3-bar specials: the opponent no longer drifts out of the shot during the cinematic. It now plays the attacker's hit
   reaction instead of its own clip.
+- Text no longer shows raw ids such as `MS_ID_UI_FIGHT_KO` in languages other than English and Spanish. The installer
+  copies the full string tables from the 9.2.0 APK, and anything a language still lacks falls back to English. This
+  forces one reinstall (choose the two APKs again).
+- Menu sound effects play again. The audio player started before the sound system and silently dropped every UI sound.
+- The Arena can be entered again after a finished series. An event refresh emptied the client's event list, so `ENTER`
+  and `PLAY ANOTHER` did nothing until the game restarted.
+- A phone set to a supported language now starts in that language on first launch instead of always in English.
+
+**Added**
+
+- The story's dialogue, mission names and mission descriptions are translated into every language.
 
 ## 0.12.1
 
