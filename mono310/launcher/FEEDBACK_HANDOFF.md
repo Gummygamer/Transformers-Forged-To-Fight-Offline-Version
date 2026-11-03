@@ -2,9 +2,8 @@
 
 Status on 2026-10-31. This document lets a fresh session continue the work on the player feedback for the launcher.
 
-**Not fixed:** invisible bullets, missing held objects and screen static. Their causes are unknown. **Nothing here is
-committed or pushed**, so check `git status` first. **Do not change SP3 attacks:** the reporter says they have no
-issues.
+**Not fixed:** invisible bullets, missing held objects and screen static. Their causes are unknown. The fixes below are committed
+in `78c6d56` and pushed. **Do not change SP3 attacks:** the reporter says they have no issues.
 
 Marks follow [`DOC_STYLE.md`](../../DOC_STYLE.md).
 
@@ -15,7 +14,7 @@ Marks follow [`DOC_STYLE.md`](../../DOC_STYLE.md).
 - [Open: invisible bullets](#open-invisible-bullets)
 - [Open: missing held objects](#open-missing-held-objects)
 - [Open: screen static](#open-screen-static)
-- [Fixes waiting to be committed](#fixes-waiting-to-be-committed)
+- [Committed fixes](#committed-fixes)
 - [Other things to do before release](#other-things-to-do-before-release)
 - [Build](#build)
 - [Install without the APK picker](#install-without-the-apk-picker)
@@ -26,9 +25,9 @@ Marks follow [`DOC_STYLE.md`](../../DOC_STYLE.md).
 
 | Report | Status | Evidence |
 |---|---|---|
-| Raw text such as `ms_id_fight_ko` | Fixed, uncommitted | Portuguese menus through the Arena showed no raw ids. **[👁 live]** |
-| Arena can only be entered once | Fixed, uncommitted | `ENTRAR` opened the opponent screen after a full series, on the build before the final one. The final build only had a launch check. **[👁 live]** |
-| No sound effects outside fights | Fixed, uncommitted | The user heard them on the A52. **[👁 live]** |
+| Raw text such as `ms_id_fight_ko` | Fixed, committed `78c6d56` | Portuguese menus through the Arena showed no raw ids. **[👁 live]** |
+| Arena can only be entered once | Fixed, committed `78c6d56` | `ENTRAR` opened the opponent screen after a full series, on the build before the final one. The final build only had a launch check. **[👁 live]** |
+| No sound effects outside fights | Fixed, committed `78c6d56` | The user heard them on the A52. **[👁 live]** |
 | Bullets not visible when shooting | **Open** | The user believes it affects all robots. Not reproduced yet. |
 | Some bots lack objects in special attacks | **Open** | The user does not know which bots. |
 | Screen static when entering somewhere | **Open** | Unconfirmed leads only. |
@@ -38,8 +37,7 @@ The reporter's screenshot of the raw text never reached us. The reporter wrote `
 
 ## Start here
 
-1. Run `git status`. The expected changes are listed under
-   [Fixes waiting to be committed](#fixes-waiting-to-be-committed).
+1. Run `git status`. The fixes in [Committed fixes](#committed-fixes) are already in `78c6d56`.
 2. Read `ABILITY_AUTHORING.md` before touching `statMods`, `buffs_set` or `stat_mods`, as `AGENTS.md` requires.
 3. Check the phone with `adb devices`. It should be the SM-A525M with the final test build installed.
 4. Start with bullets: they are reported as universal, so they should be the easiest to reproduce.
@@ -97,7 +95,9 @@ Popup backgrounds also look blocky, and a black band covers the lower part of so
 screen capture. **[👁 live, cause ⚠ inferred]** Ask the reporter which screen shows the static, and get a screenshot if
 possible.
 
-## Fixes waiting to be committed
+## Committed fixes
+
+All in `78c6d56` (Launcher 0.13), pushed to `development`:
 
 | File | Change |
 |---|---|
