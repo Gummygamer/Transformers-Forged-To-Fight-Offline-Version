@@ -92,4 +92,5 @@ A Meta Quest VR variant (`TFTF_VR=1`: the game on a big screen in a VR room, fig
 ## Release
 
 The checklist for a 0.2 release, including the compliance decision that blocks publishing, is in
-[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md); what changed is in [`CHANGELOG.md`](CHANGELOG.md).
+[`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md); what changed is in [`CHANGELOG.md`](CHANGELOG.md). Open player feedback
+and how to continue it are in [`FEEDBACK_HANDOFF.md`](FEEDBACK_HANDOFF.md).
