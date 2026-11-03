@@ -188,6 +188,14 @@ function test_tutorial_login_reports_complete_for_fresh_and_returning_accounts()
   jsonout.as_int(jsonout.obj_get(first, "s")) == 2 and jsonout.as_text(jsonout.obj_get(first, "current_bid")) == "FTEComplete" and jsonout.as_int(jsonout.obj_get(second, "s")) == 2 and jsonout.as_text(jsonout.obj_get(second, "current_bid")) == "FTEComplete"
 end
 
+function test_tutorial_login_marks_raid_and_base_tutorials_completed(): boolean
+  intent: test
+  let login: Json = result(fakeserver.dynamic("/tutorial/get-login-data", ""))
+  let raids: Json = jsonout.obj_get(login, "RaidsTutorial")
+  let shield: Json = jsonout.obj_get(login, "ShieldTutorial")
+  jsonout.as_text(jsonout.obj_get(raids, "s")) == "completed" and jsonout.as_text(jsonout.obj_get(shield, "s")) == "completed"
+end
+
 function test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent_part1(detail: Json, active: Json, custom_user: Json, moved: Json): boolean
   intent: test
   jsonout.as_text(jsonout.obj_get(jsonout.obj_get(detail, "data"), "setId")) == "custom_story_act1" and jsonout.as_text(jsonout.obj_get(active, "hash")) == gamedata.quest_set_hash_for(gamedata.custom_story_qid()) and jsonout.as_text(jsonout.obj_get(active, "hash")) == jsonout.as_text(jsonout.obj_get(jsonout.obj_get(active, "data"), "hash")) and object_keys(jsonout.obj_get(custom_user, "team")) == ["megatron_cin_rotf"] and object_keys(jsonout.obj_get(jsonout.obj_get(moved, "teamData"), "heroes")) == ["megatron_cin_rotf"]
@@ -367,7 +375,12 @@ function quest_slot_ok(quest: Json, set_id: text, act_count: integer, chapter_co
 end
 
 function quest_set_slots_ok(quest_set: Json): boolean
-  intent: check every quest of a set against the summary tables of that set
+  intent: check every quest of a set against the summary tables of that set, raid sets excepted (their boards are served by the raid detail route)
+  if jsonout.as_text(jsonout.obj_get(quest_set, "category")) == "raid" then true else quest_set_slots_checked(quest_set) end
+end
+
+function quest_set_slots_checked(quest_set: Json): boolean
+  intent: check the story quests of one set against its summary tables
   let act_count: integer = jsonout.as_int(jsonout.obj_get(quest_set, "actCount"))
   let chapter_counts: a list of Json = jsonout.list_items(jsonout.obj_get(quest_set, "chapterCount"))
   let set_id: text = jsonout.as_text(jsonout.obj_get(quest_set, "setId"))
@@ -631,6 +644,7 @@ function main_group_1(): integer
   set failed = failed + report("test_userprofile_returns_local_profile_without_capturing_bulk_or_find", test_userprofile_returns_local_profile_without_capturing_bulk_or_find())
   set failed = failed + report("test_tutorial_branches_block_live_and_complete", test_tutorial_branches_block_live_and_complete())
   set failed = failed + report("test_tutorial_login_reports_complete_for_fresh_and_returning_accounts", test_tutorial_login_reports_complete_for_fresh_and_returning_accounts())
+  set failed = failed + report("test_tutorial_login_marks_raid_and_base_tutorials_completed", test_tutorial_login_marks_raid_and_base_tutorials_completed())
   set failed = failed + report("test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent", test_custom_story_routes_preserve_selected_team_and_keep_template_state_independent())
   set failed = failed + report("test_resolve_response_profile_variant_for_mono202", test_resolve_response_profile_variant_for_mono202())
   failed

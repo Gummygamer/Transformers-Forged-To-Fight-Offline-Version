@@ -1,0 +1,193 @@
+-- Raid routes (fakeserver.lbl): each raid request answered in-process, in the order a client makes them.
+
+use fakeserver
+use gamedata
+use jsonout
+
+function report(name: text, passed: boolean): integer
+  intent: print
+  if passed then
+    print("[ok] " ++ name)
+    0
+  else
+    print("[!] " ++ name)
+    1
+  end
+end
+
+function reply(path: text, body: text): Json
+  intent: answer one request in-process and parse the reply, or null when the server gives no answer
+  let text_reply: text = fakeserver.dynamic(path, body)
+  if text_reply == "" or not jsonout.is_valid_json(text_reply) then jsonout.json_null() else jsonout.parse_json(text_reply) end
+end
+
+function result_of(node: Json): Json
+  intent: read the result of an envelope
+  jsonout.obj_get(node, "result")
+end
+
+function async_of(node: Json): a list of Json
+  intent: read the async messages of an envelope
+  jsonout.list_items(jsonout.obj_get(node, "async"))
+end
+
+function int_at(node: Json, key: text): integer
+  intent: read an integer field, minus one thousand when it is missing
+  if jsonout.obj_has(node, key) and jsonout.type_name(jsonout.obj_get(node, key)) == "int" then jsonout.as_int(jsonout.obj_get(node, key)) else -1000 end
+end
+
+function text_at(node: Json, key: text): text
+  intent: read a text field, empty when it is missing
+  if jsonout.obj_has(node, key) and jsonout.type_name(jsonout.obj_get(node, key)) == "text" then jsonout.as_text(jsonout.obj_get(node, key)) else "" end
+end
+
+function message_payload(items: a list of Json, message: text): Json
+  intent: find the payload of the async message with this name, null when there is none
+  mutable found: Json = jsonout.json_null()
+  for item in items do
+    if text_at(item, "message") == message then set found = jsonout.obj_get(item, "payload") end
+  end
+  found
+end
+
+function moveto_x(node: Json): integer
+  intent: read the x of the first moveto action of a move reply
+  let action: Json = jsonout.obj_get(unwrap_or(get(jsonout.list_items(jsonout.obj_get(result_of(node), "results")), 0), jsonout.json_obj([])), "action")
+  int_at(jsonout.obj_get(action, "moveto"), "x")
+end
+
+function moves_taken(node: Json): integer
+  intent: count the actions of a move reply
+  length(jsonout.list_items(jsonout.obj_get(result_of(node), "results")))
+end
+
+function start_raid(team: text): Json
+  intent: clear the state and start the first raid against the first NPC with one team
+  reset_all()
+  reply("/matches/activate-match/raid", "\{\"midx\":0,\"team\":[" ++ team ++ "]\}")
+end
+
+function reset_all(): nothing
+  intent: clear the story positions and the raids before a test
+  fakeserver.reset_raid_state()
+  fakeserver.reset_quest_positions()
+end
+
+function test_find_match_lists_three_raid_opponents(): boolean
+  intent: test
+  reset_all()
+  let found: Json = result_of(reply("/matches/find-match/raid", "\{\}"))
+  length(jsonout.list_items(jsonout.obj_get(found, "matches"))) == 3 and text_at(found, "matchID") == "raid-find-0"
+end
+
+function test_activate_starts_a_raid_as_an_active_quest(): boolean
+  intent: test
+  reset_all()
+  let started: Json = reply("/matches/activate-match/raid", "\{\"midx\":0,\"team\":[\"optimusprime_cin_tf\",\"megatron_gs_leader2015\"]\}")
+  let quest: Json = jsonout.obj_get(jsonout.obj_get(result_of(started), "activeQuests"), "raid.1")
+  text_at(quest, "category") == "raid"
+end
+
+function test_a_second_activate_with_a_bad_index_is_refused(): boolean
+  intent: test
+  reset_all()
+  jsonout.type_name(reply("/matches/activate-match/raid", "\{\"midx\":9}")) == "null"
+end
+
+function test_join_keeps_the_raid_and_answers_with_progression(): boolean
+  intent: test
+  let started: Json = start_raid("\"optimusprime_cin_tf\"")
+  let joined: Json = reply("/quests/quest-join/raid.1-0", "\{\"tm0\":\"optimusprime_cin_tf\"\}")
+  jsonout.obj_has(result_of(joined), "progression") and length(jsonout.list_items(jsonout.obj_get(result_of(joined), "results"))) == 0
+end
+
+function test_first_step_moves_to_the_first_defender(): boolean
+  intent: test
+  let started: Json = start_raid("\"optimusprime_cin_tf\"")
+  let moved: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
+  moveto_x(moved) == 1
+end
+
+function test_the_second_step_is_refused_until_the_defender_falls(): boolean
+  intent: test
+  let started: Json = start_raid("\"optimusprime_cin_tf\"")
+  let first: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
+  let blocked: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
+  moves_taken(first) == 1 and moves_taken(blocked) == 0
+end
+
+function test_losing_the_first_fight_ends_the_raid_with_fightlost(): boolean
+  intent: test
+  let started: Json = start_raid("\"optimusprime_cin_tf\"")
+  let moved: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
+  let resolved: Json = reply("/matches/resolve-match/quests_fight", "\{\"qid\":\"raid.1-0\",\"id\":\"fight-a\",\"result\":\"LOST\"\}")
+  let payload: Json = message_payload(async_of(resolved), "match-resolved")
+  let raid_end: Json = message_payload(async_of(resolved), "raid-end")
+  moves_taken(moved) == 1 and text_at(payload, "qid") == "raid.1-0" and length(jsonout.list_items(jsonout.obj_get(payload, "results"))) == 1 and jsonout.obj_has(jsonout.obj_get(raid_end, "raidResult"), "_id") and not jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(raid_end, "raidResult"), "attackerWon"))
+end
+
+function test_win_then_final_win_ends_the_raid_and_claim_marks_it(): boolean
+  intent: test
+  let started: Json = start_raid("\"optimusprime_cin_tf\"")
+  let first_step: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
+  let first_win: Json = reply("/matches/resolve-match/quests_fight", "\{\"qid\":\"raid.1-0\",\"id\":\"fight-1\",\"result\":\"WON\"\}")
+  let second_step: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
+  let final_win: Json = reply("/matches/resolve-match/quests_fight", "\{\"qid\":\"raid.1-0\",\"id\":\"fight-2\",\"result\":\"WON\"\}")
+  let ended_result: Json = jsonout.obj_get(message_payload(async_of(final_win), "raid-end"), "raidResult")
+  let claimed: Json = reply("/raid/claim/raid-result-1", "\{\}")
+  moves_taken(first_step) == 1 and moves_taken(second_step) == 1 and jsonout.as_bool(jsonout.obj_get(ended_result, "attackerWon")) and length(jsonout.list_items(jsonout.obj_get(result_of(claimed), "claimedIds"))) == 1
+end
+
+function test_refresh_lists_the_history(): boolean
+  intent: test
+  let refreshed: Json = reply("/autorefresh/raid/refresh", "\{\}")
+  length(jsonout.list_items(jsonout.obj_get(jsonout.obj_get(result_of(refreshed), "raid"), "historicalResults"))) == 1
+end
+
+function test_quit_records_a_quit_and_sends_the_raid_end(): boolean
+  intent: test
+  let started: Json = reply("/matches/activate-match/raid", "\{\"midx\":1,\"team\":[\"optimusprime_cin_tf\"]\}")
+  reset_all()
+  let started_again: Json = start_raid("\"optimusprime_cin_tf\"")
+  let quit: Json = reply("/quests/quest-quit/raid.1-0", "\{\}")
+  let ended_result: Json = jsonout.obj_get(message_payload(async_of(quit), "raid-end"), "raidResult")
+  text_at(ended_result, "s") == "q" and not jsonout.as_bool(jsonout.obj_get(ended_result, "attackerWon"))
+end
+
+function test_story_movedir_is_untouched_when_no_raid_is_active(): boolean
+  intent: test
+  reset_all()
+  let story: Json = reply("/quests/quest-movedir/1.1.1-0/1/0", "\{\}")
+  jsonout.obj_has(result_of(story), "progression")
+end
+
+function test_raid_npc_detail_names_the_npc_and_carries_its_map(): boolean
+  intent: test
+  let detail: Json = result_of(reply("/quests/quest-detail/raid-npc-2", "\{\}"))
+  text_at(jsonout.obj_get(detail, "data"), "friendlyName") == "Iron Foundry" and jsonout.obj_has(detail, "map") and jsonout.obj_has(detail, "progression")
+end
+
+function test_quest_list_holds_the_raid_set_with_three_npc_boards(): boolean
+  intent: test
+  let listed: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__quests_quest-list.mono310.json")))
+  mutable found: integer = 0
+  for entry in jsonout.list_items(jsonout.obj_get(listed, "result")) do
+    if text_at(entry, "category") == "raid" then set found = length(jsonout.list_items(jsonout.obj_get(entry, "availableQuests"))) end
+  end
+  found == 3
+end
+
+function run_tests(): integer
+  intent: run every raid route test and print one line each
+  let failed: integer = report("test_find_match_lists_three_raid_opponents", test_find_match_lists_three_raid_opponents()) + report("test_activate_starts_a_raid_as_an_active_quest", test_activate_starts_a_raid_as_an_active_quest()) + report("test_a_second_activate_with_a_bad_index_is_refused", test_a_second_activate_with_a_bad_index_is_refused()) + report("test_join_keeps_the_raid_and_answers_with_progression", test_join_keeps_the_raid_and_answers_with_progression()) + report("test_first_step_moves_to_the_first_defender", test_first_step_moves_to_the_first_defender()) + report("test_the_second_step_is_refused_until_the_defender_falls", test_the_second_step_is_refused_until_the_defender_falls()) + report("test_losing_the_first_fight_ends_the_raid_with_fightlost", test_losing_the_first_fight_ends_the_raid_with_fightlost()) + report("test_win_then_final_win_ends_the_raid_and_claim_marks_it", test_win_then_final_win_ends_the_raid_and_claim_marks_it()) + report("test_refresh_lists_the_history", test_refresh_lists_the_history()) + report("test_quit_records_a_quit_and_sends_the_raid_end", test_quit_records_a_quit_and_sends_the_raid_end()) + report("test_story_movedir_is_untouched_when_no_raid_is_active", test_story_movedir_is_untouched_when_no_raid_is_active()) + report("test_raid_npc_detail_names_the_npc_and_carries_its_map", test_raid_npc_detail_names_the_npc_and_carries_its_map()) + report("test_quest_list_holds_the_raid_set_with_three_npc_boards", test_quest_list_holds_the_raid_set_with_three_npc_boards())
+  print(to_text(13 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  failed
+end
+
+function main(): nothing
+  intent: run the raid route tests and exit non zero on a failure
+  let failed: integer = run_tests()
+  if failed > 0 then exit_process(1) end
+end
+
+main()

@@ -441,7 +441,7 @@ end
 function test_group_autorefresh_update_has_exact_client_fields(): boolean
   intent: test
   let update: Json = gamedata.build_missions_autorefresh_update()
-  let expected: Json = jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("missionsconfig")), jsonout.json_pair("error", jsonout.json_text("")), jsonout.json_pair("check", jsonout.json_text("offline-v1")), jsonout.json_pair("locHash", jsonout.json_text("")), jsonout.json_pair("refresh", jsonout.json_int(0)), jsonout.json_pair("data", gamedata.build_missions_config()), jsonout.json_pair("cache", jsonout.json_bool(false))])
+  let expected: Json = jsonout.json_obj([jsonout.json_pair("name", jsonout.json_text("missionsconfig")), jsonout.json_pair("error", jsonout.json_text("")), jsonout.json_pair("check", jsonout.json_text("offline-v2")), jsonout.json_pair("locHash", jsonout.json_text("")), jsonout.json_pair("refresh", jsonout.json_int(0)), jsonout.json_pair("data", gamedata.build_missions_config()), jsonout.json_pair("cache", jsonout.json_bool(false))])
   jsonout.encode_compact(update) == jsonout.encode_compact(expected)
 end
 

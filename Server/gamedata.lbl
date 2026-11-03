@@ -627,7 +627,7 @@ end
 
 public function build_missions_autorefresh_result(): Json
   intent: build
-  jsonout.json_obj([pair_text("check", "offline-v1"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("missionsconfig", build_missions_config())])
+  jsonout.json_obj([pair_text("check", "offline-v2"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("missionsconfig", build_missions_config())])
 end
 
 public function build_missions_autorefresh_update(): Json
@@ -2447,6 +2447,11 @@ function quest_team(bids: a list of text): Json
     set entries = append(entries, jsonout.json_pair(bid, hero))
   end
   jsonout.json_obj(entries)
+end
+
+public function quest_team_json(bids: a list of text): Json
+  intent: build the team entries of a quest user (raid attackers share the story quest team shape)
+  quest_team(bids)
 end
 
 function revealed_tiles(): Json
