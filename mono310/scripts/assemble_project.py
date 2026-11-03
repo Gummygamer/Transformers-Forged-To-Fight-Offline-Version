@@ -217,7 +217,7 @@ def write_build_config(path):
     path.write_text(text)
 
 
-SERVER_FILES = ["run_local.lbl", "server_paths.lbl", "fakeserver.lbl", "gamedata.lbl", "jsonout.lbl",
+SERVER_FILES = ["run_local.lbl", "server_paths.lbl", "fakeserver.lbl", "gamedata.lbl", "jsonout.lbl", "raid.lbl",
                 "mods_catalog.json", "sp3_timings.json"]
 SERVER_DIRS = ["data", "fixtures", "responses"]
 
