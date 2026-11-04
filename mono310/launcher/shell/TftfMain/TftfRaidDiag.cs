@@ -2,8 +2,10 @@
 // ID_UI_QUESTS_EXPIRED on raid team select can be read from logcat: which sets are in AvailableSets, their category,
 // setId and summary keys, and whether GetQuestSetOfQuest("raid", "raid-npc-N") finds a set. Logs only on change.
 // Separate from TftfBot.cs (not ours). Compiled into Assembly-CSharp with the rest of TftfMain.
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using Legacy;
 using Quests;
@@ -63,12 +65,13 @@ public class TftfRaidDiag : MonoBehaviour
         string[] parts = text.Split(' ');
         if (parts.Length < 2) return;
         string seq = parts[0];
-        Legacy.QuestsManager.Direction dir;
+        Quests.Direction dir;
         if (!System.Enum.TryParse(parts[1], true, out dir))
         {
             Debug.Log("[RAIDMOVE] seq=" + seq + " bad direction " + parts[1]);
             return;
         }
+        // the board's own move call: the active raid's Move, which the Gameboard uses for a node tap
         Quests.ActiveQuest quest = RaidManager.Instance != null ? RaidManager.Instance.activeRaid : null;
         if (quest == null)
         {
@@ -76,13 +79,20 @@ public class TftfRaidDiag : MonoBehaviour
             return;
         }
         Debug.Log("[RAIDMOVE] seq=" + seq + " dir=" + dir + " qid=" + quest.qid);
-        // the DB keys the raid by its quest id, which is the instance id without its "-0" suffix
-        string dbQid = quest.qid;
-        int suffix = dbQid.LastIndexOf("-0");
-        if (suffix > 0) dbQid = dbQid.Substring(0, suffix);
-        Legacy.QuestsManager.Instance.MoveDirection(dbQid, dir, delegate(string err, QuestDB db)
+        quest.Move(dir, delegate(string err)
         {
             Debug.Log("[RAIDMOVE] seq=" + seq + " result=" + (string.IsNullOrEmpty(err) ? "ok" : err));
+            // a tap on the board runs the board's action list (battle, dialogue) after the move; a scripted move must do the same
+            Quests.Presentation.Gameboard board = Object.FindObjectOfType<Quests.Presentation.Gameboard>();
+            if (board == null) return;
+            MethodInfo run = typeof(Quests.Presentation.Gameboard).GetMethod("ProcessActions", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (run == null)
+            {
+                Debug.Log("[RAIDMOVE] seq=" + seq + " no ProcessActions on the board");
+                return;
+            }
+            board.StartCoroutine((IEnumerator)run.Invoke(board, null));
+            Debug.Log("[RAIDMOVE] seq=" + seq + " board actions started");
         });
     }
 

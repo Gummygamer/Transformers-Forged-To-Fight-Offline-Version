@@ -57,8 +57,12 @@ function moveto_x(node: Json): integer
 end
 
 function moves_taken(node: Json): integer
-  intent: count the actions of a move reply
-  length(jsonout.list_items(jsonout.obj_get(result_of(node), "results")))
+  intent: count the move actions of a move reply, leaving out the battle action
+  mutable count: integer = 0
+  for item in jsonout.list_items(jsonout.obj_get(result_of(node), "results")) do
+    if jsonout.obj_has(jsonout.obj_get(item, "action"), "moveto") then set count = count + 1 end
+  end
+  count
 end
 
 function start_raid(team: text): Json

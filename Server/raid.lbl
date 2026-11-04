@@ -66,7 +66,7 @@ end
 -- Every blueprint is a roster bot (checked by test_raid.lbl), and each team is a path of one tile per defender.
 public function npcs(): a list of RaidNpc
   intent: list the NPC opponents a raid can start against, in the order the raid list shows them
-  [RaidNpc { uid: -1, name: "Scrap Yard Crew", power: 1800, defenders: [RaidDefender { key: "kickback_gs_kabam", level: 8 }, RaidDefender { key: "waspinator_gs_deluxe", level: 9 }] }, RaidNpc { uid: -2, name: "Iron Foundry", power: 2600, defenders: [RaidDefender { key: "sharkticon_gs_demolition", level: 11 }, RaidDefender { key: "soundwave_gs", level: 12 }, RaidDefender { key: "cyclonus_gs_uw06", level: 13 }] }, RaidNpc { uid: -3, name: "Nexus Outpost", power: 3400, defenders: [RaidDefender { key: "bludgeon_gs_rd20", level: 14 }, RaidDefender { key: "necrotronus_gs_kabam", level: 16 }] }]
+  [RaidNpc { uid: -1, name: "Scrap Yard Crew", power: 1800, defenders: [RaidDefender { key: "kickback_gs_kabam", level: 8 }, RaidDefender { key: "nemesisprime_gs_voyager2015", level: 9 }] }, RaidNpc { uid: -2, name: "Iron Foundry", power: 2600, defenders: [RaidDefender { key: "sharkticon_gs_demolition", level: 11 }, RaidDefender { key: "soundwave_gs", level: 12 }, RaidDefender { key: "cyclonus_gs_uw06", level: 13 }] }, RaidNpc { uid: -3, name: "Nexus Outpost", power: 3400, defenders: [RaidDefender { key: "bludgeon_gs_rd20", level: 14 }, RaidDefender { key: "necrotronus_gs_kabam", level: 16 }] }]
 end
 
 function npc_fallback(): RaidNpc
@@ -247,6 +247,32 @@ function user_json(team: a list of text, pos: integer): Json
 end
 
 function progression_json(npc: RaidNpc, active: Json): Json
+  intent: build the raid progression, and while the attacker stands on an undefeated defender the battle keys the story path uses
+  if fight_pending(active) then battle_progression(progression_base(npc, active), defender_at(npc, rint(active, "pos", 0) - 1), rint(active, "pos", 0)) else progression_base(npc, active) end
+end
+
+function battle_progression(base: Json, defender: RaidDefender, pos: integer): Json
+  intent: put the battle keys on the local user, the place the client reads an active encounter from
+  let users: Json = jsonout.obj_get(base, "users")
+  let user: Json = jsonout.obj_get(users, gamedata.local_uid())
+  let with_id: Json = jsonout.obj_set(user, "currentBattleId", jsonout.json_text(defender.key))
+  let with_pos: Json = jsonout.obj_set(with_id, "currentBattlePos", rvec(pos, 1))
+  let with_state: Json = jsonout.obj_set(with_pos, "currentBattleState", jsonout.json_text("activated"))
+  jsonout.obj_set(base, "users", jsonout.obj_set(users, gamedata.local_uid(), with_state))
+end
+
+function battle_action(state: Json): Json
+  intent: the battle action the move reply sends when the attacker stands on an undefeated defender
+  let active: Json = active_raid(state)
+  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
+  let pos: integer = rint(active, "pos", 0)
+  let defender: RaidDefender = defender_at(npc, pos - 1)
+  let enemy: Json = gamedata.build_quest_enemy_for("", -1, defender.key, pos == length(npc.defenders))
+  let battle: Json = jsonout.json_obj([pint("x", pos), pint("y", 1), pbool("isFinalBoss", pos == length(npc.defenders)), jsonout.json_pair("battleEnemy", enemy)])
+  jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("battle", battle)]))])
+end
+
+function progression_base(npc: RaidNpc, active: Json): Json
   intent: build the progression of the raid as the quest progression keys the client reads
   let pos: integer = rint(active, "pos", 0)
   let beaten: integer = rint(active, "beaten", 0)
@@ -458,7 +484,8 @@ public function move_reply(before: Json, after: Json): Json
   let from_pos: integer = rint(active_raid(before), "pos", -1)
   let to_pos: integer = rint(active_raid(after), "pos", -1)
   let moveto: Json = jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair("moveto", rvec(to_pos, 1))]))])
-  let actions: a list of Json = if from_pos != to_pos then [moveto] else [] end
+  mutable actions: a list of Json = if from_pos != to_pos then [moveto] else [] end
+  set actions = if from_pos != to_pos and fight_pending(active_raid(after)) then append(actions, battle_action(after)) else actions end
   jsonout.json_obj([jsonout.json_pair("results", jsonout.json_list(actions)), jsonout.json_pair("progression", progression_for(after))])
 end
 

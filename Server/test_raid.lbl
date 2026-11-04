@@ -246,6 +246,21 @@ function test_quest_detail_carries_the_raid_category_at_top_level(): boolean
   text_of(detail, "category") == "raid" and jsonout.obj_has(detail, "map") and text_of(field(detail, "data"), "id") == "raid-npc-1"
 end
 
+function test_standing_on_a_defender_sends_the_battle_keys(): boolean
+  intent: test
+  let state: Json = raid.take_step(started(0), "raid.1", 1, 0)
+  let progression: Json = field(raid.progress_reply(state), "progression")
+  let user: Json = field(field(progression, "users"), gamedata.local_uid())
+  text_of(user, "currentBattleId") != "" and text_of(user, "currentBattleState") == "activated"
+end
+
+function test_stepping_onto_a_defender_sends_the_battle_action(): boolean
+  intent: test
+  let state: Json = raid.take_step(started(0), "raid.1", 1, 0)
+  let reply: Json = raid.move_reply(started(0), state)
+  length(jsonout.list_items(field(reply, "results"))) == 2
+end
+
 function test_join_reply_marks_the_raid_team_as_joined(): boolean
   intent: test
   let reply: Json = raid.progress_reply(started(0))
@@ -258,7 +273,7 @@ function test_move_reply_names_the_new_node_only_when_the_attacker_moved(): bool
   let after: Json = step_forward(before)
   let moved: Json = raid.move_reply(before, after)
   let blocked: Json = raid.move_reply(after, step_forward(after))
-  length(jsonout.list_items(field(moved, "results"))) == 1 and length(jsonout.list_items(field(blocked, "results"))) == 0
+  length(jsonout.list_items(field(moved, "results"))) == 2 and length(jsonout.list_items(field(blocked, "results"))) == 0
 end
 
 function test_refresh_carries_the_history(): boolean
@@ -291,8 +306,8 @@ end
 
 function run_tests(): integer
   intent: run every raid rule test and print one line each
-  let failed: integer = run_tests_a() + run_tests_b()
-  print(to_text(26 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  let failed: integer = run_tests_a() + run_tests_b() + report("test_standing_on_a_defender_sends_the_battle_keys", test_standing_on_a_defender_sends_the_battle_keys()) + report("test_stepping_onto_a_defender_sends_the_battle_action", test_stepping_onto_a_defender_sends_the_battle_action())
+  print(to_text(28 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   failed
 end
 

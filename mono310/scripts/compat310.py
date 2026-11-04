@@ -630,6 +630,7 @@ public class TftfDiag : MonoBehaviour
 		float over = m.HasProperty("_emissive_overbright_range") ? m.GetFloat("_emissive_overbright_range") : 8f;
 		float ramp = m.HasProperty("_emissive_ramp_range") ? m.GetFloat("_emissive_ramp_range") : 1f;
 		bool particle = m.HasProperty("_particle_lifetime_color_tex");
+		Debug.Log("[DIAG] fx before convert: " + m.name + " shader='" + m.shader.name + "' ok=" + m.shader.isSupported + " q=" + m.renderQueue + " texProps=" + string.Join(",", m.GetTexturePropertyNames()) + " has(_emissive_tex)=" + m.HasProperty("_emissive_tex"));
 		m.shader = _fxShader;
 		m.mainTexture = fxTex;
 		m.color = fxTex != null ? fxCol : Color.black;
@@ -1009,6 +1010,16 @@ public class TftfBloom : MonoBehaviour
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "FabricAudioPlayer.cs", "if ((bool)EventManagerInstance && !string.IsNullOrEmpty(clipName))",
                    "if (EventManagerInstance == null) { FabricManagerInstance = FabricManager.Instance; EventManagerInstance = EventManager.Instance; }\n\t\tif ((bool)EventManagerInstance && !string.IsNullOrEmpty(clipName))", "P61 UI sound event manager")
+    # P63 (shell only): with tftf/bot.on, log what projectiles are made of (TftfBot.DiagSpawn)
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "ProjectileMoveEvent.cs", "OnSpawnInstance(gameObject);",
+                   "OnSpawnInstance(gameObject);\n\t\tTftfBot.DiagSpawn(\"projectile\", PrefabName, gameObject);", "P63 projectile diagnostics")
+        replace_in(main, "PropsController.cs", "GetProp(propName)?.SetActive(active, client);",
+                   "GetProp(propName)?.SetActive(active, client);\n\t\tif (active) TftfBot.DiagSpawn(\"prop\", propName, GetProp(propName)?.Instance);", "P63 prop diagnostics")
+        replace_in(main, "ParticleMoveEvent.cs", "_particle = ((!(gameObject != null)) ? null : gameObject.GetComponent<ParticleSystem>());",
+                   "_particle = ((!(gameObject != null)) ? null : gameObject.GetComponent<ParticleSystem>());\n\t\tTftfBot.DiagSpawn(\"particle\", PrefabName, gameObject);", "P63 particle diagnostics")
+        replace_in(main, "Projectile.cs", "LastHitResult = new HitResultData();",
+                   "LastHitResult = new HitResultData();\n\t\tTftfBot.DiagFire(base.gameObject.name, _moveToPlayOnFire, _moveSet);", "P63 fire move diagnostics")
     # P62 (shell only): language detection runs before the language list exists, so every device fell back to English
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "GameLocalizationUtils.cs", "if (!selectionDisplayOrder.IsNullOrEmpty())",
