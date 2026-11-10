@@ -17,6 +17,18 @@ public static class TftfServer
     static Process process;
 #endif
 
+    static void CopySaves(string source, string destination)
+    {
+        if (!Directory.Exists(source)) return;
+        Directory.CreateDirectory(destination);
+        foreach (string path in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+        {
+            string target = Path.Combine(destination, path.Substring(source.Length + 1));
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            if (!File.Exists(target) || File.GetLastWriteTimeUtc(path) >= File.GetLastWriteTimeUtc(target)) File.Copy(path, target, true);
+        }
+    }
+
     public static IEnumerator Start(string root)
     {
         string serverDir = Path.Combine(root, "Server");
@@ -33,6 +45,9 @@ public static class TftfServer
             }
             string zipPath = Path.Combine(root, "tftf_server.zip");
             File.WriteAllBytes(zipPath, req.downloadHandler.data);
+            // Save files survive payload upgrades and a process dying halfway through extraction.
+            string saved = Path.Combine(root, "server-save-backup");
+            CopySaves(Path.Combine(serverDir, "logs"), saved);
             if (Directory.Exists(serverDir)) Directory.Delete(serverDir, true);
             using (var za = new ZipArchive(File.OpenRead(zipPath), ZipArchiveMode.Read))
                 foreach (var entry in za.Entries)
@@ -42,6 +57,7 @@ public static class TftfServer
                     Directory.CreateDirectory(Path.GetDirectoryName(target));
                     using (var src = entry.Open()) using (var dst = File.Create(target)) src.CopyTo(dst);
                 }
+            CopySaves(saved, Path.Combine(serverDir, "logs"));
             File.Delete(zipPath);
             File.WriteAllText(marker, stamp);
         }

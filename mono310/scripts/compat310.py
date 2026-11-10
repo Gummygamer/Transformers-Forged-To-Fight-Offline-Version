@@ -965,6 +965,26 @@ public class TftfBloom : MonoBehaviour
         replace_in(main, "Quests/Presentation/Gameboard.cs", "\t\t\t\tif (postFight)\n\t\t\t\t{\n\t\t\t\t\tif (Profile.Instance.SeenPostFightDialogueNodes != null",
                    "\t\t\t\tif (postFight && !TftfFightState.LastWon)\n\t\t\t\t{\n\t\t\t\t\treturn _displayingDialogue;\n\t\t\t\t}\n\t\t\t\tif (postFight)\n\t\t\t\t{\n\t\t\t\t\tif (Profile.Instance.SeenPostFightDialogueNodes != null",
                    "P49b the post-fight dialogue is skipped after a lost fight")
+    # P64 (shell only): PVPRaidFlow rebuilds its board after combat, unlike QuestFlow's ResumeBoard path.
+    # Process the queued battlecomplete/fightlost/battle actions once the HUD is ready, including a retry after a loss.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "PVPRaidFlow.cs",
+                   '\t\tWindowManager.Instance.ShowLoadingScreen(show: false, "raidflow");\n\t}\n\n\tprivate void FinishQuest()',
+                   '\t\tWindowManager.Instance.ShowLoadingScreen(show: false, "raidflow");\n\t\tif (_gameBoard != null)\n\t\t{\n\t\t\t_gameBoard.CheckForActions();\n\t\t}\n\t}\n\n\tprivate void FinishQuest()',
+                   "P64 raids process pending board actions after loading")
+    # P65 (shell only): a raid keeps its AI even if an Arena opponent was found before leaving that screen.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "PreFightScreen.cs",
+                   "\t\t\tif (pVPRaidFlow != null)\n\t\t\t{\n\t\t\t\tactiveQuest = RaidManager.Instance.activeRaid;",
+                   "\t\t\tif (pVPRaidFlow != null)\n\t\t\t{\n\t\t\t\tTftfNet.Disconnect();\n\t\t\t\tactiveQuest = RaidManager.Instance.activeRaid;",
+                   "P65 raids leave any Arena session before combat")
+    # P66 (shell only): foreign profiles may supply numeric stats without display registry metadata.
+    # Raid team selection parses bpi and class counts and must receive those supplied values.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(main, "UserProfile.cs",
+                   "\t\tif (AllStats.ContainsKey(id))\n\t\t{\n\t\t\treturn AllStats[id].Item2;\n\t\t}\n\t\treturn string.Empty;",
+                   "\t\tif (AllStats.ContainsKey(id))\n\t\t{\n\t\t\treturn AllStats[id].Item2;\n\t\t}\n\t\tif (_sparxData != null && _sparxData.gameIntStats.ContainsKey(id))\n\t\t{\n\t\t\treturn _sparxData.gameIntStats[id].ToString(System.Globalization.CultureInfo.InvariantCulture);\n\t\t}\n\t\treturn string.Empty;",
+                   "P66 foreign profiles retain supplied numeric stats")
     # P50 (shell only, dev): tftf/fullmana.txt keeps player 0's special meter full (see TftfFightState.FullMana)
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "PlayerController.cs", "\tprotected override void Update()\n\t{\n",

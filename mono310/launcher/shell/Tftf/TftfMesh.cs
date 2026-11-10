@@ -202,6 +202,7 @@ public static class TftfMesh
             _byEp.Clear();
             _known.Clear();
             _routes.Clear();
+            _services.Clear();
         }
     }
 
@@ -216,6 +217,49 @@ public static class TftfMesh
             _sentAt[seq] = Now();
             SendTo(_peer, "S " + _sid + " " + (_recvNext - 1) + " " + seq + " " + line);
         }
+    }
+
+    // Independent asynchronous services share discovery/routing without entering an Arena session.
+    public sealed class ServicePacket
+    {
+        public string Source, Body;
+        public bool Neighbour;
+    }
+    static readonly Queue<ServicePacket> _services = new Queue<ServicePacket>();
+    public static string[] LinkIds()
+    {
+        lock (_gate) { var ids = new List<string>(); foreach (var l in _links.Values) if (l.Up) ids.Add(l.Id); return ids.ToArray(); }
+    }
+    public static ServicePacket[] DrainServices()
+    {
+        lock (_gate) { var packets = _services.ToArray(); _services.Clear(); return packets; }
+    }
+    static bool ServiceBody(string body)
+    {
+        if (string.IsNullOrEmpty(body) || body.Length > 1100) return false;
+        foreach (char c in body) if (c < 32 || c > 126) return false;
+        return true;
+    }
+    public static void SendService(string destination, string body, int ttl = 8)
+    {
+        if (!ServiceBody(body) || string.IsNullOrEmpty(destination) || destination.Length > 24 || destination.IndexOf(' ') >= 0) return;
+        lock (_gate)
+        {
+            if (_sock == null) return;
+            string mid = (++_msgId).ToString();
+            FirstTime(_id + " " + mid);
+            Forward(_id, destination, mid, Math.Max(1, Math.Min(8, ttl)), "SV " + body, null);
+        }
+    }
+    public static void ToNeighbour(string id, string body)
+    {
+        if (!ServiceBody(body)) return;
+        lock (_gate) { Link link; if (_links.TryGetValue(id, out link) && link.Up) ToLink(link, "V " + body); }
+    }
+    static void Service(string source, string body, bool neighbour)
+    {
+        if (!ServiceBody(body) || _services.Count >= 256) return;
+        _services.Enqueue(new ServicePacket { Source = source, Body = body, Neighbour = neighbour });
     }
 
     // ---- network thread ----
@@ -606,6 +650,9 @@ public static class TftfMesh
                 }
                 break;
             }
+            case "V":
+                if (link != null && link.Up) Service(link.Id, rest, true);
+                break;
             case "R":
                 if (link == null || !link.Up) return;
                 Routed(link, rest);
@@ -672,6 +719,9 @@ public static class TftfMesh
         string rest = m.Length > 1 ? m[1] : "";
         switch (m[0])
         {
+            case "SV":
+                Service(src, rest, false);
+                break;
             case "SEEK":            // SEEK <room> <name> <desc>; the lower id offers, so two players never offer to each other
             {
                 string[] s = rest.Split(' ');

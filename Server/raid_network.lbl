@@ -1,0 +1,158 @@
+-- Local base persistence and the verified-record bridge. Crypto and mesh traffic live in TftfRaidNet.
+use jsonout
+use gamedata
+use raid
+
+public function obj(node: Json, key: text): Json
+  intent: read an object field or an empty object
+  let value: Json = jsonout.obj_get(node, key)
+  if jsonout.type_name(value) == "object" then value else jsonout.json_obj([]) end
+end
+
+public function txt(node: Json, key: text, fallback: text): text
+  intent: read a text field or its fallback
+  let value: Json = jsonout.obj_get(node, key)
+  if jsonout.type_name(value) == "text" then jsonout.as_text(value) else fallback end
+end
+
+public function num(node: Json, key: text, fallback: integer): integer
+  intent: read an integer field or its fallback
+  let value: Json = jsonout.obj_get(node, key)
+  if jsonout.type_name(value) == "int" then jsonout.as_int(value) else fallback end
+end
+
+public function items(node: Json, key: text): a list of Json
+  intent: read a list field or an empty list
+  let value: Json = jsonout.obj_get(node, key)
+  if jsonout.type_name(value) == "list" then jsonout.list_items(value) else [] end
+end
+
+function pt(key: text, value: text): Pair
+  intent: build a text pair
+  jsonout.json_pair(key, jsonout.json_text(value))
+end
+
+function pn(key: text, value: integer): Pair
+  intent: build an integer pair
+  jsonout.json_pair(key, jsonout.json_int(value))
+end
+
+public function without(node: Json, key: text): Json
+  intent: build an object without one key
+  mutable pairs: a list of Pair = []
+  for k in jsonout.obj_keys(node) do
+    if k != key then set pairs = append(pairs, jsonout.json_pair(k, jsonout.obj_get(node, k))) end
+  end
+  jsonout.json_obj(pairs)
+end
+
+public function known_bot(key: text): boolean
+  intent: check a blueprint against the shipped roster
+  mutable found: boolean = false
+  for bot in gamedata.roster() do
+    if bot.bid == key then set found = true end
+  end
+  found
+end
+
+public function valid_snapshot(snapshot: Json, own: text, now: integer): boolean
+  intent: validate compatible snapshot fields again before local game rules use them
+  let uid: text = txt(snapshot, "uid", "")
+  let version: integer = num(snapshot, "version", 0)
+  let defenders: a list of Json = items(snapshot, "defenders")
+  mutable ok: boolean = uid != "" and uid != own and uid != gamedata.local_uid() and unwrap_or(to_integer(uid), 0) > 0 and txt(snapshot, "content", "") == "tftf-310-raid-v1" and version <= now + 300 and version > now - 604800 and num(snapshot, "shield", 0) <= now and length(defenders) > 0 and length(defenders) <= 8
+  mutable seen: a list of text = []
+  for defender in defenders do
+    let key: text = txt(defender, "key", "")
+    if not known_bot(key) or contains(seen, key) or num(defender, "level", 0) < 1 or num(defender, "level", 0) > 100 then set ok = false end
+    set seen = append(seen, key)
+  end
+  ok
+end
+
+public function offers(network: Json, now: integer): a list of Json
+  intent: choose up to three compatible unshielded foreign bases and fill the list with NPCs
+  mutable selected: a list of Json = []
+  for snapshot in items(network, "snapshots") do
+    if length(selected) < 3 and valid_snapshot(snapshot, txt(network, "uid", ""), now) then set selected = append(selected, snapshot) end
+  end
+  mutable index: integer = 0
+  while length(selected) < 3 do
+    set selected = append(selected, jsonout.json_obj([pn("npc", index)]))
+    set index = index + 1
+  end
+  selected
+end
+
+public function base_result(placements: Json): Json
+  intent: serve persisted placements in the current authored base template
+  let base: Json = gamedata.build_base_active()
+  jsonout.obj_set(base, "userBase", jsonout.obj_set(obj(base, "userBase"), "placements", placements))
+end
+
+public function socket_at(id: text): Json
+  intent: find an authored base socket with its position and entity type
+  let table: Json = jsonout.parse_json(read_file(path_join(gamedata.data_dir(), "base_sockets.json")))
+  obj(table, id)
+end
+
+public function place(placements: Json, socket: text, key: text): Json
+  intent: place one owned roster bot on a valid boss socket, removing its previous placement
+  let target: Json = socket_at(socket)
+  if txt(target, "entityType", "") != "boss" or not contains(gamedata.owned(), key) then placements else
+    mutable next: Json = jsonout.json_obj([])
+    for id in jsonout.obj_keys(placements) do
+      let entity: Json = obj(placements, id)
+      if id != socket and txt(entity, "key", "") != key then set next = jsonout.obj_set(next, id, entity) end
+    end
+    let entity: Json = jsonout.json_obj([pt("entityType", "boss"), pt("parentEntityType", "bcg"), pt("key", key), pt("character", key), pn("rank", 1), pn("level", 1), pn("sig_lvl", 0), jsonout.json_pair("position", jsonout.json_obj([pn("x", num(target, "x", 0)), pn("y", num(target, "y", 0))]))])
+    jsonout.obj_set(next, socket, entity)
+  end
+end
+
+public function swap(placements: Json, first: text, second: text): Json
+  intent: swap two compatible base socket entities, allowing an empty socket
+  let a: Json = socket_at(first)
+  let b: Json = socket_at(second)
+  if first == second or txt(a, "entityType", "") != "boss" or txt(b, "entityType", "") != "boss" then placements else
+    mutable next: Json = without(without(placements, first), second)
+    if jsonout.obj_has(placements, first) then set next = jsonout.obj_set(next, second, jsonout.obj_set(obj(placements, first), "position", jsonout.json_obj([pn("x", num(b, "x", 0)), pn("y", num(b, "y", 0))]))) end
+    if jsonout.obj_has(placements, second) then set next = jsonout.obj_set(next, first, jsonout.obj_set(obj(placements, second), "position", jsonout.json_obj([pn("x", num(a, "x", 0)), pn("y", num(a, "y", 0))]))) end
+    next
+  end
+end
+
+public function defenders(placements: Json): a list of Json
+  intent: publish at most eight distinct boss blueprints from the local base and keep towers local
+  mutable output: a list of Json = []
+  mutable seen: a list of text = []
+  for id in jsonout.obj_keys(placements) do
+    let entity: Json = obj(placements, id)
+    let key: text = txt(entity, "key", "")
+    if length(output) < 8 and txt(entity, "entityType", "") == "boss" and known_bot(key) and not contains(seen, key) then
+      set seen = append(seen, key)
+      set output = append(output, jsonout.json_obj([pt("key", key), pn("level", num(entity, "level", 1))]))
+    end
+  end
+  output
+end
+
+public function class_count(snapshot: Json, klass: text): integer
+  intent: count the defenders of one class from local roster metadata
+  mutable count: integer = 0
+  for defender in items(snapshot, "defenders") do
+    for entry in gamedata.roster() do
+      if entry.bid == txt(defender, "key", "") and entry.klass == klass then set count = count + 1 end
+    end
+  end
+  count
+end
+
+public function base_power(defenders: a list of Json): integer
+  intent: calculate base power from locally authored hero stats
+  mutable power: integer = 0
+  for defender in defenders do
+    set power = power + gamedata.bot_rating(txt(defender, "key", ""), num(defender, "level", 1))
+  end
+  power
+end

@@ -148,12 +148,15 @@ function test_a_fight_without_a_pending_node_changes_nothing(): boolean
   int_of(field(field(reply, "state"), "active"), "beaten") == 0 and not bool_of(reply, "ended") and length(jsonout.list_items(field(reply, "actions"))) == 0
 end
 
-function test_losing_a_fight_ends_the_raid_as_a_loss(): boolean
+function test_losing_a_fight_preserves_the_raid_and_health(): boolean
   intent: test
   let fighting: Json = step_forward(started(0))
   let reply: Json = fight_lost(fighting)
-  let result: Json = field(reply, "result")
-  bool_of(reply, "ended") and jsonout.type_name(field(field(reply, "state"), "active")) == "null" and not bool_of(result, "attackerWon") and text_of(result, "s") == "" and text_of(result, "_id") == "raid-result-1"
+  let after: Json = field(reply, "state")
+  let active: Json = field(after, "active")
+  let heroes: Json = field(field(reply, "teamData"), "heroes")
+  let lead: text = unwrap_or(get(gamedata.default_team(), 0), "")
+  not bool_of(reply, "ended") and raid.has_active(after) and int_of(active, "pos") == 1 and int_of(active, "beaten") == 0 and jsonout.as_dec(field(field(active, "hp"), lead)) == 0.0 and jsonout.as_dec(field(field(heroes, lead), "hp")) == 0.0 and length(raid.results(after)) == 0 and jsonout.type_name(field(reply, "result")) == "null" and length(jsonout.list_items(field(reply, "actions"))) == 2
 end
 
 function test_losing_reports_fightlost_at_the_node(): boolean
@@ -292,9 +295,28 @@ function test_310_missions_response_serves_an_enabled_raid_config(): boolean
   bool_of(pvp, "enabled") and int_of(pvp, "attackTeamSizeMin") == 1 and int_of(pvp, "attackTeamSizeMax") == 3 and jsonout.obj_has(pvp, "characterExclusivityTeamTypes") and jsonout.obj_has(pvp, "DisabledLevels") and jsonout.obj_has(pvp, "leaderboardId") and jsonout.obj_has(pvp, "maxRevengeChain") and int_of(pvp, "revengeValidTime") == 86400 and text_of(tier, "id") != "" and int_of(tier, "maxRating") == -1
 end
 
+function test_retry_preserves_damage_and_can_win(): boolean
+  intent: test
+  let fighting: Json = step_forward(started(0))
+  let lost: Json = raid.fight_outcome(fighting, "raid.1", false, "", 0.0, 0.25, 1100)
+  let after: Json = field(lost, "state")
+  let resumed: Json = raid.progress_reply(after)
+  let won: Json = raid.fight_outcome(after, "raid.1", true, "", 0.6, 0.0, 1200)
+  jsonout.as_dec(field(field(after, "active"), "dhp")) == 0.25 and length(jsonout.list_items(field(resumed, "results"))) == 1 and int_of(field(field(won, "state"), "active"), "beaten") == 1 and not bool_of(won, "ended")
+end
+
+function test_expiry_ends_once_and_preserves_journal(): boolean
+  intent: test
+  let running: Json = field(fight_lost(step_forward(started(0))), "state")
+  let before: Json = raid.expire(running, 1000 + raid.raid_seconds() - 1)
+  let after: Json = raid.expire(before, 1000 + raid.raid_seconds())
+  let repeated: Json = raid.expire(after, 1001 + raid.raid_seconds())
+  raid.has_active(before) and not raid.has_active(after) and length(raid.results(repeated)) == 1 and text_of(raid.first_result(after), "s") == "e" and text_of(raid.first_result(after), "qid") == "raid.1-0" and length(jsonout.list_items(field(raid.first_result(after), "journal"))) == 2
+end
+
 function run_tests_a(): integer
   intent: run the first half of the raid rule tests and print one line each
-  let failed: integer = report("test_every_defender_is_a_roster_bot", test_every_defender_is_a_roster_bot()) + report("test_npc_list_has_three_opponents_with_negative_ids", test_npc_list_has_three_opponents_with_negative_ids()) + report("test_board_has_one_defender_tile_per_defender_and_only_the_last_is_final", test_board_has_one_defender_tile_per_defender_and_only_the_last_is_final()) + report("test_defender_entity_carries_the_npc_level", test_defender_entity_carries_the_npc_level()) + report("test_start_creates_a_raid_at_the_start_with_the_team", test_start_creates_a_raid_at_the_start_with_the_team()) + report("test_attacker_must_beat_a_defender_before_moving_on", test_attacker_must_beat_a_defender_before_moving_on()) + report("test_backward_and_diagonal_moves_are_ignored", test_backward_and_diagonal_moves_are_ignored()) + report("test_a_move_for_another_quest_is_ignored", test_a_move_for_another_quest_is_ignored()) + report("test_a_fight_without_a_pending_node_changes_nothing", test_a_fight_without_a_pending_node_changes_nothing()) + report("test_losing_a_fight_ends_the_raid_as_a_loss", test_losing_a_fight_ends_the_raid_as_a_loss()) + report("test_losing_reports_fightlost_at_the_node", test_losing_reports_fightlost_at_the_node()) + report("test_beating_the_last_defender_wins_the_raid", test_beating_the_last_defender_wins_the_raid()) + report("test_the_final_win_reports_battlecomplete_as_the_final_boss", test_the_final_win_reports_battlecomplete_as_the_final_boss())
+  let failed: integer = report("test_every_defender_is_a_roster_bot", test_every_defender_is_a_roster_bot()) + report("test_npc_list_has_three_opponents_with_negative_ids", test_npc_list_has_three_opponents_with_negative_ids()) + report("test_board_has_one_defender_tile_per_defender_and_only_the_last_is_final", test_board_has_one_defender_tile_per_defender_and_only_the_last_is_final()) + report("test_defender_entity_carries_the_npc_level", test_defender_entity_carries_the_npc_level()) + report("test_start_creates_a_raid_at_the_start_with_the_team", test_start_creates_a_raid_at_the_start_with_the_team()) + report("test_attacker_must_beat_a_defender_before_moving_on", test_attacker_must_beat_a_defender_before_moving_on()) + report("test_backward_and_diagonal_moves_are_ignored", test_backward_and_diagonal_moves_are_ignored()) + report("test_a_move_for_another_quest_is_ignored", test_a_move_for_another_quest_is_ignored()) + report("test_a_fight_without_a_pending_node_changes_nothing", test_a_fight_without_a_pending_node_changes_nothing()) + report("test_losing_a_fight_preserves_the_raid_and_health", test_losing_a_fight_preserves_the_raid_and_health()) + report("test_losing_reports_fightlost_at_the_node", test_losing_reports_fightlost_at_the_node()) + report("test_beating_the_last_defender_wins_the_raid", test_beating_the_last_defender_wins_the_raid()) + report("test_the_final_win_reports_battlecomplete_as_the_final_boss", test_the_final_win_reports_battlecomplete_as_the_final_boss())
   failed
 end
 
@@ -306,8 +328,8 @@ end
 
 function run_tests(): integer
   intent: run every raid rule test and print one line each
-  let failed: integer = run_tests_a() + run_tests_b() + report("test_standing_on_a_defender_sends_the_battle_keys", test_standing_on_a_defender_sends_the_battle_keys()) + report("test_stepping_onto_a_defender_sends_the_battle_action", test_stepping_onto_a_defender_sends_the_battle_action())
-  print(to_text(28 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  let failed: integer = report("test_retry_preserves_damage_and_can_win", test_retry_preserves_damage_and_can_win()) + report("test_expiry_ends_once_and_preserves_journal", test_expiry_ends_once_and_preserves_journal()) + run_tests_a() + run_tests_b() + report("test_standing_on_a_defender_sends_the_battle_keys", test_standing_on_a_defender_sends_the_battle_keys()) + report("test_stepping_onto_a_defender_sends_the_battle_action", test_stepping_onto_a_defender_sends_the_battle_action())
+  print(to_text(30 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   failed
 end
 

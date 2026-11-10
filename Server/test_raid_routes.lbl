@@ -120,14 +120,14 @@ function test_the_second_step_is_refused_until_the_defender_falls(): boolean
   moves_taken(first) == 1 and moves_taken(blocked) == 0
 end
 
-function test_losing_the_first_fight_ends_the_raid_with_fightlost(): boolean
+function test_losing_the_first_fight_preserves_the_raid_with_fightlost(): boolean
   intent: test
-  let started: Json = start_raid("\"optimusprime_cin_tf\"")
+  let started: Json = start_raid("\"optimusprime_cin_tf\",\"megatron_gs_leader2015\"")
   let moved: Json = reply("/quests/quest-movedir/raid.1-0/1/0", "\{\}")
   let resolved: Json = reply("/matches/resolve-match/quests_fight", "\{\"qid\":\"raid.1-0\",\"id\":\"fight-a\",\"result\":\"LOST\"\}")
   let payload: Json = message_payload(async_of(resolved), "match-resolved")
   let raid_end: Json = message_payload(async_of(resolved), "raid-end")
-  moves_taken(moved) == 1 and text_at(payload, "qid") == "raid.1-0" and length(jsonout.list_items(jsonout.obj_get(payload, "results"))) == 1 and jsonout.obj_has(jsonout.obj_get(raid_end, "raidResult"), "_id") and not jsonout.as_bool(jsonout.obj_get(jsonout.obj_get(raid_end, "raidResult"), "attackerWon"))
+  moves_taken(moved) == 1 and text_at(payload, "qid") == "raid.1-0" and length(jsonout.list_items(jsonout.obj_get(payload, "results"))) == 2 and jsonout.type_name(raid_end) == "null" and jsonout.obj_has(payload, "progression") and jsonout.obj_has(payload, "teamData")
 end
 
 function test_win_then_final_win_ends_the_raid_and_claim_marks_it(): boolean
@@ -183,7 +183,7 @@ end
 
 function run_tests(): integer
   intent: run every raid route test and print one line each
-  let failed: integer = report("test_find_match_lists_three_raid_opponents", test_find_match_lists_three_raid_opponents()) + report("test_activate_starts_a_raid_as_an_active_quest", test_activate_starts_a_raid_as_an_active_quest()) + report("test_a_second_activate_with_a_bad_index_is_refused", test_a_second_activate_with_a_bad_index_is_refused()) + report("test_join_keeps_the_raid_and_answers_with_progression", test_join_keeps_the_raid_and_answers_with_progression()) + report("test_first_step_moves_to_the_first_defender", test_first_step_moves_to_the_first_defender()) + report("test_the_second_step_is_refused_until_the_defender_falls", test_the_second_step_is_refused_until_the_defender_falls()) + report("test_losing_the_first_fight_ends_the_raid_with_fightlost", test_losing_the_first_fight_ends_the_raid_with_fightlost()) + report("test_win_then_final_win_ends_the_raid_and_claim_marks_it", test_win_then_final_win_ends_the_raid_and_claim_marks_it()) + report("test_refresh_lists_the_history", test_refresh_lists_the_history()) + report("test_quit_records_a_quit_and_sends_the_raid_end", test_quit_records_a_quit_and_sends_the_raid_end()) + report("test_story_movedir_is_untouched_when_no_raid_is_active", test_story_movedir_is_untouched_when_no_raid_is_active()) + report("test_raid_npc_detail_names_the_npc_and_carries_its_map", test_raid_npc_detail_names_the_npc_and_carries_its_map()) + report("test_quest_list_holds_the_raid_set_with_three_npc_boards", test_quest_list_holds_the_raid_set_with_three_npc_boards())
+  let failed: integer = report("test_find_match_lists_three_raid_opponents", test_find_match_lists_three_raid_opponents()) + report("test_activate_starts_a_raid_as_an_active_quest", test_activate_starts_a_raid_as_an_active_quest()) + report("test_a_second_activate_with_a_bad_index_is_refused", test_a_second_activate_with_a_bad_index_is_refused()) + report("test_join_keeps_the_raid_and_answers_with_progression", test_join_keeps_the_raid_and_answers_with_progression()) + report("test_first_step_moves_to_the_first_defender", test_first_step_moves_to_the_first_defender()) + report("test_the_second_step_is_refused_until_the_defender_falls", test_the_second_step_is_refused_until_the_defender_falls()) + report("test_losing_the_first_fight_preserves_the_raid_with_fightlost", test_losing_the_first_fight_preserves_the_raid_with_fightlost()) + report("test_win_then_final_win_ends_the_raid_and_claim_marks_it", test_win_then_final_win_ends_the_raid_and_claim_marks_it()) + report("test_refresh_lists_the_history", test_refresh_lists_the_history()) + report("test_quit_records_a_quit_and_sends_the_raid_end", test_quit_records_a_quit_and_sends_the_raid_end()) + report("test_story_movedir_is_untouched_when_no_raid_is_active", test_story_movedir_is_untouched_when_no_raid_is_active()) + report("test_raid_npc_detail_names_the_npc_and_carries_its_map", test_raid_npc_detail_names_the_npc_and_carries_its_map()) + report("test_quest_list_holds_the_raid_set_with_three_npc_boards", test_quest_list_holds_the_raid_set_with_three_npc_boards())
   print(to_text(13 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   failed
 end

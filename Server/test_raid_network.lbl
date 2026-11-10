@@ -1,0 +1,93 @@
+use raid_network
+use raid
+use fakeserver
+use gamedata
+use jsonout
+
+function check(name: text, ok: boolean): integer
+  intent: print the test result
+  print(if ok then "[ok] " ++ name else "[!] " ++ name end)
+  if ok then 0 else 1 end
+end
+
+function response(path: text, body: Json): Json
+  intent: parse one in process server response
+  jsonout.parse_json(fakeserver.dynamic(path, jsonout.encode_compact(body)))
+end
+
+function result(path: text, body: Json): Json
+  intent: read the result of one server response
+  jsonout.obj_get(response(path, body), "result")
+end
+
+function empty(): Json
+  intent: build an empty object
+  jsonout.json_obj([])
+end
+
+function snapshot(uid: text, level: integer): Json
+  intent: build compatible verified snapshot fields for server tests
+  jsonout.json_obj([jsonout.json_pair("uid", jsonout.json_text(uid)), jsonout.json_pair("name", jsonout.json_text("Foreign base")), jsonout.json_pair("version", jsonout.json_int(current_time_ms() / 1000)), jsonout.json_pair("shield", jsonout.json_int(0)), jsonout.json_pair("content", jsonout.json_text("tftf-310-raid-v1")), jsonout.json_pair("defenders", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("key", jsonout.json_text("optimusprime_cin_tf")), jsonout.json_pair("level", jsonout.json_int(level))])]))])
+end
+
+function test_base_edits(): integer
+  intent: test place move swap remove and invalid sockets
+  let first: Json = raid_network.place(empty(), "sock_boss_25_30", "optimusprime_cin_tf")
+  let moved: Json = raid_network.place(first, "sock_boss_22_33", "optimusprime_cin_tf")
+  let swapped: Json = raid_network.swap(moved, "sock_boss_22_33", "sock_boss_25_30")
+  let invalid: Json = raid_network.place(swapped, "sock_boss_0_0", "optimusprime_cin_tf")
+  check("place uses owned hero and real socket", raid_network.txt(raid_network.obj(first, "sock_boss_25_30"), "key", "") == "optimusprime_cin_tf") + check("moving a hero removes its old socket", not jsonout.obj_has(moved, "sock_boss_25_30") and jsonout.obj_keys_count(moved) == 1) + check("swap moves into an empty socket", jsonout.obj_has(swapped, "sock_boss_25_30") and not jsonout.obj_has(swapped, "sock_boss_22_33")) + check("invalid socket leaves placements intact", jsonout.encode_compact(swapped) == jsonout.encode_compact(invalid))
+end
+
+function test_base_routes(): integer
+  intent: test persistence of native base edit routes
+  let placed: Json = result("/base/place/user/boss/optimusprime_cin_tf/user_base_1/25/30/sock_boss_25_30", empty())
+  let persisted: Json = result("/base/active", empty())
+  let removed: Json = result("/base/remove/user/user_base_1/sock_boss_25_30/optimusprime_cin_tf", empty())
+  let persisted_again: Json = result("/base/active", empty())
+  check("native place route persists", jsonout.as_bool(jsonout.obj_get(placed, "success")) and raid_network.txt(raid_network.obj(raid_network.obj(raid_network.obj(persisted, "userBase"), "placements"), "sock_boss_25_30"), "key", "") == "optimusprime_cin_tf") + check("native remove route persists", jsonout.as_bool(jsonout.obj_get(removed, "success")) and not jsonout.obj_has(raid_network.obj(raid_network.obj(persisted_again, "userBase"), "placements"), "sock_boss_25_30"))
+end
+
+function test_snapshots(): integer
+  intent: test snapshot validation and the frozen opponent state
+  let now: integer = current_time_ms() / 1000
+  let valid: Json = snapshot("123456789", 8)
+  let bad: Json = snapshot("123456789", 101)
+  let shielded: Json = jsonout.obj_set(valid, "shield", jsonout.json_int(now + 100))
+  check("valid compatible snapshot accepted", raid_network.valid_snapshot(valid, "55555", now)) + check("own base rejected", not raid_network.valid_snapshot(valid, "123456789", now)) + check("bad level rejected", not raid_network.valid_snapshot(bad, "55555", now)) + check("shielded base excluded", not raid_network.valid_snapshot(shielded, "55555", now))
+end
+
+function test_frozen_snapshot(): integer
+  intent: test frozen foreign opponent and final result
+  let now: integer = current_time_ms() / 1000
+  let valid: Json = snapshot("123456789", 8)
+  let started: Json = raid.start_snapshot(raid.empty_state(), valid, gamedata.default_team(), now)
+  let activation: Json = raid.activation_result(started, now)
+  let active: Json = raid_network.obj(raid_network.obj(activation, "activeQuests"), "raid.1")
+  let one: Json = raid.take_step(started, "raid.1", 1, 0)
+  let won: Json = raid.fight_reply(one, "raid.1", true, now + 1)
+  check("foreign opponent is frozen", raid_network.txt(active, "opponent", "") == "123456789" and jsonout.encode_compact(raid_network.obj(raid_network.obj(started, "active"), "snapshot")) == jsonout.encode_compact(valid)) + check("foreign final win produces network result", jsonout.as_bool(jsonout.obj_get(won, "ended")) and raid_network.txt(raid_network.obj(won, "result"), "networkDefender", "") == "123456789")
+end
+
+function test_dead_team_and_replay(): integer
+  intent: test loss exhaustion and duplicate resolve protection
+  let now: integer = current_time_ms() / 1000
+  let started: Json = raid.start_raid(raid.empty_state(), 0, ["optimusprime_cin_tf"], now)
+  let stepped: Json = raid.take_step(started, "raid.1", 1, 0)
+  let lost: Json = raid.fight_reply(stepped, "raid.1", false, now + 1)
+  fakeserver.reset_raid_state()
+  let activated: Json = result("/matches/activate-match/raid", jsonout.parse_json("\{\"midx\":0,\"team\":[\"optimusprime_cin_tf\"]\}"))
+  let moved: Json = result("/quests/quest-movedir/raid.1-0/1/0", empty())
+  let request: Json = jsonout.parse_json("\{\"qid\":\"raid.1-0\",\"nonce\":\"resolve-once\",\"result\":\"WON\"\}")
+  let first: Json = response("/matches/resolve-match/quests_fight", request)
+  let repeated: Json = response("/matches/resolve-match/quests_fight", request)
+  check("last attacker loss ends raid", jsonout.as_bool(jsonout.obj_get(lost, "ended")) and not raid.has_active(raid_network.obj(lost, "state")) and not jsonout.as_bool(jsonout.obj_get(raid_network.obj(lost, "result"), "attackerWon"))) + check("duplicate resolve returns cached response", jsonout.encode_compact(first) == jsonout.encode_compact(repeated))
+end
+
+function main(): nothing
+  intent: run raid network server tests
+  let failures: integer = test_base_edits() + test_base_routes() + test_snapshots() + test_frozen_snapshot() + test_dead_team_and_replay()
+  print(to_text(14 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  if failures > 0 then exit_process(1) end
+end
+main()

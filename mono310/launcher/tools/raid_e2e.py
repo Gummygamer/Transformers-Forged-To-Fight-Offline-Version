@@ -29,7 +29,7 @@ MAIN = {"TransformersHomeScreen", "FightLandingScreen", "PVPRaidSelect", "Confir
         "QuestboardHud", "PreFightScreen", "PVPRaidResults", "BaseEditNodePopup", "FuseSocialHub", "ShieldWarning", "NSFPopup",
         "FightHud", "PostFightScreen", "FightResultsScreen", "PVPRaidReport", "FuseStoreScreen", "NodeInfoPopup"}
 TAPS = {
-    "play": (1200, 870), "fight_tab": (1200, 178), "raids_card": (1220, 370), "npc": [(726, 956), (1200, 956), (1674, 956)],
+    "play": (1200, 870), "fight_tab": (1200, 178), "raids_card": (1200, 340), "npc": [(726, 956), (1200, 956), (1674, 956)],
     "confirm_raid": (1354, 508), "start_raid": (2216, 980), "board_quit": (2313, 884), "quit_confirm": (1354, 627),
     "raid_more": (1408, 680), "prefight_fight": (1725, 993), "back": (65, 55), "chat_close": (2350, 40), "after_ko": (1200, 1000),
 }
@@ -181,6 +181,10 @@ def board(phone, npc=0, fresh=False):
             if not fresh:
                 return
             quit_raid(phone); fresh = False
+        elif here == "PreFightScreen" and fresh:
+            phone.tap_wait("back", "QuestboardHud", 15, tries=1)
+            time.sleep(1)
+            quit_raid(phone); fresh = False
         elif here == "PVPRaidResults":
             fresh = False
             phone.tap_wait("raid_more", {"PVPRaidSelect", "TeamSelectScreen"}, 30)
@@ -266,11 +270,13 @@ def fight(phone, lose=False):
     # after the K.O. the game shows its fight results; tap through until the board or the raid results are back
     t2 = time.time()
     for _ in range(40):
-        got = phone.wait({"QuestboardHud", "PVPRaidResults"}, 3, since=t2)
+        got = phone.wait({"QuestboardHud", "PVPRaidResults", "PreFightScreen"}, 3, since=t2)
         if got:
-            say("after the fight: " + got)
             time.sleep(4)
-            return got
+            current = phone.where()
+            if current in {"QuestboardHud", "PVPRaidResults", "PreFightScreen"}:
+                say("after the fight: " + current)
+                return current
         if phone.in_front():
             phone.tap("after_ko")
     fail(phone, "neither the board nor the raid results came back after the fight")
@@ -307,9 +313,12 @@ def main():
     elif a.cmd == "raid":
         board(phone, a.npc, fresh=True)
         for n in range(1, 10):
-            step(phone)
+            if phone.where() != "PreFightScreen":
+                step(phone)
             if fight(phone, lose=(n == a.lose_at)) == "PVPRaidResults":
                 break
+        else:
+            fail(phone, "raid did not reach results within nine fights")
         say("raid finished; results screen: " + phone.shot("results"))
 
 

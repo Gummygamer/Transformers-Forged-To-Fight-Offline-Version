@@ -24,7 +24,14 @@ DEV=${TFTF_DEV_DIR:-$HOME/tftf-build/devserver}
 PORT=8080
 LOGS=$DEV/logs
 
-server_pid() { pgrep -f "legible run Server/run_local.lbl" | head -1; }
+server_pid() {
+  local candidate
+  for candidate in $(pgrep -f "legible run Server/run_local.lbl"); do
+    if [ -r "/proc/$candidate/environ" ] && tr '\0' '\n' < "/proc/$candidate/environ" | rg -F -x -q "TFTF_LOG_DIR=$LOGS"; then
+      echo "$candidate"; return
+    fi
+  done
+}
 
 start_server() {
   mkdir -p "$LOGS" "$DEV/odr"

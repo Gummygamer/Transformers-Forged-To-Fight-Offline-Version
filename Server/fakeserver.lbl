@@ -2,6 +2,7 @@ use jsonout
 use gamedata
 use server_paths
 use raid
+use raid_network
 
 record ResponseChoice
   source: text
@@ -2012,6 +2013,14 @@ function generic_group_update(name: text): Json
   jsonout.json_obj([pair_text("name", name), pair_text("err", ""), pair_text("check", check), pair_int("refresh", current_time_ms() / 1000 + 3600), pair_bool("cache", false), jsonout.json_pair(name, jsonout.json_obj([]))])
 end
 
+function raid_group_update(): Json
+  intent: refresh raid history and active state through the grouped client refresh path
+  let state: Json = load_raid_now()
+  let refresh: Json = raid.refresh_result(state, raid_now_s())
+  let data: Json = raid_network.without(jsonout.obj_get(refresh, "raid"), "activeQuests")
+  jsonout.json_obj([pair_text("name", "raid"), pair_text("err", ""), pair_text("check", "raid-live-" ++ to_text(raid_now_s())), pair_int("refresh", raid_now_s() + 30), pair_bool("cache", false), jsonout.json_pair("raid", data)])
+end
+
 function grouprefresh_response(path: text): text
   intent: encode the group refresh with the missions config update when it was requested
   mutable updates: a list of Json = if query_has_missionsconfig(path) then [gamedata.build_missions_autorefresh_update()] else [] end
@@ -2020,7 +2029,7 @@ function grouprefresh_response(path: text): text
   end
   for group in requested_group_names(path) do
     if group != "missionsconfig" and group != "gamestore" and group != "tuning" then
-      set updates = append(updates, generic_group_update(group))
+      set updates = append(updates, if group == "raid" then raid_group_update() else generic_group_update(group) end)
     end
   end
   compact_envelope(jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_list(updates))]))
@@ -2097,7 +2106,7 @@ function static_dynamic(path: text, p: text, btxt: text): text
   else if ends_with(p, "/gamestore/use") then
     use_game_store_response(btxt, false)
   else if ends_with(p, "/base/active") then
-    gamedata.base_active_text()
+    raid_base_response()
   else
     static_dynamic_second(path, p, btxt)
   end
@@ -2336,6 +2345,157 @@ end)
   saved_team_envelope(team_id, saved)
 end
 
+-- Persisted base editor and the local verified-record bridge.
+function raid_network_file(name: text): text
+  intent: name a local raid bridge state file
+  path_join(log_dir(), ".fakeserver-raid-" ++ name ++ ".json")
+end
+
+function raid_read(name: text): Json
+  intent: read one raid bridge state object
+  let path: text = raid_network_file(name)
+  if file_exists(path) and jsonout.is_valid_json(read_file(path)) then jsonout.parse_json(read_file(path))
+  else if file_exists(path ++ ".bak") and jsonout.is_valid_json(read_file(path ++ ".bak")) then jsonout.parse_json(read_file(path ++ ".bak"))
+  else jsonout.json_obj([]) end
+end
+
+function raid_write(name: text, node: Json): nothing
+  intent: save one raid bridge state object
+  create_dir(log_dir())
+  let path: text = raid_network_file(name)
+  if file_exists(path) and jsonout.is_valid_json(read_file(path)) then write_file(path ++ ".bak", read_file(path)) end
+  write_file(path, jsonout.encode_compact(node))
+end
+
+function raid_placements(): Json
+  intent: load persisted base placements or the authored starting placements
+  let stored: Json = raid_read("base")
+  if jsonout.obj_has(stored, "placements") then raid_network.obj(stored, "placements") else jsonout.parse_json(read_file(path_join(gamedata.data_dir(), "base_placements.json"))) end
+end
+
+function raid_base_response(): text
+  intent: serve the base with persisted defender placements
+  if not jsonout.obj_has(raid_read("base"), "placements") then gamedata.base_active_text() else compact_envelope(raid_network.base_result(raid_placements())) end
+end
+
+function raid_placement_result(placements: Json, success: boolean): Json
+  intent: build one native base edit result
+  jsonout.json_obj([pair_bool("success", success), jsonout.json_pair("placements", placements)])
+end
+
+function raid_base_place(parts: a list of text, before: Json): Json
+  intent: validate and apply a boss placement at a real socket
+  let key: text = unwrap_or(get(parts, 4), "")
+  let socket: text = unwrap_or(get(parts, 8), "")
+  let target: Json = raid_network.socket_at(socket)
+  let valid: boolean = unwrap_or(get(parts, 3), "") == "boss" and raid_network.txt(target, "entityType", "") == "boss" and contains(gamedata.owned(), key) and unwrap_or(get(parts, 5), "") == gamedata.base_id()
+  let coordinates: boolean = unwrap_or(to_integer(unwrap_or(get(parts, 6), "-1")), -1) == raid_network.num(target, "x", -2) and unwrap_or(to_integer(unwrap_or(get(parts, 7), "-1")), -1) == raid_network.num(target, "y", -2)
+  raid_placement_result(if valid and coordinates then raid_network.place(before, socket, key) else before end, valid and coordinates)
+end
+
+function raid_base_remove(parts: a list of text, before: Json): Json
+  intent: validate and remove a placed entity
+  let socket: text = unwrap_or(get(parts, 4), "")
+  let valid: boolean = unwrap_or(get(parts, 3), "") == gamedata.base_id() and raid_network.txt(raid_network.obj(before, socket), "key", "") == unwrap_or(get(parts, 5), "") and jsonout.obj_has(before, socket)
+  raid_placement_result(if valid then raid_network.without(before, socket) else before end, valid)
+end
+
+function raid_base_swap(parts: a list of text, before: Json): Json
+  intent: validate and swap two compatible boss sockets
+  let first: text = unwrap_or(get(parts, 4), "")
+  let second: text = unwrap_or(get(parts, 5), "")
+  let valid: boolean = unwrap_or(get(parts, 3), "") == gamedata.base_id() and raid_network.txt(raid_network.socket_at(first), "entityType", "") == "boss" and raid_network.txt(raid_network.socket_at(second), "entityType", "") == "boss"
+  raid_placement_result(if valid then raid_network.swap(before, first, second) else before end, valid)
+end
+
+function raid_base_edit(p: text): text
+  intent: dispatch native base edits and persist successful placements
+  let parts: a list of text = split(trim_path(p), "/")
+  let action: text = unwrap_or(get(parts, 1), "")
+  let before: Json = raid_placements()
+  let response: Json = if action == "place" and length(parts) == 9 then raid_base_place(parts, before)
+  else if action == "remove" and length(parts) == 6 then raid_base_remove(parts, before)
+  else if action == "swap" and length(parts) == 6 then raid_base_swap(parts, before)
+  else raid_placement_result(before, false) end
+  if jsonout.as_bool(jsonout.obj_get(response, "success")) then raid_write("base", jsonout.json_obj([jsonout.json_pair("placements", jsonout.obj_get(response, "placements"))])) end
+  compact_envelope(response)
+end
+
+function raid_bridge_fields(): Json
+  intent: provide unsigned local base fields and completed attacks for the signing worker
+  let network: Json = raid_read("network")
+  let session: Session = session_for_token("")
+  let name: text = if session.name != "" then session.name else "Commander" end
+  mutable outgoing: a list of Json = []
+  for result in raid.results(load_raid_now()) do
+    if raid_network.txt(result, "networkDefender", "") != "" then set outgoing = append(outgoing, result) end
+  end
+  let defenders: a list of Json = raid_network.defenders(raid_placements())
+  jsonout.json_obj([pair_int("power", raid_network.base_power(defenders)), pair_text("name", name), pair_text("tag", ""), pair_text("content", "tftf-310-raid-v1"), pair_int("shield", raid_network.num(network, "shield", 0)), jsonout.json_pair("defenders", jsonout.json_list(defenders)), jsonout.json_pair("outgoing", jsonout.json_list(outgoing))])
+end
+
+function raid_verified_snapshots(req: Json, uid: text, now: integer): Json
+  intent: retain up to two hundred fifty six compatible foreign snapshots
+  mutable snapshots: a list of Json = []
+  for snapshot in raid_network.items(req, "snapshots") do
+    if length(snapshots) < 256 and raid_network.valid_snapshot(snapshot, uid, now) then set snapshots = append(snapshots, snapshot) end
+  end
+  jsonout.json_list(snapshots)
+end
+
+function raid_applied_ids(network: Json, now: integer): Json
+  intent: prune old defence report replay markers
+  mutable applied: Json = jsonout.json_obj([])
+  let previous: Json = raid_network.obj(network, "applied")
+  for id in jsonout.obj_keys(previous) do
+    if raid_network.num(previous, id, 0) > now - 1209600 and jsonout.obj_keys_count(applied) < 2048 then set applied = jsonout.obj_set(applied, id, jsonout.obj_get(previous, id)) end
+  end
+  applied
+end
+
+function raid_valid_report(incoming: Json, uid: text): boolean
+  intent: check the team and recipient of a verified incoming report
+  mutable valid: boolean = raid_network.txt(incoming, "id", "") != "" and raid_network.txt(incoming, "defender", "") == uid and length(raid_network.items(incoming, "team")) > 0 and length(raid_network.items(incoming, "team")) <= 3 and jsonout.type_name(jsonout.obj_get(incoming, "won")) == "bool"
+  for bid in raid_network.items(incoming, "team") do
+    if jsonout.type_name(bid) != "text" then set valid = false else if not raid_network.known_bot(jsonout.as_text(bid)) then set valid = false end
+  end
+  valid
+end
+
+function raid_apply_report(network: Json, incoming: Json, now: integer): Json
+  intent: save a new defence report once and grant its first loss shield
+  let applied: Json = raid_applied_ids(network, now)
+  let id: text = raid_network.txt(incoming, "id", "")
+  let state: Json = load_raid_now()
+  let clean: Json = jsonout.obj_set(network, "applied", applied)
+  if not raid_valid_report(incoming, raid_network.txt(network, "uid", "")) or jsonout.obj_has(applied, id) then clean else
+    let received: Json = raid_network.obj(incoming, "snapshot")
+    let own: Json = jsonout.obj_set(received, "uid", jsonout.json_text(gamedata.local_uid()))
+    let repeated: boolean = raid.has_result(state, id)
+    if not repeated then save_raid(raid.add_result(state, raid.defense_result(own, incoming, now))) end
+    let next: Json = jsonout.obj_set(clean, "applied", jsonout.obj_set(applied, id, jsonout.json_int(now)))
+    if not repeated and jsonout.as_bool(jsonout.obj_get(incoming, "won")) and raid_network.num(network, "shield", 0) <= now then jsonout.obj_set(next, "shield", jsonout.json_int(now + 86400)) else next end
+  end
+end
+
+function raid_bridge_sync(req: Json): text
+  intent: store verified snapshots and incoming reports from the local worker
+  let uid: text = raid_network.txt(req, "uid", "")
+  let now: integer = raid_now_s()
+  let identified: Json = jsonout.obj_set(raid_read("network"), "uid", jsonout.json_text(uid))
+  let stored: Json = jsonout.obj_set(identified, "snapshots", raid_verified_snapshots(req, uid, now))
+  raid_write("network", raid_apply_report(stored, raid_network.obj(req, "incoming"), now))
+  compact_envelope(jsonout.json_obj([pair_bool("success", true)]))
+end
+
+function raid_bridge_dynamic(p: text, btxt: text): text
+  intent: answer loopback raid worker and native base editor requests
+  if ends_with(p, "/tftf/raid/fields") then compact_envelope(raid_bridge_fields())
+  else if ends_with(p, "/tftf/raid/sync") then raid_bridge_sync(request_object(btxt))
+  else if contains_text(p, "/base/place/") or contains_text(p, "/base/remove/") or contains_text(p, "/base/swap/") then raid_base_edit(p)
+  else "" end
+end
+
 -- Raids (raid.lbl): the rules live there; this part keeps the state in its own file and wraps the replies.
 function raid_state_file(): text
   intent: get the file that keeps the raid state, beside the story positions
@@ -2344,18 +2504,22 @@ end
 
 function load_raid(): Json
   intent: read the raid state, or an empty one when none is saved
-  if file_exists(raid_state_file()) and jsonout.is_valid_json(read_file(raid_state_file())) then jsonout.parse_json(read_file(raid_state_file())) else raid.empty_state() end
+  if file_exists(raid_state_file()) and jsonout.is_valid_json(read_file(raid_state_file())) then jsonout.parse_json(read_file(raid_state_file()))
+  else if file_exists(raid_state_file() ++ ".bak") and jsonout.is_valid_json(read_file(raid_state_file() ++ ".bak")) then jsonout.parse_json(read_file(raid_state_file() ++ ".bak"))
+  else raid.empty_state() end
 end
 
 function save_raid(state: Json): nothing
   intent: save the raid state
   create_dir(log_dir())
+  if file_exists(raid_state_file()) and jsonout.is_valid_json(read_file(raid_state_file())) then write_file(raid_state_file() ++ ".bak", read_file(raid_state_file())) end
   write_file(raid_state_file(), jsonout.encode_compact(state))
 end
 
 public function reset_raid_state(): nothing
   intent: clear every raid, the history included
   save_raid(raid.empty_state())
+  raid_write("resolved", jsonout.json_obj([]))
 end
 
 function raid_now_s(): integer
@@ -2377,9 +2541,40 @@ function load_raid_now(): Json
   current
 end
 
-function raid_find_response(): text
-  intent: answer the raid list with its NPC opponents
-  spaced_envelope(raid.find_result(load_raid_now(), raid_now_s()))
+function raid_target_offers(target: text, state: Json): a list of Json
+  intent: find an available revenge target within the local daily chain limit
+  mutable selected: a list of Json = []
+  mutable chain: integer = 0
+  let now: integer = raid_now_s()
+  let network: Json = raid_read("network")
+  for report in raid.results(state) do
+    if raid_network.txt(report, "defender", "") == target and raid_network.num(report, "startTime", 0) > now - 86400 then set chain = chain + 1 end
+  end
+  for snapshot in raid_network.items(network, "snapshots") do
+    if chain < 3 and raid_network.txt(snapshot, "uid", "") == target and raid_network.valid_snapshot(snapshot, raid_network.txt(network, "uid", ""), now) then set selected = [jsonout.obj_set(snapshot, "targeted", jsonout.json_bool(true))] end
+  end
+  selected
+end
+
+function raid_match_entries(offers: a list of Json): Json
+  intent: build match entries for frozen foreign offers and fallback NPCs
+  mutable matches: a list of Json = []
+  for offer in offers do
+    let entry: Json = if jsonout.obj_has(offer, "npc") then raid.npc_match_at(raid_network.num(offer, "npc", 0)) else raid.snapshot_match(offer) end
+    set matches = append(matches, entry)
+  end
+  jsonout.json_list(matches)
+end
+
+function raid_find_response(btxt: text): text
+  intent: freeze the offered bases for the opponent selection screen
+  let state: Json = load_raid_now()
+  let target: text = json_value_text(jsonout.obj_get(request_object(btxt), "specificUID"), "")
+  let offers: a list of Json = if target != "" then raid_target_offers(target, state) else raid_network.offers(raid_read("network"), raid_now_s()) end
+  if length(offers) == 0 then jsonout.encode_compact(jsonout.json_obj([pair_text("error", "notavailable"), jsonout.json_pair("result", jsonout.json_obj([]))])) else
+    raid_write("offers", jsonout.json_obj([jsonout.json_pair("offers", jsonout.json_list(offers))]))
+    spaced_envelope(jsonout.obj_set(raid.find_result(state, raid_now_s()), "matches", raid_match_entries(offers)))
+  end
 end
 
 function raid_posted_team(req: Json): a list of text
@@ -2392,6 +2587,7 @@ function raid_started_reply(index: integer, team: a list of text): text
   intent: start the raid, save it and answer with its active quest
   let started: Json = raid.start_raid(load_raid_now(), index, team, raid_now_s())
   save_raid(started)
+  raid_write("network", jsonout.obj_set(raid_read("network"), "shield", jsonout.json_int(0)))
   spaced_envelope(raid.activation_result(started, raid_now_s()))
 end
 
@@ -2399,7 +2595,18 @@ function raid_activate_response(btxt: text): text
   intent: start a raid against the NPC picked from the list
   let req: Json = request_object(btxt)
   let index: integer = int_field(req, "midx", 0)
-  if raid.valid_npc(index) then raid_started_reply(index, raid_posted_team(req)) else "" end
+  let offers: a list of Json = raid_network.items(raid_read("offers"), "offers")
+  let offer: Json = unwrap_or(get(offers, index), jsonout.json_obj([pair_int("npc", index)]))
+  if index < 0 or index >= 3 then ""
+  else if jsonout.type_name(offer) == "object" and not jsonout.obj_has(offer, "npc") then
+    if not raid_network.valid_snapshot(offer, raid_network.txt(raid_read("network"), "uid", ""), raid_now_s()) then compact_envelope(jsonout.json_obj([])) else
+      let started: Json = raid.start_snapshot(load_raid_now(), offer, raid_posted_team(req), raid_now_s())
+      save_raid(started)
+      let network: Json = raid_read("network")
+      raid_write("network", jsonout.obj_set(network, "shield", jsonout.json_int(0)))
+      spaced_envelope(raid.activation_result(started, raid_now_s()))
+    end
+  else if raid.valid_npc(index) then raid_started_reply(if jsonout.obj_has(offer, "npc") then raid_network.num(offer, "npc", index) else index end, raid_posted_team(req)) else "" end
 end
 
 function raid_joined_reply(state: Json, team: a list of text): text
@@ -2482,7 +2689,22 @@ function raid_resolve_response(btxt: text): text
   intent: record the outcome of a fight of the raid in progress
   let req: Json = request_object(btxt)
   let state: Json = load_raid_now()
-  if raid.is_active(state, normalize_qid(json_text_or(req, "qid", ""))) then raid_fought_reply(state, req, uppercase(resolved_outcome(req)) == "WON") else "" end
+  let qid: text = normalize_qid(json_text_or(req, "qid", ""))
+  let nonce: text = json_text_or(req, "nonce", json_text_or(req, "id", ""))
+  let key: text = qid ++ ":" ++ nonce
+  let cache: Json = raid_read("resolved")
+  if nonce != "" and jsonout.obj_has(cache, key) then raid_network.txt(cache, key, "")
+  else if raid.is_active(state, qid) then
+    let response: text = raid_fought_reply(state, req, uppercase(resolved_outcome(req)) == "WON")
+    if nonce != "" then
+      mutable next: Json = jsonout.json_obj([pair_text(key, response)])
+      for previous in jsonout.obj_keys(cache) do
+        if jsonout.obj_keys_count(next) < 16 and previous != key then set next = jsonout.obj_set(next, previous, jsonout.obj_get(cache, previous)) end
+      end
+      raid_write("resolved", next)
+    end
+    response
+  else "" end
 end
 
 function raid_claimed_reply(after: Json, id: text): text
@@ -2502,7 +2724,9 @@ end
 
 function raid_dynamic(path: text, p: text, btxt: text): text
   intent: answer the raid routes, and return nothing for any other request
-  if ends_with(p, "/matches/find-match/raid") then raid_find_response()
+  let bridge: text = raid_bridge_dynamic(p, btxt)
+  if bridge != "" then bridge
+  else if ends_with(p, "/matches/find-match/raid") then raid_find_response(btxt)
   else if ends_with(p, "/matches/activate-match/raid") then raid_activate_response(btxt)
   else if contains_text(p, "/quests/quest-join/") then raid_join_response(p, btxt)
   else if contains_text(p, "/quests/quest-movedir/") then raid_move_response(p)
@@ -2548,6 +2772,46 @@ public function user_profile_response_values(uid: text, name: text, level: integ
   compact_envelope(profile)
 end
 
+function raid_profile_snapshot(uid: text): Json
+  intent: find a frozen active opponent or a stored foreign base profile
+  mutable snapshot: Json = jsonout.json_obj([])
+  for candidate in raid_network.items(raid_read("network"), "snapshots") do
+    if raid_network.txt(candidate, "uid", "") == uid then set snapshot = candidate end
+  end
+  let frozen: Json = raid_network.obj(raid_network.obj(load_raid_now(), "active"), "snapshot")
+  if raid_network.txt(frozen, "uid", "") == uid then frozen else snapshot end
+end
+
+function raid_profile_top(snapshot: Json): Json
+  intent: build the foreign top hero with locally calculated stats
+  let first: Json = unwrap_or(get(raid_network.items(snapshot, "defenders"), 0), jsonout.json_obj([]))
+  let bid: text = raid_network.txt(first, "key", "")
+  let level: integer = raid_network.num(first, "level", 1)
+  let hero: Json = gamedata.build_hero_entry(bid, 1, level)
+  let top: Json = jsonout.json_obj([pair_text("b", bid), pair_int("r", 1), pair_int("l", level), pair_int("sl", 0), jsonout.json_pair("a", jsonout.obj_get(hero, "attack")), jsonout.json_pair("h", jsonout.obj_get(hero, "max_hp")), jsonout.json_pair("rat", jsonout.obj_get(hero, "rating_attack")), jsonout.json_pair("rhp", jsonout.obj_get(hero, "rating_hp"))])
+  jsonout.json_obj([jsonout.json_pair("top", jsonout.json_obj([jsonout.json_pair("h", jsonout.json_list([top]))]))])
+end
+
+function raid_profile_stats(snapshot: Json): Json
+  intent: build the numeric raid rating and defender class counts
+  let rating: Json = jsonout.obj_get(raid.snapshot_match(snapshot), "bs")
+  jsonout.json_obj([pair_int("level", 2), jsonout.json_pair("bs", rating), jsonout.json_pair("bpi", rating), jsonout.json_pair("hrt", rating), pair_int("mdl", 0), pair_int("bd1", raid_network.class_count(snapshot, "warr")), pair_int("bd2", raid_network.class_count(snapshot, "scou")), pair_int("bd3", raid_network.class_count(snapshot, "tech")), pair_int("bd4", raid_network.class_count(snapshot, "demo")), pair_int("bd5", raid_network.class_count(snapshot, "tact")), pair_int("bd6", raid_network.class_count(snapshot, "braw"))])
+end
+
+function raid_foreign_profile(uid: text, fallback: text): text
+  intent: serve a stored foreign profile including raid rating and top hero
+  let snapshot: Json = raid_profile_snapshot(uid)
+  if not jsonout.obj_has(snapshot, "uid") then fallback else
+    let source: text = user_profile_response_values(uid, raid_network.txt(snapshot, "name", "Commander"), 2, raid_now_s())
+    let entry: Json = jsonout.obj_get(jsonout.parse_json(source), "result")
+    let named: Json = jsonout.obj_set(entry, "gameIntStats", raid_profile_stats(snapshot))
+    let with_top: Json = jsonout.obj_set(named, "gameJSONStats", raid_profile_top(snapshot))
+    let first: Json = unwrap_or(get(raid_network.items(snapshot, "defenders"), 0), jsonout.json_obj([]))
+    let bid: text = raid_network.txt(first, "key", "")
+    compact_envelope(jsonout.obj_set(with_top, "gameStringStats", jsonout.json_obj([pair_text("ush", bid), pair_text("td", bid)])))
+  end
+end
+
 function user_profile_response(path: text, btxt: text): text
   intent: encode
   let req: Json = request_object(btxt)
@@ -2555,7 +2819,7 @@ function user_profile_response(path: text, btxt: text): text
   let uid: text = json_text_or(req, "uid", if session.uid != "" then session.uid else "1000000000001" end)
   let name: text = if session.name != "" then session.name else "Commander" end
   let now: integer = floor(current_time_ms() / 1000)
-  user_profile_response_values(uid, name, account_level(), now)
+  raid_foreign_profile(uid, user_profile_response_values(uid, name, account_level(), now))
 end
 
 function profile_dynamic(path: text, p: text, btxt: text): text

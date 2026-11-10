@@ -1,5 +1,19 @@
 # Raids: handoff for a fresh session
 
+
+## Current checkpoint — 2026-11-09
+
+This supersedes the older status below. Work through `dce1a5f` is committed; current fixes remain uncommitted.
+
+- Live A52 ARM64: opponent/team selection, board movement and real combat work against the PC dev server. In `raid.7-0`, the first defender was beaten; a loss to the second preserved the defender at 0.2110936 HP, killed Nemesis Prime, and left two other attackers available. Full NPC victory and PVPRaidResults now pass on the A52 (`raid.8-0`). The loopback claim endpoint was checked twice: the claim flag stays set and the history retains one result; rewards remain empty by current configuration.
+- Found the recovery gap: `PVPRaidFlow.GameBoardReady` rebuilds the board without processing queued actions. Added shell patch P64 in `compat310.py` to call `CheckForActions` after the HUD is ready. ARM64 script compilation and the APK build pass. Release-signed `~/tftf-build/mono310-arm64/raid-recovery-arm64-release.apk` is installed on the A52; Live resume and post-loss retry now pass: `raid.8-0` returned automatically to PreFightScreen after Nemesis Prime lost, with two attackers still available. Follow-up passes: Optimus Primal was selected automatically, beat that defender, and retained 0.9109 HP; Nemesis Prime stayed at zero. The second defender was then beaten; the client reached the victory results screen.
+- Corrected the raid Continue tap to `(1220,526)` and made `raid_e2e.py` fail when nine fights do not reach results.
+- Updated stale loss expectations and added HP/retry/expiry checks. Tests pass: raid 30, raid routes 13, fakeserver 41, gamedata 78. Synchronized the nested account missions config with the existing DisabledLevels changes.
+- Phone save backup: `~/tftf-build/devserver/pre-p64-backup/logs`; PC save backup: its `pc-logs` directory. Phone save was restored after the APK update. Previous APK: external `codex-tftf-build/raid-session-backups/pre-p64-launcher.apk`.
+- Unity is on the reconnected external drive under `Unity/Hub/Editor/2020.3.31f1`. Build project: `~/tftf-build/mono310-arm64/ShellProject`. Bootstrap setting in that project remains `tftf-p2p-bootstrap.fly.dev:7777`.
+- Internal disk cleanup recovered 23 GB free. `media`, `.scratch`, and `.longtask` now link to preserved external copies under `codex-tftf-build/internal-disk-offload-20261109`; keep them ignored and out of Git. Cleanup report: `~/tftf-build/storage-cleanup-20261109.md`.
+- The bootstrap remains discovery-only. Defender placement, signed snapshots, mesh distribution, player raid selection and result delivery are unfinished; the overall bootstrap-backed raids objective is not complete.
+
 Status as of 2026-11-02. Read this with [`RAIDS_P2P_PLAN.md`](RAIDS_P2P_PLAN.md), which holds the eight-stage plan,
 the Stage 0 findings and the "Device status" section. This file is the working state: what is uncommitted, what is
 running on the phone, the open blocker, and what to try next.

@@ -90,6 +90,38 @@ public function npc_at(index: integer): RaidNpc
   unwrap_or(get(npcs(), index), npc_fallback())
 end
 
+public function snapshot_opponent(snapshot: Json): RaidNpc
+  intent: build a foreign opponent from validated snapshot fields with locally computed power
+  mutable defenders: a list of RaidDefender = []
+  mutable power: integer = 0
+  for item in rlist(snapshot, "defenders") do
+    let key: text = rtext(item, "key", "")
+    let level: integer = rint(item, "level", 1)
+    set defenders = append(defenders, RaidDefender { key: key, level: level })
+    set power = power + gamedata.bot_rating(key, level)
+  end
+  RaidNpc { uid: unwrap_or(to_integer(rtext(snapshot, "uid", "0")), 0), name: rtext(snapshot, "name", "Commander"), power: power, defenders: defenders }
+end
+
+function active_opponent(active: Json): RaidNpc
+  intent: read the frozen foreign snapshot or the NPC opponent of an active raid
+  if jsonout.obj_has(active, "snapshot") then snapshot_opponent(robj(active, "snapshot")) else npc_at(rint(active, "npc", 0)) end
+end
+
+public function snapshot_match(snapshot: Json): Json
+  intent: build a match list entry from a foreign base snapshot
+  npc_match(snapshot_opponent(snapshot))
+end
+
+public function start_snapshot(state: Json, snapshot: Json, team: a list of text, now_s: integer): Json
+  intent: begin a raid against a frozen copy of a foreign base
+  let started: Json = start_raid(state, 0, team, now_s)
+  let base: Json = jsonout.obj_set(active_raid(started), "snapshot", snapshot)
+  let active: Json = jsonout.obj_set(base, "targeted", jsonout.json_bool(if jsonout.type_name(jsonout.obj_get(snapshot, "targeted")) == "bool" then jsonout.as_bool(jsonout.obj_get(snapshot, "targeted")) else false end))
+  let journal: Json = jsonout.json_list([start_entry(snapshot_opponent(snapshot), now_s)])
+  with_active(started, jsonout.obj_set(active, "journal", journal))
+end
+
 function defender_at(npc: RaidNpc, index: integer): RaidDefender
   intent: read one defender of an NPC team, an empty one when out of range
   unwrap_or(get(npc.defenders, index), RaidDefender { key: "", level: 1 })
@@ -246,6 +278,15 @@ function first_standing(active: Json): text
   if found == "" then unwrap_or(get(rtexts(active, "team"), 0), "") else found end
 end
 
+function team_standing(active: Json): boolean
+  intent: check whether any attacker still has health
+  mutable alive: boolean = false
+  for bid in rtexts(active, "team") do
+    if hero_hp(active, bid) > 0.0 then set alive = true end
+  end
+  alive
+end
+
 function fighter(active: Json, hero: text): text
   intent: the attacker that fought, the first one standing when the request names none of the team
   mutable known: boolean = false
@@ -373,7 +414,7 @@ end
 function battle_action(state: Json): Json
   intent: the battle action the move reply sends when the attacker stands on an undefeated defender
   let active: Json = active_raid(state)
-  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
+  let npc: RaidNpc = active_opponent(active)
   let pos: integer = rint(active, "pos", 0)
   let defender: RaidDefender = defender_at(npc, pos - 1)
   let enemy: Json = jsonout.obj_set(gamedata.build_quest_enemy_for("", -1, defender.key, pos == length(npc.defenders)), "level", jsonout.json_int(defender.level))
@@ -404,7 +445,7 @@ public function activation_result(state: Json, now_s: integer): Json
   intent: build the activate-match result of the raid in progress as an active quest
   let active: Json = active_raid(state)
   let qid: text = rtext(active, "qid", "")
-  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
+  let npc: RaidNpc = active_opponent(active)
   let quest: Json = jsonout.json_obj([ptext("_id", qid), pint("t", rint(active, "start", now_s)), pint("expiry", rint(active, "start", now_s) + raid_seconds()), ptext("uniqueId", qid), ptext("qid", qid), ptext("id", qid), ptext("category", "raid"), ptext("opponent", to_text(npc.uid)), ptext("setId", ""), ptext("hash", ""), pint("phase", 0), jsonout.json_pair("data", jsonout.obj_set(raid_summary(npc, qid), "id", jsonout.json_text(raid_npc_set_id(npc)))), jsonout.json_pair("map", raid_map(npc)), jsonout.json_pair("progression", jsonout.json_obj([])), jsonout.json_pair("instances", jsonout.json_list([instance_json(npc, qid, active, now_s)]))])
   jsonout.json_obj([jsonout.json_pair("activeQuests", jsonout.json_obj([jsonout.json_pair(qid, quest)]))])
 end
@@ -433,17 +474,22 @@ function defender_profile(npc: RaidNpc): Json
   jsonout.json_obj([ptext("name", npc.name), ptext("tag", ""), pint("mdl", 0), ptext("bid", defender_at(npc, 0).key), pint("pi", npc.power)])
 end
 
+function result_identity_pairs(active: Json, npc: RaidNpc, s: text): a list of Pair
+  intent: build the identities and frozen snapshot metadata of a raid result
+  [ptext("_id", rtext(active, "rid", "")), ptext("qid", rtext(active, "qid", "") ++ "-0"), ptext("category", "raid"), ptext("networkDefender", rtext(robj(active, "snapshot"), "uid", "")), pint("snapshotVersion", rint(robj(active, "snapshot"), "version", 0)), ptext("s", s), jsonout.json_pair("layout", raid_layout(npc)), ptext("attacker", gamedata.local_uid()), ptext("defender", to_text(npc.uid)), jsonout.json_pair("attackerProfile", attacker_profile(rtexts(active, "team"))), jsonout.json_pair("defenderProfile", defender_profile(npc))]
+end
+
 function result_json(active: Json, won: boolean, s: text, now_s: integer): Json
   intent: build the raid result the client keeps in its history and the defender report reads
-  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
-  jsonout.json_obj([ptext("_id", rtext(active, "rid", "")), ptext("qid", rtext(active, "qid", "") ++ "-0"), ptext("category", "raid"), ptext("s", s), jsonout.json_pair("layout", raid_layout(npc)), ptext("attacker", gamedata.local_uid()), ptext("defender", to_text(npc.uid)), jsonout.json_pair("attackerProfile", attacker_profile(rtexts(active, "team"))), jsonout.json_pair("defenderProfile", defender_profile(npc)), pbool("attackerWon", won), jsonout.json_pair("attackerRewards", jsonout.json_list([])), jsonout.json_pair("defenderRewards", jsonout.json_list([])), pbool("rewardsClaimed", false), jsonout.json_pair("claimableRewards", jsonout.json_list([])), pint("startTime", rint(active, "start", 0)), pint("endTime", now_s), pbool("targeted", false), jsonout.json_pair("journal", jsonout.json_list(rlist(active, "journal")))])
+  let npc: RaidNpc = active_opponent(active)
+  jsonout.json_obj(concat(result_identity_pairs(active, npc, s), [pbool("attackerWon", won), jsonout.json_pair("attackerRewards", jsonout.json_list([])), jsonout.json_pair("defenderRewards", jsonout.json_list([])), pbool("rewardsClaimed", false), jsonout.json_pair("claimableRewards", jsonout.json_list([])), pint("startTime", rint(active, "start", 0)), pint("endTime", now_s), pbool("targeted", if jsonout.type_name(jsonout.obj_get(active, "targeted")) == "bool" then jsonout.as_bool(jsonout.obj_get(active, "targeted")) else false end), jsonout.json_pair("journal", jsonout.json_list(rlist(active, "journal")))]))
 end
 
 -- End the raid in progress: its result goes to the front of the history.
 function end_state(state: Json, won: boolean, s: text, now_s: integer): Json
   intent: close the raid in progress with a result and keep the rest of the state
   let result: Json = result_json(active_raid(state), won, s, now_s)
-  jsonout.json_obj([pint("seq", rint(state, "seq", 0)), jsonout.json_pair("active", jsonout.json_null()), jsonout.json_pair("results", jsonout.json_list(concat([result], rlist(state, "results"))))])
+  jsonout.json_obj([pint("seq", rint(state, "seq", 0)), jsonout.json_pair("active", jsonout.json_null()), jsonout.json_pair("results", jsonout.json_list(rlist(add_result(state, result), "results")))])
 end
 
 function abandon_state(state: Json, now_s: integer): Json
@@ -469,7 +515,7 @@ end
 
 function can_advance(active: Json): boolean
   intent: check that the attacker stands at the front of its beaten defenders, with a defender still ahead
-  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
+  let npc: RaidNpc = active_opponent(active)
   let pos: integer = rint(active, "pos", 0)
   pos < length(npc.defenders) and rint(active, "beaten", 0) == pos
 end
@@ -507,7 +553,7 @@ end
 function fought_active(active: Json, won: boolean, hero: text, my_hp: decimal, their_hp: decimal, now_s: integer): Json
   intent: apply a fight to the raid in progress: the health of the bot that fought, the health of the defender and the journal
   let pos: integer = rint(active, "pos", 0)
-  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
+  let npc: RaidNpc = active_opponent(active)
   let hero_after: decimal = if won then at_least(my_hp, 0.01) else 0.0 end
   let defender_after: decimal = if won then 0.0 else at_least(their_hp, 0.01) end
   let with_hp: Json = jsonout.obj_set(active, "hp", jsonout.obj_set(robj(active, "hp"), hero, jsonout.json_dec(hero_after)))
@@ -518,7 +564,7 @@ end
 
 function fight_action(kind: text, active: Json): Json
   intent: build one result action at the node the attacker stands on
-  let npc: RaidNpc = npc_at(rint(active, "npc", 0))
+  let npc: RaidNpc = active_opponent(active)
   let pos: integer = rint(active, "pos", 0)
   jsonout.json_obj([jsonout.json_pair("action", jsonout.json_obj([jsonout.json_pair(kind, jsonout.json_obj([pint("x", pos), pint("y", 1), pbool("isFinalBoss", pos == length(npc.defenders))]))]))])
 end
@@ -527,16 +573,17 @@ function fight_actions(state: Json, after: Json, won: boolean, final: boolean): 
   intent: the actions of a fight: a win clears the node and the last win completes the quest, a loss reopens the fight for another bot
   if won and final then [fight_action("battlecomplete", after), fight_action("questcomplete", after)]
   else if won then [fight_action("battlecomplete", after)]
-  else [fight_action("fightlost", after), battle_action(with_active(state, after))]
+  else if team_standing(after) then [fight_action("fightlost", after), battle_action(with_active(state, after))]
+  else [fight_action("fightlost", after)]
   end
 end
 
 function played_fight_reply(state: Json, after: Json, won: boolean, now_s: integer): Json
   intent: the reply to a fight at the node the attacker stands on: its actions, the new state and the raid result when it ended
-  let npc: RaidNpc = npc_at(rint(after, "npc", 0))
+  let npc: RaidNpc = active_opponent(after)
   let final: boolean = rint(after, "pos", 0) == length(npc.defenders)
-  let ended: boolean = won and final
-  let next: Json = if ended then end_state(with_active(state, after), true, "", now_s) else with_active(state, after) end
+  let ended: boolean = (won and final) or not team_standing(after)
+  let next: Json = if ended then end_state(with_active(state, after), won and final, "", now_s) else with_active(state, after) end
   jsonout.json_obj([jsonout.json_pair("state", next), jsonout.json_pair("actions", jsonout.json_list(fight_actions(state, after, won, final))), pbool("ended", ended), jsonout.json_pair("result", if ended then first_result(next) else jsonout.json_null() end), jsonout.json_pair("progression", progression_json(npc, after)), jsonout.json_pair("teamData", team_data(after))])
 end
 
@@ -606,7 +653,7 @@ end
 
 function progression_for(state: Json): Json
   intent: the progression of the raid in progress, or an empty object when there is none
-  if has_active(state) then progression_json(npc_at(rint(active_raid(state), "npc", 0)), active_raid(state)) else jsonout.json_obj([]) end
+  if has_active(state) then progression_json(active_opponent(active_raid(state)), active_raid(state)) else jsonout.json_obj([]) end
 end
 
 function team_data(active: Json): Json
@@ -720,4 +767,47 @@ end
 function to_integer_or_zero(id: text): integer
   intent: read the number at the end of a layout id, zero when there is none
   unwrap_or(to_integer(unwrap_or(get(split(id, "-"), 2), "0")), 0)
+end
+
+public function npc_match_at(index: integer): Json
+  intent: build the match entry of one fallback NPC
+  npc_match(npc_at(index))
+end
+
+public function add_result(state: Json, result: Json): Json
+  intent: prepend one report and retain at most fifty reports without changing the active raid
+  mutable reports: a list of Json = [result]
+  for previous in rlist(state, "results") do
+    if length(reports) < 50 and rtext(previous, "_id", "") != rtext(result, "_id", "") then set reports = append(reports, previous) end
+  end
+  jsonout.obj_set(state, "results", jsonout.json_list(reports))
+end
+
+public function defense_result(own: Json, incoming: Json, now_s: integer): Json
+  intent: build a local defence report from a verified remote outcome with locally authored teams and no remote reward values
+  let npc: RaidNpc = snapshot_opponent(own)
+  let team: a list of text = rtexts(incoming, "team")
+  let id: text = rtext(incoming, "id", "")
+  let finished_s: integer = rint(incoming, "end", now_s)
+  let active: Json = jsonout.obj_set(active_json(id, 0, team, finished_s, id), "snapshot", own)
+  let journal: Json = defense_journal(npc, incoming, team, finished_s)
+  let result: Json = result_json(jsonout.obj_set(active, "journal", journal), jsonout.as_bool(jsonout.obj_get(incoming, "won")), "", finished_s)
+  let named: Json = jsonout.obj_set(result, "attackerProfile", jsonout.obj_set(attacker_profile(team), "name", jsonout.json_text(rtext(incoming, "name", "Commander"))))
+  let identified: Json = jsonout.obj_set(jsonout.obj_set(named, "attacker", jsonout.json_text(rtext(incoming, "attacker", ""))), "defender", jsonout.json_text(gamedata.local_uid()))
+  jsonout.obj_set(identified, "networkDefender", jsonout.json_text(""))
+end
+
+
+function defense_journal(npc: RaidNpc, incoming: Json, team: a list of text, finished_s: integer): Json
+  intent: reconstruct the defence report and its signed final health updates
+  mutable updates: a list of Json = []
+  for entry in rlist(incoming, "defenders") do
+    let index: integer = rint(entry, "index", -1)
+    if index >= 0 and index < length(npc.defenders) then
+      set updates = append(updates, jsonout.json_obj([ptext("key", defender_at(npc, index).key), jsonout.json_pair("hp", jsonout.json_dec(rdec(entry, "hp", 1.0)))]))
+    end
+  end
+  let health: Json = jsonout.json_obj([jsonout.json_pair("attackers", jsonout.json_list(rlist(incoming, "attackers"))), jsonout.json_pair("defenders", jsonout.json_list(updates))])
+  let fight: Json = jsonout.json_obj([ptext("action", "fight"), pint("time", finished_s), jsonout.json_pair("position", rvec(0, 1)), jsonout.json_pair("updates", health)])
+  jsonout.json_list([start_entry(npc, finished_s), join_entry(team, finished_s), fight])
 end
