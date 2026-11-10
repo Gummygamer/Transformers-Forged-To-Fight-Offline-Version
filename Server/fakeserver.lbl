@@ -256,7 +256,7 @@ end
 
 public function tutorial_login_completed_response(): text
   intent: encode the login data: FTE complete, plus the tutorials the raid and base screens would otherwise start (their popups block the raid test path)
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))])), completed_tutorial("ShieldTutorial"), completed_tutorial("RaidsTutorial"), completed_tutorial("BotPlacementTutorial"), completed_tutorial("NavToQuestTutorial"), completed_tutorial("FightResultsTutorial"), completed_tutorial("ModTutorial"), completed_tutorial("RelicsTutorial")]))
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))])), completed_tutorial("ShieldTutorial"), completed_tutorial("RaidsTutorial"), completed_tutorial("BotPlacementTutorial"), completed_tutorial("NavToQuestTutorial"), completed_tutorial("FightResultsTutorial"), completed_tutorial("ModTutorial"), completed_tutorial("RelicsTutorial"), completed_tutorial("SparksTutorial")]))
 end
 
 function tutorial_login_response(): text
@@ -2369,9 +2369,17 @@ function int_field(req: Json, key: text, fallback: integer): integer
   if jsonout.type_name(node) == "int" then jsonout.as_int(node) else unwrap_or(to_integer(json_text_or(req, key, "")), fallback) end
 end
 
+function load_raid_now(): Json
+  intent: read the raid state, ending the raid in progress first when its time has run out
+  let stored: Json = load_raid()
+  let current: Json = raid.expire(stored, raid_now_s())
+  if raid.has_active(stored) and not raid.has_active(current) then save_raid(current) end
+  current
+end
+
 function raid_find_response(): text
   intent: answer the raid list with its NPC opponents
-  spaced_envelope(raid.find_result(load_raid(), raid_now_s()))
+  spaced_envelope(raid.find_result(load_raid_now(), raid_now_s()))
 end
 
 function raid_posted_team(req: Json): a list of text
@@ -2382,7 +2390,7 @@ end
 
 function raid_started_reply(index: integer, team: a list of text): text
   intent: start the raid, save it and answer with its active quest
-  let started: Json = raid.start_raid(load_raid(), index, team, raid_now_s())
+  let started: Json = raid.start_raid(load_raid_now(), index, team, raid_now_s())
   save_raid(started)
   spaced_envelope(raid.activation_result(started, raid_now_s()))
 end
@@ -2396,7 +2404,7 @@ end
 
 function raid_joined_reply(state: Json, team: a list of text): text
   intent: save the team of the raid in progress and answer the join
-  let joined: Json = raid.set_team(state, team)
+  let joined: Json = raid.join(state, team, raid_now_s())
   save_raid(joined)
   spaced_envelope(raid.progress_reply(joined))
 end
@@ -2404,7 +2412,7 @@ end
 function raid_join_response(p: text, btxt: text): text
   intent: add the posted team to the raid in progress
   let qid: text = normalize_qid(last_segment(p))
-  let state: Json = load_raid()
+  let state: Json = load_raid_now()
   if raid.is_active(state, qid) then raid_joined_reply(state, raid_posted_team(request_object(btxt))) else "" end
 end
 
@@ -2417,7 +2425,7 @@ end
 function raid_move_response(p: text): text
   intent: take one step of the raid in progress along the path
   let qid: text = normalize_qid(movedir_qid(p))
-  let state: Json = load_raid()
+  let state: Json = load_raid_now()
   if raid.is_active(state, qid) then raid_stepped_reply(state, raid.take_step(state, qid, movedir_dx(p), movedir_dy(p))) else "" end
 end
 
@@ -2435,25 +2443,45 @@ end
 function raid_quit_response(p: text): text
   intent: quit the raid in progress and record it in the history
   let qid: text = normalize_qid(last_segment(p))
-  let state: Json = load_raid()
-  if raid.is_active(state, qid) then raid_quit_reply(raid.abandon(state, qid, raid_now_s())) else "" end
+  let state: Json = load_raid_now()
+  if raid.is_active(state, qid) then raid_quit_reply(raid.abandon(state, qid, raid_now_s()))
+  else if starts_with(qid, "raid.") and length(raid.results(state)) > 0 then spaced_envelope_async(jsonout.json_obj([]), raid_end_items(state))
+  else "" end
+end
+
+function fight_stats(req: Json, side: text): Json
+  intent: read the fight statistics of one fighter from a resolve request, an empty object when it has none
+  let stats: Json = jsonout.obj_get(req, "game_stats")
+  if jsonout.type_name(stats) == "object" and jsonout.type_name(jsonout.obj_get(stats, side)) == "object" then jsonout.obj_get(stats, side) else jsonout.json_obj([]) end
+end
+
+function stat_health(stats: Json, fallback: decimal): decimal
+  intent: read the fraction of health a fighter ended a fight with
+  let kind: text = jsonout.type_name(jsonout.obj_get(stats, "hp_percent"))
+  if kind == "decimal" or kind == "int" then jsonout.as_dec(jsonout.obj_get(stats, "hp_percent")) else fallback end
+end
+
+function raid_fight_payload(req: Json, reply: Json): Json
+  intent: build the match-resolved payload of a raid fight: its actions, the progression after it and the team with its health
+  jsonout.json_obj([jsonout.json_pair("qid", jsonout.json_text(json_text_or(req, "qid", ""))), jsonout.json_pair("battleId", jsonout.json_text(json_text_or(req, "id", ""))), jsonout.json_pair("results", jsonout.obj_get(reply, "actions")), jsonout.json_pair("progression", jsonout.obj_get(reply, "progression")), jsonout.json_pair("teamData", jsonout.obj_get(reply, "teamData"))])
 end
 
 function raid_fought_reply(state: Json, req: Json, won: boolean): text
-  intent: apply a fight outcome, save the state and send the quest results and any raid end
-  let reply: Json = raid.fight_reply(state, normalize_qid(json_text_or(req, "qid", "")), won, raid_now_s())
+  intent: apply a fight outcome, save the state and send any raid end and then the quest results
+  let mine: Json = fight_stats(req, "player_0_stats")
+  let theirs: Json = fight_stats(req, "player_1_stats")
+  let reply: Json = raid.fight_outcome(state, normalize_qid(json_text_or(req, "qid", "")), won, json_text_or(mine, "char", ""), stat_health(mine, 1.0), stat_health(theirs, 1.0), raid_now_s())
   let after: Json = jsonout.obj_get(reply, "state")
   save_raid(after)
-  let payload: Json = jsonout.json_obj([jsonout.json_pair("qid", jsonout.json_text(json_text_or(req, "qid", ""))), jsonout.json_pair("battleId", jsonout.json_text(json_text_or(req, "id", ""))), jsonout.json_pair("results", jsonout.obj_get(reply, "actions"))])
-  let quest_item: Json = jsonout.json_obj([pair_text("component", "QuestsManager"), pair_text("channel", ""), pair_text("message", "match-resolved"), jsonout.json_pair("payload", payload)])
+  let quest_item: Json = jsonout.json_obj([pair_text("component", "QuestsManager"), pair_text("channel", ""), pair_text("message", "match-resolved"), jsonout.json_pair("payload", raid_fight_payload(req, reply))])
   let ended_items: a list of Json = if jsonout.as_bool(jsonout.obj_get(reply, "ended")) then raid_end_items(after) else [] end
-  spaced_envelope_async(jsonout.json_obj([]), concat([quest_item], ended_items))
+  spaced_envelope_async(jsonout.json_obj([]), concat(ended_items, [quest_item]))
 end
 
 function raid_resolve_response(btxt: text): text
   intent: record the outcome of a fight of the raid in progress
   let req: Json = request_object(btxt)
-  let state: Json = load_raid()
+  let state: Json = load_raid_now()
   if raid.is_active(state, normalize_qid(json_text_or(req, "qid", ""))) then raid_fought_reply(state, req, uppercase(resolved_outcome(req)) == "WON") else "" end
 end
 
@@ -2466,7 +2494,7 @@ end
 function raid_claim_response(p: text): text
   intent: claim the rewards of one raid result of the history
   let id: text = last_segment(p)
-  let state: Json = load_raid()
+  let state: Json = load_raid_now()
   if id == "defense" then spaced_envelope(raid.claim_reply("", state))
   else if raid.has_result(state, id) then raid_claimed_reply(raid.claim(state, id), id)
   else "" end
@@ -2481,7 +2509,7 @@ function raid_dynamic(path: text, p: text, btxt: text): text
   else if contains_text(p, "/quests/quest-quit/") then raid_quit_response(p)
   else if contains_text(p, "/matches/resolve-match/quests_fight") then raid_resolve_response(btxt)
   else if contains_text(p, "/raid/claim/") then raid_claim_response(p)
-  else if ends_with(p, "/autorefresh/raid/refresh") then compact_envelope(raid.refresh_result(load_raid(), raid_now_s()))
+  else if ends_with(p, "/autorefresh/raid/refresh") then compact_envelope(raid.refresh_result(load_raid_now(), raid_now_s()))
   else "" end
 end
 

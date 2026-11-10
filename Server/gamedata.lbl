@@ -627,7 +627,7 @@ end
 
 public function build_missions_autorefresh_result(): Json
   intent: build
-  jsonout.json_obj([pair_text("check", "offline-v2"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("missionsconfig", build_missions_config())])
+  jsonout.json_obj([pair_text("check", "offline-v3"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("missionsconfig", build_missions_config())])
 end
 
 public function build_missions_autorefresh_update(): Json
@@ -1281,6 +1281,12 @@ end
 -- The client fetches each boss's stats from /bcg/getBaseHeroData by (bid, rank, level) and base_stats
 -- adds level_growth() per level above 1, so these levels give regular enemies +88% and final bosses +150% health
 -- and attack. Rank stays 1 because the login data only carries rank-1 hero bases.
+public function bot_rating(bid: text, level: integer): integer
+  intent: the rating of one bot at rank one and a level, as the hero entries compute it
+  let stats: Stats = base_stats(bid, 1, level)
+  rating_for(stats.hp, stats.atk)
+end
+
 public function enemy_level(is_final_boss: boolean): integer
   intent: return
   if is_final_boss then 61 else 36 end

@@ -832,6 +832,17 @@ public function as_int(node: Json): integer
   end
 end
 
+public function as_dec(node: Json): decimal
+  intent: get a number as a decimal, whether it was written with or without a fraction
+  match node
+    when JDec { v } then v
+    when JInt { v } then to_decimal(v)
+    otherwise then
+      fail("as_dec expected a number")
+      0.0
+  end
+end
+
 public function as_bool(node: Json): boolean
   intent: get
   match node
