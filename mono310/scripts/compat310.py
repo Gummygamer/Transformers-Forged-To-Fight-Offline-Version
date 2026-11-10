@@ -985,6 +985,12 @@ public class TftfBloom : MonoBehaviour
                    "\t\tif (AllStats.ContainsKey(id))\n\t\t{\n\t\t\treturn AllStats[id].Item2;\n\t\t}\n\t\treturn string.Empty;",
                    "\t\tif (AllStats.ContainsKey(id))\n\t\t{\n\t\t\treturn AllStats[id].Item2;\n\t\t}\n\t\tif (_sparxData != null && _sparxData.gameIntStats.ContainsKey(id))\n\t\t{\n\t\t\treturn _sparxData.gameIntStats[id].ToString(System.Globalization.CultureInfo.InvariantCulture);\n\t\t}\n\t\treturn string.Empty;",
                    "P66 foreign profiles retain supplied numeric stats")
+    # P67: remote profile stats retain their wire type when display metadata is absent.
+    if os.environ.get("TFTF_SHELL") == "1":
+        replace_in(fp, "EB/Sparx/UserProfile.cs",
+                   '\t\t\t\t\t\ttext4 = statObject.DataType;\n\t\t\t\t\t}\n\t\t\t\t\tswitch (text4)',
+                   '\t\t\t\t\t\ttext4 = statObject.DataType;\n\t\t\t\t\t}\n\t\t\t\t\telse if (item.Value is Hashtable)\n\t\t\t\t\t{\n\t\t\t\t\t\ttext4 = "json";\n\t\t\t\t\t}\n\t\t\t\t\telse if (item.Value is string)\n\t\t\t\t\t{\n\t\t\t\t\t\ttext4 = "string";\n\t\t\t\t\t}\n\t\t\t\t\tswitch (text4)',
+                   "P67 preserve unregistered remote profile stat types")
     # P50 (shell only, dev): tftf/fullmana.txt keeps player 0's special meter full (see TftfFightState.FullMana)
     if os.environ.get("TFTF_SHELL") == "1":
         replace_in(main, "PlayerController.cs", "\tprotected override void Update()\n\t{\n",

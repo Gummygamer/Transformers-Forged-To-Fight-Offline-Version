@@ -71,7 +71,7 @@ def run():
         started = request(0, '/matches/activate-match/raid', {'midx':0, 'team':['optimusprime_cin_tf']})
         assert started['activeQuests']['raid.1']['opponent'] == uid_b
         profile = request(0, '/userprofile', {'uid':uid_b})
-        assert profile['name'] == 'B' and profile['gameJSONStats']['top']['h']
+        assert profile['name'] == 'B' and profile['gamestats']['top']['h'] and profile['gamestats']['bpi'] > 0
         request(0,'/quests/quest-join/raid.1-0',{'tm0':'optimusprime_cin_tf'})
         frozen = read(root/'A-server/.fakeserver-raid.json')['active']['snapshot']
         assert frozen['version'] == old_version

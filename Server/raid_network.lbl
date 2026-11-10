@@ -90,6 +90,12 @@ public function base_result(placements: Json): Json
   jsonout.obj_set(base, "userBase", jsonout.obj_set(obj(base, "userBase"), "placements", placements))
 end
 
+public function base_text(placements: Json): text
+  intent: serve edited placements without parsing and reencoding the large static map
+  let template: text = read_file(path_join(gamedata.data_dir(), "base_active_template.json"))
+  replace(template, jsonout.encode_compact(jsonout.json_text("__TFTF_RAID_PLACEMENTS__")), jsonout.encode_compact(placements))
+end
+
 public function socket_at(id: text): Json
   intent: find an authored base socket with its position and entity type
   let table: Json = jsonout.parse_json(read_file(path_join(gamedata.data_dir(), "base_sockets.json")))

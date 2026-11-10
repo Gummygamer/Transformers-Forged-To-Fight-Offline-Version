@@ -1,8 +1,8 @@
 # Plan: raids over the Arena's P2P network
 
-Status on 2026-11-02: Stage 0 is recorded below. Stage 1 is built on the server side and tested offline; its device exit is
-not run, because no phone was attached. Stages 2 to 8 have not started. The per-stage state is in
-[Status by stage](#status-by-stage). Marks follow [`DOC_STYLE.md`](../../DOC_STYLE.md).
+Status on 2026-11-10: the bootstrap-backed integration is implemented and verified. Live A52 tests pass foreign-player combat and victory results, offline report delivery after reconnect, incoming defence reports, and native base edits. Automated checks pass 176 server tests, 11 signed-record checks, two-peer restart/replay integration and Arena lockstep. See [RAIDS_HANDOFF.md](RAIDS_HANDOFF.md) for artifacts and evidence. Historical stage notes below describe earlier investigation, not current blockers.
+
+The first release publishes up to eight distinct boss blueprint/level pairs, uses rank-one combat data, and builds a linear raid path. Towers and original base geometry stay local. Rewards remain empty under the existing raid configuration. The bootstrap remains discovery-only.
 
 Read [`ONLINE_PVP.md`](ONLINE_PVP.md) first: this plan reuses the network it describes and does not restate it.
 

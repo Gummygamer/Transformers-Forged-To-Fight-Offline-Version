@@ -1,6 +1,18 @@
 # Raids: handoff for a fresh session
 
 
+## Current checkpoint — 2026-11-10
+
+The bootstrap-backed raid integration is implemented. This checkpoint supersedes historical notes below.
+
+- A52 ARM64 live: discovered a signed LAN peer, started its cached base while the defender was offline, won a real fight, and reached `PVPRaidResults` with both portraits and ratings. Reconnecting the defender delivered the signed report with attacker HP 0.8883 and defender HP 0; acknowledgment emptied the phone outbox. The reverse direction also passed: the phone's embedded server accepted a signed defence report, enabled the loss shield, and acknowledged it.
+- Native base UI removal and placement passed. The placed Nemesis Prime and the signing-key hash survived APK updates. Edited-base loading now substitutes the saved placements into a static response template, avoiding full-map JSON parsing on Android (measured 0.89 seconds).
+- Validation: 176 server tests, 11 signed-record checks, Arena lockstep suite, and two-peer restart/offline/replay integration all pass. Latest integration logs: `/tmp/tftf-raid-integration-hrrlq9ow`; server suite: `/tmp/tmp.Rb4Z0sbro9`; follow-up placement suite: `/tmp/tmp.m989LvP8s9`; Arena: `/tmp/tmp.Fwg5Z5JTOD`.
+- Final release-signed APK: `~/tftf-build/mono310-arm64/raid-integration-arm64-release.apk`. Generated project bootstrap restored to `tftf-p2p-bootstrap.fly.dev:7777`; production UDP challenge response verified. PC-server redirect removed. Private LAN fixture snapshot and peer cache entry removed; test reports remain in history. The temporary test-loss shield was cleared after verification.
+- Follow-up fixes: foreign profiles now serve the actual `gamestats` wire key; P67 preserves JSON/text stats when display registry metadata is absent. The raid phone helper now returns after starting a fresh raid instead of immediately quitting it.
+- First-release scope: up to eight distinct boss blueprint/level pairs, rank-one combat data and a linear raid board; original geometry and towers stay local. Rewards remain empty under current configuration. No central economy or authoritative anti-cheat is introduced.
+- Internal disk remains around 20 GB free; external offloads and prior save backups remain intact. Final validation backups: `~/tftf-build/raid-final-validation`.
+
 ## Current checkpoint — 2026-11-09
 
 This supersedes the older status below. Work through `dce1a5f` is committed; current fixes remain uncommitted.

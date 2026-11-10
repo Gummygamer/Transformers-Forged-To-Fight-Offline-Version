@@ -2375,7 +2375,7 @@ end
 
 function raid_base_response(): text
   intent: serve the base with persisted defender placements
-  if not jsonout.obj_has(raid_read("base"), "placements") then gamedata.base_active_text() else compact_envelope(raid_network.base_result(raid_placements())) end
+  if not jsonout.obj_has(raid_read("base"), "placements") then gamedata.base_active_text() else raid_network.base_text(raid_placements()) end
 end
 
 function raid_placement_result(placements: Json, success: boolean): Json
@@ -2808,7 +2808,9 @@ function raid_foreign_profile(uid: text, fallback: text): text
     let with_top: Json = jsonout.obj_set(named, "gameJSONStats", raid_profile_top(snapshot))
     let first: Json = unwrap_or(get(raid_network.items(snapshot, "defenders"), 0), jsonout.json_obj([]))
     let bid: text = raid_network.txt(first, "key", "")
-    compact_envelope(jsonout.obj_set(with_top, "gameStringStats", jsonout.json_obj([pair_text("ush", bid), pair_text("td", bid)])))
+    let stats: Json = jsonout.obj_set(jsonout.obj_set(raid_profile_stats(snapshot), "top", jsonout.obj_get(raid_profile_top(snapshot), "top")), "td", jsonout.json_text(bid))
+    let wire: Json = jsonout.obj_set(with_top, "gamestats", jsonout.obj_set(stats, "ush", jsonout.json_text(bid)))
+    compact_envelope(jsonout.obj_set(wire, "gameStringStats", jsonout.json_obj([pair_text("ush", bid), pair_text("td", bid)])))
   end
 end
 

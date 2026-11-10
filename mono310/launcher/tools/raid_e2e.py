@@ -197,8 +197,7 @@ def board(phone, npc=0, fresh=False):
         elif here == "TeamSelectScreen":
             phone.tap_wait("start_raid", "QuestboardHud", 60, tries=1)
             time.sleep(5)        # the board settles (cards, paths) after its HUD opens
-            if not fresh:
-                return
+            return
         elif here == "FightLandingScreen":
             phone.tap_wait("raids_card", {"PVPRaidSelect", "TeamSelectScreen", "QuestboardHud"}, 30)
             time.sleep(2)
