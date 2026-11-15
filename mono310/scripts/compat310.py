@@ -36,6 +36,18 @@ def replace_in(root, rel, old, new, cls, regex=False):
         t = re.sub(old, new, t) if regex else t.replace(old, new)
         wr(p, t); note(cls, n)
 
+def raid_board_start(main):
+    # Offline raids use their authored map coordinates, not the original 50x50 base's
+    # off-board entrance (25,45). Keep the player, start node and paths together;
+    # otherwise the camera follows a player hundreds of units from clickable nodes.
+    replace_in(main, "Quests/Presentation/Gameboard.cs",
+               r"\t\t\tif \(currentMapTile.start && _builder.IsRaid\)\n\t\t\t\{\n(?:\t\t\t\t[^\n]*\n)*\t\t\t\}\n",
+               "", "P68 raid player uses the authored start and normal path facing", regex=True)
+    for condition, variable in (("tile2.start", "pos"), ("tile.start", "vector")):
+        replace_in(main, "Quests/Presentation/GameboardBuilder.cs",
+                   r"(?m)^[\t ]*if \(_IsRaid && " + re.escape(condition) + r"\)\n[\t ]*\{\n[\t ]*" + variable + r" = RAID_START_POS;\n[\t ]*\}\n",
+                   "", "P68 raid nodes and paths use the authored start", regex=True)
+
 def generic(root):
     for p in list(root.rglob("*.cs")):
         t = rd(p); o = t
@@ -485,8 +497,9 @@ public class TftfDiag : MonoBehaviour
 				// the blob "contact shadow" quads under the feet and hips use an opaque white-on-black mask that the stand-in shader draws as
 				// cards; the TFTF sun light casts real shadows now, so these are switched off
 				if (n == "EB/Misc/ContactShadow") { if (r.enabled) r.enabled = false; continue; }
-				// 9.2.0 donor PBR shaders render in this pipeline (metallic, roughness, normal maps): keep them
-				if (n.StartsWith("Hidden/PBR")) continue;
+				// Keep donor PBR only when this graphics API can run it. Android bundles can carry named
+				// shaders without a Windows/D3D variant; those must reach the textured fallback below.
+				if (n.StartsWith("Hidden/PBR") && m.shader.isSupported) continue;
 				if (!(n.StartsWith("Hidden/GridReveal") || n.Length == 0 || !m.shader.isSupported)) continue;      // empty name: a donor shader that did not load (magenta)
 				if (n.Length == 0 || !m.shader.isSupported)      // lights, sky and flares are drawn by the game's own deferred passes: leave them alone
 				{
@@ -518,6 +531,7 @@ public class TftfDiag : MonoBehaviour
 					}
 				}
 				int id = m.GetInstanceID();
+				Material source = ReadDonorProperties(m);
 				Texture tex = null;
 				string texProp = null;
 				foreach (string pn in prefs) { if (m.HasProperty(pn)) { tex = m.GetTexture(pn); if (tex != null) { texProp = pn; break; } } }
@@ -543,13 +557,13 @@ public class TftfDiag : MonoBehaviour
 				if (tftfFx)
 				{
 					// effect meshes glow with their emissive map (or base map) in their emissive tint; nothing to draw otherwise
-					Texture fxTex = m.HasProperty("_emissive_tex") ? m.GetTexture("_emissive_tex") : null;
-					if (fxTex == null && m.HasProperty("_base_tex")) fxTex = m.GetTexture("_base_tex");
+					Texture fxTex = source.HasProperty("_emissive_tex") ? source.GetTexture("_emissive_tex") : null;
+					if (fxTex == null && source.HasProperty("_base_tex")) fxTex = source.GetTexture("_base_tex");
 					if (fxTex != null) nm.mainTexture = fxTex;
-					Color fxCol = m.HasProperty("_emissive_intensity_col") ? m.GetColor("_emissive_intensity_col") : Color.white;
+					Color fxCol = source.HasProperty("_emissive_intensity_col") ? source.GetColor("_emissive_intensity_col") : Color.white;
 					nm.color = fxTex != null ? fxCol : Color.black;
-					if (m.HasProperty("_emissive_overbright_range")) nm.SetFloat("_EmisOver", m.GetFloat("_emissive_overbright_range"));
-					if (m.HasProperty("_emissive_ramp_range")) nm.SetFloat("_EmisRamp", m.GetFloat("_emissive_ramp_range"));
+					if (source.HasProperty("_emissive_overbright_range")) nm.SetFloat("_EmisOver", source.GetFloat("_emissive_overbright_range"));
+					if (source.HasProperty("_emissive_ramp_range")) nm.SetFloat("_EmisRamp", source.GetFloat("_emissive_ramp_range"));
 					nm.SetFloat("_UseVC", r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer ? 1f : 0f);
 				}
 				if (nm.HasProperty("_NormalTex"))
@@ -584,6 +598,8 @@ public class TftfDiag : MonoBehaviour
 					MeshFilter lf = r.GetComponent<MeshFilter>();
 					if (lf != null && lf.sharedMesh != null && lf.sharedMesh.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord1)) nm.SetFloat("_LmOn", 1f);
 				}
+				if (!tftfFx) CopyEmission(source, nm, n);
+				if (source != m) Object.Destroy(source);
 				mats[i] = nm; changed = true;
 				if (_swapped.Add(id)) Debug.Log("[DIAG] swapped " + r.name + " shader=" + n.Substring(0, Mathf.Min(48, n.Length)) + " tex=" + (tex != null ? tex.name : "none") + " props=" + string.Join(",", m.GetTexturePropertyNames()));
 			}
@@ -619,18 +635,58 @@ public class TftfDiag : MonoBehaviour
 		if (m.name.EndsWith("_swap") || m.name.StartsWith("skybox")) return false;
 		return m.renderQueue >= 2500 || m.name.StartsWith("fx_") || m.HasProperty("_particle_lifetime_color_tex");
 	}
+	private static void CopyEmission(Material source, Material target, string shaderName)
+	{
+		if (!target.HasProperty("_EmisCompOn")) return;
+		if (shaderName.Contains("_EMISSIVE_NONE")) { target.SetFloat("_EmisOver", 0f); return; }
+		Texture emission = source.HasProperty("_emissive_tex") ? source.GetTexture("_emissive_tex") : null;
+		Texture packed = source.HasProperty("_pbr_composite_tex") ? source.GetTexture("_pbr_composite_tex") : null;
+		if (emission == null && packed == null) return;
+		if (packed != null && emission == null)
+		{
+			target.SetTexture("_CompTex", packed); target.SetFloat("_EmisCompOn", 1f);
+			Vector2 scale = source.GetTextureScale("_pbr_composite_tex"), offset = source.GetTextureOffset("_pbr_composite_tex");
+			target.SetVector("_CompST", new Vector4(scale.x, scale.y, offset.x, offset.y));
+		}
+		else
+		{
+			target.SetTexture("_EmisTex", emission);
+			target.SetTextureScale("_EmisTex", source.GetTextureScale("_emissive_tex"));
+			target.SetTextureOffset("_EmisTex", source.GetTextureOffset("_emissive_tex"));
+		}
+		if (source.HasProperty("_emissive_intensity_col")) target.SetColor("_EmisColor", source.GetColor("_emissive_intensity_col") * 3f);
+		if (source.HasProperty("_emissive_overbright_range")) target.SetFloat("_EmisOver", source.GetFloat("_emissive_overbright_range"));
+		if (source.HasProperty("_emissive_ramp_range")) target.SetFloat("_EmisRamp", source.GetFloat("_emissive_ramp_range"));
+		if (source.HasProperty("_emissive_pulse_intensity_range") && source.HasProperty("_emissive_pulse_time_range"))
+			target.SetVector("_EmisPulse", new Vector4(source.GetFloat("_emissive_pulse_intensity_range"), source.GetFloat("_emissive_pulse_time_range"), 0f, 0f));
+		Debug.Log("[DIAG] restored emission " + target.name + " texture=" + (emission != null ? emission.name : packed.name));
+	}
+
+	private static Shader _propertyShader;
+	private static Material ReadDonorProperties(Material material)
+	{
+		if (material.shader != null && material.shader.isSupported) return material;
+		if (_propertyShader == null) _propertyShader = Shader.Find("TFTF/DonorProperties");
+		if (_propertyShader == null) return material;
+		Material copy = new Material(material);
+		copy.shader = _propertyShader;
+		return copy;
+	}
+
 	private static void ConvertFx(Material m)
 	{
 		if (_fxShader == null) _fxShader = ShaderFallback.Find("TFTF/AddFx");
 		if (_fxShader == null || _fxShader.name != "TFTF/AddFx") return;
-		Texture fxTex = m.HasProperty("_emissive_tex") ? m.GetTexture("_emissive_tex") : null;
-		if (fxTex == null && m.HasProperty("_base_tex")) fxTex = m.GetTexture("_base_tex");
-		if (fxTex == null && m.HasProperty("_MainTex")) fxTex = m.GetTexture("_MainTex");
-		Color fxCol = m.HasProperty("_emissive_intensity_col") ? m.GetColor("_emissive_intensity_col") : Color.white;
-		float over = m.HasProperty("_emissive_overbright_range") ? m.GetFloat("_emissive_overbright_range") : 8f;
-		float ramp = m.HasProperty("_emissive_ramp_range") ? m.GetFloat("_emissive_ramp_range") : 1f;
-		bool particle = m.HasProperty("_particle_lifetime_color_tex");
-		Debug.Log("[DIAG] fx before convert: " + m.name + " shader='" + m.shader.name + "' ok=" + m.shader.isSupported + " q=" + m.renderQueue + " texProps=" + string.Join(",", m.GetTexturePropertyNames()) + " has(_emissive_tex)=" + m.HasProperty("_emissive_tex"));
+		Material source = ReadDonorProperties(m);
+		Texture fxTex = source.HasProperty("_emissive_tex") ? source.GetTexture("_emissive_tex") : null;
+		if (fxTex == null && source.HasProperty("_base_tex")) fxTex = source.GetTexture("_base_tex");
+		if (fxTex == null && source.HasProperty("_MainTex")) fxTex = source.GetTexture("_MainTex");
+		Color fxCol = source.HasProperty("_emissive_intensity_col") ? source.GetColor("_emissive_intensity_col") : Color.white;
+		float over = source.HasProperty("_emissive_overbright_range") ? source.GetFloat("_emissive_overbright_range") : 8f;
+		float ramp = source.HasProperty("_emissive_ramp_range") ? source.GetFloat("_emissive_ramp_range") : 1f;
+		bool particle = System.Array.IndexOf(m.GetTexturePropertyNames(), "_particle_lifetime_color_tex") >= 0;
+		Debug.Log("[DIAG] fx before convert: " + source.name + " shader='" + source.shader.name + "' ok=" + source.shader.isSupported + " q=" + source.renderQueue + " texProps=" + string.Join(",", source.GetTexturePropertyNames()) + " has(_emissive_tex)=" + source.HasProperty("_emissive_tex"));
+		if (source != m) Object.Destroy(source);
 		m.shader = _fxShader;
 		m.mainTexture = fxTex;
 		m.color = fxTex != null ? fxCol : Color.black;
@@ -826,12 +882,23 @@ public class TftfDiag : MonoBehaviour
 // resolution and added back. tftf/tune.txt: "bloom 0" switches it off; "bloomthr"/"bloomgain" control the bright-pixel term.
 public class TftfBloom : MonoBehaviour
 {
-	// off by default: tuned for TFTF/PbrLite; the donor PBR shaders' brighter tone-mapped output bloomed fights and menus to white (tune.txt "bloom 1.1" turns it on)
+#if UNITY_STANDALONE_WIN
+	// Windows uses the authored shaders' emission masks. Do not bloom every bright surface.
+	public static float Amount = 0.6f, Threshold = 0.88f, ThresholdGain = 0f;
+#else
+	// Donor Android shaders do not write the authored emission mask.
 	public static float Amount = 0f, Threshold = 0.88f, ThresholdGain = 0.35f;
+#endif
 	private static Material _mat;
 	private static bool _logged;
 
-	private void OnPreRender() { Shader.SetGlobalFloat("_TftfGlowOn", Amount > 0f ? 1f : 0f); }
+	private void OnPreRender()
+	{
+		Shader.SetGlobalFloat("_TftfGlowOn", Amount > 0f ? 1f : 0f);
+#if UNITY_STANDALONE_WIN
+		Shader.SetGlobalFloat("_TftfEmissiveBloomOnly", 1f);
+#endif
+	}
 	private void OnPostRender() { Shader.SetGlobalFloat("_TftfGlowOn", 0f); }
 
 	private static void Blur(RenderTexture a, RenderTexture b)
@@ -968,6 +1035,7 @@ public class TftfBloom : MonoBehaviour
     # P64 (shell only): PVPRaidFlow rebuilds its board after combat, unlike QuestFlow's ResumeBoard path.
     # Process the queued battlecomplete/fightlost/battle actions once the HUD is ready, including a retry after a loss.
     if os.environ.get("TFTF_SHELL") == "1":
+        raid_board_start(main)
         replace_in(main, "PVPRaidFlow.cs",
                    '\t\tWindowManager.Instance.ShowLoadingScreen(show: false, "raidflow");\n\t}\n\n\tprivate void FinishQuest()',
                    '\t\tWindowManager.Instance.ShowLoadingScreen(show: false, "raidflow");\n\t\tif (_gameBoard != null)\n\t\t{\n\t\t\t_gameBoard.CheckForActions();\n\t\t}\n\t}\n\n\tprivate void FinishQuest()',

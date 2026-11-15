@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [0.14.1](#0141)
 - [0.13](#013)
 - [0.12.1](#0121)
 - [0.12](#012)
@@ -28,6 +29,14 @@
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
 ## Unreleased
+
+- Windows: unsupported donor PBR shaders now use the textured fallback, restoring the magenta base terrain. Verified with GE-Proton against the original 0.14.1 release.
+- Windows: recover saved emissive textures, colors, intensity, atlas coordinates, and pulses from unsupported materials; enable bloom from emission masks so lights glow without washing out the terrain.
+- Windows build includes the current shared ARM64 launcher, game repairs, and server payload.
+
+## 0.14.1
+
+- Windows x64 build refreshed from the latest code, including raid progression, foreign-base matches, reports, and the local base editor.
 
 ## 0.13
 

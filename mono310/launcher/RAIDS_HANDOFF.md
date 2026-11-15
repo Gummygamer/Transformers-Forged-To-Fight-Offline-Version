@@ -1,5 +1,11 @@
 # Raids: handoff for a fresh session
 
+## Board movement fix — 2026-11-15
+
+- Reproduced on the A52 against a cached six-defender player base: the player stood far from the board, with defender cards clustered at the horizon. No movement request was sent by tapping there.
+- The client overrides the raid start with `GameboardBuilder.RAID_START_POS` `(25,45)`, while the server's linear maps start at `(0,1)`. This displaces the player, start node and first path from the authored board. Earlier `raid_e2e.py step` checks bypassed tapping by calling `ActiveQuest.Move` directly.
+- `compat310.py` P68 removes all three overrides and uses the ordinary map-coordinate placement and path-facing logic. This is a client fix: ARM64 requires a rebuilt IL2CPP APK; updating `raid.lbl` alone cannot apply it.
+
 
 ## Current checkpoint — 2026-11-10
 

@@ -126,6 +126,7 @@ PBR = r"""Shader "TFTF/PbrLite"
         _IsSkinned ("Robot (skinned mesh)", Float) = 0
         _CompTex ("RAOE composite (R roughness, G AO, B emissive)", 2D) = "black" {}
         _CompOn ("composite present", Float) = 0
+        _EmisCompOn ("packed emission present", Float) = 0
         _CompST ("donor _pbr_composite_tex_ST (merged atlas)", Vector) = (1,1,0,0)
         _NormalST ("donor _normal_tex_ST", Vector) = (1,1,0,0)
         _NmMetal ("metallic in the normal map's blue (EB_COMPOSITE_NM)", Float) = 0
@@ -153,8 +154,8 @@ PBR = r"""Shader "TFTF/PbrLite"
             struct appdata_t { float4 vertex : POSITION; float3 normal : NORMAL; float2 texcoord : TEXCOORD0; float2 texcoord1 : TEXCOORD1; };
             struct v2f { float4 pos : SV_POSITION; float3 n : TEXCOORD1; float2 uv : TEXCOORD0; float3 wp : TEXCOORD2; SHADOW_COORDS(3) float2 uvRaw : TEXCOORD4; float2 uvLm : TEXCOORD5; };
             sampler2D _TftfLm; float _TftfLmOn, _LmOn;
-            sampler2D _CompTex; float _CompOn; sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend, _CompST, _NormalST; float _NmMetal;
-            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float _IsSkinned; float4 _TftfRobot; float4 _TftfSky; float _EmisOver, _EmisRamp, _TftfGlowOn; float4 _EmisPulse; float _TftfEmis;
+            sampler2D _CompTex; float _CompOn, _EmisCompOn; sampler2D _MainTex, _NormalTex, _MetalTex, _RoughTex, _AoTex, _EmisTex, _Base2Tex, _MaskTex; float4 _Base2ST, _MaskST, _Blend, _CompST, _NormalST, _EmisTex_ST; float _NmMetal;
+            fixed4 _Color, _EmisColor; float4 _MainTex_ST, _Flags; float _MetalAmt, _RoughAmt; float4 _TftfLightDir; float _TftfDebug; float4 _TftfTune; float4 _TftfGrade; float _IsSkinned; float4 _TftfRobot; float4 _TftfSky; float _EmisOver, _EmisRamp, _TftfGlowOn, _TftfEmissiveBloomOnly; float4 _EmisPulse; float _TftfEmis;
             v2f vert(appdata_t v)
             {
                 v2f o; o.pos = UnityObjectToClipPos(v.vertex); o.uv = TRANSFORM_TEX(v.texcoord, _MainTex); o.uvRaw = v.texcoord; o.uvLm = v.texcoord1;
@@ -206,7 +207,7 @@ PBR = r"""Shader "TFTF/PbrLite"
                 float3 alb = pow(albS * _Color.rgb, 2.2);
                 float metal = _NmMetal > 0.5 ? nmS.z : _Flags.y > 0.5 ? saturate(tex2D(_MetalTex, uv).r * _MetalAmt) : saturate(_MetalAmt);
                 // donor decode: channels squared; R^2 is the GGX alpha^2 (= our rough^4), G^2 AO, B^2 emissive mask
-                float3 comp = _CompOn > 0.5 ? tex2D(_CompTex, uvC).rgb : float3(-1, -1, 0);
+                float3 comp = _CompOn > 0.5 || _EmisCompOn > 0.5 ? tex2D(_CompTex, uvC).rgb : float3(-1, -1, 0);
                 float rough = _CompOn > 0.5 ? sqrt(saturate(comp.r)) : (_Flags.z > 0.5 ? saturate(tex2D(_RoughTex, uv).r * _RoughAmt) : saturate(_RoughAmt));
                 float ao = _CompOn > 0.5 ? comp.g * comp.g : (_Flags.w > 0.5 ? tex2D(_AoTex, uv).r : 1);
                 rough = clamp(rough, 0.12, 1);
@@ -256,11 +257,13 @@ PBR = r"""Shader "TFTF/PbrLite"
                 // material's own emissive colour (Primal's eyes red, head lights orange)
                 float3 ecol = _EmisColor.rgb / 3;      // TftfDiag stores it * 3
                 float pulse = 1 + sin(_Time.z * _EmisPulse.y) * _EmisPulse.x;
-                float3 emap = _CompOn > 0.5 ? pow(max(comp.b * comp.b * ecol * ecol, 1e-8), _EmisRamp > 0 ? _EmisRamp : 1) * pulse * _EmisOver * (_TftfEmis > 0 ? _TftfEmis : 1)
-                                            : pow(tex2D(_EmisTex, uv).rgb, 2.2) * 2.2 * clamp(log2(max(_EmisOver, 1)) / 6.9, 0.25, 1.4);
+                float3 emissionSample = _CompOn > 0.5 || _EmisCompOn > 0.5 ? comp.bbb : tex2D(_EmisTex, i.uvRaw * _EmisTex_ST.xy + _EmisTex_ST.zw).rgb;
+                float3 emap = pow(max(emissionSample * emissionSample * ecol * ecol, 0), _EmisRamp > 0 ? _EmisRamp : 1) * pulse * _EmisOver * (_TftfEmis > 0 ? _TftfEmis : 1);
                 col += emap;
                 // alpha = glow mask for TFTF/Bloom on the fight camera (TftfBloom sets _TftfGlowOn only while it renders)
-                float glow = saturate(dot(emap, float3(0.3, 0.5, 0.2)) * 0.9 + saturate(dot(col, float3(0.3, 0.5, 0.2)) - 1.6) * 0.25);
+                float glow = dot(emap, float3(0.3, 0.5, 0.2)) * 0.9;
+                if (_TftfEmissiveBloomOnly < 0.5) glow += saturate(dot(col, float3(0.3, 0.5, 0.2)) - 1.6) * 0.25;
+                glow = saturate(glow);
                 col = (col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14);      // ACES approximation
                 col = pow(saturate(col), 1 / 2.2);
                 float lum = dot(col, float3(0.299, 0.587, 0.114));
@@ -289,6 +292,8 @@ PBR = r"""Shader "TFTF/PbrLite"
 }
 """
 (out / "TFTF_PbrLite.shader").write_text(PBR)
+(out / "TFTF_DonorProperties.shader").write_text(
+    (Path(__file__).resolve().parents[1] / "unity/shaders/TftfDonorProperties.shader").read_text())
 
 SKY = r"""Shader "TFTF/SkyLite"
 {
