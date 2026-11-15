@@ -2,7 +2,7 @@
 
 ## Table of contents
 
-- [Unreleased](#unreleased)
+- [0.14.2](#0142)
 - [0.14.1](#0141)
 - [0.13](#013)
 - [0.12.1](#0121)
@@ -28,7 +28,7 @@
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
 
-## Unreleased
+## 0.14.2
 
 - Windows: unsupported donor PBR shaders now use the textured fallback, restoring the magenta base terrain. Verified with GE-Proton against the original 0.14.1 release.
 - Windows: recover saved emissive textures, colors, intensity, atlas coordinates, and pulses from unsupported materials; enable bloom from emission masks so lights glow without washing out the terrain.
