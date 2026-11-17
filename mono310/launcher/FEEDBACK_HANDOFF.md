@@ -44,12 +44,20 @@ The reporter's screenshot of the raw text never reached us. The reporter wrote `
 
 ## Open: invisible bullets
 
+Follow-up on 2026-11-16: the user believes this still affects the latest launcher and all robots.
+The exact installed version, platform and whether shots deal damage are not confirmed. No Android device was
+connected during this investigation (`adb devices` returned an empty list); this remains unverified in-game.
+
 Nothing has been reproduced. In the 100 s recording of an Arena fight, neither fighter fired. **[👁 live]**
 
 The first job is to make a fighter shoot and record it:
 
-1. `tftfbot.py fight` has no ranged action, and its action list is in `tools/tftfbot.py`. **[📄 binary]** Either add one
-   in `shell/TftfMain/TftfBot.cs` or fire by touch on the phone.
+1. `mono310/launcher/tools/tftfbot.py fight` has no ranged action in its chooser, but
+   `shell/TftfMain/TftfBot.cs` already accepts `shoot`: it backs out of melee range when possible and attempts
+   ranged attacks for 30 seconds. Do not run the automatic fight chooser at the same time, since its commands
+   cancel shooting. With a fight active, enable `tftf/bot.on` and write a fresh integer sequence followed by
+   `shoot` to `tftf/botcmd.txt`. Capture Unity logcat before issuing the command; inspect `[TFTFBOT] shoot input`
+   and `[TFTFFX]` spawn, fire-move and renderer diagnostics. Remove both control files after testing.
 2. Record with `adb shell screenrecord`, then step through the frames with `ffmpeg`. Delete the recording from the phone
    afterwards, and keep it out of Git: `media/` and captures are local-only.
 
@@ -64,6 +72,11 @@ Things to rule out, all **[⚠ inferred]**:
 - The spawn fails, for example a pool or prefab that does not resolve.
 - The projectile exists but its material draws nothing: a stand-in shader, or a bullet shader the converter maps wrongly.
 - The move data of donor fighters refers to prefabs the 3.1.0 data lacks.
+
+Current source lead, not a confirmed cause: `compat310.py`'s `ConvertFx` and the effects branch in `SwapPbr`
+set additive material color to black if texture recovery fails. Check the actual projectile's material and
+`fx material converted in place` log before changing this behavior. The generic particle simulation shaders
+in `gen_shaders.py` are also stand-ins; their presence alone does not establish that a bullet uses them.
 
 The `run.sh` log warns `extract_donor_moves: UnityPy is missing` and `9.2 fighters will have no hit events`. An earlier
 note calls this harmless for the shell because the phone builds `moves92` itself. **[⚠ inferred]** Check it again if the

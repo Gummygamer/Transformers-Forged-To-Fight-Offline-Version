@@ -14,6 +14,20 @@ using UnityEngine;
 public static class ShaderFallback { public static Shader Find(string name) { return null; } }
 public class UIWidget : MonoBehaviour { public Texture mainTexture; public int width, height; }
 public class UITexture : UIWidget { public Shader shader; public Rect uvRect; }
+namespace EB
+{
+    public static class Assets
+    {
+        public static T[] LoadAll<T>(string path) where T : Object { return null; }
+        public static void Unload(Object o) { }
+    }
+    public static class Localizer
+    {
+        public static System.Collections.Generic.Dictionary<string, string> Strings;
+        public static System.Collections.Hashtable LoadStringsFromText(string text) { return null; }
+    }
+    public static class JSON { public static object Parse(string text) { return null; } }
+}
 S
 REFS=(-r:"$LIB/mscorlib.dll" -r:"$LIB/System.dll" -r:"$LIB/System.Core.dll" -r:"$LIB/System.IO.Compression.dll")
 for m in CoreModule IMGUIModule AndroidJNIModule UnityWebRequestModule UnityWebRequestTextureModule InputLegacyModule ImageConversionModule AssetBundleModule TextRenderingModule; do

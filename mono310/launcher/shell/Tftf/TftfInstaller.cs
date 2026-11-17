@@ -33,10 +33,10 @@ public sealed class ZipDataSource : IPlayerDataSource
 public static class TftfInstaller
 {
 #if UNITY_STANDALONE_WIN
-    public const int Version = 6;                                     // bump to force a reinstall
+    public const int Version = 7;                                     // refresh shared effects from the donor APK
     const int BundlePlatform = 19;     // StandaloneWindows64: the player refuses the APKs' bundles stamped for Android
 #else
-    public const int Version = 4;                                     // bump to force a reinstall
+    public const int Version = 5;                                     // refresh shared effects from the donor APK
     const int BundlePlatform = 0;      // phone: the APKs' bundles already match the player
 #endif
     public static volatile string Status = "";
@@ -121,7 +121,7 @@ public static class TftfInstaller
             if (moves == null) throw new Exception("The second file is not the 9.2.0 game APK (no character move data found).");
             Step("Extracting fighter move data", 0.4f);
             CopyEntry(moves, Path.Combine(root, "moves92.bundle"), true);
-            Step("Replacing the G1 fighter models", 0.42f);
+            Step("Replacing fighter models and shared effects", 0.42f);
             ReplaceCharactersBundle(z92, Path.Combine(root, "base/assets"));
             Step("Extracting translations", 0.43f);
             UnityEngine.Debug.Log("[TFTF] string tables: " + TftfLanguages.Extract(z92, root));
@@ -174,18 +174,25 @@ public static class TftfInstaller
     // The 3.1.0 characters bundle (the G1 Starscream_GS and OptimusPrime_GS_V models) carries 3.1.0 shaders that this player
     // only draws with the flat stand-in. The 9.2.0 bundle holds the same four prefabs under the same CAB name, built against
     // the donor PBR shaders the other fighters use, so it replaces the 3.1.0 file and its toc record.
+    // Shared effects must come from that same APK: character_fx keeps its CAB name across versions, but its
+    // object IDs change. Loading the old bundle leaves donor PrefabLib references null (invisible bullets).
     static void ReplaceCharactersBundle(ZipArchive z92, string baseDir)
     {
-        var bundle = z92.GetEntry("assets/assetpack/characters/characters.assetbundle");
         var toc92 = z92.GetEntry("assets/characters/toc.txt");
         string tocPath = Path.Combine(baseDir, "characters/toc.txt");
-        if (bundle == null || toc92 == null || !File.Exists(tocPath)) { Note("characters bundle not replaced: missing input"); return; }
-        JObj rec92;
-        using (var r = new StreamReader(toc92.Open(), System.Text.Encoding.UTF8)) rec92 = (JObj)((JObj)((JObj)JsonLite.Parse(r.ReadToEnd()))["bundles"])["characters"];
+        if (toc92 == null || !File.Exists(tocPath)) throw new Exception("Missing character bundle index in the selected APKs.");
+        JObj donorBundles;
+        using (var r = new StreamReader(toc92.Open(), System.Text.Encoding.UTF8)) donorBundles = (JObj)((JObj)JsonLite.Parse(r.ReadToEnd()))["bundles"];
         var toc = (JObj)JsonLite.Parse(File.ReadAllText(tocPath));
-        var rec = (JObj)((JObj)toc["bundles"])["characters"];
-        foreach (var k in new[] { "crc", "size", "hash", "ts" }) rec[k] = rec92[k];
-        CopyEntry(bundle, Path.Combine(baseDir, "characters/characters.assetbundle"), true);
+        foreach (string name in new[] { "characters", "character_fx" })
+        {
+            var bundle = z92.GetEntry("assets/assetpack/characters/" + name + ".assetbundle");
+            if (bundle == null) throw new Exception("Missing " + name + " bundle in the 9.2.0 APK.");
+            var rec92 = (JObj)donorBundles[name];
+            var rec = (JObj)((JObj)toc["bundles"])[name];
+            foreach (var k in new[] { "crc", "size", "hash", "ts", "paths", "deps" }) rec[k] = rec92[k];
+            CopyEntry(bundle, Path.Combine(baseDir, "characters/" + name + ".assetbundle"), true);
+        }
         File.WriteAllText(tocPath, JsonLite.Write(toc, true) + "\n", new System.Text.UTF8Encoding(false));
     }
 
