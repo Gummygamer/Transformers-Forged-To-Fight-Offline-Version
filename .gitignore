@@ -63,3 +63,5 @@ __pycache__/
 /tools/stubs92/
 
 /unity_build_project/
+
+.dory/
