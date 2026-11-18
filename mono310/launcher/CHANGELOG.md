@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.14.3](#0143)
 - [0.14.2](#0142)
 - [0.14.1](#0141)
 - [0.13](#013)
@@ -27,6 +28,10 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.14.3
+
+- Installer refreshes `character_fx` from the donor APK.
 
 ## 0.14.2
 
