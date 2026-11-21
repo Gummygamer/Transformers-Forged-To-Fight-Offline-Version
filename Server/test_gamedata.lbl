@@ -1,6 +1,7 @@
 use jsonout
 use gamedata
 use fakeserver
+use sharding
 
 function last_slash(path: text): integer
   intent: find
@@ -1103,23 +1104,35 @@ end
 
 function main_group_5(): integer
   intent: run
-  mutable failed: integer = 0
-  set failed = failed + report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing")
-  set failed = failed + run_custom_story_tests() + run_slice3_tests()
-  set failed = failed + run_slice4_tests()
-  set failed = failed + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move")
-  failed
+  report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing") + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move")
+end
+
+function run_unit(unit: integer): integer
+  intent: run one independently shardable group of tests
+  if unit == 0 then main_group_1()
+  else if unit == 1 then main_group_2()
+  else if unit == 2 then main_group_3()
+  else if unit == 3 then main_group_4()
+  else if unit == 4 then main_group_5()
+  else if unit == 5 then run_custom_story_tests()
+  else if unit == 6 then run_slice3_tests_group_1()
+  else if unit == 7 then run_slice3_tests_group_2()
+  else if unit == 8 then run_slice3_tests_group_3()
+  else run_slice4_tests()
+  end
 end
 
 function main(): nothing
   intent: test
   mutable failed: integer = 0
-  set failed = failed + main_group_1()
-  set failed = failed + main_group_2()
-  set failed = failed + main_group_3()
-  set failed = failed + main_group_4()
-  set failed = failed + main_group_5()
+  for unit in range(0, 10) do
+    if sharding.runs(unit) then set failed = failed + run_unit(unit) end
+  end
+  if sharding.is_sharded() then
+  print("shard " ++ to_text(sharding.shard_index()) ++ ": " ++ to_text(failed) ++ " failed")
+else
   print(to_text(79 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+end
   if failed > 0 then
   exit_process(1)
 end
@@ -1171,15 +1184,6 @@ function run_slice3_tests_group_3(): integer
   set failed = failed + report("test_unknown_blueprint_falls_back_to_the_default_squad", test_unknown_blueprint_falls_back_to_the_default_squad(), "unknown squad did not fall back")
   set failed = failed + report("test_six_member_team_falls_back_to_the_default_squad", test_six_member_team_falls_back_to_the_default_squad(), "over-cap squad did not fall back")
   set failed = failed + report("test_team_size_max_is_advertised_by_account_and_quest_responses", test_team_size_max_is_advertised_by_account_and_quest_responses(), "team capacity was not five")
-  failed
-end
-
-function run_slice3_tests(): integer
-  intent: test
-  mutable failed: integer = 0
-  set failed = failed + run_slice3_tests_group_1()
-  set failed = failed + run_slice3_tests_group_2()
-  set failed = failed + run_slice3_tests_group_3()
   failed
 end
 

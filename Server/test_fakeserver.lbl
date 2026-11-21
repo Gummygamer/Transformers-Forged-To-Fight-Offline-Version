@@ -1,6 +1,7 @@
 use fakeserver
 use jsonout
 use gamedata
+use sharding
 
 function report(name: text, passed: boolean): integer
   intent: print
@@ -815,13 +816,17 @@ end
 function main(): nothing
   intent: run
   mutable failed: integer = 0
-  set failed = failed + main_group_1()
-  set failed = failed + main_group_2()
-  set failed = failed + main_group_3()
-  set failed = failed + main_group_4()
+  if sharding.runs(0) then set failed = failed + main_group_1() end
+  if sharding.runs(1) then set failed = failed + main_group_2() end
+  if sharding.runs(2) then set failed = failed + main_group_3() end
+  if sharding.runs(3) then set failed = failed + main_group_4() end
   fakeserver.reset_saved_team()
   fakeserver.reset_quest_positions()
+  if sharding.is_sharded() then
+  print("shard " ++ to_text(sharding.shard_index()) ++ ": " ++ to_text(failed) ++ " failed")
+else
   print(to_text(41 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+end
   if failed > 0 then
   exit_process(1)
 end

@@ -1,0 +1,29 @@
+-- Test sharding: TFTF_TEST_SHARD="k/n" makes a test file run only the units whose index is k modulo n.
+-- Unset (the default) runs every unit, so a plain `legible run test_x.lbl` is unchanged. run_tests.sh sets it.
+
+function shard_part(position: integer, fallback: integer): integer
+  intent: read one integer of the TFTF_TEST_SHARD k/n setting
+  let parts: a list of text = split(unwrap_or(env_get("TFTF_TEST_SHARD"), ""), "/")
+  if length(parts) == 2 then unwrap_or(to_integer(unwrap_or(get(parts, position), "")), fallback) else fallback end
+end
+
+public function shard_count(): integer
+  intent: return the number of shards, 1 when sharding is off
+  let count: integer = shard_part(1, 1)
+  if count < 1 then 1 else count end
+end
+
+public function shard_index(): integer
+  intent: return this process shard index, 0 when sharding is off
+  shard_part(0, 0)
+end
+
+public function is_sharded(): boolean
+  intent: check whether this process runs only one shard
+  shard_count() > 1
+end
+
+public function runs(unit: integer): boolean
+  intent: check whether this shard runs the given unit index
+  unit % shard_count() == shard_index() % shard_count()
+end

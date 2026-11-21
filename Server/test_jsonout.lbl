@@ -1,6 +1,7 @@
 -- Regression tests for ordered compact JSON used by the Server port.
 
 use jsonout
+use sharding
 
 function last_slash(path: text): integer
   intent: find
@@ -44,8 +45,10 @@ end
 function corpus_tests(response_dir: text): integer
   intent: test
   mutable failed: integer = 0
-  for name in list_dir(response_dir) do
-    if ends_with(name, ".json") then
+  mutable index: integer = 0
+  for name in sort_text(list_dir(response_dir)) do
+    set index = index + 1
+    if ends_with(name, ".json") and sharding.runs(index) then
       let raw: text = read_file(path_join(response_dir, name))
       let encoded: text = compact(raw)
       if encoded == raw then
@@ -147,7 +150,18 @@ function main(): nothing
     exit_process(1)
   end
   mutable failed: integer = corpus_tests(responses)
-  set failed = failed + main_group_1()
+  if sharding.shard_index() == 0 then set failed = failed + fixed_tests() end
+  if sharding.is_sharded() then
+    print("shard " ++ to_text(sharding.shard_index()) ++ ": " ++ to_text(failed) ++ " failed")
+  else
+    print(to_text(28 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  end
+  if failed > 0 then exit_process(1) end
+end
+
+function fixed_tests(): integer
+  intent: run the fixed encoding tests that do not read the response corpus
+  mutable failed: integer = main_group_1()
   let order_source: text = "\{" ++ "\"b\":1,\"a\":2" ++ "\}"
   set failed = failed + main_group_2(order_source)
   let decimal_ok: boolean = decimal_encoding_ok()
@@ -162,10 +176,7 @@ function main(): nothing
   set failed = failed + main_group_6(nested)
   let spaced: Json = spaced_fixture()
   set failed = failed + main_group_7(spaced)
-  let total: integer = 28
-  let passed: integer = total - failed
-  print(to_text(passed) ++ " passed, " ++ to_text(failed) ++ " failed")
-  if failed > 0 then exit_process(1) end
+  failed
 end
 
 main()
