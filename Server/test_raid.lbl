@@ -305,6 +305,15 @@ function test_retry_preserves_damage_and_can_win(): boolean
   jsonout.as_dec(field(field(after, "active"), "dhp")) == 0.25 and length(jsonout.list_items(field(resumed, "results"))) == 1 and int_of(field(field(won, "state"), "active"), "beaten") == 1 and not bool_of(won, "ended")
 end
 
+function test_reported_health_is_kept_within_full_health(): boolean
+  intent: test that health a client reports above full or below the floor is clamped (proofs/LAWS.bend raid_*_health_bounded)
+  let fighting: Json = step_forward(started(0))
+  let lost: Json = field(raid.fight_outcome(fighting, "raid.1", false, "", 0.0, 1.5, 1100), "state")
+  let second: text = unwrap_or(get(gamedata.default_team(), 1), "")
+  let won: Json = field(raid.fight_outcome(lost, "raid.1", true, second, 2.0, 0.0, 1200), "state")
+  jsonout.as_dec(field(field(lost, "active"), "dhp")) == 1.0 and jsonout.as_dec(field(field(field(won, "active"), "hp"), second)) == 1.0
+end
+
 function test_expiry_ends_once_and_preserves_journal(): boolean
   intent: test
   let running: Json = field(fight_lost(step_forward(started(0))), "state")
@@ -328,8 +337,8 @@ end
 
 function run_tests(): integer
   intent: run every raid rule test and print one line each
-  let failed: integer = report("test_retry_preserves_damage_and_can_win", test_retry_preserves_damage_and_can_win()) + report("test_expiry_ends_once_and_preserves_journal", test_expiry_ends_once_and_preserves_journal()) + run_tests_a() + run_tests_b() + report("test_standing_on_a_defender_sends_the_battle_keys", test_standing_on_a_defender_sends_the_battle_keys()) + report("test_stepping_onto_a_defender_sends_the_battle_action", test_stepping_onto_a_defender_sends_the_battle_action())
-  print(to_text(30 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  let failed: integer = report("test_retry_preserves_damage_and_can_win", test_retry_preserves_damage_and_can_win()) + report("test_expiry_ends_once_and_preserves_journal", test_expiry_ends_once_and_preserves_journal()) + report("test_reported_health_is_kept_within_full_health", test_reported_health_is_kept_within_full_health()) + run_tests_a() + run_tests_b() + report("test_standing_on_a_defender_sends_the_battle_keys", test_standing_on_a_defender_sends_the_battle_keys()) + report("test_stepping_onto_a_defender_sends_the_battle_action", test_stepping_onto_a_defender_sends_the_battle_action())
+  print(to_text(31 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   failed
 end
 

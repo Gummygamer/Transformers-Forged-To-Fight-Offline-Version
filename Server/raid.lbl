@@ -301,6 +301,16 @@ function at_least(value: decimal, floor: decimal): decimal
   if value > floor then value else floor end
 end
 
+function at_most(value: decimal, ceiling: decimal): decimal
+  intent: keep a health value at or below a ceiling
+  if value < ceiling then value else ceiling end
+end
+
+function health_fraction(reported: decimal): decimal
+  intent: keep the health a standing fighter reported within 0.01 and full health (proofs/LAWS.bend raid_*_health_bounded)
+  at_least(at_most(reported, 1.0), 0.01)
+end
+
 -- The journal of a raid: how it started, who joined and what each fight did. The raid report reads it from the result.
 function team_entity(key: text, level: integer, hp: decimal): Json
   intent: build one bot of a raid team as the raid report lists it
@@ -554,8 +564,8 @@ function fought_active(active: Json, won: boolean, hero: text, my_hp: decimal, t
   intent: apply a fight to the raid in progress: the health of the bot that fought, the health of the defender and the journal
   let pos: integer = rint(active, "pos", 0)
   let npc: RaidNpc = active_opponent(active)
-  let hero_after: decimal = if won then at_least(my_hp, 0.01) else 0.0 end
-  let defender_after: decimal = if won then 0.0 else at_least(their_hp, 0.01) end
+  let hero_after: decimal = if won then health_fraction(my_hp) else 0.0 end
+  let defender_after: decimal = if won then 0.0 else health_fraction(their_hp) end
   let with_hp: Json = jsonout.obj_set(active, "hp", jsonout.obj_set(robj(active, "hp"), hero, jsonout.json_dec(hero_after)))
   let with_dhp: Json = jsonout.obj_set(with_hp, "dhp", jsonout.json_dec(if won then 1.0 else defender_after end))
   let with_beaten: Json = if won then jsonout.obj_set(with_dhp, "beaten", jsonout.json_int(pos)) else with_dhp end

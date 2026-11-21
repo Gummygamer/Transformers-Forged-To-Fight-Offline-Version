@@ -1107,6 +1107,7 @@ function main_group_5(): integer
   set failed = failed + report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing")
   set failed = failed + run_custom_story_tests() + run_slice3_tests()
   set failed = failed + run_slice4_tests()
+  set failed = failed + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move")
   failed
 end
 
@@ -1118,7 +1119,7 @@ function main(): nothing
   set failed = failed + main_group_3()
   set failed = failed + main_group_4()
   set failed = failed + main_group_5()
-  print(to_text(78 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(79 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
   if failed > 0 then
   exit_process(1)
 end
@@ -1240,6 +1241,54 @@ function story_arena_levels_seen(qid: text): a list of text
     set x = x + 1
   end
   if consistent then seen else [] end
+end
+
+function link_named(tile: Json, x: integer, y: integer): boolean
+  intent: check whether a map tile names a position among its links
+  mutable found: boolean = false
+  for link in jsonout.list_items(if jsonout.obj_has(tile, "links") then jsonout.obj_get(tile, "links") else jsonout.json_list([]) end) do
+    if jsonout.as_int(jsonout.obj_get(link, "x")) == x and jsonout.as_int(jsonout.obj_get(link, "y")) == y then set found = true end
+  end
+  found
+end
+
+function move_agrees(qid: text, grid: a list of Json, tile: Json, sx: integer, sy: integer, nx: integer, ny: integer): boolean
+  intent: check one move: the server accepts it exactly when the client offers it, and print it when not
+  let offered: boolean = (sx == nx and sy == ny) or link_named(tile, nx, ny)
+  let agrees: boolean = gamedata.quest_can_move_on(grid, sx, sy, nx, ny) == offered
+  if not agrees then print("    " ++ qid ++ " move (" ++ to_text(sx) ++ "," ++ to_text(sy) ++ ")->(" ++ to_text(nx) ++ "," ++ to_text(ny) ++ ") offered=" ++ to_text(offered)) end
+  agrees
+end
+
+function moves_agree_from(qid: text, grid: a list of Json, tile: Json, sx: integer, sy: integer, dim: integer): boolean
+  intent: check every move from one walkable tile to every position of the grid
+  mutable ok: boolean = true
+  for index in range(0, dim * dim) do
+    if not move_agrees(qid, grid, tile, sx, sy, index / dim, index % dim) then set ok = false end
+  end
+  ok
+end
+
+function server_matches_links(qid: text): boolean
+  intent: check every move from every walkable tile of a quest map against the links the client reads
+  let grid: a list of Json = gamedata.quest_grid(qid)
+  let dim: integer = length(grid)
+  mutable ok: boolean = dim > 0 and gamedata.quest_can_move(qid, 1, 1, 1, 1) == gamedata.quest_can_move_on(grid, 1, 1, 1, 1)
+  for index in range(0, dim * dim) do
+    let tile: Json = unwrap_or(get(jsonout.list_items(unwrap_or(get(grid, index / dim), jsonout.json_list([]))), index % dim), jsonout.json_obj([]))
+    let walkable: boolean = jsonout.as_bool(jsonout.obj_get(tile, "walkable")) and not jsonout.as_bool(jsonout.obj_get(tile, "hidden"))
+    if walkable and not moves_agree_from(qid, grid, tile, index / dim, index % dim, dim) then set ok = false end
+  end
+  ok
+end
+
+function test_server_accepts_exactly_the_moves_the_client_offers(): boolean
+  intent: test every story board against proofs/LAWS.bend board_server_agrees_with_client
+  mutable ok: boolean = true
+  for qid in ["1.1.1", "2.1.1", "2.2.1", "2.3.1", "2.3.2", "2.4.1"] do
+    if not server_matches_links(qid) then set ok = false end
+  end
+  ok
 end
 
 function test_every_story_quest_varies_arenas_consistently_between_map_and_battle(): boolean
