@@ -92,10 +92,27 @@ function test_refusals_and_drops(): integer
   check("spark cannot level", txt(wrong, "error") == "invalid") + check("missing ore refused", txt(missing, "error") == "invalid" and progress("optimusprime_cin_tf", 1) == 1) + check("won fight drops ore and a spark", txt(message, "component") == "BCGManager" and upgrades.evo_count("ore_generic_t1") == 32 and upgrades.evo_count("spark_brawler_t1") == 7) + check("lost fight drops nothing", length(upgrades.award_fight_drop(false)) == 0)
 end
 
+function test_owned_final_boss_grows(): integer
+  intent: Nemesis Prime as the level 61 final boss keeps its fixed stats, an owned copy grows by level and rank
+  let boss: integer = num(gamedata.build_hero_entry("nemesisprime_gs_voyager2015", 1, 61), "max_hp")
+  let fresh: integer = num(gamedata.build_hero_entry("nemesisprime_gs_voyager2015", 1, 1), "max_hp")
+  let grown: integer = num(gamedata.build_hero_entry("nemesisprime_gs_voyager2015", 2, 9), "max_hp")
+  check("final boss stats fixed at the boss level", boss == 10500 and fresh == 10500) + check("owned final boss grows by level and rank", grown > fresh)
+end
+
+function test_team_data_uses_saved_progress(): integer
+  intent: an upgraded bot reaches the active team data quests fight with
+  upgrades.reset_upgrades()
+  let done: Json = reply("/bcg/upgrade-hero", "\{\"hero\":\"optimusprime_cin_tf\",\"evos\":[\"ore_generic_t3\",\"ore_generic_t3\"]\}")
+  let team: Json = unwrap_or(get(jsonout.list_items(jsonout.obj_get(jsonout.obj_get(gamedata.build_user_data(["optimusprime_cin_tf"]), "updates"), "activeTeams")), 0), jsonout.json_obj([]))
+  let hero: Json = jsonout.obj_get(jsonout.obj_get(team, "heroes"), "optimusprime_cin_tf")
+  check("active team carries the saved level", num(hero, "level") == 5 and jsonout.type_name(jsonout.obj_get(done, "error")) == "null")
+end
+
 function main(): nothing
   intent: run bot improvement tests
-  let failures: integer = test_login_items() + test_login_ranks() + test_curve_and_user_data() + test_level_up() + test_rank_up() + test_refusals_and_drops()
-  print(to_text(16 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  let failures: integer = test_login_items() + test_login_ranks() + test_curve_and_user_data() + test_level_up() + test_rank_up() + test_refusals_and_drops() + test_owned_final_boss_grows() + test_team_data_uses_saved_progress()
+  print(to_text(19 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
   if failures > 0 then exit_process(1) end
 end
 main()

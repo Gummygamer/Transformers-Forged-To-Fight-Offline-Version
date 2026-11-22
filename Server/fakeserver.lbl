@@ -257,8 +257,8 @@ function completed_tutorial(tid: text): Pair
 end
 
 public function tutorial_login_completed_response(): text
-  intent: encode the login data: FTE complete, plus the tutorials the raid and base screens would otherwise start (their popups block the raid test path)
-  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))])), completed_tutorial("ShieldTutorial"), completed_tutorial("RaidsTutorial"), completed_tutorial("BotPlacementTutorial"), completed_tutorial("NavToQuestTutorial"), completed_tutorial("FightResultsTutorial"), completed_tutorial("ModTutorial"), completed_tutorial("RelicsTutorial"), completed_tutorial("SparksTutorial")]))
+  intent: encode the login data: FTE complete, plus the tutorials the raid, base and bot upgrade screens would otherwise start (their overlays block those screens)
+  compact_envelope(jsonout.json_obj([jsonout.json_pair("FTE", jsonout.json_obj([pair_int("s", 2), pair_text("current_bid", "FTEComplete"), jsonout.json_pair("branches", jsonout.json_obj([]))])), completed_tutorial("ShieldTutorial"), completed_tutorial("RaidsTutorial"), completed_tutorial("BotPlacementTutorial"), completed_tutorial("NavToQuestTutorial"), completed_tutorial("FightResultsTutorial"), completed_tutorial("ModTutorial"), completed_tutorial("RelicsTutorial"), completed_tutorial("SparksTutorial"), completed_tutorial("ForgeBotTutorial"), completed_tutorial("RankUpTutorial"), completed_tutorial("UpgradeBotsScreen"), completed_tutorial("BotDupedTutorial"), completed_tutorial("ForgeModTutorial")]))
 end
 
 function tutorial_login_response(): text
@@ -1832,10 +1832,10 @@ function opponent_uid_for(opponent_peer: text): integer
 end
 
 function hero_entries(heroes: a list of text): a list of Json
-  intent: build the team entry of every hero at rank one and level one
+  intent: build the team entry of every hero at its saved rank and level
   mutable team: a list of Json = []
   for hero in heroes do
-    set team = append(team, gamedata.build_hero_entry(hero, 1, 1))
+    set team = append(team, gamedata.build_saved_hero_entry(hero))
   end
   team
 end

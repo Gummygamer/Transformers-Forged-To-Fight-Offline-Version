@@ -402,6 +402,12 @@ public function final_boss_stats(): Stats
   Stats { hp: 10500, atk: 800 }
 end
 
+public function final_boss_stats_at(level: integer, factor: decimal): Stats
+  intent: the final boss keeps its fixed stats at the boss level, an owned copy grows from them by rank and level
+  let base: Stats = final_boss_stats()
+  if level >= enemy_level(true) then base else Stats { hp: to_integer(to_decimal(base.hp) * factor), atk: to_integer(to_decimal(base.atk) * factor) } end
+end
+
 -- Health and attack gained per level above 1. At the old 1% a level-61 3-star still lost to a level-1
 -- 5-star (stars are worth ~2.2x); 2.5% makes high-level enemies outclass a fresh squad.
 public function level_growth(): decimal
@@ -417,7 +423,7 @@ public function base_stats(bid: text, rank: integer, level: integer): Stats
   let level_factor: decimal = 1 + level_add
   let factor: decimal = rank_mult * level_factor
   if bid == final_boss_bid() then
-  final_boss_stats()
+  final_boss_stats_at(level, factor)
 else
   Stats { hp: to_integer(to_decimal(star_hp(entry.star)) * class_hp_mult(entry.klass) * factor), atk: to_integer(to_decimal(star_atk(entry.star)) * class_atk_mult(entry.klass) * factor) }
 end
@@ -1384,7 +1390,7 @@ function json_hero_entries(bids: a list of text): a list of Json
   intent: build
   mutable entries: a list of Json = []
   for bid in bids do
-    set entries = append(entries, build_hero_entry(bid, 1, 1))
+    set entries = append(entries, build_saved_hero_entry(bid))
   end
   entries
 end
@@ -1425,7 +1431,7 @@ function json_hero_object(bids: a list of text): Json
   intent: build
   mutable entries: a list of Pair = []
   for bid in bids do
-    set entries = append(entries, jsonout.json_pair(bid, build_hero_entry(bid, 1, 1)))
+    set entries = append(entries, jsonout.json_pair(bid, build_saved_hero_entry(bid)))
   end
   jsonout.json_obj(entries)
 end
@@ -3013,7 +3019,7 @@ main()
 public function payload_base_stats(bid: text, rank: integer, level: integer): Stats
   intent: build
   if bid == final_boss_bid() then
-  final_boss_stats()
+  final_boss_stats_at(level, (1 + 0.35 * to_decimal(max(1, rank) - 1)) * (1 + to_decimal(max(1, level) - 1) * level_growth()))
 else
   let entry: RosterEntry = roster_entry(bid)
   let rank_mult: decimal = 1 + 0.35 * to_decimal(max(1, rank) - 1)
@@ -3171,4 +3177,31 @@ end
 public function bot_klass(bid: text): text
   intent: the class code of a roster bot
   roster_entry(bid).klass
+end
+
+-- Saved bot progress (written by upgrades.lbl): every place that sends the player's own bots reads it, so a level or
+-- rank up reaches user data, saved and active teams, and the team data quests fight with.
+
+function progress_file(): text
+  intent: the file holding each improved bot as bid, rank, level and experience, in the fake server state folder
+  let override: text = unwrap_or(env_get("TFTF_LOG_DIR"), "")
+  path_join(if override != "" then override else path_join(server_paths.entry_directory("Server/fakeserver.lbl"), "logs") end, ".fakeserver-heroes")
+end
+
+public function saved_progress(bid: text): a list of integer
+  intent: the saved rank, level and experience of a bot, rank one level one for a bot never improved
+  mutable progress: a list of integer = [1, 1, 0]
+  if file_exists(progress_file()) then
+    for line in split(read_file(progress_file()), "\n") do
+      let fields: a list of text = split(trim(line), "|")
+      if unwrap_or(get(fields, 0), "") == bid then set progress = [unwrap_or(to_integer(unwrap_or(get(fields, 1), "1")), 1), unwrap_or(to_integer(unwrap_or(get(fields, 2), "1")), 1), unwrap_or(to_integer(unwrap_or(get(fields, 3), "0")), 0)] end
+    end
+  end
+  progress
+end
+
+public function build_saved_hero_entry(bid: text): Json
+  intent: the user hero record of a bot at its saved rank, level and experience
+  let progress: a list of integer = saved_progress(bid)
+  build_hero_entry_xp(bid, unwrap_or(get(progress, 0), 1), unwrap_or(get(progress, 1), 1), unwrap_or(get(progress, 2), 0))
 end

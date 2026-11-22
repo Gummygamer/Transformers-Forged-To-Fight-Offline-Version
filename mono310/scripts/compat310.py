@@ -1032,6 +1032,11 @@ public class TftfBloom : MonoBehaviour
         replace_in(main, "Quests/Presentation/Gameboard.cs", "\t\t\t\tif (postFight)\n\t\t\t\t{\n\t\t\t\t\tif (Profile.Instance.SeenPostFightDialogueNodes != null",
                    "\t\t\t\tif (postFight && !TftfFightState.LastWon)\n\t\t\t\t{\n\t\t\t\t\treturn _displayingDialogue;\n\t\t\t\t}\n\t\t\t\tif (postFight)\n\t\t\t\t{\n\t\t\t\t\tif (Profile.Instance.SeenPostFightDialogueNodes != null",
                    "P49b the post-fight dialogue is skipped after a lost fight")
+    # P69: ILSpy dropped the iterator capture of onReady in HeroStatsWidget.AnimateHeroRating ("onReady2 = default").
+    # G3 skips default-valued parameters (see SKIP), so restore this one alias: without it the upgrade screen never
+    # gets its rating-animation callback and keeps its UiAnimation busy blocker after every level up or rank up.
+    replace_in(main, "HeroStatsWidget.cs", "\t\t\tAction onReady2 = default(Action);", "\t\t\tAction onReady2 = onReady;",
+               "P69 hero rating animation calls back its caller")
     # P64 (shell only): PVPRaidFlow rebuilds its board after combat, unlike QuestFlow's ResumeBoard path.
     # Process the queued battlecomplete/fightlost/battle actions once the HUD is ready, including a retry after a loss.
     if os.environ.get("TFTF_SHELL") == "1":

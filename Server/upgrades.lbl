@@ -57,11 +57,7 @@ end
 
 public function hero_progress(bid: text): a list of integer
   intent: the saved rank, level and experience of a bot, rank one level one for a bot never improved
-  mutable progress: a list of integer = [1, 1, 0]
-  for line in state_lines(heroes_file()) do
-    if field(line, 0) == bid then set progress = [int_field(line, 1, 1), int_field(line, 2, 1), int_field(line, 3, 0)] end
-  end
-  progress
+  gamedata.saved_progress(bid)
 end
 
 function save_hero_progress(bid: text, rank: integer, level: integer, xp: integer): nothing
@@ -77,8 +73,7 @@ end
 
 public function hero_entry(bid: text): Json
   intent: the user hero record of a bot at its saved rank, level and experience
-  let progress: a list of integer = hero_progress(bid)
-  gamedata.build_hero_entry_xp(bid, unwrap_or(get(progress, 0), 1), unwrap_or(get(progress, 1), 1), unwrap_or(get(progress, 2), 0))
+  gamedata.build_saved_hero_entry(bid)
 end
 
 -- inventory
