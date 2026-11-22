@@ -5,6 +5,7 @@ import ./Abilities.bend as A
 import ./Data.bend as D
 import ./Walk.bend as WK
 import ./Stats.bend as S
+import ./Campaign.bend as C
 
 # ---- Raids (Server/raid.lbl) ----
 
@@ -70,7 +71,7 @@ law board_walkable_count:
   for b: B.Board
   {List.length(&2, B.Pos, B.walkable_tiles(b)) == B.walkable_count(b) : Nat}
 
-# ---- Ability assignment (Server/gamedata.lbl bot_abilities, Server/data/stat_modifiers.json) ----
+# ---- Ability assignment (Server/gamedata.lbl kit_abilities, Server/data/stat_modifiers.json) ----
 
 # The kit of a bot, for any bot id.
 def kit(+bid: String) -> List<&2, String>:
@@ -106,6 +107,60 @@ law kits_name_roster_bots:
 
 law kits_name_each_bot_once:
   {A.distinct(A.bids(D.kits())) == True{} : Bool}
+
+# Shipped kits carry only effect classes verified in a live fight (proofs/effect_status.json):
+# the other classes have never run, and a kit is no place to find out what they do.
+law kits_carry_verified_effects:
+  for +bid: String
+  {C.all_verified(D.catalog(), D.verified(), kit(bid)) == True{} : Bool}
+
+# ---- The verification campaign (Server/data/campaign.json, campaign_batches.json) ----
+
+# The campaign switched off serves exactly the shipped kits.
+law campaign_off_ships_kits:
+  for +bid: String
+  {C.carried(D.kits(), D.batches(), D.campaign_bot(), "", bid) == kit(bid) : List<&2, String>}
+
+# While a batch is active, no bot but the probe bot carries anything, so whatever
+# registers in the fight is attributable to the batch.
+law campaign_only_the_probe_bot:
+  for +active: String
+  for +bid: String
+  {C.stray(D.kits(), D.batches(), D.campaign_bot(), active, bid) == [] : List<&2, String>}
+
+# The switch is off or names a batch, and the probe bot is one of the roster.
+law campaign_active_is_a_batch:
+  {Bool.or(String.eq(D.campaign_active(), ""), A.has(C.batch_names(D.batches()), D.campaign_active())) == True{} : Bool}
+
+law campaign_bot_on_roster:
+  {A.has(D.roster(), D.campaign_bot()) == True{} : Bool}
+
+# A batch varies one axis: an effect batch tests unverified classes, each once, all on the
+# proven trigger (onHit at 100%); a trigger batch tests triggers, each once, all with a
+# verified class. A test that changes two unknowns at once cannot be read.
+law batches_vary_one_axis:
+  {C.all_one_axis(D.verified(), D.batches()) == True{} : Bool}
+
+# A batch holding an interfering class (disable_sp*, disable_run, state_disable, swap_ai,
+# ai_rage_mod) holds nothing else: it would silently poison every other result.
+law batches_isolate_interfering:
+  {C.all_isolated(D.batches()) == True{} : Bool}
+
+# A batch has one to ten rows: about what one fight registers (tier T1).
+law batches_fit_a_fight:
+  {C.all_fit(D.batches()) == True{} : Bool}
+
+# Probe rows are new rows, each with its own id: serving a batch adds rows to statMods and
+# never replaces a shipped one.
+law batches_add_new_rows:
+  {Bool.and(C.none_known(D.catalog(), C.all_probe_ids(D.batches())), A.distinct(C.all_probe_ids(D.batches()))) == True{} : Bool}
+
+law batches_named_once:
+  {A.distinct(C.batch_names(D.batches())) == True{} : Bool}
+
+# Every probe row sits in a working ta x mt cell, like a kit row.
+law batches_sound:
+  {C.all_batches_sound(D.batches()) == True{} : Bool}
 
 # ---- The story walk (Server/fakeserver.lbl moved_offsets, position_after_win) ----
 

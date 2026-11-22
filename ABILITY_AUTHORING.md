@@ -551,12 +551,13 @@ tc -> CalloutTextColor        gt -> gradient top        gb -> gradient bottom
 
 ### Assignment — grant it to bots
 
-**To change what a bot carries, edit `bot_abilities(bid)` in `Server/gamedata.lbl` — and
-nothing else.**
+**To change what a bot carries, edit `kit_abilities(bid)` in `Server/gamedata.lbl` — and
+nothing else.** (`bot_abilities(bid)`, which every builder calls, returns the kit, or a
+verification batch while one is switched on; see "Swapping a batch" below.)
 
 ```legible
-public function bot_abilities(bid: text): a list of text
-  intent: return
+function kit_abilities(bid: text): a list of text
+  intent: return the kit a bot carries when no campaign batch is active
   if bid == "optimusprimal_bw_mp32" then ["kit_bleed", "kit_shock", "kit_burn"]
   else if bid == "some_other_bot" then ["kit_burn"]
   else no_abilities() end
@@ -855,13 +856,28 @@ Realistically **~10–12 fights**, not 43.
 ### Swapping a batch — the prerequisite is already done
 
 Batch verification means assigning ~8 effects to one bot and swapping the whole set between
-fights. **That is now a one-line edit to `bot_abilities(bid)`** — previously it meant
-editing a hardcoded predicate in four builders per batch, a dozen times over, with
-`quest_team` the easy one to forget, which would have turned every result in that fight
-into a false negative.
+fights. **That is a one-word data edit:** set `active` in `Server/data/campaign.json` to a
+batch name from `Server/data/campaign_batches.json`, regenerate, fight. While a batch is
+active the server adds its probe rows to `statMods`, the probe bot (`bot` in
+`campaign.json`) carries exactly that batch through all four builders, and **every other
+bot carries nothing**, so anything that registers is attributable. Set `active` back to
+`""` before shipping; empty is what ships and serves exactly the shipped kits.
 
-Recommended shape: give one dedicated bot the batch under test and leave the rest of the
-squad empty, so any effect you observe is unambiguously attributable.
+Each batch names its `axis` and `proofs/check.sh` enforces the rules of this section on
+every batch before a fight is spent on it:
+
+| law | rule |
+|---|---|
+| `batches_vary_one_axis` | an `effect` batch tests unverified classes, each once, all on `onHit` at `c:1.0`; a `trigger` batch tests one trigger per row, all with a verified class |
+| `batches_isolate_interfering` | a batch holding `disable_sp*`, `disable_run`, `state_disable`, `swap_ai` or `ai_rage_mod` holds nothing else |
+| `batches_fit_a_fight` | one to ten rows |
+| `batches_add_new_rows` | probe ids are new: serving a batch never replaces a shipped row |
+| `campaign_only_the_probe_bot` | while a batch is active no other bot carries anything |
+| `campaign_off_ships_kits` | `active` empty serves exactly `kit_abilities` |
+| `kits_carry_verified_effects` | a shipped kit carries only classes verified live in `proofs/effect_status.json` |
+
+The first batch, `variables` (the six `*_var` / `*_tel_var` classes, T1), is authored and
+waiting for a fight. Its rows carry no card, as only T1 registration is being observed.
 
 ### Record results where they will be believed
 

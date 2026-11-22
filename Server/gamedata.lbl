@@ -719,7 +719,7 @@ end
 -- build_base_hero_details). That shape could only express "these bots get this
 -- one fixed list"; it could not express per-bot subsets at all.
 --
--- To change what a bot carries, edit ONLY this function. Each bot may name any
+-- To change what a bot carries, edit ONLY kit_abilities below. Each bot may name any
 -- subset of the authored ability ids -- none, one, several, all -- independently
 -- of every other bot. Every id listed here must exist in build_stat_modifiers()
 -- (statMods) and should have a matching record in build_stat_mod_appears().
@@ -727,7 +727,67 @@ end
 -- See ABILITY_AUTHORING.md §5. quest_team is the builder that governs the FIGHT
 -- SQUAD and is the easy one to forget -- it is wired below so it cannot be.
 public function bot_abilities(bid: text): a list of text
-  intent: return
+  intent: return the abilities a bot carries under the campaign setting in data/campaign.json
+  carried_abilities(load_campaign(), bid)
+end
+
+-- data/campaign.json, with the batches of data/campaign_batches.json under "batches" only
+-- while one is active, so the per-bot lookup reads one small file when the campaign is off.
+public function load_campaign(): Json
+  intent: read the campaign switch and, while a batch is active, the batches
+  let campaign: Json = load_data("campaign")
+  if jsonout.as_text(jsonout.obj_get(campaign, "active")) == "" then
+  campaign
+else
+  jsonout.obj_set(campaign, "batches", load_data("campaign_batches"))
+end
+end
+
+-- The verification campaign switch (ABILITY_AUTHORING.md, the verification campaign).
+-- With `active` empty a bot carries its kit. With a batch active, the campaign `bot`
+-- carries that batch's probe rows and every other bot carries nothing, so whatever
+-- registers in the fight is attributable. Mirrored by C.carried in proofs/Campaign.bend.
+public function carried_abilities(campaign: Json, bid: text): a list of text
+  intent: return the kit, or the active batch for the probe bot, or nothing for any other bot
+  let active: text = jsonout.as_text(jsonout.obj_get(campaign, "active"))
+  if active == "" then
+  kit_abilities(bid)
+else if bid == jsonout.as_text(jsonout.obj_get(campaign, "bot")) then
+  jsonout.obj_keys(active_probe_rows(campaign))
+else
+  no_abilities()
+end
+end
+
+-- The probe rows of the active batch, an empty object when none is active or the name
+-- matches no batch.
+public function active_probe_rows(campaign: Json): Json
+  intent: return the rows of the active campaign batch
+  let active: text = jsonout.as_text(jsonout.obj_get(campaign, "active"))
+  let batches: Json = jsonout.obj_get(campaign, "batches")
+  if active != "" and jsonout.obj_has(batches, active) then
+  jsonout.obj_get(jsonout.obj_get(batches, active), "rows")
+else
+  jsonout.json_obj([])
+end
+end
+
+-- statMods with the active batch's probe rows added; exactly the shipped table when no
+-- batch is active (law batches_add_new_rows keeps probe ids off the shipped rows).
+public function stat_modifiers_with(campaign: Json): Json
+  intent: add the active campaign batch rows to the shipped statMods table
+  let probes: Json = active_probe_rows(campaign)
+  mutable rows: Json = load_data("stat_modifiers")
+  for key in jsonout.obj_keys(probes) do
+    set rows = jsonout.obj_set(rows, key, jsonout.obj_get(probes, key))
+  end
+  rows
+end
+
+-- The shipped kits: edit this table to change what a bot carries. Parsed by
+-- proofs/gen_data.py; keep one `bid == "..." then [...]` branch per bot.
+function kit_abilities(bid: text): a list of text
+  intent: return the kit a bot carries when no campaign batch is active
   if bid == "optimusprimal_bw_mp32" then
   ["kit_bleed", "kit_shock", "kit_burn"]
 else if bid == "nemesisprime_gs_voyager2015" then
@@ -816,8 +876,8 @@ public function build_stat_mod_appears(): Json
 end
 
 public function build_stat_modifiers(): Json
-  intent: load the static table from Server/data/stat_modifiers.json
-  load_data("stat_modifiers")
+  intent: load the static table from Server/data/stat_modifiers.json, plus any active campaign batch
+  stat_modifiers_with(load_campaign())
 end
 
 public function build_login_data(): Json

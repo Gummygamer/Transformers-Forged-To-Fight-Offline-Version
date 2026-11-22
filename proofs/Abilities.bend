@@ -1,7 +1,7 @@
 import Base
 
 # Model of ability assignment (ABILITY_AUTHORING.md): the statMods catalog and the
-# per-bot kit table bot_abilities in Server/gamedata.lbl. The data is in Data.bend,
+# per-bot kit table kit_abilities in Server/gamedata.lbl. The data is in Data.bend,
 # generated from the server's files by gen_data.py.
 
 # ta: who receives the effect.
@@ -22,7 +22,7 @@ type ModType is Data:
 type Row is Data:
   Row{id: String, ta: Target, mt: ModType, cls: String}
 
-# One branch of bot_abilities: a bot and the ability ids it carries.
+# One branch of kit_abilities: a bot and the ability ids it carries.
 type Kit is Data:
   Kit{bid: String, abilities: List<&2, String>}
 
@@ -33,7 +33,7 @@ def pick(c: Bool, a: List<&2, String>, b: List<&2, String>) -> List<&2, String>:
     case False{}:
       b
 
-# bot_abilities(bid): the first branch naming the bot, no abilities otherwise.
+# kit_abilities(bid): the first branch naming the bot, no abilities otherwise.
 def lookup(table: List<&2, Kit>, +bid: String) -> List<&2, String>:
   match table:
     case Nil{}:

@@ -1104,7 +1104,7 @@ end
 
 function main_group_5(): integer
   intent: run
-  report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing") + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move") + report("test_every_carried_ability_has_a_served_card", test_every_carried_ability_has_a_served_card(), "a carried ability had no row or card")
+  report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing") + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move") + report("test_every_carried_ability_has_a_served_card", test_every_carried_ability_has_a_served_card(), "a carried ability had no row or card") + report("test_campaign_off_serves_the_shipped_rows", test_campaign_off_serves_the_shipped_rows(), "campaign off changed statMods") + report("test_active_batch_goes_to_the_probe_bot_alone", test_active_batch_goes_to_the_probe_bot_alone(), "an active batch reached another bot or replaced a row")
 end
 
 function run_unit(unit: integer): integer
@@ -1131,7 +1131,7 @@ function main(): nothing
   if sharding.is_sharded() then
   print("shard " ++ to_text(sharding.shard_index()) ++ ": " ++ to_text(failed) ++ " failed")
 else
-  print(to_text(79 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
+  print(to_text(81 - failed) ++ " passed, " ++ to_text(failed) ++ " failed")
 end
   if failed > 0 then
   exit_process(1)
@@ -1796,6 +1796,58 @@ function test_every_carried_ability_has_a_served_card(): boolean
     for aid in gamedata.bot_abilities(entry.bid) do
       set passed = passed and jsonout.obj_has(rows, aid) and jsonout.obj_has(cards, aid) and field_text(jsonout.obj_get(cards, aid), "a") != "" and field_text(jsonout.obj_get(cards, aid), "l") != ""
     end
+  end
+  passed
+end
+
+-- Mirrors campaign_off_ships_kits and batches_add_new_rows (proofs/LAWS.bend): with the
+-- campaign switched off statMods is exactly the shipped table.
+function test_campaign_off_serves_the_shipped_rows(): boolean
+  intent: test
+  let off: Json = jsonout.obj_set(gamedata.load_campaign(), "active", jsonout.json_text(""))
+  let shipped: Json = jsonout.parse_json(read_file(path_join(gamedata.data_dir(), "stat_modifiers.json")))
+  jsonout.encode_compact(gamedata.stat_modifiers_with(off)) == jsonout.encode_compact(shipped) and jsonout.obj_keys_count(gamedata.active_probe_rows(off)) == 0
+end
+
+-- Whether statMods with this campaign keeps every shipped row unchanged and adds exactly the probes.
+function rows_keep_shipped_and_add(rows: Json, shipped: Json, probes: Json): boolean
+  intent: check that served rows are the shipped rows plus the probe rows
+  mutable passed: boolean = jsonout.obj_keys_count(rows) == jsonout.obj_keys_count(shipped) + jsonout.obj_keys_count(probes)
+  for key in jsonout.obj_keys(shipped) do
+    set passed = passed and jsonout.encode_compact(jsonout.obj_get(rows, key)) == jsonout.encode_compact(jsonout.obj_get(shipped, key))
+  end
+  passed
+end
+
+-- Whether no roster bot but the probe bot carries anything under this campaign.
+function only_probe_bot_carries(on: Json, bot: text): boolean
+  intent: check that no roster bot except the probe bot carries abilities
+  mutable passed: boolean = true
+  for entry in gamedata.roster() do
+    if entry.bid != bot then set passed = passed and length(gamedata.carried_abilities(on, entry.bid)) == 0 end
+  end
+  passed
+end
+
+-- Whether the named batch, made active, reaches the probe bot alone and only adds rows.
+function batch_reaches_probe_bot_alone(batches: Json, shipped: Json, name: text): boolean
+  intent: check one batch made active
+  let on: Json = jsonout.obj_set(jsonout.obj_set(gamedata.load_campaign(), "active", jsonout.json_text(name)), "batches", batches)
+  let probes: Json = jsonout.obj_get(jsonout.obj_get(batches, name), "rows")
+  let bot: text = field_text(on, "bot")
+  gamedata.carried_abilities(on, bot) == jsonout.obj_keys(probes) and only_probe_bot_carries(on, bot) and rows_keep_shipped_and_add(gamedata.stat_modifiers_with(on), shipped, probes)
+end
+
+-- Mirrors campaign_only_the_probe_bot and batches_add_new_rows: with each batch active the
+-- probe bot carries exactly that batch, every other roster bot carries nothing, and statMods
+-- keeps every shipped row and adds every probe row.
+function test_active_batch_goes_to_the_probe_bot_alone(): boolean
+  intent: test
+  let batches: Json = jsonout.parse_json(read_file(path_join(gamedata.data_dir(), "campaign_batches.json")))
+  let shipped: Json = jsonout.parse_json(read_file(path_join(gamedata.data_dir(), "stat_modifiers.json")))
+  mutable passed: boolean = jsonout.obj_keys_count(batches) > 1
+  for name in jsonout.obj_keys(batches) do
+    if name != "_doc" then set passed = passed and batch_reaches_probe_bot_alone(batches, shipped, name) end
   end
   passed
 end

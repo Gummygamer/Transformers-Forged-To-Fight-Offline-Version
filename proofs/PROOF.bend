@@ -6,6 +6,7 @@ import ./Abilities.bend as A
 import ./Data.bend as D
 import ./Walk.bend as WK
 import ./Stats.bend as S
+import ./Campaign.bend as C
 
 def L.raid_only_forward(r):
   {==}
@@ -470,6 +471,86 @@ def L.kits_name_roster_bots():
   {==}
 
 def L.kits_name_each_bot_once():
+  {==}
+
+law pick_verified:
+  for +c: Bool
+  for +a: List<&2, String>
+  for +b: List<&2, String>
+  for +ha: {C.all_verified(D.catalog(), D.verified(), a) == True{} : Bool}
+  for +hb: {C.all_verified(D.catalog(), D.verified(), b) == True{} : Bool}
+  {C.all_verified(D.catalog(), D.verified(), A.pick(c, a, b)) == True{} : Bool}
+
+def pick_verified(c, a, b, ha, hb):
+  match c:
+    case True{}:
+      ha
+    case False{}:
+      hb
+
+# Whatever bot is looked up, its kit is verified when every branch of the table is.
+law lookup_verified:
+  for +table: List<&2, A.Kit>
+  for +bid: String
+  for +h: {C.verified_table(D.catalog(), D.verified(), table) == True{} : Bool}
+  {C.all_verified(D.catalog(), D.verified(), A.lookup(table, bid)) == True{} : Bool}
+
+def lookup_verified(table, bid, h):
+  match table:
+    case Nil{}:
+      {==}
+    case Con{A.Kit{+k, +abilities}, +rest}:
+      pick_verified(String.eq(k, bid), abilities, A.lookup(rest, bid), and_l(C.all_verified(D.catalog(), D.verified(), abilities), C.verified_table(D.catalog(), D.verified(), rest), h), lookup_verified(rest, bid, and_r(C.all_verified(D.catalog(), D.verified(), abilities), C.verified_table(D.catalog(), D.verified(), rest), h)))
+
+def L.kits_carry_verified_effects(bid):
+  lookup_verified(D.kits(), bid, {==})
+
+def L.campaign_off_ships_kits(bid):
+  {==}
+
+# Whatever the two switches read, a bot that is not the probe bot carries nothing while a
+# batch is active.
+law stray_empty:
+  for +c1: Bool
+  for +c2: Bool
+  for +k: List<&2, String>
+  for +p: List<&2, String>
+  {A.pick(c1, [], A.pick(c2, [], A.pick(c1, k, A.pick(c2, p, [])))) == [] : List<&2, String>}
+
+def stray_empty(c1, c2, k, p):
+  match c1 c2:
+    case True{} _:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def L.campaign_only_the_probe_bot(active, bid):
+  stray_empty(String.eq(active, ""), String.eq(bid, D.campaign_bot()), A.lookup(D.kits(), bid), C.probe_ids(C.probes_named(D.batches(), active)))
+
+def L.campaign_active_is_a_batch():
+  {==}
+
+def L.campaign_bot_on_roster():
+  {==}
+
+def L.batches_vary_one_axis():
+  {==}
+
+def L.batches_isolate_interfering():
+  {==}
+
+def L.batches_fit_a_fight():
+  {==}
+
+def L.batches_add_new_rows():
+  {==}
+
+def L.batches_named_once():
+  {==}
+
+def L.batches_sound():
   {==}
 
 # ---- The story walk ----

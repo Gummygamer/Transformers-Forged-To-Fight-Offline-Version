@@ -1,0 +1,5 @@
+{
+"_doc":"Verification campaign switch (ABILITY_AUTHORING.md, the verification campaign). Set `active` to a batch name of campaign_batches.json to serve that batch's rows in statMods and give them to `bot` alone; every other bot then carries nothing, so whatever registers is attributable. Empty `active` (what ships) serves exactly the shipped kits. Do not ship a build with a batch active.",
+"active":"",
+"bot":"optimusprimal_bw_mp32"
+}
