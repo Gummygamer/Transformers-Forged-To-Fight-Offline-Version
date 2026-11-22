@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.15](#015)
 - [0.14.3](#0143)
 - [0.14.2](#0142)
 - [0.14.1](#0141)
@@ -28,6 +29,11 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.15
+
+- Story boards accept exactly the moves the game offers: re-entering your own tile or following a tile's links.
+- Raid fight health is kept between 1% and 100%.
 
 ## 0.14.3
 

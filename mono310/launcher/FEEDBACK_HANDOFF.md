@@ -31,6 +31,7 @@ Marks follow [`DOC_STYLE.md`](../../DOC_STYLE.md).
 | Bullets not visible when shooting | **Open** | The user believes it affects all robots. Not reproduced yet. |
 | Some bots lack objects in special attacks | **Open** | The user does not know which bots. |
 | Screen static when entering somewhere | **Open** | Unconfirmed leads only. |
+| Pre-fight "Choose your bot" ignores bot taps | Not reproduced, 2026-11-21 | On the A52 build from 2026-11-15, Turkish, a five-bot squad with Megatron against Bumblebee (the reporter's setup), every tap switched the bot and the stat panels showed. **[👁 live]** The reporter's screenshot had no stat panels. Taps are ignored while `_statsTransitioning > 0`, so the panels never finishing would explain it. **[📄 binary]** Ask for their launcher version. |
 
 The reporter's screenshot of the raw text never reached us. The reporter wrote `ms_id_fight_ko`, but the table key is
 `ID_UI_FIGHT_KO`. **[📄 binary]**
