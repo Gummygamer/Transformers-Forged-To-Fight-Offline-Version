@@ -3,6 +3,7 @@ use gamedata
 use server_paths
 use raid
 use raid_network
+use upgrades
 
 record ResponseChoice
   source: text
@@ -2040,15 +2041,12 @@ function base_hero_response(btxt: text): text
   spaced_envelope(gamedata.build_base_hero_details(json_list_or_empty(request_object(btxt), "heroes")))
 end
 
-function hero_xp_curve_response(path: text): text
-  intent: return the level XP thresholds used by the hero upgrade screen
-  mutable thresholds: a list of Json = []
-  mutable level: integer = 1
-  while level <= 30 do
-    set thresholds = append(thresholds, jsonout.json_int(level * 100))
-    set level = level + 1
-  end
-  compact_envelope(jsonout.json_list(thresholds))
+function hero_xp_curve_response(path: text, btxt: text): text
+  intent: return the experience per level the hero upgrade screen uses for a bot at a rank
+  let req: Json = request_object(btxt)
+  let bid: text = if query_value(path, "bid") != "" then query_value(path, "bid") else json_text_or(req, "bid", "") end
+  let rank: integer = unwrap_or(to_integer(query_value(path, "rank")), json_int_or(req, "rank", unwrap_or(get(upgrades.hero_progress(bid), 0), 1)))
+  compact_envelope(upgrades.xp_curve(bid, rank))
 end
 
 function quest_detail_response(p: text, btxt: text): text
@@ -2064,6 +2062,21 @@ function quest_map_preview_response(p: text): text
   compact_envelope(jsonout.json_obj([jsonout.json_pair(qid, jsonout.json_obj([jsonout.json_pair("map", gamedata.build_quest_map(qid))]))]))
 end
 
+function bcg_hero_dynamic(path: text, p: text, btxt: text): text
+  intent: encode the base hero, experience curve, level up and rank up endpoints
+  if ends_with(p, "/bcg/getBaseHeroData") then
+    base_hero_response(btxt)
+  else if ends_with(p, "/bcg/getHeroXPCurve") then
+    hero_xp_curve_response(path, btxt)
+  else if ends_with(p, "/bcg/upgrade-hero") then
+    upgrades.upgrade_hero(request_object(btxt))
+  else if ends_with(p, "/bcg/evolve-hero") then
+    upgrades.evolve_hero(request_object(btxt))
+  else
+    ""
+  end
+end
+
 function static_dynamic_second(path: text, p: text, btxt: text): text
   intent: encode the pvp, tutorial, base hero and quest detail endpoints
   if ends_with(p, "/matches/activate-match/pvp_fight") then
@@ -2072,10 +2085,8 @@ function static_dynamic_second(path: text, p: text, btxt: text): text
     pvp_static_dynamic(path, p, btxt)
   else if endpoint_is_tutorial(p) then
     tutorial_response(path, p, btxt)
-  else if ends_with(p, "/bcg/getBaseHeroData") then
-    base_hero_response(btxt)
-  else if ends_with(p, "/bcg/getHeroXPCurve") then
-    hero_xp_curve_response(path)
+  else if contains_text(p, "/bcg/") then
+    bcg_hero_dynamic(path, p, btxt)
   else if contains_text(p, "/quests/quest-detail/raid-npc-") then spaced_envelope(raid.detail_result(last_segment(p)))
   else if contains_text(p, "/quests/quest-detail/") then
     quest_detail_response(p, btxt)
@@ -2093,7 +2104,7 @@ function static_dynamic(path: text, p: text, btxt: text): text
   else if ends_with(p, "/tutorial/get-login-data") then
     tutorial_login_response()
   else if ends_with(p, "/bcg/getUserData") then
-    compact_envelope(gamedata.build_user_data(get_saved_team()))
+    compact_envelope(upgrades.user_data(get_saved_team()))
   else if ends_with(p, "/autorefresh/gamestore/refresh") then
     compact_envelope(jsonout.json_obj([pair_text("check", "offline-1"), pair_int("refresh", 0), pair_bool("cache", false), jsonout.json_pair("gamestore", gamestore_data())]))
   else if ends_with(p, "/autorefresh/events/refresh") then
@@ -2306,7 +2317,7 @@ function resolve_match_response(path: text, btxt: text): text
   let wire_qid: text = if json_text_or(req, "qid", "") != "" then json_text_or(req, "qid", "") else effective_qid ++ "-0" end
   let async_items: a list of Json = if effective_qid != "" and (won or uppercase(outcome) == "LOST") then match_resolved_async(effective_qid, wire_qid, json_text_or(req, "id", ""), won) else [] end
   if won then record_win(json_text_or(req, "qid", "")) end
-  let xp_items: a list of Json = award_fight_xp(outcome)
+  let xp_items: a list of Json = concat(award_fight_xp(outcome), upgrades.award_fight_drop(won))
   let peer: text = peer_key(path)
   let m: Match = match_for_peer(peer)
   if m.match_id != "" and outcome != "" then

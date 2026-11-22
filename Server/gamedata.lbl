@@ -514,7 +514,7 @@ end
 function blueprint_stat_pairs(entry: RosterEntry): a list of Pair
   intent: list the special attack ratio and flag pairs of a blueprint
   let ratios: a list of decimal = special_damage_ratios(entry.bid, entry.star)
-  [pair_dec("s1", unwrap_or(get(ratios, 0), 0.0)), pair_dec("s2", unwrap_or(get(ratios, 1), 0.0)), pair_dec("s3", unwrap_or(get(ratios, 2), 0.0)), pair_int("msa", max_special_attacks(entry.bid, entry.star)), pair_dec("ab", 100.0), pair_int("gg", 1), pair_int("mfl", 0), pair_int("nfr", 0), pair_text("fcpg", ""), pair_text("fhpag", "")]
+  [pair_dec("s1", unwrap_or(get(ratios, 0), 0.0)), pair_dec("s2", unwrap_or(get(ratios, 1), 0.0)), pair_dec("s3", unwrap_or(get(ratios, 2), 0.0)), pair_int("msa", max_special_attacks(entry.bid, entry.star)), pair_int("mr", hero_max_rank()), pair_int("max_rank", hero_max_rank()), pair_dec("ab", 100.0), pair_int("gg", 1), pair_int("mfl", 0), pair_int("nfr", 0), pair_text("fcpg", ""), pair_text("fhpag", "")]
 end
 
 function module_blueprint_identity_pairs(mod: Json): a list of Pair
@@ -820,7 +820,7 @@ end
 
 function hero_base_identity_pairs(bid: text, rank: integer, star: integer, stats: Stats): a list of Pair
   intent: list the id, rank, health, attack and rating pairs of a base hero
-  [pair_text("id", bid), pair_int("r", rank), pair_int("m", star), pair_int("s", star), pair_int("max_hp", stats.hp), pair_int("mhpb", stats.hp), pair_int("attack", stats.atk), pair_int("attb", stats.atk), pair_int("mana_start", diag_mana_start()), pair_int("stun_time", 0), pair_int("special_attacks", max_special_attacks(bid, star)), pair_int("rating", rating_for(stats.hp, stats.atk)), pair_int("rating_hp", stats.hp / 2), pair_int("rating_attack", stats.atk / 2), pair_int("rating_hp_base", stats.hp / 2), pair_int("rating_attack_base", stats.atk / 2), pair_int("ab", 0)]
+  [pair_text("id", bid), pair_int("r", rank), pair_int("m", hero_max_level(rank)), pair_int("max_level", hero_max_level(rank)), pair_int("s", star), pair_int("max_hp", stats.hp), pair_int("mhpb", stats.hp), pair_int("attack", stats.atk), pair_int("attb", stats.atk), pair_int("mana_start", diag_mana_start()), pair_int("stun_time", 0), pair_int("special_attacks", max_special_attacks(bid, star)), pair_int("rating", rating_for(stats.hp, stats.atk)), pair_int("rating_hp", stats.hp / 2), pair_int("rating_attack", stats.atk / 2), pair_int("rating_hp_base", stats.hp / 2), pair_int("rating_attack_base", stats.atk / 2), pair_int("ab", 0)]
 end
 
 function hero_base_combat_pairs(hp: integer): a list of Pair
@@ -858,7 +858,11 @@ public function build_heroes(): Json
   intent: build
   mutable output: a list of Pair = []
   for bid in owned() do
-    set output = append(output, jsonout.json_pair(bid, jsonout.json_obj([jsonout.json_pair("1", build_hero_base(bid, 1))])))
+    mutable ranks: a list of Pair = []
+    for rank in range(1, hero_max_rank() + 1) do
+      set ranks = append(ranks, jsonout.json_pair(to_text(rank), build_hero_base(bid, rank)))
+    end
+    set output = append(output, jsonout.json_pair(bid, jsonout.json_obj(ranks)))
   end
   jsonout.json_obj(output)
 end
@@ -882,12 +886,12 @@ end
 
 public function build_login_data(): Json
   intent: build
-  jsonout.json_obj([pair_text("cdn", cdn()), pair_int("sigLvlMax", 99), pair_int("ratingPrecision", 4), pair_dec("heroRatingAttackWeight", 1.0), pair_dec("heroRatingMaxHPWeight", 1.0), jsonout.json_pair("attributeGrowthDefs", jsonout.json_list([])), jsonout.json_pair("statMods", build_stat_modifiers()), jsonout.json_pair("statModAppears", build_stat_mod_appears()), jsonout.json_pair("heroes", build_heroes()), jsonout.json_pair("blueprints", build_blueprints()), jsonout.json_pair("evoBlueprints", jsonout.json_obj([])), jsonout.json_pair("characters", build_characters()), jsonout.json_pair("synergyBonuses", jsonout.json_obj([])), jsonout.json_pair("attackValues", build_attack_values()), jsonout.json_pair("blueprintBonuses", jsonout.json_obj([])), jsonout.json_pair("heroClasses", build_hero_classes()), jsonout.json_pair("staminaRegen", jsonout.json_obj([])), jsonout.json_pair("rarityProperties", build_rarity_properties()), jsonout.json_pair("evoCosts", jsonout.json_obj([])), jsonout.json_pair("curves", jsonout.json_obj([]))])
+  jsonout.json_obj([pair_text("cdn", cdn()), pair_int("sigLvlMax", 99), pair_int("ratingPrecision", 4), pair_dec("heroRatingAttackWeight", 1.0), pair_dec("heroRatingMaxHPWeight", 1.0), jsonout.json_pair("attributeGrowthDefs", jsonout.json_list([])), jsonout.json_pair("statMods", build_stat_modifiers()), jsonout.json_pair("statModAppears", build_stat_mod_appears()), jsonout.json_pair("heroes", build_heroes()), jsonout.json_pair("blueprints", build_blueprints()), jsonout.json_pair("evoBlueprints", build_evo_blueprints()), jsonout.json_pair("characters", build_characters()), jsonout.json_pair("synergyBonuses", jsonout.json_obj([])), jsonout.json_pair("attackValues", build_attack_values()), jsonout.json_pair("blueprintBonuses", build_blueprint_bonuses()), jsonout.json_pair("heroClasses", build_hero_classes()), jsonout.json_pair("staminaRegen", jsonout.json_obj([])), jsonout.json_pair("rarityProperties", build_rarity_properties()), jsonout.json_pair("evoCosts", build_evo_costs()), jsonout.json_pair("curves", jsonout.json_obj([]))])
 end
 
-function hero_entry_stat_pairs(bid: text, rank: integer, level: integer, stats: Stats): a list of Pair
+function hero_entry_stat_pairs(bid: text, rank: integer, level: integer, xp: integer, stats: Stats): a list of Pair
   intent: list the identity, experience and stat pairs of a hero entry
-  [pair_text("entity_type", "bot"), pair_text("bid", bid), pair_int("rank", rank), pair_int("level", level), pair_int("sig_lvl", if bid == "SIG_TEST_DISABLED" then 1 else 0 end), pair_int("required_xp", 0), pair_int("max_xp", 100), pair_int("stamina", 100), pair_int("stamina_ts", 0), pair_int("stamina_full_ts", 0), pair_text("stt", ""), pair_int("max_hp", stats.hp), pair_int("attack", stats.atk), pair_int("rating", rating_for(stats.hp, stats.atk)), pair_int("rating_attack", stats.atk / 2), pair_int("rating_hp", stats.hp / 2), pair_int("rating_attack_base", stats.atk / 2), pair_int("rating_hp_base", stats.hp / 2)]
+  [pair_text("entity_type", "bot"), pair_text("bid", bid), pair_int("rank", rank), pair_int("level", level), pair_int("sig_lvl", if bid == "SIG_TEST_DISABLED" then 1 else 0 end), pair_int("required_xp", hero_xp_to_next(level) - xp), pair_int("max_xp", hero_xp_to_next(level)), pair_int("stamina", 100), pair_int("stamina_ts", 0), pair_int("stamina_full_ts", 0), pair_text("stt", ""), pair_int("max_hp", stats.hp), pair_int("attack", stats.atk), pair_int("rating", rating_for(stats.hp, stats.atk)), pair_int("rating_attack", stats.atk / 2), pair_int("rating_hp", stats.hp / 2), pair_int("rating_attack_base", stats.atk / 2), pair_int("rating_hp_base", stats.hp / 2)]
 end
 
 function hero_entry_extra_pairs(bid: text, star: integer): a list of Pair
@@ -896,9 +900,14 @@ function hero_entry_extra_pairs(bid: text, star: integer): a list of Pair
 end
 
 public function build_hero_entry(bid: text, rank: integer, level: integer): Json
-  intent: build the entry of one hero at a rank and level
+  intent: build the entry of one hero at a rank and level with no experience toward the next level
+  build_hero_entry_xp(bid, rank, level, 0)
+end
+
+public function build_hero_entry_xp(bid: text, rank: integer, level: integer, xp: integer): Json
+  intent: build the entry of one hero at a rank and level holding some experience toward the next level
   let entry: RosterEntry = roster_entry(bid)
-  jsonout.json_obj(concat(hero_entry_stat_pairs(bid, rank, level, base_stats(bid, rank, level)), hero_entry_extra_pairs(bid, entry.star)))
+  jsonout.json_obj(concat(hero_entry_stat_pairs(bid, rank, level, xp, base_stats(bid, rank, level)), hero_entry_extra_pairs(bid, entry.star)))
 end
 
 public function default_team(): a list of text
@@ -3015,4 +3024,151 @@ else
   let atk_ranked: decimal = atk_classed * rank_mult
   Stats { hp: to_integer(hp_ranked * level_factor), atk: to_integer(atk_ranked * level_factor) }
 end
+end
+
+-- Upgrade items. Ore-13 levels a bot up (the upgrade screen lists every owned item of type "blueprint" and adds up its
+-- "iso" value), class Sparks rank it up (evoCosts recipe, item type "evolve"). Images are the game's own
+-- upgradeitems_odr pack: upgradeitems/ore_t1, ore_brawler_t1 ... spk_brawler_t1 ...
+
+public function hero_max_rank(): integer
+  intent: the highest rank a bot can reach
+  5
+end
+
+public function hero_max_level(rank: integer): integer
+  intent: the level cap of a bot at a rank, ten levels per rank
+  10 * max(1, rank)
+end
+
+public function hero_xp_to_next(level: integer): integer
+  intent: the experience a bot needs to go from a level to the next one
+  100 * max(1, level)
+end
+
+public function evo_class_name(klass: text): text
+  intent: the class word the item ids and images use for a class code
+  if klass == "braw" then "brawler" else if klass == "tact" then "tactician" else if klass == "scou" then "scout" else if klass == "demo" then "demolitions" else if klass == "warr" then "warrior" else if klass == "tech" then "tech" else "generic" end
+end
+
+function title_word(word: text): text
+  intent: the word with its first letter in upper case
+  uppercase(substring(word, 0, 1)) ++ substring(word, 1, text_length(word) - 1)
+end
+
+public function ore_id(name: text, tier: integer): text
+  intent: the id of one Ore-13 item, name is generic or a class word
+  "ore_" ++ name ++ "_t" ++ to_text(tier)
+end
+
+public function spark_id(name: text, tier: integer): text
+  intent: the id of one class Spark
+  "spark_" ++ name ++ "_t" ++ to_text(tier)
+end
+
+public function ore_iso_value(tier: integer): integer
+  intent: the experience one Ore-13 of a tier gives
+  unwrap_or(get([50, 150, 500, 1500, 5000], tier - 1), 0)
+end
+
+public function same_class_bonus(): decimal
+  intent: the experience multiplier of a class ore used on a bot of the same class
+  1.2
+end
+
+function evo_item(id: text, kind: text, image: text, klass: text, tier: integer, name: text, description: text, iso: integer): Json
+  intent: encode one upgrade item in the BCGEvoBlueprintBase wire shape
+  jsonout.json_obj([pair_text("id", id), pair_text("t", kind), pair_text("type", kind), pair_text("i", image), pair_text("imgID", image), pair_text("f", name), pair_text("friendly_name", name), pair_text("d", description), pair_text("description", description), pair_int("rm", tier), pair_text("c", klass), pair_text("class", klass), pair_int("dm", 999), pair_int("defaultMax", 999), pair_int("iso", iso), pair_int("base_iso_value", iso), pair_int("co", 0), pair_int("conversion_cost", 0), pair_int("sc", 0), pair_int("base_coin_value", 0), pair_bool("e", true), pair_bool("enabled", true), pair_bool("shc", false), pair_bool("showConversion", false)])
+end
+
+function ore_item(klass: text, tier: integer): Json
+  intent: encode one Ore-13 item, klass is generic or a class code
+  let name: text = evo_class_name(klass)
+  let image: text = if klass == "generic" then "ore_t" ++ to_text(tier) else "ore_" ++ name ++ "_t" ++ to_text(tier) end
+  let label: text = "Tier " ++ to_text(tier) ++ " " ++ title_word(name) ++ " Ore-13"
+  let description: text = if klass == "generic" then "Gives any bot upgrade experience." else "Gives upgrade experience, with a bonus on " ++ title_word(name) ++ " bots." end
+  evo_item(ore_id(name, tier), "blueprint", image, klass, tier, label, description, ore_iso_value(tier))
+end
+
+function spark_item(klass: text, tier: integer): Json
+  intent: encode one class Spark item used to rank up
+  let name: text = evo_class_name(klass)
+  let label: text = "Tier " ++ to_text(tier) ++ " " ++ title_word(name) ++ " Spark"
+  evo_item(spark_id(name, tier), "evolve", "spk_" ++ name ++ "_t" ++ to_text(tier), klass, tier, label, "Ranks up a " ++ title_word(name) ++ " bot from rank " ++ to_text(tier) ++ ".", 0)
+end
+
+public function evo_items(): a list of Json
+  intent: every upgrade item, generic ores, then class ores and class sparks
+  mutable items: a list of Json = []
+  for tier in range(1, 6) do
+    set items = append(items, ore_item("generic", tier))
+  end
+  for klass in classes() do
+    for tier in range(1, 6) do
+      set items = append(items, ore_item(klass, tier))
+      set items = append(items, spark_item(klass, tier))
+    end
+  end
+  items
+end
+
+public function build_evo_blueprints(): Json
+  intent: the evoBlueprints table of the login data, keyed by item id
+  mutable pairs: a list of Pair = []
+  for item in evo_items() do
+    set pairs = append(pairs, jsonout.json_pair(jsonout.as_text(jsonout.obj_get(item, "id")), item))
+  end
+  jsonout.json_obj(pairs)
+end
+
+public function build_blueprint_bonuses(): Json
+  intent: the same class ore bonus the upgrade screen applies
+  jsonout.json_obj([jsonout.json_pair("sameClassBonus", jsonout.json_obj([pair_text("id", "sameClassBonus"), pair_dec("m", same_class_bonus())]))])
+end
+
+public function rank_up_recipe(bid: text, rank: integer): a list of text
+  intent: the sparks a bot spends to go from a rank to the next, two class sparks of the tier of that rank
+  let id: text = spark_id(evo_class_name(roster_entry(bid).klass), min(rank, 5))
+  [id, id]
+end
+
+public function build_evo_costs(): Json
+  intent: the rank up recipes of every roster bot, keyed by bid and rank as the client looks them up
+  mutable pairs: a list of Pair = []
+  for entry in roster() do
+    for rank in range(1, hero_max_rank()) do
+      mutable recipe: a list of Json = []
+      for id in rank_up_recipe(entry.bid, rank) do
+        set recipe = append(recipe, jsonout.json_text(id))
+      end
+      set pairs = append(pairs, jsonout.json_pair(entry.bid ++ to_text(rank), jsonout.json_obj([pair_text("id", entry.bid), pair_int("r", rank), pair_int("sc", 0), jsonout.json_pair("re", jsonout.json_list(recipe))])))
+    end
+  end
+  jsonout.json_obj(pairs)
+end
+
+public function evo_iso_for_bot(id: text, bid: text): integer
+  intent: the experience an item gives a bot, with the same class bonus rounded like the client does
+  mutable value: integer = 0
+  for item in evo_items() do
+    if jsonout.as_text(jsonout.obj_get(item, "id")) == id and jsonout.as_text(jsonout.obj_get(item, "t")) == "blueprint" then
+      let iso: integer = jsonout.as_int(jsonout.obj_get(item, "iso"))
+      let klass: text = jsonout.as_text(jsonout.obj_get(item, "c"))
+      set value = if klass == roster_entry(bid).klass then to_integer(round(to_decimal(iso) * same_class_bonus())) else iso end
+    end
+  end
+  value
+end
+
+public function evo_known(id: text): boolean
+  intent: check that an id names an upgrade item
+  mutable found: boolean = false
+  for item in evo_items() do
+    if jsonout.as_text(jsonout.obj_get(item, "id")) == id then set found = true end
+  end
+  found
+end
+
+public function bot_klass(bid: text): text
+  intent: the class code of a roster bot
+  roster_entry(bid).klass
 end

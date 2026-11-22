@@ -1,0 +1,101 @@
+use upgrades
+use fakeserver
+use gamedata
+use jsonout
+
+function check(name: text, ok: boolean): integer
+  intent: print the test result
+  print(if ok then "[ok] " ++ name else "[!] " ++ name end)
+  if ok then 0 else 1 end
+end
+
+function reply(path: text, body: text): Json
+  intent: parse one in process server response
+  jsonout.parse_json(fakeserver.dynamic(path, body))
+end
+
+function progress(bid: text, index: integer): integer
+  intent: one field of the saved progress of a bot
+  unwrap_or(get(upgrades.hero_progress(bid), index), -1)
+end
+
+function txt(node: Json, key: text): text
+  intent: one text field
+  jsonout.as_text(jsonout.obj_get(node, key))
+end
+
+function num(node: Json, key: text): integer
+  intent: one integer field
+  jsonout.as_int(jsonout.obj_get(node, key))
+end
+
+function first_hero(node: Json): Json
+  intent: the first hero of a user data update
+  unwrap_or(get(jsonout.list_items(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(node, "result"), "updates"), "heroes")), 0), jsonout.json_obj([]))
+end
+
+function bp_count(node: Json, id: text): integer
+  intent: one item count of the inventory of a user data update
+  jsonout.as_int(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(jsonout.obj_get(node, "result"), "updates"), "inventory"), "bp"), id))
+end
+
+function test_login_items(): integer
+  intent: the login data defines ores and sparks
+  let evos: Json = jsonout.obj_get(gamedata.build_login_data(), "evoBlueprints")
+  let ore: Json = jsonout.obj_get(evos, "ore_brawler_t2")
+  let spark: Json = jsonout.obj_get(evos, "spark_scout_t1")
+  check("ore is a blueprint item with experience", txt(ore, "t") == "blueprint" and num(ore, "iso") == 150 and txt(ore, "c") == "braw" and txt(ore, "i") == "ore_brawler_t2") + check("spark is an evolve item", txt(spark, "t") == "evolve" and txt(spark, "i") == "spk_scout_t1")
+end
+
+function test_login_ranks(): integer
+  intent: the login data defines rank up recipes and five ranks per bot
+  let login: Json = gamedata.build_login_data()
+  let cost: Json = jsonout.obj_get(jsonout.obj_get(login, "evoCosts"), "optimusprime_cin_tf1")
+  let ranks: Json = jsonout.obj_get(jsonout.obj_get(login, "heroes"), "optimusprime_cin_tf")
+  check("rank up recipe exists", length(jsonout.list_items(jsonout.obj_get(cost, "re"))) == 2 and num(cost, "r") == 1) + check("five hero ranks with level caps", num(jsonout.obj_get(ranks, "5"), "m") == 50 and num(jsonout.obj_get(ranks, "1"), "m") == 10)
+end
+
+function test_curve_and_user_data(): integer
+  intent: the experience curve covers each level below the cap and user data carries the stash
+  upgrades.reset_upgrades()
+  let curve: a list of Json = jsonout.list_items(jsonout.obj_get(reply("/bcg/getHeroXPCurve?bid=optimusprime_cin_tf&rank=2", ""), "result"))
+  let user: Json = reply("/bcg/getUserData", "")
+  check("curve length is the rank cap", length(curve) == 20 and jsonout.as_int(unwrap_or(get(curve, 1), jsonout.json_int(0))) == 100) + check("user data has the starting stash", bp_count(user, "ore_generic_t1") == 30 and bp_count(user, "spark_tech_t1") == 6)
+end
+
+function test_level_up(): integer
+  intent: spending ore levels a bot and takes the ore out of the inventory
+  upgrades.reset_upgrades()
+  let body: text = "\{\"hero\":\"optimusprime_cin_tf\",\"bids\":[],\"evos\":[\"ore_generic_t3\",\"ore_generic_t3\"]\}"
+  let done: Json = reply("/bcg/upgrade-hero", body)
+  let hero: Json = first_hero(done)
+  check("level up from 1000 experience to level 5", progress("optimusprime_cin_tf", 1) == 5 and progress("optimusprime_cin_tf", 2) == 0 and num(hero, "level") == 5 and num(hero, "required_xp") == 500) + check("ore spent", bp_count(done, "ore_generic_t3") == 6 and upgrades.evo_count("ore_generic_t3") == 6) + check("level raises stats", jsonout.as_int(jsonout.obj_get(hero, "max_hp")) > jsonout.as_int(jsonout.obj_get(gamedata.build_hero_entry("optimusprime_cin_tf", 1, 1), "max_hp")))
+end
+
+function test_rank_up(): integer
+  intent: a bot at its level cap spends its sparks to rank up, earlier it is refused
+  upgrades.reset_upgrades()
+  let early: Json = reply("/bcg/evolve-hero", "\{\"hero\":\"optimusprime_cin_tf\"\}")
+  let capped: Json = reply("/bcg/upgrade-hero", "\{\"hero\":\"optimusprime_cin_tf\",\"evos\":[\"ore_generic_t5\"]\}")
+  let spark: text = gamedata.spark_id(gamedata.evo_class_name(gamedata.bot_klass("optimusprime_cin_tf")), 1)
+  let ranked: Json = reply("/bcg/evolve-hero", "\{\"hero\":\"optimusprime_cin_tf\"\}")
+  check("rank up refused below the cap", txt(early, "error") == "invalid") + check("ore reaches the cap", num(first_hero(capped), "level") == 10) + check("rank up spends two sparks", progress("optimusprime_cin_tf", 0) == 2 and progress("optimusprime_cin_tf", 1) == 1 and bp_count(ranked, spark) == 4)
+end
+
+function test_refusals_and_drops(): integer
+  intent: sparks and missing items cannot level a bot, and a won fight drops items
+  upgrades.reset_upgrades()
+  let wrong: Json = reply("/bcg/upgrade-hero", "\{\"hero\":\"optimusprime_cin_tf\",\"evos\":[\"spark_brawler_t1\"]\}")
+  let missing: Json = reply("/bcg/upgrade-hero", "\{\"hero\":\"optimusprime_cin_tf\",\"evos\":[\"ore_generic_t5\",\"ore_generic_t5\"]\}")
+  let drop: a list of Json = upgrades.award_fight_drop(true)
+  let message: Json = unwrap_or(get(drop, 0), jsonout.json_obj([]))
+  check("spark cannot level", txt(wrong, "error") == "invalid") + check("missing ore refused", txt(missing, "error") == "invalid" and progress("optimusprime_cin_tf", 1) == 1) + check("won fight drops ore and a spark", txt(message, "component") == "BCGManager" and upgrades.evo_count("ore_generic_t1") == 32 and upgrades.evo_count("spark_brawler_t1") == 7) + check("lost fight drops nothing", length(upgrades.award_fight_drop(false)) == 0)
+end
+
+function main(): nothing
+  intent: run bot improvement tests
+  let failures: integer = test_login_items() + test_login_ranks() + test_curve_and_user_data() + test_level_up() + test_rank_up() + test_refusals_and_drops()
+  print(to_text(16 - failures) ++ " passed, " ++ to_text(failures) ++ " failed")
+  if failures > 0 then exit_process(1) end
+end
+main()

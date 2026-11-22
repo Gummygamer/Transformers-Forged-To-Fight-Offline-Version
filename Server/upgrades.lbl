@@ -1,0 +1,315 @@
+use jsonout
+use gamedata
+use server_paths
+
+-- Bot improvement: the saved rank, level and experience of every bot, the upgrade item inventory (Ore-13 and
+-- Sparks, defined in gamedata), the /bcg/upgrade-hero and /bcg/evolve-hero handlers and the items won fights drop.
+-- Both mutation replies use the BCGManager.UpdateUserData shape: updates.heroes plus updates.inventory.bp.
+
+function state_dir(): text
+  intent: the same state folder the fake server uses
+  let override: text = unwrap_or(env_get("TFTF_LOG_DIR"), "")
+  if override != "" then override else path_join(server_paths.entry_directory("Server/fakeserver.lbl"), "logs") end
+end
+
+function heroes_file(): text
+  intent: the file holding each improved bot as bid, rank, level and experience
+  path_join(state_dir(), ".fakeserver-heroes")
+end
+
+function evos_file(): text
+  intent: the file holding the count of each upgrade item
+  path_join(state_dir(), ".fakeserver-evos")
+end
+
+function pair_text(key: text, value: text): Pair
+  intent: build an object pair holding a text value
+  jsonout.json_pair(key, jsonout.json_text(value))
+end
+
+function pair_int(key: text, value: integer): Pair
+  intent: build an object pair holding an integer value
+  jsonout.json_pair(key, jsonout.json_int(value))
+end
+
+function field(line: text, index: integer): text
+  intent: one bar separated field of a state line
+  unwrap_or(get(split(line, "|"), index), "")
+end
+
+function int_field(line: text, index: integer, fallback: integer): integer
+  intent: one bar separated integer field of a state line
+  unwrap_or(to_integer(field(line, index)), fallback)
+end
+
+function state_lines(path: text): a list of text
+  intent: the non empty lines of a state file, none when it is missing
+  mutable lines: a list of text = []
+  if file_exists(path) then
+    for line in split(read_file(path), "\n") do
+      if trim(line) != "" then set lines = append(lines, trim(line)) end
+    end
+  end
+  lines
+end
+
+-- hero progress
+
+public function hero_progress(bid: text): a list of integer
+  intent: the saved rank, level and experience of a bot, rank one level one for a bot never improved
+  mutable progress: a list of integer = [1, 1, 0]
+  for line in state_lines(heroes_file()) do
+    if field(line, 0) == bid then set progress = [int_field(line, 1, 1), int_field(line, 2, 1), int_field(line, 3, 0)] end
+  end
+  progress
+end
+
+function save_hero_progress(bid: text, rank: integer, level: integer, xp: integer): nothing
+  intent: replace the saved progress of one bot
+  mutable lines: a list of text = []
+  for line in state_lines(heroes_file()) do
+    if field(line, 0) != bid then set lines = append(lines, line) end
+  end
+  set lines = append(lines, bid ++ "|" ++ to_text(rank) ++ "|" ++ to_text(level) ++ "|" ++ to_text(xp))
+  create_dir(state_dir())
+  write_file(heroes_file(), join(lines, "\n") ++ "\n")
+end
+
+public function hero_entry(bid: text): Json
+  intent: the user hero record of a bot at its saved rank, level and experience
+  let progress: a list of integer = hero_progress(bid)
+  gamedata.build_hero_entry_xp(bid, unwrap_or(get(progress, 0), 1), unwrap_or(get(progress, 1), 1), unwrap_or(get(progress, 2), 0))
+end
+
+-- inventory
+
+public function starting_count(id: text): integer
+  intent: the stash a new profile starts with, enough Ore-13 for the first levels and Sparks for the first rank ups
+  let generic: a list of integer = [30, 15, 8, 3, 1]
+  let class_ore: a list of integer = [10, 5, 0, 0, 0]
+  let sparks: a list of integer = [6, 4, 2, 2, 0]
+  mutable count: integer = 0
+  for tier in range(1, 6) do
+    if id == gamedata.ore_id("generic", tier) then set count = unwrap_or(get(generic, tier - 1), 0) end
+    for klass in gamedata.classes() do
+      let name: text = gamedata.evo_class_name(klass)
+      if id == gamedata.ore_id(name, tier) then set count = unwrap_or(get(class_ore, tier - 1), 0) end
+      if id == gamedata.spark_id(name, tier) then set count = unwrap_or(get(sparks, tier - 1), 0) end
+    end
+  end
+  count
+end
+
+public function evo_count(id: text): integer
+  intent: the owned count of one upgrade item, the starting stash before anything was spent or won
+  if not file_exists(evos_file()) then return starting_count(id) end
+  mutable count: integer = 0
+  for line in state_lines(evos_file()) do
+    if field(line, 0) == id then set count = int_field(line, 1, 0) end
+  end
+  count
+end
+
+function win_count(): integer
+  intent: the number of won fights that dropped items
+  evo_count("_wins")
+end
+
+function save_counts(counts: a list of integer, wins: integer): nothing
+  intent: write the count of every upgrade item, in the order of gamedata.evo_items, and the won fight counter
+  mutable lines: a list of text = []
+  mutable index: integer = 0
+  for item in gamedata.evo_items() do
+    set lines = append(lines, jsonout.as_text(jsonout.obj_get(item, "id")) ++ "|" ++ to_text(unwrap_or(get(counts, index), 0)))
+    set index = index + 1
+  end
+  set lines = append(lines, "_wins|" ++ to_text(wins))
+  create_dir(state_dir())
+  write_file(evos_file(), join(lines, "\n") ++ "\n")
+end
+
+function count_in(ids: a list of text, id: text): integer
+  intent: how many times an id appears in a list
+  mutable count: integer = 0
+  for each in ids do
+    if each == id then set count = count + 1 end
+  end
+  count
+end
+
+function change_counts(spent: a list of text, gained: a list of text, wins: integer): nothing
+  intent: take the spent items out of the inventory and add the gained ones
+  mutable counts: a list of integer = []
+  for item in gamedata.evo_items() do
+    let id: text = jsonout.as_text(jsonout.obj_get(item, "id"))
+    set counts = append(counts, max(0, evo_count(id) - count_in(spent, id) + count_in(gained, id)))
+  end
+  save_counts(counts, wins)
+end
+
+function owns_all(ids: a list of text): boolean
+  intent: check that the inventory holds every item of a list, counting repeats
+  mutable enough: boolean = true
+  for id in ids do
+    if not gamedata.evo_known(id) or evo_count(id) < count_in(ids, id) then set enough = false end
+  end
+  enough
+end
+
+public function inventory_json(): Json
+  intent: the inventory node of a user data update, every item count under bp
+  mutable pairs: a list of Pair = []
+  for item in gamedata.evo_items() do
+    let id: text = jsonout.as_text(jsonout.obj_get(item, "id"))
+    set pairs = append(pairs, pair_int(id, evo_count(id)))
+  end
+  jsonout.json_obj([jsonout.json_pair("bp", jsonout.json_obj(pairs))])
+end
+
+-- user data
+
+function with_progress(entries: a list of Json): a list of Json
+  intent: replace every bot record with its saved progress, leaving modules alone
+  mutable out: a list of Json = []
+  for entry in entries do
+    let bot: boolean = jsonout.as_text(jsonout.obj_get(entry, "entity_type")) == "bot"
+    set out = append(out, if bot then hero_entry(jsonout.as_text(jsonout.obj_get(entry, "bid"))) else entry end)
+  end
+  out
+end
+
+public function user_data(team: a list of text): Json
+  intent: the getUserData reply with saved bot progress and the upgrade item inventory
+  let base: Json = gamedata.build_user_data(team)
+  let updates: Json = jsonout.obj_get(base, "updates")
+  let heroes: a list of Json = with_progress(jsonout.list_items(jsonout.obj_get(updates, "heroes")))
+  let updated: Json = jsonout.obj_set(jsonout.obj_set(updates, "heroes", jsonout.json_list(heroes)), "inventory", inventory_json())
+  jsonout.obj_set(base, "updates", updated)
+end
+
+function hero_update(bid: text): Json
+  intent: the reply of a mutation, the changed bot and the whole inventory
+  jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("heroes", jsonout.json_list([hero_entry(bid)])), jsonout.json_pair("inventory", inventory_json())])), jsonout.json_pair("deletes", jsonout.json_obj([]))])
+end
+
+function envelope(result: Json): text
+  intent: a successful reply
+  jsonout.encode_compact(jsonout.json_obj([jsonout.json_pair("error", jsonout.json_null()), jsonout.json_pair("result", result)]))
+end
+
+function refusal(): text
+  intent: a refused mutation, the client keeps its data
+  "\{\"error\":\"invalid\",\"result\":null\}"
+end
+
+function text_items(node: Json, key: text): a list of text
+  intent: the text entries of a list field
+  mutable out: a list of text = []
+  if jsonout.obj_has(node, key) and jsonout.type_name(jsonout.obj_get(node, key)) == "list" then
+    for item in jsonout.list_items(jsonout.obj_get(node, key)) do
+      if jsonout.type_name(item) == "text" then set out = append(out, jsonout.as_text(item)) end
+    end
+  end
+  out
+end
+
+function request_hero(req: Json): text
+  intent: the bot a mutation names, empty when it is not an owned bot
+  let bid: text = if jsonout.obj_has(req, "hero") and jsonout.type_name(jsonout.obj_get(req, "hero")) == "text" then jsonout.as_text(jsonout.obj_get(req, "hero")) else "" end
+  if contains(gamedata.owned(), bid) then bid else "" end
+end
+
+-- level up
+
+public function xp_curve(bid: text, rank: integer): Json
+  intent: the getHeroXPCurve list, entry L is the experience from level L to the next, one entry per level below the cap
+  mutable levels: a list of Json = []
+  for level in range(0, gamedata.hero_max_level(rank)) do
+    set levels = append(levels, jsonout.json_int(if level == 0 then 0 else gamedata.hero_xp_to_next(level) end))
+  end
+  jsonout.json_list(levels)
+end
+
+public function levelled(rank: integer, level: integer, xp: integer): a list of integer
+  intent: the level and experience after adding experience, stopping at the cap of the rank
+  let cap: integer = gamedata.hero_max_level(rank)
+  mutable new_level: integer = level
+  mutable new_xp: integer = xp
+  while new_level < cap and new_xp >= gamedata.hero_xp_to_next(new_level) do
+    set new_xp = new_xp - gamedata.hero_xp_to_next(new_level)
+    set new_level = new_level + 1
+  end
+  [new_level, if new_level >= cap then 0 else new_xp end]
+end
+
+function ore_only(ids: a list of text): boolean
+  intent: check that every id is an Ore-13 item
+  mutable ok: boolean = length(ids) > 0
+  for id in ids do
+    if not starts_with(id, "ore_") then set ok = false end
+  end
+  ok
+end
+
+public function upgrade_hero(req: Json): text
+  intent: spend Ore-13 on a bot and level it up
+  let bid: text = request_hero(req)
+  let evos: a list of text = text_items(req, "evos")
+  let progress: a list of integer = hero_progress(bid)
+  let rank: integer = unwrap_or(get(progress, 0), 1)
+  let level: integer = unwrap_or(get(progress, 1), 1)
+  if bid == "" or not ore_only(evos) or not owns_all(evos) or level >= gamedata.hero_max_level(rank) then return refusal() end
+  mutable gain: integer = 0
+  for id in evos do
+    set gain = gain + gamedata.evo_iso_for_bot(id, bid)
+  end
+  let after: a list of integer = levelled(rank, level, unwrap_or(get(progress, 2), 0) + gain)
+  change_counts(evos, [], win_count())
+  save_hero_progress(bid, rank, unwrap_or(get(after, 0), level), unwrap_or(get(after, 1), 0))
+  envelope(hero_update(bid))
+end
+
+-- rank up
+
+public function evolve_hero(req: Json): text
+  intent: spend the rank up Sparks of a bot at its level cap and raise its rank
+  let bid: text = request_hero(req)
+  let progress: a list of integer = hero_progress(bid)
+  let rank: integer = unwrap_or(get(progress, 0), 1)
+  let recipe: a list of text = gamedata.rank_up_recipe(bid, rank)
+  let at_cap: boolean = unwrap_or(get(progress, 1), 1) >= gamedata.hero_max_level(rank)
+  if bid == "" or not at_cap or rank >= gamedata.hero_max_rank() or not owns_all(recipe) then return refusal() end
+  change_counts(recipe, [], win_count())
+  save_hero_progress(bid, rank + 1, 1, 0)
+  envelope(hero_update(bid))
+end
+
+-- fight drops
+
+public function win_drop(wins: integer): a list of text
+  intent: the items one won fight drops, ores every time and a Spark of a rotating class
+  let classes: a list of text = gamedata.classes()
+  let name: text = gamedata.evo_class_name(unwrap_or(get(classes, wins % length(classes)), "braw"))
+  let spark_tier: integer = if wins % 4 == 3 then 2 else 1 end
+  [gamedata.ore_id("generic", 1), gamedata.ore_id("generic", 1), gamedata.ore_id("generic", 2), gamedata.ore_id(name, 1), gamedata.spark_id(name, spark_tier)]
+end
+
+public function award_fight_drop(won: boolean): a list of Json
+  intent: add the items a won fight drops and return the async message that shows them in the client
+  if not won then return [] end
+  let wins: integer = win_count()
+  change_counts([], win_drop(wins), wins + 1)
+  let result: Json = jsonout.json_obj([jsonout.json_pair("updates", jsonout.json_obj([jsonout.json_pair("inventory", inventory_json())])), jsonout.json_pair("deletes", jsonout.json_obj([]))])
+  [jsonout.json_obj([pair_text("component", "BCGManager"), pair_text("channel", ""), pair_text("message", "redeem-ebp"), jsonout.json_pair("payload", jsonout.json_obj([jsonout.json_pair("result", result)]))])]
+end
+
+public function reset_upgrades(): nothing
+  intent: forget every bot improvement and give back the starting stash
+  create_dir(state_dir())
+  write_file(heroes_file(), "")
+  mutable counts: a list of integer = []
+  for item in gamedata.evo_items() do
+    set counts = append(counts, starting_count(jsonout.as_text(jsonout.obj_get(item, "id"))))
+  end
+  save_counts(counts, 0)
+end

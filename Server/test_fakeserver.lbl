@@ -137,7 +137,7 @@ function test_hero_xp_curve_route_returns_level_thresholds(): boolean
   intent: test
   let curve: Json = result(fakeserver.dynamic("/bcg/getHeroXPCurve?bid=optimusprime_cin_tf&rank=1", ""))
   let levels: a list of Json = jsonout.list_items(curve)
-  length(levels) == 30 and jsonout.as_int(unwrap_or(get(levels, 0), jsonout.json_int(0))) == 100 and jsonout.as_int(unwrap_or(get(levels, 29), jsonout.json_int(0))) == 3000
+  length(levels) == 10 and jsonout.as_int(unwrap_or(get(levels, 1), jsonout.json_int(0))) == 100 and jsonout.as_int(unwrap_or(get(levels, 9), jsonout.json_int(0))) == 900
 end
 
 function profile_has_account_resources(resources: Json): boolean
