@@ -1104,7 +1104,7 @@ end
 
 function main_group_5(): integer
   intent: run
-  report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing") + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move")
+  report("test_quest_summary_exposes_authored_dialogue_sets", test_quest_summary_exposes_authored_dialogue_sets(), "story dialogue sets were missing") + report("test_server_accepts_exactly_the_moves_the_client_offers", test_server_accepts_exactly_the_moves_the_client_offers(), "server and client disagree on a move") + report("test_every_carried_ability_has_a_served_card", test_every_carried_ability_has_a_served_card(), "a carried ability had no row or card")
 end
 
 function run_unit(unit: integer): integer
@@ -1779,6 +1779,23 @@ function test_generated_login_response_uses_current_special_ratios(): boolean
     let response_blueprint: Json = jsonout.obj_get(blueprints, entry.bid)
     let built_blueprint: Json = blueprint(entry.bid)
     set passed = passed and jsonout.obj_has(blueprints, entry.bid) and encoded_field(response_blueprint, "s1") == encoded_field(built_blueprint, "s1") and encoded_field(response_blueprint, "s2") == encoded_field(built_blueprint, "s2") and encoded_field(response_blueprint, "s3") == encoded_field(built_blueprint, "s3")
+  end
+  passed
+end
+
+-- Mirrors the law abilities_carded (proofs/LAWS.bend) against the real builders: every
+-- ability a roster bot carries is a statMods row and has a statModAppears card with a
+-- title and a description, and the login snapshot serves the same cards.
+function test_every_carried_ability_has_a_served_card(): boolean
+  intent: test
+  let rows: Json = gamedata.build_stat_modifiers()
+  let cards: Json = gamedata.build_stat_mod_appears()
+  let response: Json = jsonout.parse_json(read_file(path_join(gamedata.resp_dir(), "GET__bcg_getLoginData.json")))
+  mutable passed: boolean = jsonout.encode_compact(jsonout.obj_get(jsonout.obj_get(response, "result"), "statModAppears")) == jsonout.encode_compact(cards)
+  for entry in gamedata.roster() do
+    for aid in gamedata.bot_abilities(entry.bid) do
+      set passed = passed and jsonout.obj_has(rows, aid) and jsonout.obj_has(cards, aid) and field_text(jsonout.obj_get(cards, aid), "a") != "" and field_text(jsonout.obj_get(cards, aid), "l") != ""
+    end
   end
   passed
 end

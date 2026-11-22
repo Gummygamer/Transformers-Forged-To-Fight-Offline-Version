@@ -45,9 +45,120 @@ def kits() -> List<&2, A.Kit>:
     A.Kit{"megatron_gs_leader2015", ["kit_bleed", "kit_shock", "kit_burn"]}
   ]
 
+def cards() -> List<&2, A.Card>:
+  [
+    A.Card{"my_test_app", "", "", [], [], []},
+    A.Card{"kit_bleed", "Bleed", "Serrated strikes open a wound: 40% of Attack as direct damage over 6 seconds, ignoring Armor.", [58370n], [40n, 6n], ["hit"]},
+    A.Card{"kit_shock", "Overcharge", "Every hit arcs high voltage: 45% of Attack as energy damage over 5 seconds.", [58386n], [45n, 5n], ["hit"]},
+    A.Card{"kit_burn", "Thermal Pulse", "Incendiary payload ignites the target: 35% of Attack as burn damage over 6 seconds.", [58397n], [35n, 6n], []},
+    A.Card{"dmg_bleed", "Bleed", "Serrated strikes open a wound: 40% of Attack as direct damage over 6 seconds, ignoring Armor.", [58370n], [40n, 6n], ["hit"]},
+    A.Card{"dmg_shock", "Overcharge", "Every hit arcs high voltage: 45% of Attack as energy damage over 5 seconds.", [58386n], [45n, 5n], ["hit"]},
+    A.Card{"dmg_burn", "Thermal Pulse", "Incendiary payload ignites the target: 35% of Attack as burn damage over 6 seconds.", [58397n], [35n, 6n], []}
+  ]
+
+def mags() -> List<&2, A.Mag>:
+  [
+    A.Mag{"gp_dmg_ft", 100n, 0n, 100n, []},
+    A.Mag{"gp_heal_ft", 100n, 0n, 100n, []},
+    A.Mag{"gp_attack_chain", 100n, 0n, 100n, []},
+    A.Mag{"gp_close_atk_window", 100n, 0n, 100n, []},
+    A.Mag{"gp_disable_run", 100n, 0n, 100n, []},
+    A.Mag{"gp_heavy_unstoppable", 100n, 0n, 100n, []},
+    A.Mag{"gp_projspeed", 100n, 0n, 100n, []},
+    A.Mag{"gp_projspeed_rmv", 100n, 0n, 100n, []},
+    A.Mag{"gp_sp3_minhp", 100n, 0n, 100n, []},
+    A.Mag{"pve_disable_ai_sp3", 100n, 0n, 100n, []},
+    A.Mag{"gb_bleedfx", 100n, 0n, 100n, []},
+    A.Mag{"gb_bleedfxrmv", 100n, 0n, 100n, []},
+    A.Mag{"gb_shockfx", 100n, 0n, 100n, []},
+    A.Mag{"gb_shockfxrmv", 100n, 0n, 100n, []},
+    A.Mag{"gb_burnfx", 100n, 0n, 100n, []},
+    A.Mag{"gb_burnfxrmv", 100n, 0n, 100n, []},
+    A.Mag{"gb_unstoppfx", 100n, 0n, 100n, []},
+    A.Mag{"gb_unstoppfxrmv", 100n, 0n, 100n, []},
+    A.Mag{"dmg_fx_low", 100n, 0n, 100n, []},
+    A.Mag{"dmg_fx_low_rem", 100n, 0n, 100n, []},
+    A.Mag{"dmg_fx_mid", 100n, 0n, 100n, []},
+    A.Mag{"dmg_fx_mid_rem", 100n, 0n, 100n, []},
+    A.Mag{"dmg_fx_high", 100n, 0n, 100n, []},
+    A.Mag{"dmg_fx_high_rem", 100n, 0n, 100n, []},
+    A.Mag{"gp_hit_stun", 100n, 0n, 100n, []},
+    A.Mag{"my_test_mod", 100n, 0n, 100n, ["hit"]},
+    A.Mag{"kit_bleed", 40n, 6n, 100n, ["hit"]},
+    A.Mag{"kit_shock", 45n, 5n, 100n, ["hit"]},
+    A.Mag{"kit_burn", 35n, 6n, 100n, ["hit"]}
+  ]
+
 # special_damage_ratios, in hundredths, and max_special_attacks.
 def special_ratios() -> List<&2, Nat>:
   [175n, 250n, 350n]
 
 def max_special_attacks() -> Nat:
   3n
+
+# The bots of the roster (roster_part_* in Server/gamedata.lbl).
+def roster() -> List<&2, String>:
+  [
+    "fte_optimus_gs_t3",
+    "fte_marissa_t1",
+    "fte_stars_gs_t3",
+    "arcee_gs_deluxe2014",
+    "blaster_gs_leader2016",
+    "bumblebee_cin_dotm",
+    "bumblebee_gs_kabam",
+    "cheetor_bw_transmetal",
+    "cliffjumper_gs_kabam",
+    "dinobot_bw_kabam",
+    "drift_cin_aoe",
+    "grimlock_gs_mp08",
+    "hotrod_cin_tlk",
+    "hound_cin_tlk",
+    "ironhide_cin_rotf",
+    "ironhide_gs_kabam",
+    "jazz_gs_twm05",
+    "jetfire_gs_leader2014",
+    "mirage_gs_deluxe2016",
+    "optimusprimal_bw_mp32",
+    "optimusprime_cin_tf",
+    "prowl_gs_deluxe2016",
+    "ratchet_gs_kabam",
+    "rhinox_gs_voyager2014",
+    "rodimusprime_gs_mp09",
+    "sideswipe_gs",
+    "sunstreaker_gs_deluxe2008",
+    "ultramagnus_gs_leader",
+    "wheeljack_gs_mp20",
+    "windblade_gs",
+    "barricade_cin_dotm",
+    "bludgeon_gs_rd20",
+    "bonecrusher_cin_rotf",
+    "cyclonus_gs_uw06",
+    "dirge_gs_deluxe2008",
+    "galvatron_gs_voyager2016",
+    "grindor_cin_rotf",
+    "kickback_gs_kabam",
+    "megatron_cin_rotf",
+    "megatron_gs_leader2015",
+    "megatronus_gs_kabam",
+    "mixmaster_cin_rotf",
+    "motormaster_gs_voyager2015",
+    "necrotronus_gs_kabam",
+    "nemesisprime_gs_voyager2015",
+    "ramjet_gs_deluxe2008",
+    "scorponok_bw_kabam",
+    "shockwave_gs",
+    "skywarp_gs_leader2015",
+    "slipstream_gs",
+    "soundblaster_gs_mp13b",
+    "soundwave_gs",
+    "thundercracker_gs_leader2015",
+    "tantrum_gs_kabam",
+    "waspinator_gs_deluxe",
+    "sharkticon_gs_kabam",
+    "sharkticon_gs_brawler",
+    "sharkticon_gs_demolition",
+    "sharkticon_gs_scout",
+    "sharkticon_gs_tactician",
+    "sharkticon_gs_tech",
+    "sharkticon_gs_warrior"
+  ]

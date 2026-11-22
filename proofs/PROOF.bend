@@ -434,6 +434,44 @@ def L.abilities_distinct(bid):
 def L.abilities_coherent(bid):
   and_r(Bool.and(A.all_known(D.catalog(), L.kit(bid)), A.distinct(L.kit(bid))), A.all_sound(D.catalog(), L.kit(bid)), kit_holds(bid))
 
+law pick_carded:
+  for +c: Bool
+  for +a: List<&2, String>
+  for +b: List<&2, String>
+  for +ha: {A.all_carded(D.mags(), D.cards(), a) == True{} : Bool}
+  for +hb: {A.all_carded(D.mags(), D.cards(), b) == True{} : Bool}
+  {A.all_carded(D.mags(), D.cards(), A.pick(c, a, b)) == True{} : Bool}
+
+def pick_carded(c, a, b, ha, hb):
+  match c:
+    case True{}:
+      ha
+    case False{}:
+      hb
+
+# Whatever bot is looked up, its kit is carded when every branch of the table is.
+law lookup_carded:
+  for +table: List<&2, A.Kit>
+  for +bid: String
+  for +h: {A.cards_table_ok(D.mags(), D.cards(), table) == True{} : Bool}
+  {A.all_carded(D.mags(), D.cards(), A.lookup(table, bid)) == True{} : Bool}
+
+def lookup_carded(table, bid, h):
+  match table:
+    case Nil{}:
+      {==}
+    case Con{A.Kit{+k, +abilities}, +rest}:
+      pick_carded(String.eq(k, bid), abilities, A.lookup(rest, bid), and_l(A.all_carded(D.mags(), D.cards(), abilities), A.cards_table_ok(D.mags(), D.cards(), rest), h), lookup_carded(rest, bid, and_r(A.all_carded(D.mags(), D.cards(), abilities), A.cards_table_ok(D.mags(), D.cards(), rest), h)))
+
+def L.abilities_carded(bid):
+  lookup_carded(D.kits(), bid, {==})
+
+def L.kits_name_roster_bots():
+  {==}
+
+def L.kits_name_each_bot_once():
+  {==}
+
 # ---- The story walk ----
 
 def L.walk_open_fight_blocks_moves(b, n, s, c, cl, left):

@@ -1,0 +1,15 @@
+{
+  "_doc": "Verification status of effect classes (statMods `t`). Only list a class with evidence; every class not listed is untested. Marks follow DOC_STYLE.md provenance marks.",
+  "dmg_bleed": {
+    "mark": "live",
+    "evidence": "type='dmg_bleed' id='kit_bleed' origMod=0.4000 amount=0.4000 dur=6.00 tick=0.50 (ABILITY_AUTHORING.md, What's proven)"
+  },
+  "dmg_shock": {
+    "mark": "live",
+    "evidence": "listed live-verified in ABILITY_AUTHORING.md (verification campaign); its glyph seen on the opponent's health bar in a live fight"
+  },
+  "dmg_burn": {
+    "mark": "live",
+    "evidence": "listed live-verified in ABILITY_AUTHORING.md (verification campaign); its glyph seen on the opponent's health bar in a live fight"
+  }
+}

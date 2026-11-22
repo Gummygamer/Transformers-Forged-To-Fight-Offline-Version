@@ -92,6 +92,21 @@ law abilities_coherent:
   for +bid: String
   {A.all_sound(D.catalog(), kit(bid)) == True{} : Bool}
 
+# Every ability a bot carries has a card (statModAppears) with a title, a description and
+# one icon-font glyph, and the card tells the truth: every number it quotes is the row's,
+# it states the row's strength and duration, and it names no moment the row does not fire on.
+law abilities_carded:
+  for +bid: String
+  {A.all_carded(D.mags(), D.cards(), kit(bid)) == True{} : Bool}
+
+# The kit table names only bots of the roster, each once: a misspelt bot id would grant
+# nothing, and a second branch for a bot would never be read.
+law kits_name_roster_bots:
+  {A.all_in(D.roster(), A.bids(D.kits())) == True{} : Bool}
+
+law kits_name_each_bot_once:
+  {A.distinct(A.bids(D.kits())) == True{} : Bool}
+
 # ---- The story walk (Server/fakeserver.lbl moved_offsets, position_after_win) ----
 
 # While a fight is open the player cannot move.

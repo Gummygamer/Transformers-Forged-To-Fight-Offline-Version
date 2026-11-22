@@ -6,8 +6,9 @@ import json, pathlib, re, sys
 
 root = pathlib.Path(__file__).resolve().parent.parent
 mods = json.loads((root / "Server/data/stat_modifiers.json").read_text())
+appears = json.loads((root / "Server/data/stat_mod_appears.json").read_text())
 src = (root / "Server/gamedata.lbl").read_text()
-body = re.search(r"public function bot_abilities\(bid: text\): a list of text\n(.*?)\nend\n", src, re.S)
+body = re.search(r"public function bot_abilities\(bid: text\): a list of text\n(.*?)\nend\n", src, re.S | re.M)
 if not body:
     sys.exit("gen_data: bot_abilities not found in Server/gamedata.lbl")
 kits = re.findall(r'bid == "([^"]+)" then\s*\[([^\]]*)\]', body.group(1))
@@ -34,8 +35,35 @@ for bid, ids in kits:
 out.append(",\n".join(entries))
 out += ["  ]", ""]
 
+# The ability cards (statModAppears) and what each row does that a card may quote.
+# A moment of a fight, as a description names it and as a trigger id spells it.
+MOMENTS = {"special": (r"\bspecials?\b", "Special"), "crit": (r"\bcrit", "Crit"),
+           "block": (r"\bblock", "Block"), "hit": (r"\b(hits?|strikes?)\b", "Hit")}
+
+def says(text):
+    return [m for m, (word, _) in MOMENTS.items() if re.search(word, text, re.I)]
+
+def fires(tr):
+    return sorted({m for t in tr for m, (_, part) in MOMENTS.items() if part in t})
+
+def strs(xs):
+    return "[" + ", ".join(s(x) for x in xs) + "]"
+
+def card(k, v):
+    icon = ", ".join(f"{ord(ch)}n" for ch in v.get("t", ""))
+    nums = ", ".join(f"{n}n" for n in re.findall(r"\d+", v.get("l", "")))
+    return f"    A.Card{{{s(k)}, {s(v.get('a', ''))}, {s(v.get('l', ''))}, [{icon}], [{nums}], {strs(says(v.get('l', '')))}}}"
+
+def whole(x):
+    return max(0, round(float(x)))
+
+out += ["def cards() -> List<&2, A.Card>:", "  [", ",\n".join(card(k, v) for k, v in appears.items()), "  ]", "",
+        "def mags() -> List<&2, A.Mag>:", "  [",
+        ",\n".join(f"    A.Mag{{{s(k)}, {whole(v['m'] * 100)}n, {whole(v['d'])}n, {whole(v['c'] * 100)}n, {strs(fires(v.get('tr', [])))}}}" for k, v in mods.items()),
+        "  ]", ""]
+
 def fn_body(name):
-    m = re.search(r"public function " + name + r"\(.*?\n(.*?)\nend\n", src, re.S)
+    m = re.search(r"^(?:public )?function " + name + r"\(.*?\n(.*?)\nend\n", src, re.S | re.M)
     if not m:
         sys.exit("gen_data: " + name + " not found in Server/gamedata.lbl")
     return m.group(1)
@@ -51,4 +79,9 @@ out += ["# special_damage_ratios, in hundredths, and max_special_attacks.",
         "def special_ratios() -> List<&2, Nat>:",
         "  [" + ", ".join(f"{r}n" for r in ratios) + "]", "",
         "def max_special_attacks() -> Nat:", f"  {max_sp}n", ""]
+roster = re.findall(r'RosterEntry \{ bid: "([^"]+)"', "".join(fn_body(f) for f in ("roster_part_1_a", "roster_part_1_b", "roster_part_2_a", "roster_part_2_b", "roster_part_3")))
+if not roster:
+    sys.exit("gen_data: no roster entries parsed")
+out += ["# The bots of the roster (roster_part_* in Server/gamedata.lbl).", "def roster() -> List<&2, String>:", "  [",
+        ",\n".join(f"    {s(b)}" for b in roster), "  ]", ""]
 (root / "proofs/Data.bend").write_text("\n".join(out))
