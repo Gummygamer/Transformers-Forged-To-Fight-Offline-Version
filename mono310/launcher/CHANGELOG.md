@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.16](#016)
 - [0.15](#015)
 - [0.14.3](#0143)
 - [0.14.2](#0142)
@@ -29,6 +30,18 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.16
+
+**Fixed**
+
+- Slow or frozen loading, textures that vanish after tapping something, and Karma Six screens going black. The game
+  sized its memory budget from a phone figure the launcher never reported, so the budget was 0 MB: every load threw
+  out the assets it could and every phone ran the low-memory path that rebuilds the boards on each screen change.
+  Windows gets a budget from system memory.
+- The black lower half behind menus: the blurred backdrop was captured with a camera that skipped the lit passes.
+- Karma Six enemy cards show the enemy's portrait and rating instead of a black card with 0.
+- The Special Missions card shows its art instead of a white or invisible card.
 
 ## 0.15
 

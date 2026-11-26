@@ -514,7 +514,7 @@ function blueprint_identity_pairs(entry: RosterEntry): a list of Pair
   let model: text = model_id(entry.bid)
   let art: text = art_base(entry.bid)
   let name: text = display_name(entry.bid)
-  [pair_text("id", entry.bid), pair_text("et", "bot"), pair_text("c", entry.bid), pair_int("r", entry.star), pair_text("a", entry.faction), pair_text("cl", entry.klass), pair_text("name", name), pair_text("name_s", name), pair_text("m", model), pair_text("mdl", model), pair_text("i", art), pair_text("img", art), pair_text("ma", model), pair_text("map_asset", model)]
+  [pair_text("id", entry.bid), pair_text("et", "bot"), pair_text("c", entry.bid), pair_int("r", entry.star), pair_text("a", entry.faction), pair_text("cl", entry.klass), pair_text("name", name), pair_text("name_s", name), pair_text("m", model), pair_text("mdl", model), pair_text("i", art), pair_text("img", art), pair_text("ma", art), pair_text("map_asset", art)]
 end
 
 function blueprint_stat_pairs(entry: RosterEntry): a list of Pair
@@ -529,7 +529,7 @@ function module_blueprint_identity_pairs(mod: Json): a list of Pair
   let name: text = jsonout.as_text(jsonout.obj_get(mod, "name"))
   let model: text = jsonout.as_text(jsonout.obj_get(mod, "model_id"))
   let art: text = jsonout.as_text(jsonout.obj_get(mod, "portrait_id"))
-  [pair_text("id", bid), pair_text("et", "tower"), pair_text("c", bid), pair_int("r", jsonout.as_int(jsonout.obj_get(mod, "default_star"))), pair_text("a", "autobot"), pair_text("cl", ""), pair_text("name", name), pair_text("name_s", name), pair_text("m", model), pair_text("mdl", model), pair_text("i", art), pair_text("img", art), pair_text("ma", model), pair_text("map_asset", model)]
+  [pair_text("id", bid), pair_text("et", "tower"), pair_text("c", bid), pair_int("r", jsonout.as_int(jsonout.obj_get(mod, "default_star"))), pair_text("a", "autobot"), pair_text("cl", ""), pair_text("name", name), pair_text("name_s", name), pair_text("m", model), pair_text("mdl", model), pair_text("i", art), pair_text("img", art), pair_text("ma", art), pair_text("map_asset", art)]
 end
 
 function module_blueprint_stat_pairs(): a list of Pair
@@ -560,7 +560,7 @@ function module_character_pairs(): a list of Pair
     let name: text = jsonout.as_text(jsonout.obj_get(mod, "name"))
     let model: text = jsonout.as_text(jsonout.obj_get(mod, "model_id"))
     let art: text = jsonout.as_text(jsonout.obj_get(mod, "portrait_id"))
-    let character: Json = jsonout.json_obj([pair_text("id", bid), pair_text("name", name), pair_text("name_s", name), pair_text("sg", ""), pair_text("gen", "autobot"), pair_text("aip", ""), pair_text("sps", ""), pair_text("i", art), pair_text("img", art), pair_text("m", model), pair_text("mdl", model), pair_text("ma", model), pair_text("map_asset", model), pair_text("hc", "autobot"), pair_text("hero_colour", "autobot")])
+    let character: Json = jsonout.json_obj([pair_text("id", bid), pair_text("name", name), pair_text("name_s", name), pair_text("sg", ""), pair_text("gen", "autobot"), pair_text("aip", ""), pair_text("sps", ""), pair_text("i", art), pair_text("img", art), pair_text("m", model), pair_text("mdl", model), pair_text("ma", art), pair_text("map_asset", art), pair_text("hc", "autobot"), pair_text("hero_colour", "autobot")])
     set output = append(output, jsonout.json_pair(bid, character))
   end
   output
@@ -610,7 +610,7 @@ public function build_characters(): Json
     let base: text = art_base(entry.bid)
     let name: text = display_name(entry.bid)
     let model: text = model_id(entry.bid)
-    let character: Json = jsonout.json_obj([pair_text("id", entry.bid), pair_text("name", name), pair_text("name_s", name), pair_text("sg", ""), pair_text("gen", entry.faction), pair_text("aip", ""), pair_text("sps", ""), pair_text("i", base), pair_text("img", base), pair_text("m", model), pair_text("mdl", model), pair_text("ma", model), pair_text("map_asset", model), pair_text("hc", entry.faction), pair_text("hero_colour", entry.faction)])
+    let character: Json = jsonout.json_obj([pair_text("id", entry.bid), pair_text("name", name), pair_text("name_s", name), pair_text("sg", ""), pair_text("gen", entry.faction), pair_text("aip", ""), pair_text("sps", ""), pair_text("i", base), pair_text("img", base), pair_text("m", model), pair_text("mdl", model), pair_text("ma", base), pair_text("map_asset", base), pair_text("hc", entry.faction), pair_text("hero_colour", entry.faction)])
     set output = append(output, jsonout.json_pair(entry.bid, character))
   end
   jsonout.json_obj(concat(output, module_character_pairs()))
@@ -2867,9 +2867,10 @@ function sig_ability_json(bid: text): Json
   jsonout.json_int(if bid == "SIG_TEST_DISABLED" then 1 else 0 end)
 end
 
+-- "rating" is what quest boss cards show; the pre-fight screen shows rating_hp + rating_attack, so the two must agree.
 function base_detail_head_pairs(bid: text, rank: integer, level: integer, stats: Stats): a list of Pair
   intent: list the identity, art and stat pairs of a base hero detail
-  [pair_text("bid", bid), pair_int("rank", rank), pair_int("level", level), jsonout.json_pair("sig_lvl", sig_ability_json(bid)), pair_text("i", art_base(bid)), pair_text("img", art_base(bid)), pair_text("m", model_id(bid)), pair_text("mdl", model_id(bid)), pair_int("rating_hp", stats.hp), pair_int("max_hp", stats.hp), pair_int("rating_attack", stats.atk), pair_int("attack", stats.atk), pair_int("health", stats.hp), pair_int("armor", 0), pair_int("crit_rate", 0), pair_int("crit_dmg", 0), pair_int("block_prof", 0), pair_int("perfect_block", 0), jsonout.json_pair("sig_ability", sig_ability_json(bid)), pair_int("max_sig", 99)]
+  [pair_text("bid", bid), pair_int("rank", rank), pair_int("level", level), jsonout.json_pair("sig_lvl", sig_ability_json(bid)), pair_text("i", art_base(bid)), pair_text("img", art_base(bid)), pair_text("m", model_id(bid)), pair_text("mdl", model_id(bid)), pair_int("rating", stats.hp + stats.atk), pair_int("rating_hp", stats.hp), pair_int("max_hp", stats.hp), pair_int("rating_attack", stats.atk), pair_int("attack", stats.atk), pair_int("health", stats.hp), pair_int("armor", 0), pair_int("crit_rate", 0), pair_int("crit_dmg", 0), pair_int("block_prof", 0), pair_int("perfect_block", 0), jsonout.json_pair("sig_ability", sig_ability_json(bid)), pair_int("max_sig", 99)]
 end
 
 function base_detail_tail_pairs(bid: text, star: integer): a list of Pair

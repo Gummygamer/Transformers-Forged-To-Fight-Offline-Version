@@ -947,6 +947,13 @@ public class TftfBloom : MonoBehaviour
                "\t\tpublic void Setup(bool forcePostFXReset = false)\n\t\t{\n",
                "\t\tpublic void Setup(bool forcePostFXReset = false)\n\t\t{\n\t\t\tGetComponent<Camera>().renderingPath = UnityEngine.RenderingPath.Forward;\n",
                "P27b EBDeferredCamera.Setup forces Forward rendering path")
+    # P71: EB.AssetManager caps its asset memory at the benchmark's memory_large_class (MB) and treats < 384 as a
+    # low-memory device. Android's AndroidBenchmark reports it; elsewhere (Windows) nothing did, so the cap was 0 and every
+    # load evicted assets. Fall back to a quarter of system memory, at most 1024 MB.
+    replace_in(fp, "EB/Sparx/BenchmarkManager.cs",
+               "hashtable[\"u_system_memory_size\"] = SystemInfo.systemMemorySize;",
+               "hashtable[\"u_system_memory_size\"] = SystemInfo.systemMemorySize;\n\t\t\tif (!hashtable.ContainsKey(\"memory_large_class\") || Convert.ToSingle(hashtable[\"memory_large_class\"]) <= 0f)\n\t\t\t{\n\t\t\t\thashtable[\"memory_large_class\"] = Mathf.Min(1024, SystemInfo.systemMemorySize / 4);\n\t\t\t}",
+               "P71 memory_large_class falls back to system memory")
     # D3: trace the shared-camera setup chain
     replace_in(fp, "EBSharedCameraController.cs", r"(protected virtual void OnDeferredReady\(\)\s*\{)",
                r'\1 UnityEngine.Debug.Log("[SCC] OnDeferredReady");', "D3a SCC.OnDeferredReady log", regex=True)
@@ -1198,6 +1205,13 @@ public class EnumComparer<T> : IEqualityComparer<T> where T : struct
                    "\tpublic bool Capture(ref UITextureRef uiTexture, UIScreenCaptureParams captureParams, Camera[] camerasToInclude = null)\n\t{\n",
                    "\tpublic bool Capture(ref UITextureRef uiTexture, UIScreenCaptureParams captureParams, Camera[] camerasToInclude = null)\n\t{\n\t\tSetup();\n\t\tif (_SCBlitMaterial == null)\n\t\t{\n\t\t\treturn false;\n\t\t}\n",
                    "P14 EBUIScreenCapture.Capture returns false without a material")
+        # P70: the menu backdrop is a blurred capture from a camera made at runtime. Its rendering path resolved to
+        # VertexLit (like every camera P27 does not reach), which skips the forward passes: the base terrain behind
+        # every menu came out black. Copying from the game camera does not carry the path over, so set it here.
+        replace_in(root, "EB/Rendering/EBUIScreenCapture.cs",
+                   "_CaptureCamera.LiteCopyFrom(_DeferredCamera, (eCAMERA_COPY)7);",
+                   "_CaptureCamera.LiteCopyFrom(_DeferredCamera, (eCAMERA_COPY)7);\n\t\t\t\t_CaptureCamera.renderingPath = UnityEngine.RenderingPath.Forward;",
+                   "P70 menu backdrop capture camera renders Forward")
         replace_in(root, "UIScreenBackground.cs",
                    "EBUIScreenCapture.Instance.Capture(ref _ScreenShotUITextureRef, _ScreenCaptureParams);",
                    "try { EBUIScreenCapture.Instance.Capture(ref _ScreenShotUITextureRef, _ScreenCaptureParams); } catch (System.Exception ex) { UnityEngine.Debug.LogWarning(\"[TFTF] ScreenCapture guarded: \" + ex.Message); }",
