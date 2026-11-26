@@ -1073,7 +1073,7 @@ end
 
 public function quest_dim_for(qid: text): integer
   intent: get
-  if qid == challenge_qid() then 33 else if qid == custom_story_act3_qid() then 5 else if qid == custom_story_act2_qid() then 4 else if qid == custom_story_standalone_qid() then 5 else if qid == custom_story_motormaster_qid() then 4 else if qid == custom_story_qid() then 4 else quest_dim() end
+  if qid == challenge_qid() then 33 else if qid == custom_story_act3_qid() then 5 else if qid == custom_story_act2_qid() then 4 else if qid == custom_story_standalone_qid() then 5 else if qid == custom_story_motormaster_qid() then 5 else if qid == custom_story_qid() then 4 else quest_dim() end
 end
 
 public function quest_path_col_for(qid: text): integer
@@ -1093,12 +1093,12 @@ end
 
 public function quest_has_encounter_for(qid: text, row: integer): boolean
   intent: check
-  if qid == custom_story_standalone_qid() then row == 1 or row == 2 or row == 3 or row == 4 else if qid == custom_story_motormaster_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_act3_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_act2_qid() then row == 1 or row == 2 or row == 3 else quest_has_encounter(row) end
+  if qid == custom_story_standalone_qid() then row == 1 or row == 2 or row == 3 or row == 4 else if qid == custom_story_motormaster_qid() then row == 1 or row == 2 or row == 3 or row == 4 else if qid == custom_story_act3_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_qid() then row == 1 or row == 2 or row == 3 else if qid == custom_story_act2_qid() then row == 1 or row == 2 or row == 3 else quest_has_encounter(row) end
 end
 
 public function quest_has_encounter_at(qid: text, x: integer, y: integer): boolean
   intent: check
-  if qid == challenge_qid() then challenge_has_encounter_at(x, y) else if qid == custom_story_act3_qid() then (x == 1 and y == 2) or (x == 2 and (y == 1 or y == 3)) or (x == 3 and y == 2) else if qid == custom_story_motormaster_qid() then (x == 1 and y == 2) or (x == 3 and y == 2) or (x == 2 and y == 3) else y == quest_path_col_for(qid) and quest_has_encounter_for(qid, x) end
+  if qid == challenge_qid() then challenge_has_encounter_at(x, y) else if qid == custom_story_act3_qid() then (x == 1 and y == 2) or (x == 2 and (y == 1 or y == 3)) or (x == 3 and y == 2) else if qid == custom_story_motormaster_qid() then (x == 1 and y == 2) or (x == 3 and y == 2) or (x == 2 and (y == 3 or y == 4)) else y == quest_path_col_for(qid) and quest_has_encounter_for(qid, x) end
 end
 
 function custom_story_encounter(row: integer): QuestEncounter
@@ -1153,6 +1153,7 @@ function motormaster_encounter_at(x: integer, y: integer): QuestEncounter
   intent: choose the Motormaster chapter opponent at one branch coordinate
   if x == 1 and y == 2 then QuestEncounter { key: "ratchet_gs_kabam", final_boss: false, label: "RIGHT: Ratchet" }
   else if x == 3 and y == 2 then QuestEncounter { key: "waspinator_gs_deluxe", final_boss: false, label: "LEFT: Waspinator" }
+  else if x == 2 and y == 3 then QuestEncounter { key: "jetfire_gs_leader2014", final_boss: false, label: "Jetfire's Interception" }
   else QuestEncounter { key: "motormaster_gs_voyager2015", final_boss: true, label: "Motormaster's Reckoning" } end
 end
 
@@ -1167,7 +1168,7 @@ public function quest_encounter_for(qid: text, row: integer): QuestEncounter
   else if qid == custom_story_standalone_qid() then
     custom_story_standalone_encounter(row)
   else if qid == custom_story_motormaster_qid() then
-    if row == 3 then QuestEncounter { key: "motormaster_gs_voyager2015", final_boss: true, label: "Motormaster's Reckoning" } else QuestEncounter { key: "motormaster_gs_voyager2015", final_boss: false, label: "Motormaster's Advance" } end
+    if row == 4 then QuestEncounter { key: "motormaster_gs_voyager2015", final_boss: true, label: "Motormaster's Reckoning" } else if row == 3 then motormaster_encounter_at(2, 3) else QuestEncounter { key: "motormaster_gs_voyager2015", final_boss: false, label: "Motormaster's Advance" } end
   else
     quest_encounter(row)
   end
@@ -1715,12 +1716,21 @@ function custom_story_standalone_dialogue_pairs(row: integer): a list of Pair
   end
 end
 
+function motormaster_jetfire_tile(): Json
+  intent: build the Jetfire encounter that follows either branch and leads to Motormaster
+  let encounter: QuestEncounter = motormaster_encounter_at(2, 3)
+  let links: Json = jsonout.json_list([vec2(1, 2), vec2(3, 2), vec2(2, 4)])
+  let arena: BoardTerrain = encounter_arena_for(custom_story_motormaster_qid(), 2, "chicago", 0)
+  let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, encounter.key, encounter.final_boss)
+  jsonout.json_obj([pair_bool("walkable", true), pair_bool("hidden", false), pair_bool("final", false), pair_text("lab", encounter.label), jsonout.json_pair("links", links), jsonout.json_pair("visibleLinks", links), pair_text("boss", encounter.key), jsonout.json_pair("entities", jsonout.json_obj([jsonout.json_pair(encounter.key, enemy)]))])
+end
+
 function custom_motormaster_final_tile(): Json
   intent: build the final Motormaster encounter tile
-  let row: integer = 3
+  let row: integer = 4
   let encounter: QuestEncounter = quest_encounter_for(custom_story_motormaster_qid(), row)
-  let links: Json = jsonout.json_list([vec2(1, 2), vec2(3, 2)])
-  -- The final node sits at x=2 and the movedir battle seeds its arena from x, so the map
+  let links: Json = jsonout.json_list([vec2(2, 3)])
+  -- The final node sits at x=2 (like Jetfire at (2,3)) and the movedir battle seeds its arena from x, so the map
   -- payload must use 2 here or the preview and the fight would show different arenas.
   let arena: BoardTerrain = encounter_arena_for(custom_story_motormaster_qid(), 2, "chicago", 0)
   let enemy: Json = build_quest_enemy_for(arena.theme, arena.tod, encounter.key, encounter.final_boss)
@@ -2308,12 +2318,17 @@ function motormaster_intro_tile(): Json
   jsonout.json_obj([pair_bool("walkable", true), pair_bool("hidden", false), pair_text("lab", "Optimus Prime's Briefing"), jsonout.json_pair("links", jsonout.json_list([vec2(1, 2), vec2(3, 2)])), jsonout.json_pair("visibleLinks", jsonout.json_list([vec2(1, 2), vec2(3, 2)])), pair_text("dialogue", "custom_motormaster_chapter_intro")])
 end
 
+function motormaster_rows(): a list of Json
+  intent: list the five rows of the Motormaster chapter board
+  [jsonout.json_list([filler_tile(), filler_tile(), filler_tile(), filler_tile(), filler_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("ratchet_gs_kabam", "RIGHT: Ratchet", 1), filler_tile(), filler_tile()]), jsonout.json_list([filler_tile(), start_tile(jsonout.json_list([vec2(2, 2)])), motormaster_intro_tile(), motormaster_jetfire_tile(), custom_motormaster_final_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("waspinator_gs_deluxe", "LEFT: Waspinator", 3), filler_tile(), filler_tile()]), jsonout.json_list([filler_tile(), filler_tile(), filler_tile(), filler_tile(), filler_tile()])]
+end
+
 function build_custom_story_motormaster_map(): Json
-  intent: build the Motormaster chapter map with a Ratchet/Waspinator fork after the intro
-  let rows: a list of Json = [jsonout.json_list([filler_tile(), filler_tile(), filler_tile(), filler_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("ratchet_gs_kabam", "RIGHT: Ratchet", 1), filler_tile()]), jsonout.json_list([filler_tile(), start_tile(jsonout.json_list([vec2(2, 2)])), motormaster_intro_tile(), custom_motormaster_final_tile()]), jsonout.json_list([filler_tile(), filler_tile(), motormaster_branch_tile("waspinator_gs_deluxe", "LEFT: Waspinator", 3), filler_tile()])]
+  intent: build the Motormaster chapter map with a Ratchet/Waspinator fork, then Jetfire, then Motormaster
+  let rows: a list of Json = motormaster_rows()
   let grid: Json = jsonout.json_list(rows)
-  let path: Json = jsonout.json_list([vec2(2, 1), vec2(2, 2), vec2(1, 2), vec2(2, 3)])
-  jsonout.json_obj([pair_text("hash", "qm_" ++ custom_story_motormaster_qid()), pair_int("v", 1), pair_text("mapHash", "qm_" ++ custom_story_motormaster_qid()), pair_int("gridDimension", 4), jsonout.json_pair("grid", grid), pair_int("walkableCount", 5), pair_int("visibleWalkableCount", 5), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), pair_int("overrideZoom", 0)])
+  let path: Json = jsonout.json_list([vec2(2, 1), vec2(2, 2), vec2(1, 2), vec2(2, 3), vec2(2, 4)])
+  jsonout.json_obj([pair_text("hash", "qm_" ++ custom_story_motormaster_qid()), pair_int("v", 1), pair_text("mapHash", "qm_" ++ custom_story_motormaster_qid()), pair_int("gridDimension", 5), jsonout.json_pair("grid", grid), pair_int("walkableCount", 6), pair_int("visibleWalkableCount", 6), jsonout.json_pair("pathData", jsonout.json_list([jsonout.json_obj([jsonout.json_pair("path", path)])])), pair_int("overrideZoom", 0)])
 end
 
 function act3_grid(): Json
@@ -2549,7 +2564,7 @@ end
 function revealed_tiles_for(qid: text): Json
   intent: build
   if is_custom_story_qid(qid) then
-  if qid == custom_story_act3_qid() then jsonout.json_list([vec2(0, 2), vec2(1, 2), vec2(2, 1), vec2(2, 3), vec2(3, 2)]) else if qid == custom_story_standalone_qid() then jsonout.json_list([vec2(0, 2), vec2(1, 2), vec2(2, 2), vec2(3, 2), vec2(4, 2)]) else if qid == custom_story_motormaster_qid() then jsonout.json_list([vec2(2, 1), vec2(2, 2), vec2(1, 2), vec2(3, 2), vec2(2, 3)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
+  if qid == custom_story_act3_qid() then jsonout.json_list([vec2(0, 2), vec2(1, 2), vec2(2, 1), vec2(2, 3), vec2(3, 2)]) else if qid == custom_story_standalone_qid() then jsonout.json_list([vec2(0, 2), vec2(1, 2), vec2(2, 2), vec2(3, 2), vec2(4, 2)]) else if qid == custom_story_motormaster_qid() then jsonout.json_list([vec2(2, 1), vec2(2, 2), vec2(1, 2), vec2(3, 2), vec2(2, 3), vec2(2, 4)]) else jsonout.json_list([vec2(0, 1), vec2(1, 1), vec2(2, 1), vec2(3, 1)]) end
 else if qid == challenge_qid() then
   challenge_walkable_tiles()
 else

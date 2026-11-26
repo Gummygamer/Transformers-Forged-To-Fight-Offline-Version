@@ -765,15 +765,29 @@ function test_motormaster_start_is_walkable_and_reaches_encounters(qid: text): b
   gamedata.quest_start_x_for(qid) == 2 and gamedata.quest_start_y_for(qid) == 1 and gamedata.quest_is_walkable(qid, 2, 1) and gamedata.quest_is_walkable(qid, 2, 2) and not gamedata.quest_has_encounter_at(qid, 2, 2) and gamedata.quest_can_move(qid, 2, 1, 2, 2) and gamedata.quest_can_move(qid, 2, 2, 1, 2) and gamedata.quest_can_move(qid, 2, 2, 3, 2) and not gamedata.quest_can_move(qid, 2, 2, 2, 3)
 end
 
+function test_motormaster_branches_lead_to_jetfire(qid: text): boolean
+  intent: test that winning either branch fight leads to Jetfire before Motormaster
+  let from_right: Json = move_battle(gamedata.build_quest_movedir(qid, 1, 1, 1, 2, []))
+  let from_left: Json = move_battle(gamedata.build_quest_movedir(qid, -1, 1, 3, 2, []))
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(from_right, "battleEnemy"), "key")) == "jetfire_gs_leader2014" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(from_left, "battleEnemy"), "key")) == "jetfire_gs_leader2014" and not jsonout.as_bool(jsonout.obj_get(from_left, "isFinalBoss")) and not gamedata.quest_can_move(qid, 1, 2, 2, 4) and not gamedata.quest_can_move(qid, 3, 2, 2, 4)
+end
+
+function motormaster_jetfire_tile_ok(row: a list of Json): boolean
+  intent: check the Jetfire tile sits between the branches and the final Motormaster node
+  let jetfire: Json = unwrap_or(get(row, 3), jsonout.json_obj([]))
+  let final: Json = unwrap_or(get(row, 4), jsonout.json_obj([]))
+  jsonout.as_text(jsonout.obj_get(jetfire, "boss")) == "jetfire_gs_leader2014" and not jsonout.as_bool(jsonout.obj_get(jetfire, "final")) and jsonout.as_text(jsonout.obj_get(final, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(final, "final"))
+end
+
 function test_motormaster_routes_to_ratchet_or_waspinator(): boolean
   intent: test
   let qid: text = gamedata.custom_story_motormaster_qid()
   let right: Json = gamedata.build_quest_movedir(qid, -1, 0, 2, 2, [])
   let left: Json = gamedata.build_quest_movedir(qid, 1, 0, 2, 2, [])
-  let final_right: Json = gamedata.build_quest_movedir(qid, -1, 1, 3, 2, [])
+  let final_right: Json = gamedata.build_quest_movedir(qid, 0, 1, 2, 3, [])
   let right_battle: Json = move_battle(right)
   let left_battle: Json = move_battle(left)
-  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(right_battle, "battleEnemy"), "key")) == "ratchet_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(left_battle, "battleEnemy"), "key")) == "waspinator_gs_deluxe" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(final_right), "battleEnemy"), "key")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(move_battle(final_right), "isFinalBoss")) and not jsonout.as_bool(jsonout.obj_get(move_battle(right), "isFinalBoss")) and not jsonout.as_bool(jsonout.obj_get(move_battle(left), "isFinalBoss"))
+  jsonout.as_text(jsonout.obj_get(jsonout.obj_get(right_battle, "battleEnemy"), "key")) == "ratchet_gs_kabam" and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(left_battle, "battleEnemy"), "key")) == "waspinator_gs_deluxe" and test_motormaster_branches_lead_to_jetfire(qid) and jsonout.as_text(jsonout.obj_get(jsonout.obj_get(move_battle(final_right), "battleEnemy"), "key")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(move_battle(final_right), "isFinalBoss")) and not jsonout.as_bool(jsonout.obj_get(move_battle(right), "isFinalBoss")) and not jsonout.as_bool(jsonout.obj_get(move_battle(left), "isFinalBoss"))
 end
 
 function motormaster_map_routes_ok(grid: a list of Json): boolean
@@ -794,9 +808,8 @@ function test_motormaster_chapter_entry_and_boss(): boolean
   let map: Json = gamedata.build_quest_map(qid)
   let grid: a list of Json = jsonout.list_items(jsonout.obj_get(map, "grid"))
   let final_row: a list of Json = jsonout.list_items(unwrap_or(get(grid, 2), jsonout.json_list([])))
-  let tile3: Json = unwrap_or(get(final_row, 3), jsonout.json_obj([]))
   let dialogue: a list of Json = jsonout.list_items(jsonout.obj_get(gamedata.build_custom_story_dialogue_sets(), "custom_motormaster_chapter_intro"))
-  qid == "2.4.1" and jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 2 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and motormaster_map_routes_ok(grid) and length(dialogue) == 1 and dialogue_entry_matches(dialogue, 0, "optimusprime_cin_tf", "left", "The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats") and jsonout.as_text(jsonout.obj_get(tile3, "boss")) == "motormaster_gs_voyager2015" and jsonout.as_bool(jsonout.obj_get(tile3, "final")) and test_motormaster_start_is_walkable_and_reaches_encounters(qid) and test_motormaster_routes_to_ratchet_or_waspinator()
+  qid == "2.4.1" and jsonout.as_int(jsonout.obj_get(summary, "act")) == 3 and jsonout.as_int(jsonout.obj_get(summary, "chapter")) == 2 and jsonout.as_int(jsonout.obj_get(summary, "mission")) == 1 and motormaster_map_routes_ok(grid) and length(dialogue) == 1 and dialogue_entry_matches(dialogue, 0, "optimusprime_cin_tf", "left", "The urgency of the mission is escalating significantly under mounting time pressure, and technical telemetry confirms that our ongoing hostile encounters are materializing our worst fears and threats") and motormaster_jetfire_tile_ok(final_row) and test_motormaster_start_is_walkable_and_reaches_encounters(qid) and test_motormaster_routes_to_ratchet_or_waspinator()
 end
 
 function test_custom_story_has_independent_identity_and_compact_map_part1(qid: text, summary: Json): boolean
