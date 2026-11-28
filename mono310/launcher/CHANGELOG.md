@@ -2,6 +2,7 @@
 
 ## Table of contents
 
+- [0.16.1](#0161)
 - [0.16](#016)
 - [0.15](#015)
 - [0.14.3](#0143)
@@ -30,6 +31,11 @@
 - [0.3.0](#030)
 - [0.2.0](#020)
 - [0.1.0 (internal, never released)](#010-internal-never-released)
+
+## 0.16.1
+
+- Story: the Motormaster chapter adds a Jetfire encounter between the Ratchet/Waspinator fork and Motormaster.
+- Windows x64 build refreshed from the latest code.
 
 ## 0.16
 
