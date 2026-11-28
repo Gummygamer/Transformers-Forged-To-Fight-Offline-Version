@@ -35,6 +35,9 @@
 ## 0.16.1
 
 - Story: the Motormaster chapter adds a Jetfire encounter between the Ratchet/Waspinator fork and Motormaster.
+- Windows: robots, arenas and story boards draw with the game's own shaders, as on Android. The installer converts the
+  9.2.0 APK's OpenGL ES 3 shader programs to desktop OpenGL on your PC, and the Windows build now renders with OpenGL
+  Core (Direct3D 11 with the stand-in shaders remains the fallback). Existing installs convert again on first launch.
 - Windows x64 build refreshed from the latest code.
 
 ## 0.16
