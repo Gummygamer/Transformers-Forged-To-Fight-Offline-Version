@@ -59,6 +59,8 @@ namespace Tftf.Convert
                 foreach (var n in nodes) byName[n.Name] = n.Data;
                 foreach (var n in nodes) if ((n.Flags & 4) != 0) TextureTranscode.TranscodeSerializedFile(n.Data, byName);
             }
+            if (ShaderGlCore.Enabled)
+                foreach (var n in nodes) if ((n.Flags & 4) != 0) n.Data = ShaderGlCore.ConvertSerializedFile(n.Data);
             return UnityFsWriter.Write(nodes, engine);
         }
 

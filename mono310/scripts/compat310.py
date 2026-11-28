@@ -882,22 +882,18 @@ public class TftfDiag : MonoBehaviour
 // resolution and added back. tftf/tune.txt: "bloom 0" switches it off; "bloomthr"/"bloomgain" control the bright-pixel term.
 public class TftfBloom : MonoBehaviour
 {
-#if UNITY_STANDALONE_WIN
-	// Windows uses the authored shaders' emission masks. Do not bloom every bright surface.
-	public static float Amount = 0.6f, Threshold = 0.88f, ThresholdGain = 0f;
-#else
-	// Donor Android shaders do not write the authored emission mask.
-	public static float Amount = 0f, Threshold = 0.88f, ThresholdGain = 0.35f;
-#endif
+	// Windows on Direct3D draws the donor materials with the authored stand-ins, which write emission masks: do not bloom every
+	// bright surface. The donor shaders themselves (Android, and Windows on OpenGL Core) do not write the mask.
+	public static readonly bool AuthoredMasks = Application.platform == RuntimePlatform.WindowsPlayer
+		&& SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.OpenGLCore;
+	public static float Amount = AuthoredMasks ? 0.6f : 0f, Threshold = 0.88f, ThresholdGain = AuthoredMasks ? 0f : 0.35f;
 	private static Material _mat;
 	private static bool _logged;
 
 	private void OnPreRender()
 	{
 		Shader.SetGlobalFloat("_TftfGlowOn", Amount > 0f ? 1f : 0f);
-#if UNITY_STANDALONE_WIN
-		Shader.SetGlobalFloat("_TftfEmissiveBloomOnly", 1f);
-#endif
+		if (AuthoredMasks) Shader.SetGlobalFloat("_TftfEmissiveBloomOnly", 1f);
 	}
 	private void OnPostRender() { Shader.SetGlobalFloat("_TftfGlowOn", 0f); }
 

@@ -151,6 +151,10 @@ public static class Recompile310Build
         PlayerSettings.defaultScreenHeight = 720;
         PlayerSettings.resizableWindow = true;
         PlayerSettings.runInBackground = true;
+        // OpenGL Core first: the installer rewrites the donor bundles' GLES3 shader programs for it (ShaderGlCore), so the
+        // robots and boards draw with their own shaders as on Android. Direct3D 11 stays as the fallback (TFTF/PbrLite).
+        PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows64, false);
+        PlayerSettings.SetGraphicsAPIs(BuildTarget.StandaloneWindows64, new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLCore, UnityEngine.Rendering.GraphicsDeviceType.Direct3D11 });
         string[] scenes = shell ? new[] { CreateBootstrapScene() }
             : EditorBuildSettings.scenes.Where(scene => scene.enabled).Select(scene => scene.path).ToArray();
         if (scenes.Length == 0)

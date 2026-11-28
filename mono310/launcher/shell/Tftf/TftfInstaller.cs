@@ -33,7 +33,7 @@ public sealed class ZipDataSource : IPlayerDataSource
 public static class TftfInstaller
 {
 #if UNITY_STANDALONE_WIN
-    public const int Version = 7;                                     // refresh shared effects from the donor APK
+    public const int Version = 8;                                     // donor shaders rewritten for OpenGL Core
     const int BundlePlatform = 19;     // StandaloneWindows64: the player refuses the APKs' bundles stamped for Android
 #else
     public const int Version = 5;                                     // refresh shared effects from the donor APK
@@ -86,6 +86,7 @@ public static class TftfInstaller
         {
             SerializedFile.TargetPlatform = BundlePlatform;
             TextureTranscode.EtcToBc1 = true;     // the PC player cannot sample ETC1; DXT1 has the same block size
+            ShaderGlCore.Enabled = true;          // the donor shaders' GLES3 programs, rewritten for the player's OpenGL Core renderer
         }
 
         using (var z310 = new ZipArchive(File.OpenRead(apk310), ZipArchiveMode.Read))

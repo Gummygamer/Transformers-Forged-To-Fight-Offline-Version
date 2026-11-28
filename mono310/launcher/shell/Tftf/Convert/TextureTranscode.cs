@@ -103,7 +103,7 @@ namespace Tftf.Convert
 
         // Type-tree blob of a serialized file: node records (24 bytes; 32 from format 19) and a string buffer. Offsets
         // with the high bit set index Unity's built-in common strings.
-        static TreeNode ReadTree(ByteReader r, int recordSize)
+        internal static TreeNode ReadTree(ByteReader r, int recordSize)
         {
             int count = r.I32(), strSize = r.I32();
             int nodesAt = r.Pos, strAt = nodesAt + count * recordSize;
